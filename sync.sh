@@ -2,6 +2,7 @@
 
 # From .hyprconf to actual config
 
+cp -r ~/.hyprconf/.wallpaper ~/.wallpaper
 cp -r ~/.hyprconf/kitty ~/.config/kitty
 cp -r ~/.hyprconf/waybar ~/.config/waybar
 cp -r ~/.hyprconf/wofi ~/.config/wofi
