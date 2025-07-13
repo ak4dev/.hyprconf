@@ -6,6 +6,7 @@ cp -r ~/.hyprconf/.wallpaper ~/.wallpaper
 cp -r ~/.hyprconf/kitty ~/.config/kitty
 cp -r ~/.hyprconf/waybar ~/.config/waybar
 cp -r ~/.hyprconf/wofi ~/.config/wofi
+cp -r ~/.hyprconf/dunst ~/.config/dunst
 cp -r ~/.hyprconf/hypr ~/.config/hypr
 
 echo "Configs synced to ~/.config/"
