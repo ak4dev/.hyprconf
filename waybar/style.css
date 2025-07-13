@@ -1,0 +1,132 @@
+/* Dracula Theme Colors */
+@define-color background #282a36;
+@define-color foreground #f8f8f2;
+@define-color comment #6272a4;
+@define-color cyan #8be9fd;
+@define-color green #50fa7b;
+@define-color orange #ffb86c;
+@define-color pink #ff79c6;
+@define-color purple #bd93f9;
+@define-color red #ff5555;
+@define-color yellow #f1fa8c;
+
+/* Global styles */
+* {
+  border: none;
+  border-radius: 0;
+  font-family: "JetBrainsMono Nerd Font", monospace;
+  font-size: 14px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+/* Waybar container */
+#waybar {
+  background: rgba(40, 42, 54, 0.8); /* Semi-transparent Dracula background */
+  color: @foreground;
+  transition: background-color 0.3s;
+}
+
+/* Workspaces module (single island in upper left) */
+#workspaces {
+  background: rgba(40, 42, 54, 0.9); /* Slightly more opaque for the island */
+  border-radius: 12px;
+  margin: 4px 8px;
+  padding: 2px 8px;
+}
+
+#workspaces button {
+  color: @comment;
+  padding: 0 8px;
+  margin: 0 4px;
+  transition: all 0.2s ease-in-out;
+}
+
+#workspaces button.active {
+  color: @purple;
+  background: rgba(189, 147, 249, 0.2);
+  border-radius: 8px;
+}
+
+#workspaces button:hover {
+  color: @cyan;
+  background: rgba(139, 233, 253, 0.2);
+}
+
+/* Window module (center) */
+#window {
+  color: @foreground;
+  padding: 0 10px;
+}
+
+/* Right-side modules */
+#cpu, #memory, #network, #pulseaudio, #battery, #clock, #tray {
+  padding: 0 10px;
+  margin: 0 4px;
+}
+
+/* Specific module styling */
+#cpu {
+  color: @green;
+}
+
+#memory {
+  color: @yellow;
+}
+
+#network {
+  color: @cyan;
+}
+
+#pulseaudio {
+  color: @pink;
+}
+
+#pulseaudio.muted {
+  color: @red;
+}
+
+#battery {
+  color: @orange;
+}
+
+#battery.warning {
+  color: @red;
+}
+
+#battery.critical {
+  color: @red;
+  animation: blink 1s infinite;
+}
+
+#clock {
+  color: @purple;
+}
+
+#tray {
+  color: @foreground;
+}
+
+/* Animation for critical battery */
+@keyframes blink {
+  0% { opacity: 1; }
+  50% { opacity: 0.5; }
+  100% { opacity: 1; }
+}
+
+#custom-power_status.normal {
+  color: #ffffff; /* white */
+}
+
+#custom-power_status.warning {
+  color: #fab005; /* yellow-ish */
+}
+
+#custom-power_status.critical {
+  color: #f03e3e; /* red */
+}
+
+#custom-power_status.charging {
+  color: #37b24d; /* green */
+}
