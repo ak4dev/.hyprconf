@@ -11,12 +11,12 @@ else
 fi
 
 # Now sync the rest of the config files
-cp -r ~/.hyprconf/wallpaper ~/.wallpaper
-cp -r ~/.hyprconf/kitty ~/.config/kitty
-cp -r ~/.hyprconf/waybar ~/.config/waybar
-cp -r ~/.hyprconf/wofi ~/.config/wofi
-cp -r ~/.hyprconf/dunst ~/.config/dunst
-cp -r ~/.hyprconf/hypr ~/.config/hypr
+cp -rf ~/.hyprconf/wallpaper/* ~/.wallpaper
+cp -rf ~/.hyprconf/kitty/* ~/.config/kitty
+cp -rf ~/.hyprconf/waybar/* ~/.config/waybar
+cp -rf ~/.hyprconf/wofi/* ~/.config/wofi
+cp -rf ~/.hyprconf/dunst/* ~/.config/dunst
+cp -rf ~/.hyprconf/hypr/* ~/.config/hypr
 
 echo "Configs synced to ~/.config/"
 hyprctl reload
