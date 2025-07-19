@@ -80,7 +80,7 @@
   "return-type": "json"
 },
   "clock": {
-    "format": "󰥔 {:%H:%M:%S}",
+    "format": "󰥔 {:%I:%M:%S}",
     "format-alt": "󰥔 {:%a, %b %d %H:%M}",
     "tooltip-format": "<big>{:%Y %B}</big>\n<tt><small>{calendar}</small></tt>",
     "interval": 1
