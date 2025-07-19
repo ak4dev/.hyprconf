@@ -19,3 +19,4 @@ cp -r ~/.hyprconf/dunst ~/.config/dunst
 cp -r ~/.hyprconf/hypr ~/.config/hypr
 
 echo "Configs synced to ~/.config/"
+hyprctl reload
