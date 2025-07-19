@@ -13,13 +13,13 @@ capacity_num=${battery_percentage%\%}
 if (( capacity_num > 90 )); then
     icon="󰁹"
 elif (( capacity_num > 80 )); then
-    icon="󰁸"
+    icon="󰁹"
 elif (( capacity_num > 60 )); then
-    icon="󰁷"
+    icon="󰁿"
 elif (( capacity_num > 40 )); then
-    icon="󰁶"
+    icon="󰁽"
 elif (( capacity_num > 20 )); then
-    icon="󰁵"
+    icon="󰁻"
 else
     icon="󰂎"
 fi
