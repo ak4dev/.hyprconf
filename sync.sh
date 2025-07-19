@@ -16,6 +16,7 @@ cp -rf ~/.hyprconf/kitty/* ~/.config/kitty
 cp -rf ~/.hyprconf/waybar/* ~/.config/waybar
 cp -rf ~/.hyprconf/wofi/* ~/.config/wofi
 cp -rf ~/.hyprconf/dunst/* ~/.config/dunst
+cp -rf ~/.hyprconf/fastfetch/* ~/.config/fastfetch
 cp -rf ~/.hyprconf/hypr/* ~/.config/hypr
 
 echo "Configs synced to ~/.config/"
