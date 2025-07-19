@@ -30,7 +30,7 @@
     "active": "󰮯"
   },
   "persistent-workspaces": false,
-  "all-outputs": false,
+  "all-outputs": true,
   "on-click": "activate",
   "sort-by": "number"
 },
