@@ -1,23 +1,23 @@
 {
   "layer": "top",
   "position": "top",
-  "height": 30,
-  "margin": "0 0 0 0",
+  "height": 10,
+  "margin": "0 20 0 0",
   "spacing": 4,
   "modules-left": [
-    "hyprland/workspaces"
-  ],
-  "modules-center": [
+    "hyprland/workspaces",
     "hyprland/window"
   ],
+  "modules-center": [
+    "clock"
+  ],
   "modules-right": [
+    "tray",
   "cpu",
   "memory",
   "network",
   "pulseaudio",
-  "custom/power_status",
-  "clock",
-  "tray"
+  "custom/power_status"
 ],
   "hyprland/workspaces": {
   "format": "{icon}",
@@ -40,20 +40,20 @@
   },
   "cpu": {
     "format": "󰍛 {usage}%",
-    "interval": 5,
+    "interval": 1,
     "on-click": "kitty -e htop"
   },
   "memory": {
     "format": "󰧑 {used:0.1f}GiB/{total:0.1f}GiB",
-    "interval": 5
+    "interval": 1
   },
   "network": {
-    "format-wifi": "󰖩 {essid} ({signalStrength}%)",
-    "format-ethernet": "󰈀 {ifname}",
-    "format-disconnected": "󰖪 Disconnected",
-    "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
-    "interval": 5
-  },
+  "format-wifi": "󰖩{bandwidthDownBytes:>6}{bandwidthUpBytes:>6}",
+  "format-ethernet": "󰈀{bandwidthDownBytes:>6}/{bandwidthUpBytes:>6}",
+  "format-disconnected": "󰖪 Disconnected",
+  "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
+  "interval": 1
+},
   "pulseaudio": {
     "format": "{icon} {volume}%",
     "format-muted": "󰝟 Muted",
@@ -62,23 +62,6 @@
     },
     "on-click": "pavucontrol"
   },
-  // "battery": {
-  //   "states": {
-  //     "warning": 30,
-  //     "critical": 15
-  //   },
-  //   "format": "{icon} {capacity}%",
-  //   "format-charging": "󰂄 {capacity}%",
-  //   "format-plugged": "󰚥 {capacity}%",
-  //   "format-icons": ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"],
-  //   "interval": 5
-  // },
-  "custom/power_status": {
-  "exec": "/home/$USER/.config/waybar/battery_power_status.sh",
-  "interval": 1,
-  "format": "{text}",
-  "return-type": "json"
-},
   "clock": {
     "format": "󰥔 {:%I:%M:%S}",
     "format-alt": "󰥔 {:%a, %b %d %H:%M}",
@@ -88,5 +71,11 @@
   "tray": {
     "icon-size": 16,
     "spacing": 8
-  }
+  },
+  "custom/power_status": {
+  "exec": "/home/$USER/.config/waybar/battery_power_status.sh",
+  "interval": 1,
+  "format": "{text}",
+  "return-type": "json"
+}
 }
