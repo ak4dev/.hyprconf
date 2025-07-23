@@ -49,7 +49,7 @@
   },
   "network": {
   "format-wifi": "󰖩{bandwidthDownBytes:>6}{bandwidthUpBytes:>6}",
-  "format-ethernet": "󰈀{bandwidthDownBytes:>6}/{bandwidthUpBytes:>6}",
+  "format-ethernet": "󰈀{bandwidthDownBytes:>6} {bandwidthUpBytes:>6}",
   "format-disconnected": "󰖪 Disconnected",
   "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
   "interval": 1
