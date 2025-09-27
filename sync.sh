@@ -102,12 +102,49 @@ add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
 add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
 add_if_missing "alias hyprsync='~/.hyprconf/sync.sh'"
 
-# === Set Zsh as Default Shell ===
-if [ "$SHELL" != "$(command -v zsh)" ]; then
+# === Set Zsh as Default Shell Safely ===
+current_shell="$(getent passwd "$USER" | cut -d: -f7)"
+zsh_path="$(command -v zsh)"
+
+if [ "$current_shell" != "$zsh_path" ]; then
     log_info "Setting Zsh as the default shell..."
-    chsh -s "$(command -v zsh)"
+    chsh -s "$zsh_path"
 else
     log_info "Zsh is already the default shell."
+fi
+
+# === Sync Config Files from ~/.hyprconf/configs to ~/.config ===
+log_info "Syncing config files from ~/.hyprconf/configs to ~/.config..."
+
+sync_config_file() {
+    src="$1"
+    dest="$2"
+
+    if [ ! -f "$dest" ]; then
+        log_info "Copying new config: $dest"
+        cp "$src" "$dest"
+    else
+        src_hash=$(sha256sum "$src" | awk '{print $1}')
+        dest_hash=$(sha256sum "$dest" | awk '{print $1}')
+        if [ "$src_hash" != "$dest_hash" ]; then
+            log_info "Updating changed config: $dest"
+            cp "$src" "$dest"
+        else
+            log_info "No changes in: $dest"
+        fi
+    fi
+}
+
+HYPRCONF_SOURCE="$HOME/.hyprconf/configs"
+if [ -d "$HYPRCONF_SOURCE" ]; then
+    find "$HYPRCONF_SOURCE" -type f | while read -r src_file; do
+        relative_path="${src_file#$HYPRCONF_SOURCE/}"
+        dest_file="$HOME/.config/$relative_path"
+        mkdir -p "$(dirname "$dest_file")"
+        sync_config_file "$src_file" "$dest_file"
+    done
+else
+    log_warn "No configs directory found in ~/.hyprconf. Skipping config sync."
 fi
 
 # === Ensure sync.sh is Executable and Run ===
