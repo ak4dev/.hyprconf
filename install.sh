@@ -30,7 +30,7 @@ mkdir -p ~/.config/waybar
 mkdir -p ~/.config/wofi
 mkdir -p ~/.config/dunst
 mkdir -p ~/.config/fastfetch
-mkdir -p ~/.config/wallpaper
+mkdir -p ~/.wallpaper
 
 # Install Oh My Zsh
 echo -e "${GREEN}==> Installing Oh My Zsh...${RESET}"
