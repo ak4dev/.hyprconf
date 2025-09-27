@@ -20,7 +20,7 @@ install_packages() {
     log_info "Installing required packages..."
     sudo pacman -Syu --noconfirm
 
-    packages=(git base-devel zsh curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
+    packages=(git base-devel brightnessctl hyprpaper firefox code zsh curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
 
     for pkg in "${packages[@]}"; do
         if [[ "$pkg" == "nerd-fonts" ]]; then
@@ -80,29 +80,55 @@ install_powerlevel10k() {
 }
 
 install_zsh_plugins() {
-    ZSH_PLUGINS_DIR="/usr/share/zsh/plugins"
-    sudo mkdir -p "$ZSH_PLUGINS_DIR"
+  local PLUGIN_DIR="$HOME/.zsh/plugins"
 
-    local plugins=(
-        "zsh-autosuggestions:https://github.com/zsh-users/zsh-autosuggestions"
-        "zsh-syntax-highlighting:https://github.com/zsh-users/zsh-syntax-highlighting"
-    )
+  mkdir -p "$PLUGIN_DIR"
 
-    for plugin in "${plugins[@]}"; do
-        name="${plugin%%:*}"
-        url="${plugin##*:}"
-        path="$ZSH_PLUGINS_DIR/$name"
+  # Helper function to add line if missing
+  add_if_missing() {
+    local LINE="$1"
+    grep -qxF "$LINE" ~/.zshrc || echo "$LINE" >> ~/.zshrc
+  }
 
-        if [ -d "$path/.git" ]; then
-            log_info "Updating $name..."
-            sudo git -C "$path" pull
-        else
-            log_info "Installing $name..."
-            sudo rm -rf "$path"
-            sudo git clone "$url" "$path"
-        fi
-    done
+  # Show logo
+  command -v fastfetch >/dev/null && fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green
+
+  # Basic oh-my-zsh config
+  add_if_missing 'export ZSH="$HOME/.oh-my-zsh"'
+  add_if_missing 'ZSH_THEME="robbyrussell"'
+  add_if_missing 'plugins=(git)'
+
+  # Clone oh-my-zsh if missing
+  if [ ! -d "$ZSH" ]; then
+    git clone https://github.com/ohmyzsh/ohmyzsh.git "$ZSH"
+  fi
+
+  # zsh-autosuggestions
+  if [ ! -d "$PLUGIN_DIR/zsh-autosuggestions" ]; then
+    git clone https://github.com/zsh-users/zsh-autosuggestions "$PLUGIN_DIR/zsh-autosuggestions"
+  fi
+  add_if_missing "source $PLUGIN_DIR/zsh-autosuggestions/zsh-autosuggestions.zsh"
+
+  # zsh-syntax-highlighting
+  if [ ! -d "$PLUGIN_DIR/zsh-syntax-highlighting" ]; then
+    git clone https://github.com/zsh-users/zsh-syntax-highlighting "$PLUGIN_DIR/zsh-syntax-highlighting"
+  fi
+  add_if_missing "source $PLUGIN_DIR/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
+
+  # powerlevel10k
+  if [ ! -d "$HOME/powerlevel10k" ]; then
+    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$HOME/powerlevel10k"
+  fi
+  add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
+  add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
+
+  # Source oh-my-zsh
+  add_if_missing 'source $ZSH/oh-my-zsh.sh'
+
+  # Custom alias with nerd font glyph for clarity
+  add_if_missing "alias hyprsync='~/.hyprconf/setup.sh --sync''"
 }
+
 
 update_zshrc() {
     log_info "Ensuring .zshrc is configured..."
@@ -121,7 +147,7 @@ update_zshrc() {
     add_if_missing 'source $ZSH/oh-my-zsh.sh'
     add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
     add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
-    add_if_missing "alias hyprsync='$0 --sync'"
+    add_if_missing "alias hyprsync='~/.hyprsync--sync'"
 }
 
 set_default_shell() {
@@ -203,6 +229,7 @@ main() {
         log_info "Syncing configs..."
         clone_or_update_repo
         stow_all_packages
+        hyprctl reload
         log_info "Sync complete!"
         exit 0
     fi
@@ -216,7 +243,7 @@ main() {
     update_zshrc
     set_default_shell
     stow_all_packages
-
+    hyprctl reload
     log_info "Setup complete. Restart your terminal or source your ~/.zshrc."
 }
 
