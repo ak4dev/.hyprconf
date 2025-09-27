@@ -46,7 +46,7 @@ create_directories() {
     log_info "Creating required directories..."
     mkdir -p ~/.config
     mkdir -p ~/.local/share/zsh/plugins
-    mkdir -p ~/Pictures ~/Downloads ~/.wallpaper
+    mkdir -p ~/Pictures ~/Downloads ~/wallpaper
 }
 
 clone_or_update_repo() {
@@ -171,7 +171,7 @@ detect_gpu_and_link_monitor_config() {
         log_info "RTX 4090 detected, using pcMonitors.conf"
         ln -sf "$HYPR_CONFIG_DIR/hypr/pcMonitors.conf" "$MONITORS_CONF"
     else
-        log_info "Laptop GPU detected, using laptopMonitors.conf"
+        log_info "No 4090; probably a laptop, using laptopMonitors.conf"
         ln -sf "$HYPR_CONFIG_DIR/hypr/laptopMonitors.conf" "$MONITORS_CONF"
     fi
 }
