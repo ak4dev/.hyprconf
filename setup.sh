@@ -159,10 +159,10 @@ detect_gpu_and_link_monitor_config() {
 
     if echo "$GPU_INFO" | grep -qi "4090"; then
         log_info "RTX 4090 detected, using pcMonitors.conf"
-        ln -sf "$HYPR_CONFIG_DIR/pcMonitors.conf" "$MONITORS_CONF"
+        ln -sf "$HYPR_CONFIG_DIR/hypr/pcMonitors.conf" "$MONITORS_CONF"
     else
         log_info "Laptop GPU detected, using laptopMonitors.conf"
-        ln -sf "$HYPR_CONFIG_DIR/laptopMonitors.conf" "$MONITORS_CONF"
+        ln -sf "$HYPR_CONFIG_DIR/hypr/laptopMonitors.conf" "$MONITORS_CONF"
     fi
 }
 
