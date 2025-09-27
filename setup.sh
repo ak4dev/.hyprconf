@@ -23,13 +23,23 @@ install_packages() {
     packages=(git base-devel zsh curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
 
     for pkg in "${packages[@]}"; do
-        if ! pacman -Qi "$pkg" &>/dev/null; then
-            log_info "Installing $pkg..."
-            sudo pacman -S --noconfirm "$pkg"
+        if [[ "$pkg" == "nerd-fonts" ]]; then
+            # Check if nerd-fonts is in the upgrade list
+            if pacman -Qu | grep -q "^$pkg"; then
+                log_info "Installing $pkg..."
+                sudo pacman -S --noconfirm "$pkg"
+            else
+                log_info "$pkg already installed, skipping..."
+            fi
         else
-            log_info "$pkg already installed, skipping..."
+            if ! pacman -Qi "$pkg" &>/dev/null; then
+                log_info "Installing $pkg..."
+                sudo pacman -S --noconfirm "$pkg"
+            else
+                log_info "$pkg already installed, skipping..."
+            fi
         fi
-    done
+done
 }
 
 create_directories() {
