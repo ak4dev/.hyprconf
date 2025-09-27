@@ -147,7 +147,7 @@ update_zshrc() {
     add_if_missing 'source $ZSH/oh-my-zsh.sh'
     add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
     add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
-    add_if_missing "alias hyprsync='~/.hyprsync--sync'"
+    add_if_missing "alias hyprsync='~/.hyprsync --sync'"
 }
 
 set_default_shell() {
@@ -163,6 +163,9 @@ force_stow_package() {
     local package="$1"
     local stow_dir="$2"
     local target_dir="$3"
+    rm -rf ~/.config/kitty
+    rm -rf ~/.config/hypr
+    
 
     if stow -d "$stow_dir" -t "$target_dir" "$package" 2>&1 | grep -q "existing target is neither a link nor a directory"; then
         log_warn "Conflict detected in $package. Backing up conflicting files and restowing..."
