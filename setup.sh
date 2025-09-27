@@ -20,7 +20,7 @@ install_packages() {
     log_info "Installing required packages..."
     sudo pacman -Syu --noconfirm
 
-    packages=(git base-devel pavuctl playerctl brightnessctl hyprpaper firefox code zsh curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
+    packages=(git base-devel pavucontrol playerctl brightnessctl hyprpaper firefox code zsh curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
 
     for pkg in "${packages[@]}"; do
         if [[ "$pkg" == "nerd-fonts" ]]; then
@@ -163,28 +163,44 @@ force_stow_package() {
     local package="$1"
     local stow_dir="$2"
     local target_dir="$3"
-    rm -rf ~/.config/kitty
-    rm -rf ~/.config/hypr
-    
 
-    if stow -d "$stow_dir" -t "$target_dir" "$package" 2>&1 | grep -q "existing target is neither a link nor a directory"; then
-        log_warn "Conflict detected in $package. Backing up conflicting files and restowing..."
+    log_info "Preparing to stow package: $package"
 
+    # Remove existing symlink or empty dir for clean re-stow
+    local package_target="$target_dir/$package"
+    if [ -L "$package_target" ]; then
+        log_info "Removing existing symlink at $package_target"
+        rm -f "$package_target"
+    elif [ -d "$package_target" ]; then
+        log_info "Removing existing directory at $package_target"
+        rm -rf "$package_target"
+    fi
+
+    # Attempt to stow
+    if ! stow -d "$stow_dir" -t "$target_dir" "$package" 2>/dev/null; then
+        log_warn "Conflict detected while stowing $package. Backing up conflicting files and retrying..."
+
+        # Unstow in case of partial success
         stow -d "$stow_dir" -t "$target_dir" -D "$package" || true
 
+        # Backup conflicting files
         find "$stow_dir/$package" -type f | while read -r file; do
             rel_path="${file#$stow_dir/$package/}"
             target_file="$target_dir/$rel_path"
-            if [ -f "$target_file" ] && [ ! -L "$target_file" ]; then
+            if [ -e "$target_file" ] && [ ! -L "$target_file" ]; then
                 backup_file="${target_file}.backup.$(date +%Y%m%d%H%M%S)"
                 mv "$target_file" "$backup_file"
                 log_info "Backed up $target_file to $backup_file"
             fi
         done
 
+        # Retry stowing
         stow -d "$stow_dir" -t "$target_dir" "$package"
+    else
+        log_info "Successfully stowed $package"
     fi
 }
+
 
 detect_gpu_and_link_monitor_config() {
     log_info "Detecting GPU for monitor config..."
