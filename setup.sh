@@ -20,7 +20,7 @@ install_packages() {
     log_info "Installing required packages..."
     sudo pacman -Syu --noconfirm
 
-    packages=(git base-devel zsh curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow)
+    packages=(git base-devel zsh curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
 
     for pkg in "${packages[@]}"; do
         if ! pacman -Qi "$pkg" &>/dev/null; then
