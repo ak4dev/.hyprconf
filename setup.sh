@@ -21,7 +21,7 @@ install_packages() {
     log_info "Installing required packages..."
     sudo pacman -Syu --noconfirm
 
-    packages=(git base-devel pavucontrol playerctl brightnessctl hyprpaper firefox code zsh zsh-syntax-highlighting zsh-autosuggestions curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
+    packages=(git base-devel power-profiles-daemon pavucontrol playerctl brightnessctl hyprpaper firefox code zsh zsh-syntax-highlighting zsh-autosuggestions curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
 
     for pkg in "${packages[@]}"; do
         if [[ "$pkg" == "nerd-fonts" ]]; then
@@ -168,6 +168,8 @@ detect_gpu_and_link_monitor_config() {
     else
         log_info "No 4090; probably a laptop, using laptopMonitors.conf"
         ln -sf "$HYPR_CONFIG_DIR/hypr/laptopMonitors.conf" "$MONITORS_CONF"
+	log_info "Enabling power-profiles-daemon"
+	sudo systemctl enable --now power-profiles-daemon
     fi
 }
 
