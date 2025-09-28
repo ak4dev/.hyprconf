@@ -80,57 +80,6 @@ install_powerlevel10k() {
     fi
 }
 
-install_zsh_plugins() {
-  log_info "Installing zsh plugins..."
-  
-  mkdir -p "$ZSH_PLUGIN_DIR"
-
-  # Helper function to add line if missing
-  add_if_missing() {
-    local LINE="$1"
-    grep -qxF "$LINE" ~/.zshrc || echo "$LINE" >> ~/.zshrc
-  }
-
-  # Show logo
-  command -v fastfetch >/dev/null && fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green
-
-  # Basic oh-my-zsh config
-  add_if_missing 'export ZSH="$HOME/.oh-my-zsh"'
-  add_if_missing 'ZSH_THEME="robbyrussell"'
-  add_if_missing 'plugins=(git)'
-
-  # Clone oh-my-zsh if missing
-  if [ ! -d "$ZSH" ]; then
-    git clone https://github.com/ohmyzsh/ohmyzsh.git "$ZSH"
-  fi
-
-  # zsh-autosuggestions
-  if [ ! -d "$PLUGIN_DIR/zsh-autosuggestions" ]; then
-    git clone https://github.com/zsh-users/zsh-autosuggestions "$PLUGIN_DIR/zsh-autosuggestions"
-  fi
-  add_if_missing "source $PLUGIN_DIR/zsh-autosuggestions/zsh-autosuggestions.zsh"
-
-  # zsh-syntax-highlighting
-  if [ ! -d "$PLUGIN_DIR/zsh-syntax-highlighting" ]; then
-    git clone https://github.com/zsh-users/zsh-syntax-highlighting "$PLUGIN_DIR/zsh-syntax-highlighting"
-  fi
-  add_if_missing "source $PLUGIN_DIR/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-
-  # powerlevel10k
-  if [ ! -d "$HOME/powerlevel10k" ]; then
-    git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$HOME/powerlevel10k"
-  fi
-  add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
-  add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
-
-  # Source oh-my-zsh
-  add_if_missing 'source $ZSH/oh-my-zsh.sh'
-
-  # Custom alias with nerd font glyph for clarity
-  add_if_missing "alias hyprsync='~/.hyprconf/setup.sh --sync''"
-}
-
-
 update_zshrc() {
     log_info "Ensuring .zshrc is configured..."
 
