@@ -15,12 +15,13 @@ HYPRCONF_DIR="$HOME/.hyprconf"
 STOW_DIR="$HYPRCONF_DIR/stow"
 ZSHRC="$HOME/.zshrc"
 P10K_DIR="$HOME/powerlevel10k"
+ZSH_PLUGIN_DIR="$HOME/.zsh/plugins"
 
 install_packages() {
     log_info "Installing required packages..."
     sudo pacman -Syu --noconfirm
 
-    packages=(git base-devel pavucontrol playerctl brightnessctl hyprpaper firefox code zsh curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
+    packages=(git base-devel pavucontrol playerctl brightnessctl hyprpaper firefox code zsh zsh-syntax-highlighting zsh-autosuggestions curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman)
 
     for pkg in "${packages[@]}"; do
         if [[ "$pkg" == "nerd-fonts" ]]; then
@@ -80,9 +81,9 @@ install_powerlevel10k() {
 }
 
 install_zsh_plugins() {
-  local PLUGIN_DIR="$HOME/.zsh/plugins"
-
-  mkdir -p "$PLUGIN_DIR"
+  log_info "Installing zsh plugins..."
+  
+  mkdir -p "$ZSH_PLUGIN_DIR"
 
   # Helper function to add line if missing
   add_if_missing() {
@@ -259,7 +260,6 @@ main() {
     clone_or_update_repo
     install_oh_my_zsh
     install_powerlevel10k
-    install_zsh_plugins
     update_zshrc
     set_default_shell
     stow_all_packages
