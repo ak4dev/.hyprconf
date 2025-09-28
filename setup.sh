@@ -254,6 +254,7 @@ main() {
     fi
 
     install_packages
+    sudo pacman -Syu --noconfirm nerd-fonts
     create_directories
     clone_or_update_repo
     install_oh_my_zsh
