@@ -1,14 +1,15 @@
 /* Dracula Theme Colors */
-@define-color background #282a36;
-@define-color foreground #f8f8f2;
-@define-color comment #6272a4;
-@define-color cyan #8be9fd;
-@define-color green #50fa7b;
-@define-color orange #ffb86c;
-@define-color pink #ff79c6;
-@define-color purple #bd93f9;
-@define-color red #ff5555;
-@define-color yellow #f1fa8c;
+@define-color background #32302f;
+@define-color background-alpha rgba(50, 48, 47, 0.8);
+@define-color foreground #ebdbb2;
+@define-color comment #928374;
+@define-color cyan #8ec07c;
+@define-color green #98971a;
+@define-color orange #d65d0e;
+@define-color pink #d3869b;
+@define-color purple #b16286;
+@define-color red #cc241d;
+@define-color yellow #fabd2f;
 
 /* Global styles */
 * {
@@ -23,14 +24,14 @@
 
 /* Waybar container */
 #waybar {
-  background: rgba(40, 42, 54, 0.8); /* Semi-transparent Dracula background */
+  background: @background-alpha; /* Semi-transparent Dracula background */
   color: @foreground;
   transition: background-color 0.3s;
 }
 
 /* Workspaces module (single island in upper left) */
 #workspaces {
-  background: rgba(40, 42, 54, 0.9); /* Slightly more opaque for the island */
+  background: @background-alpha; /* Slightly more opaque for the island */
   border-radius: 12px;
   margin: 4px 8px;
   padding: 2px 8px;
@@ -114,6 +115,7 @@
   50% { opacity: 0.5; }
   100% { opacity: 1; }
 }
+
 
 #custom-power_status.normal {
   color: #ffffff; /* white */
