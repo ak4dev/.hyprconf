@@ -97,7 +97,7 @@ update_zshrc() {
     add_if_missing 'source $ZSH/oh-my-zsh.sh'
     add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
     add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
-    add_if_missing "alias hyprsync='~/.hyprsync --sync'"
+    add_if_missing "alias hyprsync='~/.hyprconf setup.sh --sync'"
 }
 
 set_default_shell() {
