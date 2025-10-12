@@ -9,5 +9,6 @@
   "purple": "#b16286",
   "red": "#cc241d",
   "yellow": "#fabd2f",
-  "wallpaper": "~/wallpaper/gruvbox.jpg"
+  "wallpaper": "~/wallpaper/gruvbox.jpg",
+  "kitty": "~/.config/kitty/themes/gruvbox.conf"
 }

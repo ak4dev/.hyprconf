@@ -9,13 +9,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 THEMES_DIR = os.path.join(SCRIPT_DIR, "themes")
 WAYBAR_CONFIG_FILE = os.path.expanduser("~/.config/waybar/waybar.css")
 HYPRPAPER_CONFIG_FILE = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
-
+KITTY_CONFIG_FILE = os.path.expanduser("~/.config/kitty/kitty.conf")
 
 def hex_to_rgba(hex_color: str, alpha: float = 0.8) -> str:
     hex_color = hex_color.lstrip("#")
     r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
     return f"rgba({r}, {g}, {b}, {alpha})"
-
 
 def reload_hyprland():
     """Reload Hyprland via hyprctl."""
@@ -25,20 +24,55 @@ def reload_hyprland():
     except subprocess.CalledProcessError as e:
         print(f"Failed to reload Hyprland: {e}")
 
-
 def load_theme(theme_name: str) -> Dict[str, str]:
     """Load a theme JSON file into a dictionary."""
     path = os.path.join(THEMES_DIR, f"{theme_name}.json")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Theme file not found: {path}")
+    
     with open(path, "r") as file:
-        return json.load(file)
+        theme = json.load(file)
 
+    # Check for Kitty config file key
+    if "kitty" in theme:
+        theme["kitty"] = os.path.expanduser(theme["kitty"])
 
-import re
+    return theme
+
+def load_kitty_theme(kitty_config_path: str):
+    """Apply Kitty theme from a .conf file in an idempotent way."""
+    if not os.path.exists(kitty_config_path):
+        raise FileNotFoundError(f"Kitty theme file not found: {kitty_config_path}")
+
+    # Expand user (~) to full path in case the path is relative
+    kitty_config_path = os.path.expanduser(kitty_config_path)
+    
+    # Normalize to make sure all paths are absolute
+    normalized_path = os.path.abspath(kitty_config_path)
+
+    # Read the current kitty.conf
+    with open(KITTY_CONFIG_FILE, "r") as kitty_config:
+        kitty_conf_content = kitty_config.read()
+
+    # Search for any 'include' lines and remove the old ones (if any) for the same theme
+    lines = kitty_conf_content.splitlines()
+    lines = [line for line in lines if not line.strip().startswith("include") or normalized_path not in line]
+
+    # Add the new include line from the theme JSON (this will be absolute)
+    new_include_line = f"include {normalized_path}"
+
+    # Ensure the new include line is added (if not already there)
+    if new_include_line not in lines:
+        lines.append(new_include_line)
+        print(f"Kitty theme applied from {normalized_path}.")
+    else:
+        print(f"Kitty theme already applied: {normalized_path}")
+
+    # Write the updated lines back to kitty.conf
+    with open(KITTY_CONFIG_FILE, "w") as kitty_config:
+        kitty_config.write("\n".join(lines) + "\n")
 
 def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
-    # Replace all @define-color lines with theme colors
     def replacer(match):
         color_name = match.group(1)
         if color_name in theme_colors:
@@ -46,14 +80,12 @@ def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
         else:
             return match.group(0)
 
-    # Replace @define-color lines
     updated_text = re.sub(
         r"@define-color\s+(\w+)\s+[^;]+;",
         replacer,
         config_text,
     )
 
-    # Insert or replace @define-color background-alpha
     rgba_bg = hex_to_rgba(theme_colors["background"], 0.8)
     if "@define-color background-alpha" in updated_text:
         updated_text = re.sub(
@@ -62,7 +94,6 @@ def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
             updated_text,
         )
     else:
-        # Insert after background color definitions (assumes @define-color background is there)
         updated_text = re.sub(
             r"(@define-color background\s+[^;]+;)",
             r"\1\n@define-color background-alpha " + rgba_bg + ";",
@@ -70,7 +101,6 @@ def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
             count=1,
         )
 
-    # Replace all hardcoded rgba(40, 42, 54, ...) in backgrounds with @background-alpha
     updated_text = re.sub(
         r"background:\s*rgba\(40,\s*42,\s*54,\s*0\.\d+\);",
         "background: @background-alpha;",
@@ -78,8 +108,6 @@ def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
     )
 
     return updated_text
-
-
 
 def update_waybar(theme_colors: Dict[str, str]):
     """Update Waybar CSS theme."""
@@ -91,7 +119,6 @@ def update_waybar(theme_colors: Dict[str, str]):
     with open(WAYBAR_CONFIG_FILE, "w") as f:
         f.write(updated_css)
     print("Waybar theme updated.")
-
 
 def update_hyprpaper(theme: Dict[str, str]):
     """Update Hyprpaper wallpaper."""
@@ -116,7 +143,6 @@ def update_hyprpaper(theme: Dict[str, str]):
         if line.startswith("preload="):
             updated_lines.append(f"preload={wallpaper_path}\n")
         elif line.startswith("wallpaper="):
-            # Extract monitor name and rebuild line
             match = re.match(r"wallpaper=([^,]+),", line)
             if match:
                 monitor = match.group(1)
@@ -129,16 +155,19 @@ def update_hyprpaper(theme: Dict[str, str]):
 
     print("Hyprpaper wallpaper updated.")
 
-
 def apply_theme(theme_name: str):
     """Apply the selected theme to all relevant config files."""
     print(f"Switching to theme: {theme_name}")
     theme = load_theme(theme_name)
+
+    # Apply Kitty theme if the "kitty" key is present in the JSON
+    if "kitty" in theme:
+        load_kitty_theme(theme["kitty"])
+    
     update_waybar(theme)
     update_hyprpaper(theme)
     reload_hyprland()
     print("Theme applied successfully.")
-
 
 # === Entry Point ===
 if __name__ == "__main__":
