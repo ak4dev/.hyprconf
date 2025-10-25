@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+
+DISPLAY="eDP-1"
+
+# Get the disabled status of the monitor
+DISABLED=$(hyprctl monitors | awk -v m="$DISPLAY" '
+  $0 ~ "Monitor " m {flag=1}
+  flag && $1=="disabled:" {print $2; exit}
+')
+
+if [[ "$DISABLED" == "false" ]]; then
+    echo "$DISPLAY is enabled, disabling..."
+    hyprctl keyword monitor "$DISPLAY,disable"
+else
+    echo "$DISPLAY is disabled, enabling..."
+    hyprctl keyword monitor "$DISPLAY,1920x1200,auto,1"
+fi
