@@ -10,6 +10,78 @@ THEMES_DIR = os.path.join(SCRIPT_DIR, "themes")
 WAYBAR_CONFIG_FILE = os.path.expanduser("~/.config/waybar/waybar.css")
 HYPRPAPER_CONFIG_FILE = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
 KITTY_CONFIG_FILE = os.path.expanduser("~/.config/kitty/kitty.conf")
+WOFI_STYLE_FILE = os.path.expanduser("~/.config/wofi/style.css")
+
+def update_wofi(theme: Dict[str, str]):
+    """Generate or replace Wofi style.css using colors from the theme JSON."""
+    os.makedirs(os.path.dirname(WOFI_STYLE_FILE), exist_ok=True)
+
+    # Extract colors from the theme
+    bg = theme.get("background", "#1e1e2e")
+    fg = theme.get("foreground", "#ffffff")
+    border = theme.get("purple", theme.get("orange", "#89b4fa"))
+    input_bg = theme.get("comment", theme.get("background", "#44475a"))
+    accent = theme.get("purple", theme.get("orange", "#89b4fa"))     # selection border
+    selected_bg = theme.get("purple", "#89b4fa")                     # highlight background
+    selected_text = theme.get("background", "#1e1e2e")               # highlight text
+    hover_text = theme.get("pink", theme.get("cyan", fg))            # active/hover text
+
+    # Build a complete Dracula/Gruvbox-compatible style.css
+    wofi_css = f"""window {{
+    margin: 0px;
+    border: 1px solid {border};
+    background-color: {bg};
+    color: {fg};
+}}
+
+#input {{
+    margin: 5px;
+    border: none;
+    color: {fg};
+    background-color: {input_bg};
+}}
+
+#inner-box, #outer-box {{
+    margin: 5px;
+    border: none;
+    background-color: {bg};
+}}
+
+#scroll {{
+    margin: 0px;
+    border: none;
+}}
+
+#text {{
+    margin: 5px;
+    border: none;
+    color: {fg};
+}}
+
+#entry.activatable #text {{
+    color: {fg};
+}}
+
+#entry > * {{
+    color: {fg};
+}}
+
+#entry:selected {{
+    background-color: {selected_bg};
+    color: {selected_text};
+}}
+
+#entry:selected #text {{
+    color: {hover_text};
+    font-weight: bold;
+}}
+"""
+
+    with open(WOFI_STYLE_FILE, "w") as f:
+        f.write(wofi_css.strip() + "\n")
+
+    print("Wofi theme updated using current theme colors.")
+
 
 def hex_to_rgba(hex_color: str, alpha: float = 0.8) -> str:
     hex_color = hex_color.lstrip("#")
@@ -166,6 +238,7 @@ def apply_theme(theme_name: str):
     
     update_waybar(theme)
     update_hyprpaper(theme)
+    update_wofi(theme) 
     reload_hyprland()
     print("Theme applied successfully.")
 

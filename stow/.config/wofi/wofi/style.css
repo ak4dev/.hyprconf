@@ -1,51 +1,48 @@
 window {
-margin: 0px;
-border: 1px solid #bd93f9;
-background-color: #282a36;
+    margin: 0px;
+    border: 1px solid #b16286;
+    background-color: #32302f;
+    color: #ebdbb2;
 }
 
 #input {
-margin: 5px;
-border: none;
-color: #f8f8f2;
-background-color: #44475a;
+    margin: 5px;
+    border: none;
+    color: #ebdbb2;
+    background-color: #928374;
 }
 
-#inner-box {
-margin: 5px;
-border: none;
-background-color: #282a36;
-}
-
-#outer-box {
-margin: 5px;
-border: none;
-background-color: #282a36;
+#inner-box, #outer-box {
+    margin: 5px;
+    border: none;
+    background-color: #32302f;
 }
 
 #scroll {
-margin: 0px;
-border: none;
+    margin: 0px;
+    border: none;
 }
 
 #text {
-margin: 5px;
-border: none;
-color: #f8f8f2;
-} 
+    margin: 5px;
+    border: none;
+    color: #ebdbb2;
+}
 
 #entry.activatable #text {
-color: #282a36;
+    color: #ebdbb2;
 }
 
 #entry > * {
-color: #f8f8f2;
+    color: #ebdbb2;
 }
 
 #entry:selected {
-background-color: #44475a;
+    background-color: #b16286;
+    color: #32302f;
 }
 
 #entry:selected #text {
-font-weight: bold;
+    color: #d3869b;
+    font-weight: bold;
 }
