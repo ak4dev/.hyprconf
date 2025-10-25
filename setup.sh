@@ -21,7 +21,14 @@ install_packages() {
     log_info "Installing required packages..."
     sudo pacman -Syu --noconfirm
 
-    packages=(git base-devel power-profiles-daemon pavucontrol playerctl brightnessctl hyprpaper firefox code zsh zsh-syntax-highlighting zsh-autosuggestions curl wget unzip hyprland kitty waybar wofi dunst fastfetch stow nerd-fonts bluez-utils blueman hyprshot firewalld)
+    # Check if the packages file exists
+    if [[ ! -f "packages" ]]; then
+        log_info "Error: 'packages' file not found!"
+        exit 1
+    fi
+
+    # Read packages from the file, ignoring empty lines and comments
+    mapfile -t packages < <(grep -v '^\s*#' packages | grep -v '^\s*$')
 
     for pkg in "${packages[@]}"; do
         if [[ "$pkg" == "nerd-fonts" ]]; then
@@ -40,7 +47,7 @@ install_packages() {
                 log_info "$pkg already installed, skipping..."
             fi
         fi
-done
+    done
 }
 
 create_directories() {
