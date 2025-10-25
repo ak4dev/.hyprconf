@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import filecmp
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -48,6 +49,7 @@ CODE_CLI = shutil.which("code-oss") or shutil.which("code")
 FIREFOX_PROFILES_INI = os.path.expanduser("~/.mozilla/firefox/profiles.ini")
 FIREFOX_DIR = os.path.dirname(FIREFOX_PROFILES_INI)
 FIREFOX_BASE_PREFS_FILE = os.path.expanduser("~/.mozilla/firefox/user.js")
+FIREFOX_THEME_PAYLOAD_DIR = REPO_ROOT / "theme" / "firefox" / "extensions"
 
 FIREFOX_ENFORCED_PREFS = {
     "browser.tabs.verticalTabs": True,
@@ -513,6 +515,89 @@ def write_firefox_userjs(profile_path: Path, prefs: Dict[str, Any]) -> None:
     user_js_path.write_text("\n".join(existing_lines) + "\n", encoding="utf-8")
 
 
+def ensure_firefox_theme_payload(profile_path: Path, firefox_cfg: Dict[str, Any]) -> Optional[Path]:
+    """Copy Firefox theme XPI payloads from the repo into the active profile."""
+    theme_id = firefox_cfg.get("theme_id")
+    xpi_hint = firefox_cfg.get("xpi")
+
+    source_path: Optional[Path] = None
+    if xpi_hint:
+        source_path = Path(xpi_hint).expanduser()
+    elif theme_id:
+        source_path = FIREFOX_THEME_PAYLOAD_DIR / f"{theme_id}.xpi"
+
+    if not source_path or not source_path.exists():
+        if source_path:
+            print(f"Firefox theme payload not found at {source_path}.")
+        return None
+
+    extensions_dir = profile_path / "extensions"
+    extensions_dir.mkdir(parents=True, exist_ok=True)
+    dest_path = extensions_dir / source_path.name
+
+    try:
+        if dest_path.exists() and filecmp.cmp(source_path, dest_path, shallow=False):
+            return dest_path
+    except OSError:
+        # Fall back to copying if filecmp fails (e.g., permissions)
+        pass
+
+    try:
+        shutil.copy2(source_path, dest_path)
+        print(f"Synced Firefox theme payload: {source_path.name}")
+    except OSError as exc:
+        print(f"Failed to sync Firefox theme payload {source_path}: {exc}")
+        return None
+
+    return dest_path
+
+
+def set_firefox_theme_activation(profile_path: Path, theme_id: str) -> None:
+    """Update extensions.json so the requested theme is the only active profile theme."""
+    extensions_json = profile_path / "extensions.json"
+    if not extensions_json.exists():
+        print("Firefox extensions.json not found; cannot activate theme.")
+        return
+
+    try:
+        data = json.loads(extensions_json.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print("Firefox extensions.json is not valid JSON; cannot activate theme.")
+        return
+
+    addons = data.get("addons", [])
+    found = False
+    changed = False
+
+    for addon in addons:
+        if addon.get("type") != "theme":
+            continue
+        if addon.get("location") not in {"app-profile", "profile", "app-system-profile"}:
+            continue
+
+        is_target = addon.get("id") == theme_id
+        if is_target:
+            found = True
+
+        desired_active = is_target
+        desired_user_disabled = not is_target
+
+        if addon.get("active") != desired_active:
+            addon["active"] = desired_active
+            changed = True
+        if addon.get("userDisabled") != desired_user_disabled:
+            addon["userDisabled"] = desired_user_disabled
+            changed = True
+
+    if not found:
+        print(f"Firefox theme {theme_id} is not installed; cannot activate theme.")
+        return
+
+    if changed:
+        extensions_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        print("Firefox extensions.json updated with new active theme.")
+
+
 def update_firefox(theme: Dict[str, Any]) -> None:
     firefox_cfg = theme.get("firefox")
     if not firefox_cfg:
@@ -527,9 +612,11 @@ def update_firefox(theme: Dict[str, Any]) -> None:
     prefs.update(FIREFOX_ENFORCED_PREFS)
     prefs.update(firefox_cfg.get("prefs", {}))
 
+    ensure_firefox_theme_payload(profile_path, firefox_cfg)
     theme_id = resolve_firefox_theme_id(profile_path, firefox_cfg)
     if theme_id:
         prefs["extensions.activeThemeID"] = theme_id
+        set_firefox_theme_activation(profile_path, theme_id)
     else:
         if firefox_cfg.get("theme_name"):
             print(
