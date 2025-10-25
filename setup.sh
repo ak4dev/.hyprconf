@@ -46,6 +46,7 @@ done
 create_directories() {
     log_info "Creating required directories..."
     mkdir -p ~/.config
+    mkdir -p ~/.vscode-oss/extensions
     mkdir -p ~/.local/share/zsh/plugins
     mkdir -p ~/Pictures ~/Downloads ~/wallpaper
 }
@@ -97,16 +98,14 @@ update_zshrc() {
     add_if_missing 'source $ZSH/oh-my-zsh.sh'
     add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
     add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
-    add_if_missing "alias hyprsync='~/.hyprconf setup.sh --sync'"
+    add_if_missing "alias hyprsync='~/.hyprconf/setup.sh --sync'"
 }
 
-set_default_shell() {
-    if [ "$SHELL" != "$(command -v zsh)" ]; then
-        log_info "Setting Zsh as the default shell..."
-        chsh -s "$(command -v zsh)"
-    else
-        log_info "Zsh is already the default shell."
-    fi
+enable_services() {
+    log_info "Enabling firewalld"
+    sudo systemctl enable firewalld
+    log_info "Disabling sddm"
+    sudo systemctl disable sddm
 }
 
 force_stow_package() {
@@ -151,6 +150,37 @@ force_stow_package() {
     fi
 }
 
+sync_vscode_theme_extensions() {
+    local force_copy="${1:-false}"
+    local theme_source="$HYPRCONF_DIR/theme/.vscode-oss/extensions"
+    local extensions_dir="$HOME/.vscode-oss/extensions"
+
+    if [ ! -d "$theme_source" ]; then
+        log_warn "VS Code theme source not found at $theme_source. Skipping copy."
+        return
+    fi
+
+    mkdir -p "$extensions_dir"
+
+    while IFS= read -r -d '' theme_pkg; do
+        local pkg_name
+        pkg_name=$(basename "$theme_pkg")
+        local dest_pkg="$extensions_dir/$pkg_name"
+
+        if [ -d "$dest_pkg" ] && [ "$force_copy" != "true" ]; then
+            log_info "VS Code theme $pkg_name already present, skipping copy."
+            continue
+        fi
+
+        if [ -d "$dest_pkg" ]; then
+            rm -rf "$dest_pkg"
+        fi
+
+        log_info "Copying VS Code theme $pkg_name into $extensions_dir..."
+        cp -a "$theme_pkg" "$dest_pkg"
+    done < <(find "$theme_source" -mindepth 1 -maxdepth 1 -type d -print0)
+}
+
 
 detect_gpu_and_link_monitor_config() {
     log_info "Detecting GPU for monitor config..."
@@ -168,8 +198,8 @@ detect_gpu_and_link_monitor_config() {
     else
         log_info "No 4090; probably a laptop, using laptopMonitors.conf"
         ln -sf "$HYPR_CONFIG_DIR/hypr/laptopMonitors.conf" "$MONITORS_CONF"
-	log_info "Enabling power-profiles-daemon"
-	sudo systemctl enable --now power-profiles-daemon
+        log_info "Enabling power-profiles-daemon"
+        sudo systemctl enable --now power-profiles-daemon
     fi
 }
 
@@ -179,17 +209,20 @@ stow_all_packages() {
         return
     fi
 
-    for config_pkg in "$STOW_DIR/.config"/*; do
-        if [ -d "$config_pkg" ]; then
-            pkg_name=$(basename "$config_pkg")
-            log_info "Stowing .config/$pkg_name..."
-            force_stow_package "$pkg_name" "$STOW_DIR/.config" "$HOME/.config"
-        fi
-    done
+    while IFS= read -r -d '' config_pkg; do
+        pkg_name=$(basename "$config_pkg")
+        log_info "Stowing .config/$pkg_name..."
+        force_stow_package "$pkg_name" "$STOW_DIR/.config" "$HOME/.config"
+    done < <(find "$STOW_DIR/.config" -mindepth 1 -maxdepth 1 -type d -print0)
 
     if [ -d "$STOW_DIR/wallpaper" ]; then
         log_info "Stowing wallpaper to ~..."
         force_stow_package "wallpaper" "$STOW_DIR" "$HOME"
+    fi
+
+    if [ -d "$STOW_DIR/firefox" ]; then
+        log_info "Stowing firefox configs..."
+        force_stow_package "firefox" "$STOW_DIR" "$HOME"
     fi
 
     detect_gpu_and_link_monitor_config
@@ -199,6 +232,7 @@ main() {
     if [[ "$1" == "--sync" ]]; then
         log_info "Syncing configs..."
         clone_or_update_repo
+        sync_vscode_theme_extensions
         stow_all_packages
         hyprctl reload
         log_info "Sync complete!"
@@ -209,11 +243,12 @@ main() {
     sudo pacman -Syu --noconfirm nerd-fonts
     create_directories
     clone_or_update_repo
+    sync_vscode_theme_extensions
     install_oh_my_zsh
     install_powerlevel10k
     update_zshrc
-    set_default_shell
     stow_all_packages
+    enable_services
     hyprctl reload
     log_info "Setup complete. Restart your terminal or source your ~/.zshrc."
 }

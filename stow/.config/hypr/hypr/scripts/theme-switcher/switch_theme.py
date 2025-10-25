@@ -1,16 +1,76 @@
+import configparser
+import json
 import os
 import re
-import json
+import shutil
 import subprocess
-from typing import Dict
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 # === Configuration ===
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def detect_repo_root(start: Path) -> Path:
+    current = start
+    while current.name != ".hyprconf" and current.parent != current:
+        current = current.parent
+    return current
+
+
+REPO_ROOT = detect_repo_root(SCRIPT_DIR)
 THEMES_DIR = os.path.join(SCRIPT_DIR, "themes")
 WAYBAR_CONFIG_FILE = os.path.expanduser("~/.config/waybar/waybar.css")
 HYPRPAPER_CONFIG_FILE = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
 KITTY_CONFIG_FILE = os.path.expanduser("~/.config/kitty/kitty.conf")
 WOFI_STYLE_FILE = os.path.expanduser("~/.config/wofi/style.css")
+CODE_CONFIG_CANDIDATES = [
+    os.path.expanduser("~/.config/Code - OSS"),
+    os.path.expanduser("~/.config/Code"),
+]
+
+
+def resolve_code_config_root() -> str:
+    for candidate in CODE_CONFIG_CANDIDATES:
+        if os.path.exists(candidate):
+            return candidate
+    return CODE_CONFIG_CANDIDATES[0]
+
+
+CODE_CONFIG_ROOT = resolve_code_config_root()
+CODE_SETTINGS_FILE = os.path.join(CODE_CONFIG_ROOT, "User", "settings.json")
+VSCODE_BASE_SETTINGS_CANDIDATES = [
+    os.path.join(CODE_CONFIG_ROOT, "User", "settings.base.json"),
+    os.path.join(REPO_ROOT, "stow", ".config", "Code - OSS", "User", "settings.base.json"),
+    os.path.join(REPO_ROOT, "stow", ".config", "Code", "User", "settings.base.json"),
+]
+CODE_CLI = shutil.which("code-oss") or shutil.which("code")
+FIREFOX_PROFILES_INI = os.path.expanduser("~/.mozilla/firefox/profiles.ini")
+FIREFOX_DIR = os.path.dirname(FIREFOX_PROFILES_INI)
+FIREFOX_BASE_PREFS_FILE = os.path.expanduser("~/.mozilla/firefox/user.js")
+
+FIREFOX_ENFORCED_PREFS = {
+    "browser.tabs.verticalTabs": True,
+    "browser.tabs.verticalTabs.showPinnedTabs": True,
+    "browser.tabs.drawInTitlebar": True,
+    "toolkit.telemetry.enabled": False,
+    "toolkit.telemetry.unified": False,
+    "toolkit.telemetry.archive.enabled": False,
+    "toolkit.coverage.opt-out": True,
+    "toolkit.telemetry.server": "data:,",
+    "datareporting.healthreport.uploadEnabled": False,
+    "datareporting.policy.dataSubmissionEnabled": False,
+    "app.shield.optoutstudies.enabled": False,
+    "app.normandy.enabled": False,
+    "browser.discovery.enabled": False,
+    "browser.newtabpage.activity-stream.showSponsored": False,
+    "browser.newtabpage.activity-stream.showSponsoredTopSites": False,
+    "browser.newtabpage.activity-stream.feeds.section.topstories": False,
+    "browser.newtabpage.activity-stream.showWeather": False,
+    "browser.newtabpage.activity-stream.feeds.telemetry": False,
+    "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.addons": False,
+    "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features": False,
+}
 
 def update_wofi(theme: Dict[str, str]):
     """Generate or replace Wofi style.css using colors from the theme JSON."""
@@ -126,9 +186,25 @@ def load_kitty_theme(kitty_config_path: str):
     with open(KITTY_CONFIG_FILE, "r") as kitty_config:
         kitty_conf_content = kitty_config.read()
 
-    # Search for any 'include' lines and remove the old ones (if any) for the same theme
-    lines = kitty_conf_content.splitlines()
-    lines = [line for line in lines if not line.strip().startswith("include") or normalized_path not in line]
+    # Search for include lines pointing to ~/.config/kitty/themes and drop them
+    themes_dir = os.path.expanduser("~/.config/kitty/themes/")
+
+    def is_theme_include(line: str) -> bool:
+        stripped = line.strip()
+        if not stripped.startswith("include "):
+            return False
+        parts = stripped.split(None, 1)
+        if len(parts) != 2:
+            return False
+        include_target = parts[1]
+        expanded_target = os.path.expanduser(include_target)
+        return (
+            include_target.startswith("~/.config/kitty/themes/")
+            or include_target.startswith(themes_dir)
+            or expanded_target.startswith(themes_dir)
+        )
+
+    lines = [line for line in kitty_conf_content.splitlines() if not is_theme_include(line)]
 
     # Add the new include line from the theme JSON (this will be absolute)
     new_include_line = f"include {normalized_path}"
@@ -227,10 +303,285 @@ def update_hyprpaper(theme: Dict[str, str]):
 
     print("Hyprpaper wallpaper updated.")
 
+
+def load_json_file(path: str) -> Dict[str, Any]:
+    if not os.path.exists(path):
+        return {}
+
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except json.JSONDecodeError:
+        print(f"Failed to parse JSON file at {path}.")
+        return {}
+
+
+def load_vscode_base_defaults() -> Dict[str, Any]:
+    for candidate in VSCODE_BASE_SETTINGS_CANDIDATES:
+        data = load_json_file(candidate)
+        if data:
+            return data
+    return {}
+
+
+def parse_user_js(path: str) -> Dict[str, Any]:
+    """Parse user.js style key/value pairs into a dictionary."""
+    if not os.path.exists(path):
+        return {}
+
+    prefs: Dict[str, Any] = {}
+    pattern = re.compile(r'user_pref\("([^"]+)",\s*(.+)\);\s*$')
+
+    with open(path, "r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if not line or line.startswith("//"):
+                continue
+            match = pattern.match(line)
+            if not match:
+                continue
+            key, value_str = match.groups()
+            value_str = value_str.strip()
+            try:
+                if value_str.lower() in {"true", "false"}:
+                    prefs[key] = value_str.lower() == "true"
+                elif value_str.startswith('"') and value_str.endswith('"'):
+                    prefs[key] = json.loads(value_str)
+                else:
+                    if "." in value_str:
+                        prefs[key] = float(value_str)
+                    else:
+                        prefs[key] = int(value_str)
+            except Exception:
+                prefs[key] = value_str.strip('"')
+
+    return prefs
+
+
+def update_vscode(theme: Dict[str, Any]) -> None:
+    """Set VS Code theme, font, and extension based on the theme payload."""
+    vscode_cfg = theme.get("vscode")
+    if not vscode_cfg:
+        return
+
+    if CODE_CLI is None:
+        print("VS Code CLI not found; skipping VS Code theme.")
+        return
+
+    extension = vscode_cfg.get("extension")
+    if extension:
+        try:
+            subprocess.run(
+                [CODE_CLI, "--install-extension", extension, "--force"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            print(f"Ensured VS Code extension {extension} is installed.")
+        except subprocess.CalledProcessError as exc:
+            print(f"Failed to install VS Code extension {extension}: {exc}")
+
+    settings_path = Path(CODE_SETTINGS_FILE)
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+
+    settings: Dict[str, Any] = {}
+
+    # Start from current settings.json so un-managed keys persist
+    if settings_path.exists():
+        try:
+            existing_settings = json.loads(settings_path.read_text(encoding="utf-8") or "{}")
+            settings.update(existing_settings)
+        except json.JSONDecodeError:
+            print("VS Code settings.json is not valid JSON. Recreating minimal file.")
+
+    # Overlay repo-managed defaults so they always win
+    base_defaults = load_vscode_base_defaults()
+    if base_defaults:
+        settings.update(base_defaults)
+
+    theme_name = vscode_cfg.get("theme")
+    if theme_name:
+        settings["workbench.colorTheme"] = theme_name
+        settings.setdefault("window.autoDetectColorScheme", False)
+
+    icon_theme = vscode_cfg.get("iconTheme")
+    if icon_theme:
+        settings["workbench.iconTheme"] = icon_theme
+
+    font = vscode_cfg.get("font")
+    if font:
+        settings["editor.fontFamily"] = font
+        settings["terminal.integrated.fontFamily"] = font
+
+    if theme_name or icon_theme or font:
+        settings_path.write_text(json.dumps(settings, indent=2) + "\n", encoding="utf-8")
+        print("VS Code settings updated.")
+
+
+def _profile_path_from_entry(path_value: str, is_relative: Optional[str] = "1") -> Path:
+    if path_value.startswith("/") or (is_relative and is_relative == "0"):
+        return Path(path_value).expanduser()
+    return Path(FIREFOX_DIR, path_value)
+
+
+def get_default_firefox_profile() -> Optional[Path]:
+    if not os.path.exists(FIREFOX_PROFILES_INI):
+        return None
+
+    parser = configparser.RawConfigParser()
+    parser.read(FIREFOX_PROFILES_INI)
+
+    # Prefer install-specific Default entries (common on Arch builds)
+    for section in parser.sections():
+        if section.lower().startswith("install") and parser.has_option(section, "Default"):
+            rel_path = parser.get(section, "Default")
+            if rel_path:
+                return _profile_path_from_entry(rel_path, "1")
+
+    # Fall back to profile sections that declare Default=1
+    for section in parser.sections():
+        if parser.has_option(section, "Default") and parser.get(section, "Default") == "1":
+            rel_path = parser.get(section, "Path", fallback=None)
+            if not rel_path:
+                continue
+            is_relative = parser.get(section, "IsRelative", fallback="1")
+            return _profile_path_from_entry(rel_path, is_relative)
+
+    # As a last resort, use the first profile entry with a Path
+    for section in parser.sections():
+        if parser.has_option(section, "Path"):
+            rel_path = parser.get(section, "Path")
+            is_relative = parser.get(section, "IsRelative", fallback="1")
+            return _profile_path_from_entry(rel_path, is_relative)
+
+    return None
+
+
+def resolve_firefox_theme_id(profile_path: Path, firefox_cfg: Dict[str, Any]) -> Optional[str]:
+    if firefox_cfg.get("theme_id"):
+        return firefox_cfg["theme_id"]
+
+    theme_name = firefox_cfg.get("theme_name")
+    if not theme_name:
+        return None
+
+    addons_path = profile_path / "addons.json"
+    if not addons_path.exists():
+        return None
+
+    try:
+        data = json.loads(addons_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+
+    for addon in data.get("addons", []):
+        if addon.get("type") != "theme":
+            continue
+        localized_name = addon.get("name") or addon.get("defaultLocale", {}).get("name")
+        if localized_name and localized_name.lower() == theme_name.lower():
+            return addon.get("id")
+
+    return None
+
+
+def format_firefox_pref(key: str, value: Any) -> str:
+    if isinstance(value, bool):
+        literal = "true" if value else "false"
+    elif isinstance(value, (int, float)):
+        literal = str(value)
+    else:
+        literal = json.dumps(value)
+    return f'user_pref("{key}", {literal});'
+
+
+def write_firefox_userjs(profile_path: Path, prefs: Dict[str, Any]) -> None:
+    user_js_path = profile_path / "user.js"
+    existing_lines: list[str] = []
+
+    if user_js_path.exists():
+        for raw_line in user_js_path.read_text(encoding="utf-8").splitlines():
+            stripped = raw_line.strip()
+            if stripped.startswith("user_pref("):
+                pref_key = stripped.split(",", 1)[0].split("(", 1)[1].strip().strip('"')
+                if pref_key in prefs:
+                    continue
+            existing_lines.append(raw_line)
+
+    for key, value in prefs.items():
+        existing_lines.append(format_firefox_pref(key, value))
+
+    user_js_path.write_text("\n".join(existing_lines) + "\n", encoding="utf-8")
+
+
+def update_firefox(theme: Dict[str, Any]) -> None:
+    firefox_cfg = theme.get("firefox")
+    if not firefox_cfg:
+        return
+
+    profile_path = get_default_firefox_profile()
+    if not profile_path:
+        print("Firefox profile not found; skipping Firefox theme.")
+        return
+
+    prefs: Dict[str, Any] = parse_user_js(FIREFOX_BASE_PREFS_FILE)
+    prefs.update(FIREFOX_ENFORCED_PREFS)
+    prefs.update(firefox_cfg.get("prefs", {}))
+
+    theme_id = resolve_firefox_theme_id(profile_path, firefox_cfg)
+    if theme_id:
+        prefs["extensions.activeThemeID"] = theme_id
+    else:
+        if firefox_cfg.get("theme_name"):
+            print(
+                f'Firefox theme "{firefox_cfg["theme_name"]}" not found. '
+                "Install it and rerun the theme switcher."
+            )
+        elif firefox_cfg.get("theme_id"):
+            print(
+                f'Firefox theme id "{firefox_cfg["theme_id"]}" is not available in this profile.'
+            )
+
+    write_firefox_userjs(profile_path, prefs)
+    print(f"Firefox user.js updated at {profile_path}.")
+
 def apply_theme(theme_name: str):
     """Apply the selected theme to all relevant config files."""
     print(f"Switching to theme: {theme_name}")
     theme = load_theme(theme_name)
+
+    def ensure_vscode_extension_payload(extension_id: Optional[str]) -> None:
+        """Copy VS Code theme extension payloads locally so CLI installs are optional."""
+        if not extension_id:
+            return
+
+        source_root = REPO_ROOT / "theme" / ".vscode-oss" / "extensions"
+        if not source_root.exists():
+            return
+
+        matches = [
+            candidate
+            for candidate in source_root.iterdir()
+            if candidate.is_dir()
+            and (candidate.name == extension_id or candidate.name.startswith(f"{extension_id}-"))
+        ]
+
+        if not matches:
+            return
+
+        # Prefer the lexicographically last match (usually the latest version)
+        ext_source = sorted(matches, key=lambda path: path.name)[-1]
+        dest_root = Path.home() / ".vscode-oss" / "extensions"
+        dest_root.mkdir(parents=True, exist_ok=True)
+        ext_dest = dest_root / ext_source.name
+
+        if ext_dest.exists():
+            if ext_dest.is_symlink():
+                ext_dest.unlink()
+            else:
+                return
+
+        shutil.copytree(ext_source, ext_dest)
+        print(f"Synced VS Code extension payload: {ext_source.name}")
 
     # Apply Kitty theme if the "kitty" key is present in the JSON
     if "kitty" in theme:
@@ -239,6 +590,10 @@ def apply_theme(theme_name: str):
     update_waybar(theme)
     update_hyprpaper(theme)
     update_wofi(theme) 
+    if "vscode" in theme:
+        ensure_vscode_extension_payload(theme["vscode"].get("extension"))
+    update_vscode(theme)
+    update_firefox(theme)
     reload_hyprland()
     print("Theme applied successfully.")
 
