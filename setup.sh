@@ -16,7 +16,6 @@ STOW_DIR="$HYPRCONF_DIR/stow"
 ZSHRC="$HOME/.zshrc"
 P10K_DIR="$HOME/powerlevel10k"
 ZSH_PLUGIN_DIR="$HOME/.zsh/plugins"
-
 install_packages() {
     log_info "Installing required packages..."
     sudo pacman -Syu --noconfirm
@@ -24,7 +23,7 @@ install_packages() {
     # Check if the packages file exists
     if [[ ! -f "packages" ]]; then
         log_info "Error: 'packages' file not found!"
-        exit 1
+
     fi
 
     # Read packages from the file, ignoring empty lines and comments
@@ -49,6 +48,7 @@ install_packages() {
         fi
     done
 }
+        exit 1
 
 create_directories() {
     log_info "Creating required directories..."
