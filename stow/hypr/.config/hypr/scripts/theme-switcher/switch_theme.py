@@ -227,7 +227,13 @@ def update_dunst(theme: Dict[str, str]) -> None:
 
     if subprocess.run(["pgrep", "dunst"], capture_output=True).returncode == 0:
         subprocess.run(["pkill", "dunst"], check=False)
-        subprocess.Popen(["dunst"], start_new_session=True)
+        subprocess.Popen(
+            ["dunst"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
         print("Dunst restarted.")
 
 
@@ -396,6 +402,9 @@ def notify_theme_change(theme_name: str, theme: Dict[str, str]) -> None:
             [notify, "--urgency=low", "--expire-time=3000",
              "--icon=preferences-desktop-theme-symbolic",
              f"Theme: {theme_name}", body],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
     except Exception:
