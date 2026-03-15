@@ -9,5 +9,10 @@
   "purple":     "#9b5de5",
   "red":        "#ef233c",
   "yellow":     "#ffd60a",
-  "accent":     "#ff6d00"
+  "accent":     "#ff6d00",
+  "vscode": {
+    "theme":     "Monokai Pro",
+    "extension": "monokai.theme-monokai-pro-vscode",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }

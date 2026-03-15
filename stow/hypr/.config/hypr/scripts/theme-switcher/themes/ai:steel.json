@@ -9,5 +9,10 @@
   "purple":     "#8b5cf6",
   "red":        "#ef4444",
   "yellow":     "#eab308",
-  "accent":     "#3b82f6"
+  "accent":     "#3b82f6",
+  "vscode": {
+    "theme":     "Tokyo Night Storm",
+    "extension": "enkia.tokyo-night",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }

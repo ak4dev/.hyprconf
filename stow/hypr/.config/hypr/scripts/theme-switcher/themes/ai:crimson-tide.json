@@ -9,5 +9,10 @@
   "purple":     "#6b21a8",
   "red":        "#be123c",
   "yellow":     "#854d0e",
-  "accent":     "#be123c"
+  "accent":     "#be123c",
+  "vscode": {
+    "theme":     "Dracula Theme",
+    "extension": "dracula-theme.theme-dracula",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }

@@ -9,5 +9,10 @@
   "purple":     "#c084fc",
   "red":        "#dc2626",
   "yellow":     "#facc15",
-  "accent":     "#dc2626"
+  "accent":     "#dc2626",
+  "vscode": {
+    "theme":     "One Dark Pro",
+    "extension": "zhuangtongfa.material-theme",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }

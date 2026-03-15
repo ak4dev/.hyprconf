@@ -9,5 +9,10 @@
   "purple":     "#a855f7",
   "red":        "#f87171",
   "yellow":     "#fbbf24",
-  "accent":     "#e879f9"
+  "accent":     "#e879f9",
+  "vscode": {
+    "theme":     "Rosé Pine Moon",
+    "extension": "mvllow.rose-pine",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }

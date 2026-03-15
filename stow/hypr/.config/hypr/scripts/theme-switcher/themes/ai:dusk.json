@@ -9,5 +9,10 @@
   "purple":     "#c084fc",
   "red":        "#fca5a5",
   "yellow":     "#fef08a",
-  "accent":     "#f97316"
+  "accent":     "#f97316",
+  "vscode": {
+    "theme":     "Shades of Purple",
+    "extension": "ahmadawais.shades-of-purple",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }

@@ -9,5 +9,10 @@
   "purple":     "#a78bfa",
   "red":        "#fca5a5",
   "yellow":     "#fde68a",
-  "accent":     "#a78bfa"
+  "accent":     "#a78bfa",
+  "vscode": {
+    "theme":     "Catppuccin Mocha",
+    "extension": "Catppuccin.catppuccin-vsc",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }

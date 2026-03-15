@@ -263,7 +263,7 @@ The script presents an interactive picker (or use `--wofi` for inline Wofi selec
 | `ai:circuit` | PCB dark green with circuit-trace cyan |
 | `ai:dusk` | Dark dusty purple with desert sunset orange |
 
-> **Tip:** `ai:` themes auto-generate a Kitty colour config from their palette — no separate `.conf` file required. Use `--filter ai:` to show only AI themes.
+> **Tip:** `ai:` themes auto-generate a Kitty colour config from their palette — no separate `.conf` file required. All `ai:` themes include a `vscode` block mapped to the closest matching community extension. Use `--filter ai:` to show only AI themes.
 
 To add a new theme, create a JSON file in `stow/hypr/.config/hypr/scripts/theme-switcher/themes/` following the existing format:
 

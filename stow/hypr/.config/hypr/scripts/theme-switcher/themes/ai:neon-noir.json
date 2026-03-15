@@ -9,5 +9,10 @@
   "purple":     "#bf00ff",
   "red":        "#ff0040",
   "yellow":     "#ffd700",
-  "accent":     "#39ff14"
+  "accent":     "#39ff14",
+  "vscode": {
+    "theme":     "Cyberdream",
+    "extension": "nickmessing.cyberdream",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }

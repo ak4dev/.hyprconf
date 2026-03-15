@@ -9,5 +9,10 @@
   "purple":     "#a855f7",
   "red":        "#f87171",
   "yellow":     "#fbbf24",
-  "accent":     "#4ade80"
+  "accent":     "#4ade80",
+  "vscode": {
+    "theme":     "Everforest Dark",
+    "extension": "sainnhe.everforest",
+    "font":      "JetBrainsMono Nerd Font"
+  }
 }
