@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Theme
 Comment=Switch the desktop colour theme
-Exec=kitty --app-id theme-switcher -e python3 ~/.config/hypr/scripts/theme-switcher/switch_theme.py
+Exec=kitty --app-id theme-switcher -e bash -c 'python3 "$HOME/.config/hypr/scripts/theme-switcher/switch_theme.py" || { echo; echo "Error — press any key to close"; read -n1; }'
 Icon=preferences-desktop-theme
 Terminal=false
 Type=Application
