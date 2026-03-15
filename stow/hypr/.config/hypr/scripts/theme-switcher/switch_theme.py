@@ -633,8 +633,11 @@ def update_vscode(theme: Dict[str, Any]) -> None:
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                timeout=15,
             )
             print(f"Ensured VS Code extension {extension} is installed.")
+        except subprocess.TimeoutExpired:
+            print(f"VS Code extension install timed out; skipping ({extension}).")
         except subprocess.CalledProcessError as exc:
             print(f"Failed to install VS Code extension {extension}: {exc}")
 
