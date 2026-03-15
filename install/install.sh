@@ -322,6 +322,9 @@ echo "${USER_HOSTNAME}" > /etc/hostname
   echo "127.0.1.1  ${USER_HOSTNAME}.localdomain ${USER_HOSTNAME}"
 } > /etc/hosts
 
+# ── Console keymap (required by sd-vconsole hook) ────────────────────────────
+echo "KEYMAP=us" > /etc/vconsole.conf
+
 # ── Initramfs — systemd + sd-encrypt hooks for LUKS ──────────────────────────
 sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf keyboard sd-vconsole block sd-encrypt filesystems fsck)/' /etc/mkinitcpio.conf
 mkinitcpio -P
