@@ -414,11 +414,17 @@ deploy_cdn() {
     if [[ -n "$dist_domain" ]]; then
       log_ok "Distribution exists: $dist_id ($dist_domain)"
       state_set DISTRIBUTION_DOMAIN "$dist_domain"
-      log_step "Invalidating cache for install.sh ..."
-      aws cloudfront create-invalidation \
-        --distribution-id "$dist_id" --paths '/install.sh' \
-        --output text > /dev/null
-      log_ok "Cache invalidated — updated install.sh is live."
+      # Invalidate /* — covers both the explicit /install.sh path and the
+      # distribution root / (DefaultRootObject), which are separate cache entries.
+      log_step "Invalidating CloudFront cache (/* — root + install.sh) ..."
+      local inv_id
+      inv_id=$(aws cloudfront create-invalidation \
+        --distribution-id "$dist_id" --paths '/*' \
+        --query 'Invalidation.Id' --output text)
+      log_info "Invalidation $inv_id in progress — waiting for completion ..."
+      aws cloudfront wait invalidation-completed \
+        --distribution-id "$dist_id" --id "$inv_id"
+      log_ok "Cache cleared — updated install.sh is live at https://${HYPRCONF_DOMAIN}"
       return 0
     fi
   fi
