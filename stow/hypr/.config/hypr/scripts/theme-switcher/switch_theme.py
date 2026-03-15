@@ -627,19 +627,22 @@ def update_vscode(theme: Dict[str, Any]) -> None:
 
     extension = vscode_cfg.get("extension")
     if extension:
-        try:
-            subprocess.run(
+        ext_dir = Path.home() / ".vscode-oss" / "extensions"
+        already_installed = any(
+            p.is_dir() and (p.name == extension or p.name.startswith(f"{extension}-"))
+            for p in ext_dir.iterdir()
+        ) if ext_dir.exists() else False
+
+        if not already_installed:
+            # Fire-and-forget: fully detach so Electron children never block the terminal.
+            subprocess.Popen(
                 [CODE_CLI, "--install-extension", extension, "--force"],
-                check=True,
+                stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=15,
+                start_new_session=True,
             )
-            print(f"Ensured VS Code extension {extension} is installed.")
-        except subprocess.TimeoutExpired:
-            print(f"VS Code extension install timed out; skipping ({extension}).")
-        except subprocess.CalledProcessError as exc:
-            print(f"Failed to install VS Code extension {extension}: {exc}")
+            print(f"VS Code extension install started in background ({extension}).")
 
     settings_path = Path(CODE_SETTINGS_FILE)
     settings_path.parent.mkdir(parents=True, exist_ok=True)
