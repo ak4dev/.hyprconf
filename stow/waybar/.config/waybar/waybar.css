@@ -1,18 +1,18 @@
 /* Theme Colors */
-@define-color background #212733;
-@define-color background-alpha rgba(33, 39, 51, 0.8);
-@define-color foreground #cccac2;
-@define-color comment #5c6773;
-@define-color accent #ffae57;
-@define-color cyan #5ccfe6;
-@define-color green #bae67e;
-@define-color orange #ffae57;
-@define-color pink #f28779;
-@define-color purple #a37acc;
+@define-color background #232136;
+@define-color background-alpha rgba(35, 33, 54, 0.8);
+@define-color foreground #e0def4;
+@define-color comment #6e6a86;
+@define-color accent #eb6f92;
+@define-color cyan #9ccfd8;
+@define-color green #3e8fb0;
+@define-color orange #ea9a97;
+@define-color pink #eb6f92;
+@define-color purple #c4a7e7;
 @define-color purple-alpha rgba(196, 167, 231, 0.2);
 @define-color cyan-alpha rgba(156, 207, 216, 0.2);
-@define-color red #f28779;
-@define-color yellow #ffd580;
+@define-color red #eb6f92;
+@define-color yellow #f6c177;
 
 /* Global styles */
 * {

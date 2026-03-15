@@ -56,7 +56,6 @@ GTK3_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-3.0/settings.ini")
 GTK4_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-4.0/settings.ini")
 XSETTINGSD_CONFIG_FILE = os.path.expanduser("~/.config/xsettingsd/xsettingsd.conf")
 KDEGLOBALS_FILE        = os.path.expanduser("~/.config/kdeglobals")
-TROLLTECH_CONF_FILE    = os.path.expanduser("~/.config/Trolltech.conf")
 QT6CT_CONF_FILE        = os.path.expanduser("~/.config/qt6ct/qt6ct.conf")
 QT6CT_COLORS_FILE      = os.path.expanduser("~/.config/qt6ct/colors/hyprconf.conf")
 QT5CT_CONF_FILE        = os.path.expanduser("~/.config/qt5ct/qt5ct.conf")
@@ -1128,6 +1127,7 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         "\n"
         "[KDE]\n"
         "contrast=4\n"
+        "widgetStyle=breeze\n"
     )
 
     kdeglobals_path = Path(KDEGLOBALS_FILE)
@@ -1135,18 +1135,14 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
     kdeglobals_path.write_text(content, encoding="utf-8")
     print("KDE color scheme (kdeglobals) updated.")
 
-    # Trolltech.conf — fallback Qt widget style for apps not using a platform plugin
-    troll_path = Path(TROLLTECH_CONF_FILE)
-    troll_path.parent.mkdir(parents=True, exist_ok=True)
-    qt_style = "kvantum" if shutil.which("kvantummanager") else "Fusion"
-    troll_path.write_text(f"[Qt]\nstyle={qt_style}\n", encoding="utf-8")
-
-    # Notify any running KDE/Qt apps to reload their color palette immediately
+    # Signal running KDE/Qt apps to reload colours.
+    # With QT_QPA_PLATFORMTHEME=kde, KDEPlasmaPlatformTheme6 uses KConfig file
+    # watchers (inotify) to detect kdeglobals changes automatically.  We also
+    # send the DBus signal as a best-effort nudge for apps that are listening.
     if shutil.which("dbus-send"):
         subprocess.run(
             [
-                "dbus-send", "--session",
-                "--dest=org.kde.KGlobalSettings",
+                "dbus-send", "--session", "--type=signal",
                 "/KGlobalSettings",
                 "org.kde.KGlobalSettings.notifyChange",
                 "int32:0", "int32:0",
@@ -1159,10 +1155,11 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
 def update_qt_platform_theme(theme: Dict[str, str]) -> None:
     """Configure qt6ct (and qt5ct if installed) with a QPalette derived from the theme.
 
-    With QT_QPA_PLATFORMTHEME=qt6ct, all Qt6 apps (Dolphin, Ark, Gwenview, …) read
-    their colours from ~/.config/qt6ct/ rather than kdeglobals.  This function writes
-    a QPalette colour-scheme file and enables custom_palette in qt[56]ct.conf so that
-    every Qt app launched after a theme switch uses the correct colours.
+    When qt6ct/qt5ct are installed and QT_QPA_PLATFORMTHEME is set to qt5ct/qt6ct,
+    this ensures those tools have the correct palette.  On systems using
+    QT_QPA_PLATFORMTHEME=kde (KDEPlasmaPlatformTheme6), colours come from kdeglobals
+    instead — handled by update_kde_colors().  Writing these files is harmless
+    either way and keeps both paths working.
     """
     bg       = theme.get("background", "#1e1e2e")
     fg       = theme.get("foreground", "#cdd6f4")

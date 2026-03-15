@@ -41,6 +41,7 @@ install_packages() {
 create_directories() {
     log_info "Creating required directories..."
     mkdir -p ~/.config
+    mkdir -p ~/.local/bin
     mkdir -p ~/.vscode-oss/extensions
     mkdir -p ~/Pictures ~/Downloads ~/wallpaper
 }
@@ -103,7 +104,7 @@ enable_services() {
     sudo ufw enable
     sudo systemctl enable --now ufw
     log_info "Disabling sddm"
-    sudo systemctl disable sddm
+    sudo systemctl disable sddm 2>/dev/null || log_warn "sddm not found or already disabled — skipping"
 }
 
 sync_services() {
@@ -198,6 +199,12 @@ purge_broken_symlinks() {
         log_info "  Removed broken symlink: $link"
         (( pruned++ )) || true
     done < <(find "$HOME/.config" -maxdepth 2 -xtype l -print0)
+
+    while IFS= read -r -d '' link; do
+        rm "$link"
+        log_info "  Removed broken symlink: $link"
+        (( pruned++ )) || true
+    done < <(find "$HOME/.local/bin" -maxdepth 1 -xtype l -print0 2>/dev/null)
 
     while IFS= read -r -d '' link; do
         rm "$link"

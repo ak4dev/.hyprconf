@@ -125,7 +125,7 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 | Networking | `networkmanager`, `network-manager-applet` |
 | System monitoring | `upower`, `lm_sensors` |
 | Python | `python` |
-| Icons & themes | `papirus-icon-theme`, `kvantum`, `qt5ct`, `qt6ct` |
+| Icons & themes | `papirus-icon-theme` |
 | GTK theme sync | `xsettingsd` |
 | Fonts | `nerd-fonts` |
 | Power management | `power-profiles-daemon` |
@@ -247,7 +247,7 @@ The script presents an interactive picker (or use `--wofi` for inline Wofi selec
 - **VS Code / Code OSS** — colour theme and font settings
 - **Firefox** — installs matching theme extension
 - **GTK 3 & 4** — `settings.ini` colour scheme hints
-- **Qt / KDE apps** — `qt6ct` + `qt5ct` QPalette colour scheme (Dolphin, Ark, Gwenview, …); `kdeglobals` for Plasma sessions
+- **Qt / KDE apps** — `kdeglobals` colour scheme (read by `KDEPlasmaPlatformTheme6`, which ships with Dolphin's KDE Frameworks deps); covers Dolphin, Ark, Gwenview, and any other Qt app
 - **Wallpaper** — swaps via `hyprpaper` IPC
 
 ### CLI Flags

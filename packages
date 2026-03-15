@@ -71,11 +71,9 @@ xsettingsd
 # Fonts
 nerd-fonts
 
-# Icons & themes
+# Icons & themes (KDEPlasmaPlatformTheme6 is pulled in as a dolphin dependency;
+# qt5ct/qt6ct are not needed with QT_QPA_PLATFORMTHEME=kde)
 papirus-icon-theme
-kvantum
-qt5ct
-qt6ct
 # bibata-cursor-theme  -- AUR only; install manually: yay -S bibata-cursor-theme
 
 # Bluetooth
