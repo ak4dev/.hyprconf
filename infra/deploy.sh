@@ -452,8 +452,8 @@ deploy_cdn() {
     },
     \"Aliases\": { \"Quantity\": 1, \"Items\": [\"$HYPRCONF_DOMAIN\"] },
     \"ViewerCertificate\": {
-      \"AcmCertificateArn\": \"$cert_arn\",
-      \"SslSupportMethod\": \"sni-only\",
+      \"ACMCertificateArn\": \"$cert_arn\",
+      \"SSLSupportMethod\": \"sni-only\",
       \"MinimumProtocolVersion\": \"TLSv1.2_2021\"
     },
     \"PriceClass\": \"PriceClass_100\",
