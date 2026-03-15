@@ -1,0 +1,24 @@
+{
+  "background": "#1e1e2e",
+  "foreground": "#cdd6f4",
+  "comment": "#6c7086",
+  "cyan": "#89dceb",
+  "green": "#a6e3a1",
+  "orange": "#fab387",
+  "pink": "#f5c2e7",
+  "purple": "#cba6f7",
+  "red": "#f38ba8",
+  "yellow": "#f9e2af",
+  "wallpaper": "~/wallpaper/catppuccin-mocha.png",
+  "kitty": "~/.config/kitty/themes/catppuccin-mocha.conf",
+  "vscode": {
+    "theme": "Catppuccin Mocha",
+    "extension": "Catppuccin.catppuccin-vsc",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "firefox": {
+    "theme_name": "Catppuccin Mocha",
+    "theme_id": "{8446b178-c865-4f5c-8ccc-1a3c9a0a1b1e}"
+  },
+  "accent": "#f5c2e7"
+}

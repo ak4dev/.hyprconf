@@ -1,0 +1,20 @@
+{
+  "background": "#16181a",
+  "foreground": "#ffffff",
+  "comment": "#3d3d3d",
+  "cyan": "#5ef1ff",
+  "green": "#5eff6c",
+  "orange": "#ff9f5e",
+  "pink": "#ff6e5e",
+  "purple": "#bd5eff",
+  "red": "#ff6e5e",
+  "yellow": "#f1ff5e",
+  "wallpaper": "~/wallpaper/cyberdream.png",
+  "kitty": "~/.config/kitty/themes/cyberdream.conf",
+  "vscode": {
+    "theme": "Cyberdream",
+    "extension": "nickmessing.cyberdream",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "accent": "#5ef1ff"
+}

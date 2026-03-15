@@ -1,0 +1,20 @@
+{
+  "background": "#212733",
+  "foreground": "#cccac2",
+  "comment": "#5c6773",
+  "cyan": "#5ccfe6",
+  "green": "#bae67e",
+  "orange": "#ffae57",
+  "pink": "#f28779",
+  "purple": "#a37acc",
+  "red": "#f28779",
+  "yellow": "#ffd580",
+  "wallpaper": "~/wallpaper/ayu-mirage.png",
+  "kitty": "~/.config/kitty/themes/ayu-mirage.conf",
+  "vscode": {
+    "theme": "Ayu Mirage",
+    "extension": "teabyii.ayu",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "accent": "#ffae57"
+}

@@ -26,7 +26,7 @@
     text_icon_padding = 0
 
     frame_width = 3
-    frame_color = "#bd93f9"
+    frame_color = "#8be9fd"
     gap_size = 0
     separator_color = frame
 
@@ -56,7 +56,7 @@
     sticky_history = yes
     history_length = 20
 
-    dmenu = /usr/bin/dmenu -p dunst:
+    dmenu = /usr/bin/dmenu -p dunst: -nb #282a36 -nf #f8f8f2 -sb #8be9fd -sf #282a36
     browser = /usr/bin/xdg-open
     always_run_script = true
     title = Dunst

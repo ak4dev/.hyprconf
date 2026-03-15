@@ -1,0 +1,20 @@
+{
+  "background": "#2d353b",
+  "foreground": "#d3c6aa",
+  "comment": "#859289",
+  "cyan": "#7fbbb3",
+  "green": "#a7c080",
+  "orange": "#e69875",
+  "pink": "#df69ba",
+  "purple": "#d699b6",
+  "red": "#e67e80",
+  "yellow": "#dbbc7f",
+  "wallpaper": "~/wallpaper/everforest-dark.png",
+  "kitty": "~/.config/kitty/themes/everforest-dark.conf",
+  "vscode": {
+    "theme": "Everforest Dark",
+    "extension": "sainnhe.everforest",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "accent": "#a7c080"
+}

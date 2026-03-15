@@ -1,0 +1,20 @@
+{
+  "background": "#282c34",
+  "foreground": "#abb2bf",
+  "comment": "#5c6370",
+  "cyan": "#56b6c2",
+  "green": "#98c379",
+  "orange": "#d19a66",
+  "pink": "#c678dd",
+  "purple": "#c678dd",
+  "red": "#e06c75",
+  "yellow": "#e5c07b",
+  "wallpaper": "~/wallpaper/one-dark.png",
+  "kitty": "~/.config/kitty/themes/one-dark.conf",
+  "vscode": {
+    "theme": "One Dark Pro",
+    "extension": "zhuangtongfa.material-theme",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "accent": "#98c379"
+}

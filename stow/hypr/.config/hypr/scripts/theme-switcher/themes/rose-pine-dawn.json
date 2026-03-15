@@ -1,0 +1,20 @@
+{
+  "background": "#faf4ed",
+  "foreground": "#575279",
+  "comment": "#9893a5",
+  "cyan": "#56949f",
+  "green": "#286983",
+  "orange": "#d7827e",
+  "pink": "#b4637a",
+  "purple": "#907aa9",
+  "red": "#b4637a",
+  "yellow": "#ea9d34",
+  "wallpaper": "~/wallpaper/rose-pine-dawn.png",
+  "kitty": "~/.config/kitty/themes/rose-pine-dawn.conf",
+  "vscode": {
+    "theme": "Ros\u00e9 Pine Dawn",
+    "extension": "mvllow.rose-pine",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "accent": "#d7827e"
+}

@@ -1,0 +1,20 @@
+{
+  "background": "#002b36",
+  "foreground": "#839496",
+  "comment": "#586e75",
+  "cyan": "#2aa198",
+  "green": "#859900",
+  "orange": "#cb4b16",
+  "pink": "#d33682",
+  "purple": "#6c71c4",
+  "red": "#dc322f",
+  "yellow": "#b58900",
+  "wallpaper": "~/wallpaper/solarized-dark.png",
+  "kitty": "~/.config/kitty/themes/solarized-dark.conf",
+  "vscode": {
+    "theme": "Solarized Dark",
+    "extension": "ryanolsonx.solarized",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "accent": "#2aa198"
+}

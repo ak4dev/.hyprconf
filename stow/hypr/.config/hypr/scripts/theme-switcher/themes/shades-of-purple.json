@@ -1,0 +1,20 @@
+{
+  "background": "#1e1e3f",
+  "foreground": "#a599e9",
+  "comment": "#b362ff",
+  "cyan": "#9effff",
+  "green": "#3ad900",
+  "orange": "#ffb86c",
+  "pink": "#ff2c6d",
+  "purple": "#b362ff",
+  "red": "#ff2c6d",
+  "yellow": "#fad000",
+  "wallpaper": "~/wallpaper/shades-of-purple.png",
+  "kitty": "~/.config/kitty/themes/shades-of-purple.conf",
+  "vscode": {
+    "theme": "Shades of Purple",
+    "extension": "ahmadawais.shades-of-purple",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "accent": "#9effff"
+}

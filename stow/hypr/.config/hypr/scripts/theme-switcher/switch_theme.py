@@ -46,10 +46,14 @@ VSCODE_BASE_SETTINGS_CANDIDATES = [
     os.path.join(REPO_ROOT, "stow", "code-oss", ".config", "Code", "User", "settings.base.json"),
 ]
 CODE_CLI = shutil.which("code-oss") or shutil.which("code")
+DUNST_CONFIG_FILE = os.path.expanduser("~/.config/dunst/dunstrc")
 FIREFOX_PROFILES_INI = os.path.expanduser("~/.mozilla/firefox/profiles.ini")
 FIREFOX_DIR = os.path.dirname(FIREFOX_PROFILES_INI)
 FIREFOX_BASE_PREFS_FILE = os.path.expanduser("~/.mozilla/firefox/user.js")
 FIREFOX_THEME_PAYLOAD_DIR = REPO_ROOT / "theme" / "firefox" / "extensions"
+GTK3_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-3.0/settings.ini")
+GTK4_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-4.0/settings.ini")
+XSETTINGSD_CONFIG_FILE = os.path.expanduser("~/.config/xsettingsd/xsettingsd.conf")
 
 FIREFOX_ENFORCED_PREFS = {
     "browser.tabs.verticalTabs": True,
@@ -74,24 +78,28 @@ FIREFOX_ENFORCED_PREFS = {
     "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features": False,
 }
 
+def is_dark_color(hex_color: str) -> bool:
+    """Return True if the color has low perceived brightness (dark background)."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 128
+
+
 def update_wofi(theme: Dict[str, str]):
     """Generate or replace Wofi style.css using colors from the theme JSON."""
     os.makedirs(os.path.dirname(WOFI_STYLE_FILE), exist_ok=True)
 
-    # Extract colors from the theme
     bg = theme.get("background", "#1e1e2e")
     fg = theme.get("foreground", "#ffffff")
-    border = theme.get("purple", theme.get("orange", "#89b4fa"))
-    input_bg = theme.get("comment", theme.get("background", "#44475a"))
-    accent = theme.get("purple", theme.get("orange", "#89b4fa"))     # selection border
-    selected_bg = theme.get("purple", "#89b4fa")                     # highlight background
-    selected_text = theme.get("background", "#1e1e2e")               # highlight text
-    hover_text = theme.get("pink", theme.get("cyan", fg))            # active/hover text
+    accent = theme.get("accent", theme.get("purple", theme.get("cyan", "#89b4fa")))
+    input_bg = theme.get("comment", bg)
+    # For selected items: use bg as text if bg is dark (dark text on colorful accent),
+    # otherwise use fg (dark fg on colorful accent for light themes).
+    selected_text = bg if is_dark_color(bg) else fg
 
-    # Build a complete Dracula/Gruvbox-compatible style.css
     wofi_css = f"""window {{
     margin: 0px;
-    border: 1px solid {border};
+    border: 1px solid {accent};
     background-color: {bg};
     color: {fg};
 }}
@@ -129,12 +137,12 @@ def update_wofi(theme: Dict[str, str]):
 }}
 
 #entry:selected {{
-    background-color: {selected_bg};
+    background-color: {accent};
     color: {selected_text};
 }}
 
 #entry:selected #text {{
-    color: {hover_text};
+    color: {selected_text};
     font-weight: bold;
 }}
 """
@@ -143,6 +151,80 @@ def update_wofi(theme: Dict[str, str]):
         f.write(wofi_css.strip() + "\n")
 
     print("Wofi theme updated using current theme colors.")
+
+
+def update_dunst(theme: Dict[str, str]) -> None:
+    """Update Dunst notification colors and dmenu colors from the current theme."""
+    if not os.path.exists(DUNST_CONFIG_FILE):
+        print("Dunst config not found; skipping Dunst theme.")
+        return
+
+    accent = theme.get("accent", theme.get("purple", theme.get("cyan", "#bd93f9")))
+    bg = theme.get("background", "#282a36")
+    fg = theme.get("foreground", "#f8f8f2")
+    # For dmenu selected text: dark bg on accent → use bg; light bg on accent → use fg
+    selected_fg = bg if is_dark_color(bg) else fg
+
+    section_colors: Dict[str, Dict[str, str]] = {
+        "global": {
+            "frame_color": accent,
+        },
+        "urgency_low": {
+            "background": bg,
+            "foreground": theme.get("comment", "#6272a4"),
+        },
+        "urgency_normal": {
+            "background": bg,
+            "foreground": fg,
+        },
+        "urgency_critical": {
+            "background": bg,
+            "foreground": fg,
+            "frame_color": theme.get("red", "#ff5555"),
+        },
+    }
+
+    # dmenu color flags — no quotes; dunst passes these directly, not via shell
+    dmenu_color_args = f' -nb {bg} -nf {fg} -sb {accent} -sf {selected_fg}'
+
+    with open(DUNST_CONFIG_FILE, "r") as f:
+        lines = f.readlines()
+
+    current_section: Optional[str] = None
+    result = []
+    for line in lines:
+        stripped = line.strip()
+        section_match = re.match(r"^\[(\w+)\]", stripped)
+        if section_match:
+            current_section = section_match.group(1).lower()
+            result.append(line)
+            continue
+
+        if current_section == "global" and stripped.startswith("dmenu"):
+            # Strip any existing color flags (quoted or unquoted) and append fresh themed ones
+            base_cmd = re.sub(r'\s+-(?:nb|nf|sb|sf)\s+"?#[0-9a-fA-F]{6}"?', '', line.rstrip())
+            result.append(base_cmd + dmenu_color_args + "\n")
+            continue
+
+        if current_section and current_section in section_colors:
+            color_match = re.match(r'^(\s*)(\w+)\s*=\s*"#[0-9a-fA-F]{6}"', line)
+            if color_match:
+                key = color_match.group(2)
+                if key in section_colors[current_section]:
+                    indent = color_match.group(1)
+                    new_color = section_colors[current_section][key]
+                    line = f'{indent}{key} = "{new_color}"\n'
+
+        result.append(line)
+
+    with open(DUNST_CONFIG_FILE, "w") as f:
+        f.writelines(result)
+    print("Dunst theme updated.")
+
+    if subprocess.run(["pgrep", "dunst"], capture_output=True).returncode == 0:
+        subprocess.run(["pkill", "dunst"], check=False)
+        subprocess.Popen(["dunst"], start_new_session=True)
+        print("Dunst restarted.")
 
 
 def hex_to_rgba(hex_color: str, alpha: float = 0.8) -> str:
@@ -200,10 +282,13 @@ def load_kitty_theme(kitty_config_path: str):
             return False
         include_target = parts[1]
         expanded_target = os.path.expanduser(include_target)
+        abs_target = os.path.abspath(os.path.join(os.path.dirname(KITTY_CONFIG_FILE), expanded_target))
         return (
             include_target.startswith("~/.config/kitty/themes/")
             or include_target.startswith(themes_dir)
             or expanded_target.startswith(themes_dir)
+            or abs_target.startswith(themes_dir)
+            or include_target.startswith("themes/")
         )
 
     lines = [line for line in kitty_conf_content.splitlines() if not is_theme_include(line)]
@@ -572,7 +657,7 @@ def set_firefox_theme_activation(profile_path: Path, theme_id: str) -> None:
     for addon in addons:
         if addon.get("type") != "theme":
             continue
-        if addon.get("location") not in {"app-profile", "profile", "app-system-profile"}:
+        if addon.get("location") not in {"app-profile", "profile", "app-system-profile", "app-builtin"}:
             continue
 
         is_target = addon.get("id") == theme_id
@@ -631,6 +716,97 @@ def update_firefox(theme: Dict[str, Any]) -> None:
     write_firefox_userjs(profile_path, prefs)
     print(f"Firefox user.js updated at {profile_path}.")
 
+
+def _resolve_gtk_theme(theme: Dict[str, str]) -> str:
+    """Pick a GTK theme name: use the theme JSON's 'gtk_theme' key if set,
+    otherwise choose adw-gtk3-dark/-light based on background luminance,
+    falling back to Breeze-Dark/Breeze if adw-gtk3 is not installed."""
+    if "gtk_theme" in theme:
+        return theme["gtk_theme"]
+
+    is_dark = is_dark_color(theme.get("background", "#1e1e2e"))
+    candidates = (
+        ("adw-gtk3-dark", "adw-gtk3") if is_dark else ("adw-gtk3", "adw-gtk3-dark")
+    )
+    fallbacks = ("Breeze-Dark", "Breeze") if is_dark else ("Breeze", "Breeze-Dark")
+    theme_dirs = ["/usr/share/themes", os.path.expanduser("~/.local/share/themes")]
+
+    def installed(name: str) -> bool:
+        return any(os.path.isdir(os.path.join(d, name)) for d in theme_dirs)
+
+    for name in candidates:
+        if installed(name):
+            return name
+    for name in fallbacks:
+        if installed(name):
+            return name
+    return candidates[0]
+
+
+def update_gtk(theme: Dict[str, str]) -> None:
+    """Apply the theme to GTK 3/4 settings, xsettingsd, and gsettings."""
+    is_dark      = is_dark_color(theme.get("background", "#1e1e2e"))
+    gtk_theme    = _resolve_gtk_theme(theme)
+    color_scheme = "prefer-dark" if is_dark else "prefer-light"
+    dark_val     = "true" if is_dark else "false"
+
+    def patch_ini(path: str) -> None:
+        with open(path) as f:
+            content = f.read()
+        content = re.sub(
+            r"^(gtk-theme-name\s*=).*$", f"gtk-theme-name={gtk_theme}",
+            content, flags=re.MULTILINE,
+        )
+        content = re.sub(
+            r"^(gtk-application-prefer-dark-theme\s*=).*$",
+            f"gtk-application-prefer-dark-theme={dark_val}",
+            content, flags=re.MULTILINE,
+        )
+        with open(path, "w") as f:
+            f.write(content)
+
+    for ini_path in (GTK3_SETTINGS_FILE, GTK4_SETTINGS_FILE):
+        if os.path.exists(ini_path):
+            try:
+                patch_ini(ini_path)
+                print(f"Updated {ini_path}")
+            except Exception as e:
+                print(f"Warning: could not update {ini_path}: {e}")
+
+    if os.path.exists(XSETTINGSD_CONFIG_FILE):
+        try:
+            with open(XSETTINGSD_CONFIG_FILE) as f:
+                lines = f.readlines()
+            with open(XSETTINGSD_CONFIG_FILE, "w") as f:
+                for line in lines:
+                    if line.startswith("Net/ThemeName"):
+                        f.write(f'Net/ThemeName "{gtk_theme}"\n')
+                    else:
+                        f.write(line)
+            # Reload xsettingsd so running apps pick up the change immediately
+            pid_result = subprocess.run(["pgrep", "-x", "xsettingsd"], capture_output=True, text=True)
+            if pid_result.returncode == 0:
+                for pid in pid_result.stdout.strip().splitlines():
+                    subprocess.run(["kill", "-HUP", pid.strip()], check=False)
+                print("Reloaded xsettingsd.")
+        except Exception as e:
+            print(f"Warning: could not update xsettingsd: {e}")
+
+    # gsettings — affects GTK apps and Qt apps using the GNOME platform plugin
+    gsettings = shutil.which("gsettings")
+    if gsettings:
+        cmds = [
+            [gsettings, "set", "org.gnome.desktop.interface", "gtk-theme", gtk_theme],
+            [gsettings, "set", "org.gnome.desktop.interface", "color-scheme", color_scheme],
+        ]
+        for cmd in cmds:
+            try:
+                subprocess.run(cmd, check=False)
+            except Exception as e:
+                print(f"Warning: gsettings failed ({' '.join(cmd[3:])}): {e}")
+        print(f"GTK theme set to '{gtk_theme}' ({color_scheme}).")
+
+
 def apply_theme(theme_name: str):
     """Apply the selected theme to all relevant config files."""
     print(f"Switching to theme: {theme_name}")
@@ -673,10 +849,12 @@ def apply_theme(theme_name: str):
     # Apply Kitty theme if the "kitty" key is present in the JSON
     if "kitty" in theme:
         load_kitty_theme(theme["kitty"])
-    
+
     update_waybar(theme)
     update_hyprpaper(theme)
-    update_wofi(theme) 
+    update_wofi(theme)
+    update_dunst(theme)
+    update_gtk(theme)
     if "vscode" in theme:
         ensure_vscode_extension_payload(theme["vscode"].get("extension"))
     update_vscode(theme)
@@ -685,16 +863,173 @@ def apply_theme(theme_name: str):
     print("Theme applied successfully.")
 
 # === Entry Point ===
+def list_themes() -> None:
+    """Print a pretty table of all available themes and their accent colors."""
+    themes = []
+    for fname in sorted(os.listdir(THEMES_DIR)):
+        if not fname.endswith(".json"):
+            continue
+        name = fname[:-5]
+        try:
+            d = json.load(open(os.path.join(THEMES_DIR, fname)))
+        except Exception:
+            continue
+        bg      = d.get("background", "")
+        fg      = d.get("foreground", "")
+        accent  = d.get("accent", d.get("purple", ""))
+        themes.append((name, bg, fg, accent))
+
+    col_name   = max(len("THEME"),      max(len(t[0]) for t in themes))
+    col_bg     = max(len("BACKGROUND"), max(len(t[1]) for t in themes))
+    col_fg     = max(len("FOREGROUND"), max(len(t[2]) for t in themes))
+    col_accent = max(len("ACCENT"),     max(len(t[3]) for t in themes))
+
+    # ANSI helpers
+    def ansi_swatch(hex_color: str, text: str) -> str:
+        h = hex_color.lstrip("#")
+        if len(h) != 6:
+            return text
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"\033[38;2;{r};{g};{b}m{text}\033[0m"
+
+    def bold(text: str) -> str:
+        return f"\033[1m{text}\033[0m"
+
+    sep = f"  {'─' * col_name}  {'─' * col_bg}  {'─' * col_fg}  {'─' * col_accent}"
+    header = (
+        f"  {bold(f'{'THEME':<{col_name}}')}  "
+        f"{bold(f'{'BACKGROUND':<{col_bg}}')}  "
+        f"{bold(f'{'FOREGROUND':<{col_fg}}')}  "
+        f"{bold(f'{'ACCENT':<{col_accent}}')}"
+    )
+    print(sep)
+    print(header)
+    print(sep)
+    for name, bg, fg, accent in themes:
+        row = (
+            f"  {name:<{col_name}}  "
+            f"{ansi_swatch(bg,  f'{bg:<{col_bg}}')}  "
+            f"{ansi_swatch(fg,  f'{fg:<{col_fg}}')}  "
+            f"{ansi_swatch(accent, f'{accent:<{col_accent}}')}"
+        )
+        print(row)
+    print(sep)
+    print(f"  {len(themes)} themes available")
+
+
+def interactive_select() -> Optional[str]:
+    """Present an arrow-key selection menu and return the chosen theme name."""
+    import curses
+
+    themes = sorted(
+        fname[:-5]
+        for fname in os.listdir(THEMES_DIR)
+        if fname.endswith(".json")
+    )
+    if not themes:
+        return None
+
+    theme_data: Dict[str, Dict] = {}
+    for name in themes:
+        try:
+            theme_data[name] = json.load(open(os.path.join(THEMES_DIR, f"{name}.json")))
+        except Exception:
+            theme_data[name] = {}
+
+    selected: list[Optional[str]] = [None]
+
+    def _menu(stdscr: "curses._CursesWindow") -> None:  # type: ignore[name-defined]
+        curses.curs_set(0)
+        curses.use_default_colors()
+        curses.start_color()
+        curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)   # highlighted row
+        curses.init_pair(2, curses.COLOR_WHITE, -1)                    # normal row
+
+        idx = 0
+        max_h, max_w = stdscr.getmaxyx()
+        visible = max_h - 6  # rows available for the list
+
+        while True:
+            stdscr.erase()
+            title = "Select a theme  (↑/↓ navigate · Enter confirm · q quit)"
+            stdscr.addstr(0, 0, title[:max_w - 1], curses.A_BOLD)
+            stdscr.addstr(1, 0, "─" * min(max_w - 1, 60))
+
+            # Scroll window so highlighted item is always visible
+            start = max(0, idx - visible + 1)
+            for row_i, t_idx in enumerate(range(start, min(start + visible, len(themes)))):
+                name = themes[t_idx]
+                d    = theme_data[name]
+                bg   = d.get("background", "")
+                accent = d.get("accent", d.get("purple", ""))
+                label = f"  {name:<28}  bg {bg}  accent {accent}"
+                y = row_i + 2
+                if y >= max_h - 1:
+                    break
+                if t_idx == idx:
+                    stdscr.addstr(y, 0, label[:max_w - 1], curses.color_pair(1) | curses.A_BOLD)
+                else:
+                    stdscr.addstr(y, 0, label[:max_w - 1], curses.color_pair(2))
+
+            footer = f"  {idx + 1}/{len(themes)}"
+            stdscr.addstr(min(start + visible + 2, max_h - 1), 0, footer[:max_w - 1])
+            stdscr.refresh()
+
+            key = stdscr.getch()
+            if key in (curses.KEY_UP, ord("k")):
+                idx = (idx - 1) % len(themes)
+            elif key in (curses.KEY_DOWN, ord("j")):
+                idx = (idx + 1) % len(themes)
+            elif key in (curses.KEY_PPAGE,):      # Page Up
+                idx = max(0, idx - visible)
+            elif key in (curses.KEY_NPAGE,):      # Page Down
+                idx = min(len(themes) - 1, idx + visible)
+            elif key in (curses.KEY_HOME, ord("g")):
+                idx = 0
+            elif key in (curses.KEY_END, ord("G")):
+                idx = len(themes) - 1
+            elif key in (curses.KEY_ENTER, ord("\n"), ord("\r")):
+                selected[0] = themes[idx]
+                break
+            elif key in (ord("q"), ord("Q"), 27):  # 27 = Escape
+                break
+
+    curses.wrapper(_menu)
+    return selected[0]
+
+
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Switch between desktop themes.")
+    parser = argparse.ArgumentParser(
+        description="Switch between desktop themes.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="Run with no arguments for interactive theme selection.",
+    )
     parser.add_argument(
-        "theme", help="Name of the theme to apply (e.g., dracula, nord, gruvbox)"
+        "theme",
+        nargs="?",
+        help="Name of the theme to apply (e.g., dracula, nord, gruvbox). "
+             "Omit to open the interactive selector.",
+    )
+    parser.add_argument(
+        "--list", "-l",
+        action="store_true",
+        help="List all available themes in a formatted table.",
     )
     args = parser.parse_args()
 
     try:
-        apply_theme(args.theme.lower())
+        if args.list:
+            list_themes()
+        elif args.theme:
+            apply_theme(args.theme.lower())
+        else:
+            choice = interactive_select()
+            if choice:
+                print(f"\nApplying theme: {choice}")
+                apply_theme(choice)
+            else:
+                print("No theme selected.")
     except Exception as e:
         print(f"Error: {e}")

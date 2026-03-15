@@ -1,0 +1,20 @@
+{
+  "background": "#1a1b26",
+  "foreground": "#c0caf5",
+  "comment": "#565f89",
+  "cyan": "#7dcfff",
+  "green": "#9ece6a",
+  "orange": "#ff9e64",
+  "pink": "#f7768e",
+  "purple": "#bb9af7",
+  "red": "#f7768e",
+  "yellow": "#e0af68",
+  "wallpaper": "~/wallpaper/tokyo-night.png",
+  "kitty": "~/.config/kitty/themes/tokyo-night.conf",
+  "vscode": {
+    "theme": "Tokyo Night",
+    "extension": "enkia.tokyo-night",
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "accent": "#7dcfff"
+}
