@@ -79,20 +79,37 @@ install_powerlevel10k() {
 update_zshrc() {
     log_info "Ensuring .zshrc is configured..."
 
+    # Create .zshrc if it doesn't exist yet (e.g. sync before OMZ install)
+    touch "$ZSHRC"
+
     add_if_missing() {
         local line="$1"
         grep -qxF "$line" "$ZSHRC" 2>/dev/null || echo "$line" >> "$ZSHRC"
     }
 
-    add_if_missing 'export PATH="$HOME/.local/bin:$PATH"'
+    # Replace any existing ZSH_THEME line (OMZ template defaults to "robbyrussell").
+    # Must be set BEFORE source $ZSH/oh-my-zsh.sh to take effect inside OMZ.
+    if grep -q '^ZSH_THEME=' "$ZSHRC" 2>/dev/null; then
+        sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$ZSHRC"
+        log_info "ZSH_THEME updated to powerlevel10k."
+    else
+        add_if_missing 'ZSH_THEME="powerlevel10k/powerlevel10k"'
+    fi
+
+    # These lines are added by the OMZ installer but are safe to re-add as a
+    # fallback (add_if_missing skips them when they already exist).
     add_if_missing 'export ZSH="$HOME/.oh-my-zsh"'
-    add_if_missing 'ZSH_THEME="powerlevel10k/powerlevel10k"'
     add_if_missing 'plugins=(git)'
+    add_if_missing 'source $ZSH/oh-my-zsh.sh'
+
+    # Plugin sources and p10k (not in the OMZ template — always need to be added).
     add_if_missing 'source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh'
     add_if_missing 'source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
-    add_if_missing 'source $ZSH/oh-my-zsh.sh'
     add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
     add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
+
+    # PATH and aliases.
+    add_if_missing 'export PATH="$HOME/.local/bin:$PATH"'
     add_if_missing "alias hyprsync='~/.hyprconf/setup.sh --sync'"
     add_if_missing "fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green"
 }
@@ -258,6 +275,7 @@ main() {
         sync_vscode_theme_extensions
         stow_all_packages
         update_zshrc
+        configure_zprofile
         sync_services
         hyprctl reload
         log_info "Sync complete!"
