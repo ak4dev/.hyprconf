@@ -26,7 +26,7 @@
     text_icon_padding = 0
 
     frame_width = 3
-    frame_color = "#8be9fd"
+    frame_color = "#d65d0e"
     gap_size = 0
     separator_color = frame
 
@@ -56,7 +56,7 @@
     sticky_history = yes
     history_length = 20
 
-    dmenu = /usr/bin/dmenu -p dunst: -nb #282a36 -nf #f8f8f2 -sb #8be9fd -sf #282a36
+    dmenu = /usr/bin/dmenu -p dunst: -nb #32302f -nf #ebdbb2 -sb #d65d0e -sf #32302f
     browser = /usr/bin/xdg-open
     always_run_script = true
     title = Dunst
@@ -76,20 +76,20 @@
     per_monitor_dpi = false
 
 [urgency_low]
-    background = "#282a36"
-    foreground = "#6272a4"
+    background = "#32302f"
+    foreground = "#928374"
     timeout = 3
     default_icon = dialog-information
 
 [urgency_normal]
-    background = "#282a36"
-    foreground = "#f8f8f2"
+    background = "#32302f"
+    foreground = "#ebdbb2"
     timeout = 4
     default_icon = dialog-information
 
 [urgency_critical]
-    background = "#282a36"
-    foreground = "#f8f8f2"
-    frame_color = "#ff5555"
+    background = "#32302f"
+    foreground = "#ebdbb2"
+    frame_color = "#cc241d"
     timeout = 8
     default_icon = dialog-warning
