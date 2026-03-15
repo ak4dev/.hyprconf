@@ -67,7 +67,25 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 ```
 .hyprconf/
 ├── packages                  # Arch packages to install (one per line)
-├── setup.sh                  # Bootstrap + sync script
+├── setup.sh                  # Local bootstrap + sync entry point
+│
+├── assets/                   # Shared project assets (reused across scripts)
+│   └── banner.sh             # Canonical print_banner() — glitch palette + logo
+│
+├── docs/                     # Documentation
+│   └── hyprland-reference.md # Hyprland config syntax cheatsheet
+│
+├── infra/                    # AWS cloud infrastructure management
+│   ├── env.sh.example        # Configuration template (copy → env.sh, never commit)
+│   ├── deploy.sh             # Idempotent: create/update S3 + CloudFront + ACM + Route53
+│   └── teardown.sh           # Destroy all AWS resources (confirmation required)
+│
+├── install/                  # Bootstrap installer (served from S3 / CloudFront)
+│   └── install.sh            # Self-contained; embeds banner from assets/banner.sh
+│
+├── scripts/                  # Project utility scripts
+│   └── toggle-native-display # Toggle the built-in laptop screen on/off
+│
 ├── stow/                     # GNU Stow packages (symlinked into $HOME)
 │   ├── btop/                 # btop system monitor config
 │   ├── code-oss/             # VS Code OSS base settings
@@ -79,31 +97,61 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 │   │       ├── keybinds.conf         # All keybindings
 │   │       ├── gestures.conf         # Touchpad gesture settings
 │   │       ├── hyprpaper.conf        # Wallpaper config
-│   │       ├── hyprlock.conf         # Lock screen config (blurred screenshot + clock)
-│   │       ├── hypridle.conf         # Idle daemon (dim → lock → DPMS off → suspend)
+│   │       ├── hyprlock.conf         # Lock screen config
+│   │       ├── hypridle.conf         # Idle daemon (dim → lock → DPMS → suspend)
 │   │       ├── laptopMonitors.conf   # Laptop + external monitor layout
-│   │       ├── pcMonitors.conf       # Desktop (RTX 5090, HDR) layout
+│   │       ├── pcMonitors.conf       # Desktop layout
 │   │       ├── pcMonitors.bedroom    # Bedroom PC alternate layout
 │   │       ├── pcMonitors.kitchen    # Kitchen PC alternate layout
 │   │       └── scripts/
-│   │           ├── switch_monitor.sh       # Hot-swap monitor preset
+│   │           ├── switch_monitor.sh
 │   │           └── theme-switcher/
-│   │               ├── switch_theme.py     # Theme application script
-│   │               └── themes/             # 24 theme JSON files
+│   │               ├── switch_theme.py
+│   │               └── themes/       # Theme JSON files
 │   │   └── .local/bin/
-│   │       └── hyprconf                    # Unified CLI (symlinked to ~/.local/bin/)
+│   │       └── hyprconf              # Unified CLI → ~/.local/bin/hyprconf
 │   ├── kitty/                # Kitty terminal config + theme files
 │   ├── wallpaper/            # Wallpaper images
 │   ├── waybar/               # Waybar bar config, CSS, and custom scripts
 │   └── wofi/                 # Wofi launcher stylesheet
-├── theme/
-│   ├── firefox/extensions/   # Firefox theme extension payloads (.xpi)
-│   └── .vscode-oss/extensions/  # VS Code theme extensions (Dracula, Gruvbox Material)
-└── util/
-    └── toggle-native-display # Toggle the built-in laptop screen on/off
+│
+└── theme/                    # Vendor theme extension payloads (binary, not stowed)
+    ├── firefox/extensions/   # Firefox theme .xpi files
+    └── .vscode-oss/extensions/  # VS Code themes (Dracula, Gruvbox Material)
 ```
 
 ---
+
+## Deploying the Install Endpoint
+
+`install/install.sh` is served over HTTPS at `https://hyprconf.ak4.io`, enabling:
+
+```bash
+bash <(curl -fsSL https://hyprconf.ak4.io)
+```
+
+The AWS infrastructure (S3 + CloudFront + ACM + Route53) is managed via scripts in `infra/`.
+
+### Forking / Deploying Your Own
+
+1. Fork this repo and update `REPO_URL` in `install/install.sh`
+2. Copy `infra/env.sh.example` → `infra/env.sh` and fill in your values:
+
+| Variable | Description |
+|---|---|
+| `AWS_PROFILE` | Named AWS profile (or set `AWS_ACCESS_KEY_ID`/`SECRET`) |
+| `AWS_DEFAULT_REGION` | Must be `us-east-1` (required for CloudFront ACM) |
+| `HYPRCONF_DOMAIN` | Your custom domain (e.g. `hyprconf.yourdomain.com`) |
+| `HYPRCONF_BUCKET` | S3 bucket name (globally unique, e.g. `hyprconf-yourdomain-com`) |
+| `HYPRCONF_ZONE_ID` | Route53 hosted zone ID for the parent domain |
+| `HYPRCONF_REPO` | Your fork's GitHub URL |
+
+3. Run `bash infra/deploy.sh` — it's idempotent and resumes if interrupted
+
+> ACM certificates require DNS validation. The script prints the required CNAME
+> record and exits; add it, wait ~2 minutes, then re-run.
+
+
 
 ## Packages Installed
 
@@ -349,7 +397,7 @@ The setup script detects the GPU via `lspci` and symlinks the appropriate config
 
 Hot-swap presets (`pcMonitors.bedroom`, `pcMonitors.kitchen`) can be activated at runtime with `Super + Shift + B` / `Super + Shift + K`.
 
-The `util/toggle-native-display` script toggles the built-in `eDP-1` panel on or off without restarting Hyprland (`Super + Shift + Backspace`).
+The `scripts/toggle-native-display` script toggles the built-in `eDP-1` panel on or off without restarting Hyprland (`Super + Shift + Backspace`).
 
 ---
 
