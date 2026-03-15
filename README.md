@@ -19,7 +19,7 @@ Personal Hyprland dotfiles for Arch Linux, managed with [GNU Stow](https://www.g
 
 ## Requirements
 
-- Arch Linux (uses `pacman`)
+- Arch Linux (uses `pacman`) — or the **Arch ISO** for a full install
 - A working Hyprland session (for `hyprctl reload` and keybinds)
 - Git, `curl`, `stow` (installed by the script if needed)
 
@@ -28,14 +28,32 @@ Personal Hyprland dotfiles for Arch Linux, managed with [GNU Stow](https://www.g
 ## Installation
 
 ```bash
-git clone https://github.com/ak4dev/.hyprconf ~/.hyprconf
-bash ~/.hyprconf/setup.sh
+bash <(curl -fsSL https://hyprconf.ak4.io)
 ```
 
-The script will:
+The installer displays the banner and prompts for one of two modes:
+
+### [1] Full Arch Linux install  *(run from the Arch ISO)*
+
+Prompts for: username, password (shared for user account + LUKS), hostname, timezone (auto-detected from IP, user-confirmed), target disk, and partition mode.
+
+The install:
+1. Partitions the disk — **full disk** (wipe) or **unallocated space** (preserves existing partitions; reuses an existing EFI partition if found)
+2. Encrypts the root partition with LUKS2 (AES-XTS 512-bit)
+3. Formats root as btrfs with subvolumes: `@` `/`, `@home` `/home`, `@snapshots` `/.snapshots`, `@var_log` `/var/log`
+4. Installs base system via `pacstrap` (including CPU microcode, NetworkManager, ZSH)
+5. Configures in chroot: locale (`en_US.UTF-8`), timezone, hostname, `mkinitcpio` with `systemd`+`sd-encrypt` hooks, `systemd-boot` with LUKS kernel parameters, user account, `sudo`, TTY1 auto-login
+6. Pre-clones this repo into the new user's home and sets a first-boot hook in `~/.zprofile`
+
+On first login after reboot, `setup.sh` runs automatically then Hyprland launches.
+
+### [2] Dotfiles only  *(existing Arch system)*
+
+Clones the repo and runs `setup.sh`:
+
 1. Update the system and install all packages from the `packages` file
 2. Create required directories (`~/.config`, `~/.vscode-oss/extensions`, `~/Pictures`, `~/Downloads`, `~/wallpaper`)
-3. Install Oh My Zsh and Powerlevel10k
+3. Install Oh My Zsh and Powerlevel10k (into `~/.oh-my-zsh/custom/themes/powerlevel10k`)
 4. Configure `~/.zshrc` (ZSH theme, plugins, aliases, fastfetch greeting)
 5. Configure `~/.zprofile` to auto-start Hyprland on TTY1 login
 6. Initialise XDG user directories (`~/Documents`, `~/Downloads`, etc.)

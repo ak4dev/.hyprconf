@@ -17,7 +17,9 @@ log_die()  { printf '%s  ✘ FATAL: %s%s%s\n' "$GL" "$WH" "$1" "$RS" >&2; exit 1
 readonly HYPRCONF_DIR="$HOME/.hyprconf"
 readonly STOW_DIR="$HYPRCONF_DIR/stow"
 readonly ZSHRC="$HOME/.zshrc"
-readonly P10K_DIR="$HOME/powerlevel10k"
+# Powerlevel10k must live inside OMZ's custom themes dir so that
+# ZSH_THEME="powerlevel10k/powerlevel10k" resolves without error.
+readonly P10K_DIR="${HOME}/.oh-my-zsh/custom/themes/powerlevel10k"
 
 print_header() {
   local mode="${1:-setup}"
@@ -162,7 +164,9 @@ update_zshrc() {
 
     add_if_missing 'source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh'
     add_if_missing 'source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
-    add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
+    # p10k is sourced by OMZ via ZSH_THEME — no manual source needed here.
+    # Remove any stale direct-source line from older installs.
+    sed -i '\|source ~/powerlevel10k/powerlevel10k.zsh-theme|d' "$ZSHRC" 2>/dev/null || true
     add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
 
     add_if_missing 'export PATH="$HOME/.local/bin:$PATH"'
