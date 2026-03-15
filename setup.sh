@@ -96,8 +96,11 @@ update_zshrc() {
 }
 
 enable_services() {
-    log_info "Enabling firewalld"
-    sudo systemctl enable --now firewalld
+    log_info "Configuring ufw firewall..."
+    sudo ufw default deny incoming
+    sudo ufw default allow outgoing
+    sudo ufw enable
+    sudo systemctl enable --now ufw
     log_info "Disabling sddm"
     sudo systemctl disable sddm
 }
@@ -106,7 +109,7 @@ sync_services() {
     log_info "Syncing system services..."
     sudo systemctl enable --now NetworkManager
     sudo systemctl enable --now bluetooth
-    sudo systemctl enable --now firewalld
+    sudo systemctl enable --now ufw
 }
 
 configure_zprofile() {

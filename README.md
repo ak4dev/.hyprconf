@@ -41,7 +41,7 @@ The script will:
 7. Stow all config packages into `$HOME`
 8. Copy VS Code theme extensions and Firefox extension payloads
 9. Auto-link the correct monitor config based on detected GPU
-10. Enable and start `NetworkManager`, `bluetooth`, and `firewalld`
+10. Enable and start `NetworkManager`, `bluetooth`, and `ufw` (deny inbound, allow outbound)
 11. Disable `sddm`, enable `power-profiles-daemon` (laptop only)
 12. Reload Hyprland
 
@@ -58,7 +58,7 @@ hyprsync        # alias defined in ~/.zshrc
 ~/.hyprconf/setup.sh --sync
 ```
 
-Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applies all services (`NetworkManager`, `bluetooth`, `firewalld`), and reloads Hyprland — no package installation.
+Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applies all services (`NetworkManager`, `bluetooth`, `ufw`), and reloads Hyprland — no package installation.
 
 ---
 
@@ -127,7 +127,7 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 | GTK theme sync | `xsettingsd` |
 | Fonts | `nerd-fonts` |
 | Power management | `power-profiles-daemon` |
-| Firewall | `firewalld` |
+| Firewall | `ufw` |
 | AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` |
 | Optional (Nvidia) | `nvidia-utils` *(uncomment in `packages` if using an Nvidia GPU)* |
 

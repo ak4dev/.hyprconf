@@ -90,7 +90,7 @@ network-manager-applet
 power-profiles-daemon
 
 # Firewall
-firewalld
+ufw
 
 # Optional: uncomment if using an Nvidia GPU (gpu_info.sh waybar widget)
 # nvidia-utils
