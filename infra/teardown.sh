@@ -121,7 +121,7 @@ teardown_cdn() {
       status=$(aws cloudfront get-distribution --id "$dist_id" \
         --query 'Distribution.Status' --output text)
       [[ "$status" == "Deployed" ]] && break
-      (( attempts++ ))
+      (( attempts++ )) || true
       log_step "Still propagating... ($((attempts * 30))s)"
     done
   fi

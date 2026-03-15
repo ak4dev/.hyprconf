@@ -8,7 +8,11 @@ readonly SETUP_SCRIPT="$HOME/.hyprconf/setup.sh"
 readonly DEPLOY_SCRIPT="$HOME/.hyprconf/infra/deploy.sh"
 readonly TEARDOWN_SCRIPT="$HOME/.hyprconf/infra/teardown.sh"
 
-_b='\e[1m'; _c='\e[36m'; _y='\e[33m'; _r='\e[0m'
+if [[ -t 1 ]]; then
+  _b=$'\e[1m'; _c=$'\e[36m'; _y=$'\e[33m'; _r=$'\e[0m'
+else
+  _b=''; _c=''; _y=''; _r=''
+fi
 
 usage() {
   printf "${_b}${_c}hyprconf${_r} — hyprland config control centre\n\n"
@@ -68,6 +72,7 @@ cmd_monitor() {
     list)
       printf "${_b}Available monitor presets:${_r}\n"
       for f in "$HOME/.config/hypr/pcMonitors."*; do
+        [[ -e "$f" ]] || continue
         local base; base="$(basename "$f")"
         [[ "$base" == "pcMonitors.conf" ]] && continue
         printf '  %s\n' "${base#pcMonitors.}"
