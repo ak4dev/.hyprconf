@@ -26,6 +26,57 @@ print_header() {
   printf '%s  ──────────────────────────────────────────────────────────────%s\n\n' "$DM" "$RS"
 }
 
+configure_pacman() {
+    log_step "Configuring pacman..."
+    local conf="/etc/pacman.conf"
+    local modified=0
+
+    # Uncomment a standalone flag (e.g., Color, ILoveCandy, VerbosePkgLists)
+    _pac_flag() {
+        grep -q "^${1}$" "$conf" && return
+        if grep -q "^#${1}$" "$conf"; then
+            sudo sed -i "0,/^#${1}$/s/^#${1}$/${1}/" "$conf"
+        else
+            sudo sed -i "/^\[options\]/a ${1}" "$conf"
+        fi
+        (( modified++ )) || true
+    }
+
+    # Ensure a key = value option is set (uncomment or insert)
+    _pac_kv() {
+        local key="$1" val="$2"
+        grep -q "^${key} = " "$conf" && return
+        if grep -q "^#${key} = " "$conf"; then
+            sudo sed -i "0,/^#${key} = .*/s/^#${key} = .*/${key} = ${val}/" "$conf"
+        else
+            sudo sed -i "/^\[options\]/a ${key} = ${val}" "$conf"
+        fi
+        (( modified++ )) || true
+    }
+
+    _pac_flag "Color"           # coloured output
+    _pac_flag "ILoveCandy"      # Pac-Man progress bar
+    _pac_flag "VerbosePkgLists" # table view when installing many packages
+    _pac_flag "CheckSpace"      # pre-flight disk-space check
+    _pac_kv   "ParallelDownloads" "5"
+
+    # Enable [multilib] repo (32-bit libraries, required by Steam and friends)
+    if ! grep -q '^\[multilib\]' "$conf"; then
+        sudo sed -i 's/^#\[multilib\]$/[multilib]/' "$conf"
+        sudo sed -i '/^\[multilib\]$/{n; s/^#Include/Include/}' "$conf"
+        (( modified++ )) || true
+        log_step "Refreshing package databases (multilib enabled)..."
+        sudo pacman -Sy --noconfirm
+    fi
+
+    if [[ $modified -gt 0 ]]; then
+        log_ok "pacman.conf updated (${modified} change(s))."
+    else
+        log_ok "pacman.conf already configured."
+    fi
+}
+
+
 install_packages() {
     log_step "Installing required packages..."
     sudo pacman -Syu --noconfirm
@@ -302,6 +353,7 @@ main() {
         fi
     fi
 
+    configure_pacman
     install_packages
     create_directories
     clone_or_update_repo
