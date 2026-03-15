@@ -141,6 +141,32 @@ teardown_cert() {
     log_warn "No certificate ARN in state — skipping."
     return
   fi
+
+  # Remove the validation CNAME from Route53 before deleting the cert.
+  # Once the cert is gone, ACM no longer exposes the record details.
+  log_step "Removing ACM validation CNAME from Route53 ..."
+  local rec_name rec_value
+  rec_name=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
+    --region us-east-1 \
+    --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Name' \
+    --output text 2>/dev/null || true)
+  rec_value=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
+    --region us-east-1 \
+    --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Value' \
+    --output text 2>/dev/null || true)
+
+  if [[ -n "$rec_name" && "$rec_name" != "None" && -n "$rec_value" ]]; then
+    aws route53 change-resource-record-sets \
+      --hosted-zone-id "$HYPRCONF_ZONE_ID" \
+      --change-batch "$(printf '{"Changes":[{"Action":"DELETE","ResourceRecordSet":{"Name":"%s","Type":"CNAME","TTL":60,"ResourceRecords":[{"Value":"%s"}]}}]}' \
+        "$rec_name" "$rec_value")" \
+      --output text > /dev/null 2>&1 \
+      && log_ok "Validation CNAME removed." \
+      || log_warn "Validation CNAME not found (already removed?)."
+  else
+    log_warn "Could not retrieve validation CNAME details — may need manual cleanup."
+  fi
+
   log_step "Deleting ACM certificate $cert_arn ..."
   aws acm delete-certificate --certificate-arn "$cert_arn" \
     --region us-east-1 --output text > /dev/null 2>&1 \
