@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-DISPLAY="eDP-1"
+readonly DISPLAY="eDP-1"
 
-# Get the disabled status of the monitor
 DISABLED=$(hyprctl monitors | awk -v m="$DISPLAY" '
   $0 ~ "Monitor " m {flag=1}
   flag && $1=="disabled:" {print $2; exit}

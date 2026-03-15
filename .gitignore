@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Backup files
+*.bak
+*.backup.*
+
+# Generated monitor symlink target (created by setup.sh at runtime)
+stow/hypr/.config/hypr/monitors.conf
+
+# Editor
+.vscode/
+*.swp
+*.swo
