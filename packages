@@ -1,27 +1,74 @@
+# Core utilities
 git
 base-devel
-power-profiles-daemon
-pavucontrol
-playerctl
-brightnessctl
-hyprpaper
-firefox
-code
-zsh
-zsh-syntax-highlighting
-zsh-autosuggestions
 curl
 wget
 unzip
+stow
+pciutils
+
+# Hyprland & compositing
 hyprland
+hyprpaper
+hyprshot
+xdg-desktop-portal-hyprland
+
+# Audio (PipeWire stack + volume control)
+pipewire
+pipewire-pulse
+wireplumber
+pavucontrol
+
+# KDE Wallet (autostarted by hyprland.conf)
+kwallet
+kwallet-pam
+
+# Media & input
+playerctl
+brightnessctl
+
+# Terminal & shell
 kitty
+zsh
+zsh-syntax-highlighting
+zsh-autosuggestions
+fastfetch
+
+# Bar, launcher, notifications
 waybar
 wofi
 dunst
-fastfetch
-stow
+
+# Applications
+firefox
+code
+dolphin
+htop
+cliphist
+wl-clipboard
+
+# System monitoring (waybar scripts)
+upower
+lm_sensors
+
+# Python (theme switcher)
+python
+
+# Theme / GTK sync (theme switcher)
+xsettingsd
+
+# Fonts
 nerd-fonts
+
+# Bluetooth
 bluez-utils
 blueman
-hyprshot
+
+# Power management
+power-profiles-daemon
+
+# Firewall
 firewalld
+
+# Optional: uncomment if using an Nvidia GPU (gpu_info.sh waybar widget)
+# nvidia-utils

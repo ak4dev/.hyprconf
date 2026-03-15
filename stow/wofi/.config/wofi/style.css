@@ -1,21 +1,21 @@
 window {
     margin: 0px;
-    border: 1px solid #d65d0e;
-    background-color: #32302f;
-    color: #ebdbb2;
+    border: 1px solid #7dcfff;
+    background-color: #24283b;
+    color: #c0caf5;
 }
 
 #input {
     margin: 5px;
     border: none;
-    color: #ebdbb2;
-    background-color: #928374;
+    color: #c0caf5;
+    background-color: #565f89;
 }
 
 #inner-box, #outer-box {
     margin: 5px;
     border: none;
-    background-color: #32302f;
+    background-color: #24283b;
 }
 
 #scroll {
@@ -26,23 +26,23 @@ window {
 #text {
     margin: 5px;
     border: none;
-    color: #ebdbb2;
+    color: #c0caf5;
 }
 
 #entry.activatable #text {
-    color: #ebdbb2;
+    color: #c0caf5;
 }
 
 #entry > * {
-    color: #ebdbb2;
+    color: #c0caf5;
 }
 
 #entry:selected {
-    background-color: #d65d0e;
-    color: #32302f;
+    background-color: #7dcfff;
+    color: #24283b;
 }
 
 #entry:selected #text {
-    color: #32302f;
+    color: #24283b;
     font-weight: bold;
 }

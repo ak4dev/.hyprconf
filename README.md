@@ -106,6 +106,7 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, and reloa
 | Bluetooth | `bluez-utils`, `blueman` |
 | Browser | `firefox` |
 | Editor | `code` (VS Code OSS) |
+| Clipboard | `cliphist`, `wl-clipboard` |
 | Fonts | `nerd-fonts` |
 | System | `firewalld`, `power-profiles-daemon` |
 | Monitor tool | `btop` |
@@ -162,6 +163,7 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, and reloa
 | `XF86MonBrightnessUp / Down` | Brightness ±5% |
 | `XF86AudioPlay / Pause / Next / Prev` | Media playback (playerctl) |
 | `Super + Shift + 4` | Screenshot (region, hyprshot) |
+| `Super + Shift + V` | Clipboard history picker (cliphist + wofi) |
 | `Super + Shift + Backspace` | Toggle native laptop display |
 | `Super + Shift + B` | Switch to bedroom monitor config |
 | `Super + Shift + K` | Switch to kitchen monitor config |
