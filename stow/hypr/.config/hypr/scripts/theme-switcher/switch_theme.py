@@ -5,6 +5,7 @@ import random
 import re
 import shutil
 import subprocess
+import sys
 import filecmp
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -1325,7 +1326,8 @@ def list_themes() -> None:
             continue
         name = fname[:-5]
         try:
-            d = json.load(open(os.path.join(THEMES_DIR, fname)))
+            with open(os.path.join(THEMES_DIR, fname)) as _fh:
+                d = json.load(_fh)
         except Exception:
             continue
         bg      = d.get("background", "")
@@ -1383,7 +1385,8 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
     theme_data: Dict[str, Dict] = {}
     for name in all_themes:
         try:
-            theme_data[name] = json.load(open(os.path.join(THEMES_DIR, f"{name}.json")))
+            with open(os.path.join(THEMES_DIR, f"{name}.json")) as _fh:
+                theme_data[name] = json.load(_fh)
         except Exception:
             theme_data[name] = {}
 
@@ -1614,4 +1617,5 @@ if __name__ == "__main__":
             else:
                 print("No theme selected.")
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
