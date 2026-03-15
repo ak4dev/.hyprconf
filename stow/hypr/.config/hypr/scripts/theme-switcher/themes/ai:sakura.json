@@ -1,0 +1,13 @@
+{
+  "background": "#0d060a",
+  "foreground": "#fce7f3",
+  "comment":    "#4a1a35",
+  "cyan":       "#67e8f9",
+  "green":      "#6ee7b7",
+  "orange":     "#fdba74",
+  "pink":       "#f472b6",
+  "purple":     "#c084fc",
+  "red":        "#f87171",
+  "yellow":     "#fde68a",
+  "accent":     "#f472b6"
+}

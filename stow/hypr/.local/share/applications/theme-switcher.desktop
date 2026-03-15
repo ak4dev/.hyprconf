@@ -7,3 +7,11 @@ Terminal=false
 Type=Application
 Categories=Settings;DesktopSettings;
 Keywords=theme;color;scheme;switch;
+
+[Desktop Action Wofi]
+Name=Theme (wofi picker)
+Exec=bash -c 'python3 "$HOME/.config/hypr/scripts/theme-switcher/switch_theme.py" --wofi'
+
+[Desktop Action List]
+Name=List Themes
+Exec=kitty --app-id theme-switcher -e bash -c 'python3 "$HOME/.config/hypr/scripts/theme-switcher/switch_theme.py" --list | less -R; read -n1'

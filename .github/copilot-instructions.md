@@ -57,9 +57,11 @@ This is a **GNU Stow dotfiles repo** for Arch Linux + Hyprland. Configs live und
 ## Theme Switcher
 
 - Themes live in `stow/hypr/.config/hypr/scripts/theme-switcher/themes/` as JSON files.
-- Every theme JSON must include at minimum: `background`, `foreground`, `accent`, and `wallpaper` keys.
-- `kitty`, `vscode`, and `firefox` keys are optional but should be included when the theme has matching support.
-- When adding a new theme, add its name to the themes table in `README.md`.
+- Every theme JSON must include at minimum: `background`, `foreground`, `accent`, and `comment` keys.
+- `kitty`, `vscode`, `firefox`, and `wallpaper` keys are optional. If `kitty` is absent, a conf is auto-generated from the palette.
+- `ai:` prefix is reserved for AI-original themes with no external VS Code/Firefox dependency.
+- When adding a new theme, add its name (and palette concept for `ai:` themes) to the themes tables in `README.md`.
+- New CLI flags: `--current`, `--next`, `--prev`, `--random`, `--wofi`, `--filter`, `--no-reload`.
 
 ## Scripts
 

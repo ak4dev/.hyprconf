@@ -199,19 +199,35 @@ Launch from Wofi (search **"Theme"**) or from any terminal:
 python3 ~/.config/hypr/scripts/theme-switcher/switch_theme.py
 ```
 
-The script presents an interactive picker and applies the selected theme to:
+The script presents an interactive picker (or use `--wofi` for inline Wofi selection) and applies the selected theme to:
 
-- **Hyprland** — active/inactive border colours
+- **Hyprland** — live border colours via `hyprctl keyword` + persistent `theme-colors.conf`
 - **Waybar** — full CSS colour variables
-- **Kitty** — sourced theme file
+- **Kitty** — sourced theme file (auto-generated from palette if no `kitty` key)
 - **Wofi** — generated `style.css`
 - **Dunst** — notification frame and urgency colours
+- **hyprlock** — input-field and label colours
 - **VS Code / Code OSS** — colour theme and font settings
 - **Firefox** — installs matching theme extension
 - **GTK 3 & 4** — `settings.ini` colour scheme hints
 - **Wallpaper** — swaps via `hyprpaper` IPC
 
+### CLI Flags
+
+| Flag | Short | Description |
+|---|---|---|
+| `--list` | `-l` | Print colour table of all themes |
+| `--current` | `-c` | Print the currently active theme |
+| `--next` | `-n` | Apply next theme (alphabetical) |
+| `--prev` | `-p` | Apply previous theme |
+| `--random` | `-r` | Apply a random theme |
+| `--wofi` | `-w` | Pick via `wofi --dmenu` (no terminal) |
+| `--filter STR` | `-f` | Pre-filter themes by substring |
+| `--no-reload` | | Skip `hyprctl reload` after applying |
+
 ### Available Themes
+
+**Community themes (26):**
 
 | | | | |
 |---|---|---|---|
@@ -221,6 +237,33 @@ The script presents an interactive picker and applies the selected theme to:
 | `nord` | `one-dark` | `oxocarbon` | `palenight` |
 | `rose-pine` | `rose-pine-dawn` | `rose-pine-moon` | `shades-of-purple` |
 | `solarized-dark` | `tokyo-moon` | `tokyo-night` | `tokyo-storm` |
+
+**AI-original themes (20) — prefix `ai:`:**
+
+| Theme | Palette concept |
+|---|---|
+| `ai:void` | Near-black void with electric violet |
+| `ai:phosphor` | CRT phosphor green on deep black |
+| `ai:ember` | Charred black with smoldering orange |
+| `ai:glacier` | Crisp ice-white light theme with steel blue |
+| `ai:midnight-bloom` | Deep navy with exotic fuchsia |
+| `ai:ash` | Cold grey ash with burning crimson |
+| `ai:deep-sea` | Ocean trench black with teal-cyan |
+| `ai:neon-noir` | Dark concrete with electric neon green |
+| `ai:copper` | Warm dark brown with oxidized copper |
+| `ai:steel` | Industrial blue-grey with electric blue |
+| `ai:aurora` | Dark grey-navy with aurora green |
+| `ai:bioluminescence` | Pitch black with glowing cyan organisms |
+| `ai:solar-flare` | Near-black space with plasma orange |
+| `ai:crimson-tide` | Deep ocean dark with blood crimson |
+| `ai:forest-floor` | Earthy dark brown with moss green |
+| `ai:lavender-haze` | Dark purple-grey with soft amethyst |
+| `ai:obsidian` | Pure volcanic black with sharp amber |
+| `ai:sakura` | Dark ink wash with cherry blossom pink |
+| `ai:circuit` | PCB dark green with circuit-trace cyan |
+| `ai:dusk` | Dark dusty purple with desert sunset orange |
+
+> **Tip:** `ai:` themes auto-generate a Kitty colour config from their palette — no separate `.conf` file required. Use `--filter ai:` to show only AI themes.
 
 To add a new theme, create a JSON file in `stow/hypr/.config/hypr/scripts/theme-switcher/themes/` following the existing format:
 
@@ -250,6 +293,8 @@ To add a new theme, create a JSON file in `stow/hypr/.config/hypr/scripts/theme-
   }
 }
 ```
+
+> `kitty`, `vscode`, `firefox`, and `wallpaper` are all optional. If `kitty` is omitted, a theme conf is auto-generated from the palette colours.
 
 ---
 
