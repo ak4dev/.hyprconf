@@ -262,7 +262,7 @@ mount_filesystems() {
   mount -o "${BTRFS_OPTS},subvol=@home"      /dev/mapper/"$LUKS_NAME" /mnt/home
   mount -o "${BTRFS_OPTS},subvol=@snapshots" /dev/mapper/"$LUKS_NAME" /mnt/.snapshots
   mount -o "${BTRFS_OPTS},subvol=@var_log"   /dev/mapper/"$LUKS_NAME" /mnt/var/log
-  mount "$EFI_PART" /mnt/boot
+  mount -o umask=0077 "$EFI_PART" /mnt/boot
   log_ok "All filesystems mounted."
 }
 
@@ -395,13 +395,15 @@ run_setup_in_chroot() {
   log_ok "Repo cloned."
 
   # Grant passwordless sudo for unattended package installation; removed when done.
-  echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > /mnt/etc/sudoers.d/hyprconf-setup
+  # File must sort after "wheel" alphabetically so this NOPASSWD rule wins.
+  echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > /mnt/etc/sudoers.d/zz-hyprconf-setup
+  chmod 440 /mnt/etc/sudoers.d/zz-hyprconf-setup
 
   log_step "Running setup.sh as ${USERNAME} in chroot..."
   arch-chroot /mnt runuser -l "${USERNAME}" -c \
     "export HYPRCONF_CHROOT=1 HYPRCONF_INSTALLER=1; bash /home/${USERNAME}/.hyprconf/setup.sh"
 
-  rm -f /mnt/etc/sudoers.d/hyprconf-setup
+  rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup
   log_ok "Dotfiles configured."
 }
 
