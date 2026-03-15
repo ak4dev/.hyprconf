@@ -7,9 +7,10 @@ Personal Hyprland dotfiles for Arch Linux, managed with [GNU Stow](https://www.g
 ## Features
 
 - **One-command setup** — installs packages, sets up ZSH with Oh My Zsh + Powerlevel10k, stows all configs, and reloads Hyprland
-- **`--sync` mode** — pull latest changes and re-stow without reinstalling packages; aliased to `hyprsync` in ZSH
-- **GPU-aware monitor config** — auto-selects `pcMonitors.conf` (RTX 4090, HDR) or `laptopMonitors.conf` at setup time
+- **`--sync` mode** — pull latest changes, re-stow, and re-apply all services without reinstalling packages; aliased to `hyprsync` in ZSH
+- **GPU-aware monitor config** — auto-selects `pcMonitors.conf` (RTX 5090, HDR) or `laptopMonitors.conf` at setup time
 - **Hot-swappable monitor presets** — keybinds to switch between bedroom/kitchen PC configurations on the fly
+- **Screen lock & idle management** — hyprlock with blurred screenshot background; hypridle dims then locks then suspends; cliphist wiped on lock
 - **Full-desktop theme switcher** — 24 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code, Firefox, GTK3/4, and wallpaper
 - **Conflict-safe stowing** — existing files are backed up with timestamps before being replaced
 
@@ -35,11 +36,19 @@ The script will:
 2. Create required directories (`~/.config`, `~/.vscode-oss/extensions`, `~/Pictures`, `~/Downloads`, `~/wallpaper`)
 3. Install Oh My Zsh and Powerlevel10k
 4. Configure `~/.zshrc` (ZSH theme, plugins, aliases, fastfetch greeting)
-5. Stow all config packages into `$HOME`
-6. Copy VS Code theme extensions and Firefox extension payloads
-7. Auto-link the correct monitor config based on detected GPU
-8. Enable `firewalld`, disable `sddm`, enable `power-profiles-daemon` (laptop only)
-9. Reload Hyprland
+5. Configure `~/.zprofile` to auto-start Hyprland on TTY1 login
+6. Initialise XDG user directories (`~/Documents`, `~/Downloads`, etc.)
+7. Stow all config packages into `$HOME`
+8. Copy VS Code theme extensions and Firefox extension payloads
+9. Auto-link the correct monitor config based on detected GPU
+10. Enable and start `NetworkManager`, `bluetooth`, and `firewalld`
+11. Disable `sddm`, enable `power-profiles-daemon` (laptop only)
+12. Reload Hyprland
+
+> **Note:** `bibata-cursor-theme` (set as `GTK_CURSOR_THEME`) is AUR-only and must be installed manually:
+> ```bash
+> yay -S bibata-cursor-theme
+> ```
 
 ### Syncing after changes
 
@@ -49,7 +58,7 @@ hyprsync        # alias defined in ~/.zshrc
 ~/.hyprconf/setup.sh --sync
 ```
 
-Sync pulls the latest repo, purges broken symlinks, re-stows packages, and reloads Hyprland — no package installation.
+Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applies all services (`NetworkManager`, `bluetooth`, `firewalld`), and reloads Hyprland — no package installation.
 
 ---
 
@@ -70,8 +79,10 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, and reloa
 │   │       ├── keybinds.conf         # All keybindings
 │   │       ├── gestures.conf         # Touchpad gesture settings
 │   │       ├── hyprpaper.conf        # Wallpaper config
+│   │       ├── hyprlock.conf         # Lock screen config (blurred screenshot + clock)
+│   │       ├── hypridle.conf         # Idle daemon (dim → lock → DPMS off → suspend)
 │   │       ├── laptopMonitors.conf   # Laptop + external monitor layout
-│   │       ├── pcMonitors.conf       # Desktop (RTX 4090, HDR) layout
+│   │       ├── pcMonitors.conf       # Desktop (RTX 5090, HDR) layout
 │   │       ├── pcMonitors.bedroom    # Bedroom PC alternate layout
 │   │       ├── pcMonitors.kitchen    # Kitchen PC alternate layout
 │   │       └── scripts/
@@ -96,23 +107,28 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, and reloa
 
 | Category | Packages |
 |---|---|
-| Core | `base-devel`, `git`, `curl`, `wget`, `unzip`, `stow`, `pciutils` |
-| Hyprland | `hyprland`, `hyprpaper`, `hyprshot`, `xdg-desktop-portal-hyprland` |
-| Audio | `pipewire`, `pipewire-pulse`, `wireplumber`, `pavucontrol` |
+| Core | `base-devel`, `git`, `curl`, `wget`, `unzip`, `stow`, `pciutils`, `xdg-user-dirs` |
+| Hyprland | `hyprland`, `hyprpaper`, `hyprshot`, `hyprlock`, `hypridle`, `xdg-desktop-portal-hyprland` |
+| Audio | `pipewire`, `pipewire-pulse`, `pipewire-alsa`, `wireplumber`, `pavucontrol` |
 | KDE Wallet | `kwallet`, `kwallet-pam` |
+| Polkit | `polkit-kde-agent` |
 | Terminal & shell | `kitty`, `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, `fastfetch` |
 | Bar / Launcher | `waybar`, `wofi` |
 | Notifications | `dunst` |
 | Applications | `firefox`, `code`, `dolphin`, `htop`, `btop` |
+| File manager support | `gvfs` |
 | Clipboard | `cliphist`, `wl-clipboard` |
 | Media & input | `playerctl`, `brightnessctl` |
-| Bluetooth | `bluez-utils`, `blueman` |
+| Bluetooth | `bluez`, `bluez-utils`, `blueman` |
+| Networking | `networkmanager`, `network-manager-applet` |
 | System monitoring | `upower`, `lm_sensors` |
 | Python | `python` |
+| Icons & themes | `papirus-icon-theme`, `kvantum`, `qt6ct` |
 | GTK theme sync | `xsettingsd` |
 | Fonts | `nerd-fonts` |
 | Power management | `power-profiles-daemon` |
 | Firewall | `firewalld` |
+| AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` |
 | Optional (Nvidia) | `nvidia-utils` *(uncomment in `packages` if using an Nvidia GPU)* |
 
 ---
@@ -164,8 +180,9 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, and reloa
 | `XF86AudioRaiseVolume / LowerVolume` | Volume ±5% |
 | `XF86AudioMute` | Toggle mute |
 | `XF86AudioMicMute` | Toggle mic mute |
-| `XF86MonBrightnessUp / Down` | Brightness ±5% |
+| `XF86MonBrightnessUp / Down` | Brightness ±5% (auto-detects backlight device) |
 | `XF86AudioPlay / Pause / Next / Prev` | Media playback (playerctl) |
+| `Super + L` | Lock screen (wipes clipboard, invokes hyprlock) |
 | `Super + Shift + 4` | Screenshot (region, hyprshot) |
 | `Super + Shift + V` | Clipboard history picker (cliphist + wofi) |
 | `Super + Shift + Backspace` | Toggle native laptop display |
@@ -242,12 +259,29 @@ The setup script detects the GPU via `lspci` and symlinks the appropriate config
 
 | GPU detected | Config used |
 |---|---|
-| RTX 4090 | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-3 4K rotated |
+| RTX 5090 | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-3 4K rotated |
 | Anything else | `laptopMonitors.conf` — eDP-1 1920×1200 + external displays |
 
 Hot-swap presets (`pcMonitors.bedroom`, `pcMonitors.kitchen`) can be activated at runtime with `Super + Shift + B` / `Super + Shift + K`.
 
 The `util/toggle-native-display` script toggles the built-in `eDP-1` panel on or off without restarting Hyprland (`Super + Shift + Backspace`).
+
+---
+
+## Screen Lock & Idle
+
+Configured via `hypridle.conf` (autostarted at login):
+
+| Timeout | Action |
+|---|---|
+| 4 min | Dim display to 10% brightness |
+| 5 min | Wipe clipboard history + lock screen (hyprlock) |
+| 5 min 30 s | Turn displays off (DPMS) |
+| 30 min | Suspend (`systemctl suspend`) |
+
+The lock screen (`hyprlock.conf`) shows a blurred screenshot of the desktop, a live clock, and a password input field. Displays also turn off immediately before the system sleeps.
+
+Lock manually at any time with `Super + L`.
 
 ---
 
@@ -260,3 +294,11 @@ The setup script idempotently appends to `~/.zshrc`:
 - `zsh-autosuggestions` and `zsh-syntax-highlighting`
 - `hyprsync` alias → `~/.hyprconf/setup.sh --sync`
 - `fastfetch` greeting with Arch logo on every new shell
+
+It also writes to `~/.zprofile` to auto-start Hyprland on login at TTY1:
+
+```zsh
+[[ $(tty) == /dev/tty1 ]] && exec Hyprland
+```
+
+This replaces the need for a display manager (`sddm` is disabled by the setup script).

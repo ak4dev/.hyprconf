@@ -97,9 +97,28 @@ update_zshrc() {
 
 enable_services() {
     log_info "Enabling firewalld"
-    sudo systemctl enable firewalld
+    sudo systemctl enable --now firewalld
     log_info "Disabling sddm"
     sudo systemctl disable sddm
+}
+
+sync_services() {
+    log_info "Syncing system services..."
+    sudo systemctl enable --now NetworkManager
+    sudo systemctl enable --now bluetooth
+    sudo systemctl enable --now firewalld
+}
+
+configure_zprofile() {
+    local zprofile="$HOME/.zprofile"
+    local autostart='[[ $(tty) == /dev/tty1 ]] && exec Hyprland'
+    grep -qxF "$autostart" "$zprofile" 2>/dev/null || echo "$autostart" >> "$zprofile"
+    log_info "Configured Hyprland auto-start in ~/.zprofile"
+}
+
+setup_user_dirs() {
+    log_info "Initialising XDG user directories..."
+    xdg-user-dirs-update
 }
 
 force_stow_package() {
@@ -194,11 +213,11 @@ detect_gpu_and_link_monitor_config() {
 
     rm -f "$monitors_conf"
 
-    if echo "$gpu_info" | grep -qi "4090"; then
-        log_info "RTX 4090 detected, using pcMonitors.conf"
+    if echo "$gpu_info" | grep -qi "5090"; then
+        log_info "RTX 5090 detected, using pcMonitors.conf"
         ln -sf "$hypr_conf_dir/pcMonitors.conf" "$monitors_conf"
     else
-        log_info "No RTX 4090 detected; using laptopMonitors.conf"
+        log_info "No RTX 5090 detected; using laptopMonitors.conf"
         ln -sf "$hypr_conf_dir/laptopMonitors.conf" "$monitors_conf"
         log_info "Enabling power-profiles-daemon"
         sudo systemctl enable --now power-profiles-daemon
@@ -224,6 +243,7 @@ main() {
         purge_broken_symlinks
         sync_vscode_theme_extensions
         stow_all_packages
+        sync_services
         hyprctl reload
         log_info "Sync complete!"
         return 0
@@ -236,7 +256,10 @@ main() {
     install_oh_my_zsh
     install_powerlevel10k
     update_zshrc
+    configure_zprofile
+    setup_user_dirs
     stow_all_packages
+    sync_services
     enable_services
     hyprctl reload
     log_info "Setup complete. Restart your terminal or source your ~/.zshrc."

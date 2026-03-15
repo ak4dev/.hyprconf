@@ -6,22 +6,29 @@ wget
 unzip
 stow
 pciutils
+xdg-user-dirs
 
 # Hyprland & compositing
 hyprland
 hyprpaper
 hyprshot
+hyprlock
+hypridle
 xdg-desktop-portal-hyprland
 
 # Audio (PipeWire stack + volume control)
 pipewire
 pipewire-pulse
+pipewire-alsa
 wireplumber
 pavucontrol
 
 # KDE Wallet (autostarted by hyprland.conf)
 kwallet
 kwallet-pam
+
+# Polkit authentication agent
+polkit-kde-agent
 
 # Media & input
 playerctl
@@ -48,6 +55,9 @@ btop
 cliphist
 wl-clipboard
 
+# File manager support (trash, MTP, network mounts)
+gvfs
+
 # System monitoring (waybar scripts)
 upower
 lm_sensors
@@ -61,9 +71,20 @@ xsettingsd
 # Fonts
 nerd-fonts
 
+# Icons & themes
+papirus-icon-theme
+kvantum
+qt6ct
+# bibata-cursor-theme  -- AUR only; install manually: yay -S bibata-cursor-theme
+
 # Bluetooth
+bluez
 bluez-utils
 blueman
+
+# Networking
+networkmanager
+network-manager-applet
 
 # Power management
 power-profiles-daemon
