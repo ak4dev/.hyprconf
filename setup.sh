@@ -137,7 +137,10 @@ force_stow_package() {
         find "$stow_dir/$package" -type f | while read -r file; do
             local rel_path="${file#$stow_dir/$package/}"
             local target_file="$target_dir/$rel_path"
-            if [[ -e "$target_file" && ! -L "$target_file" ]]; then
+            if [[ -L "$target_file" ]]; then
+                rm "$target_file"
+                log_info "Removed non-stow symlink: $target_file"
+            elif [[ -e "$target_file" ]]; then
                 local backup_file="${target_file}.backup.$(date +%Y%m%d%H%M%S)"
                 mv "$target_file" "$backup_file"
                 log_info "Backed up $target_file to $backup_file"
