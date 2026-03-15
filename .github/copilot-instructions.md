@@ -1,5 +1,25 @@
 # AI Agent Instructions
 
+## Hyprland Documentation
+
+When making any Hyprland configuration change, consult these resources in order:
+
+1. **`docs/hyprland-reference.md`** (this repo) — curated cheatsheet covering all syntax features in active use: monitor syntax, keybind types, window rules, hyprlock/hypridle/hyprpaper config, env vars, animations, and useful `hyprctl` commands.
+2. **Hyprland wiki** — <https://wiki.hyprland.org> — authoritative and always up to date. Key sections:
+   - Monitors: <https://wiki.hyprland.org/Configuring/Monitors/>
+   - Variables: <https://wiki.hyprland.org/Configuring/Variables/>
+   - Binds: <https://wiki.hyprland.org/Configuring/Binds/>
+   - Window Rules: <https://wiki.hyprland.org/Configuring/Window-Rules/>
+   - Animations: <https://wiki.hyprland.org/Configuring/Animations/>
+   - hyprlock: <https://wiki.hyprland.org/Hypr-Ecosystem/hyprlock/>
+   - hypridle: <https://wiki.hyprland.org/Hypr-Ecosystem/hypridle/>
+   - hyprpaper: <https://wiki.hyprland.org/Hypr-Ecosystem/hyprpaper/>
+   - hyprctl: <https://wiki.hyprland.org/Configuring/Using-hyprctl/>
+
+**When adding features not covered in `docs/hyprland-reference.md`**, add a concise example of the new syntax to the appropriate section in that file.
+
+---
+
 ## README
 
 **Always update `README.md` when making any change that could contradict or become inconsistent with its contents.** This includes:

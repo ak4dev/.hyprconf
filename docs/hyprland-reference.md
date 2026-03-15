@@ -1,0 +1,523 @@
+# Hyprland Configuration Reference
+
+> Curated cheatsheet for this dotfiles repo. Covers every syntax feature in use.
+> Full wiki: <https://wiki.hyprland.org>
+
+---
+
+## Table of Contents
+
+1. [Config Basics](#config-basics)
+2. [Monitor Syntax](#monitor-syntax)
+3. [Environment Variables](#environment-variables)
+4. [Autostart (exec / exec-once)](#autostart)
+5. [Keybind Types](#keybind-types)
+6. [Look & Feel](#look--feel)
+7. [Input & Gestures](#input--gestures)
+8. [Window Rules](#window-rules)
+9. [Workspace Rules](#workspace-rules)
+10. [hyprlock](#hyprlock)
+11. [hypridle](#hypridle)
+12. [hyprpaper](#hyprpaper)
+13. [Color Format](#color-format)
+14. [Useful hyprctl Commands](#useful-hyprctl-commands)
+
+---
+
+## Config Basics
+
+```ini
+# Variable definition
+$name = value
+
+# Source another file
+source = ~/.config/hypr/keybinds.conf
+
+# Set an option
+general {
+    option = value
+}
+
+# Environment variable
+env = VAR_NAME,value
+```
+
+- Comments: `#`
+- Variables: `$varName = value` — use with `$varName`
+- All options are case-insensitive
+- Wiki: <https://wiki.hyprland.org/Configuring/Keywords/>
+
+---
+
+## Monitor Syntax
+
+### Classic (inline)
+
+```ini
+monitor = NAME, RESOLUTION@HZ, POSITION, SCALE[, EXTRAS...]
+```
+
+| Field | Examples |
+|---|---|
+| NAME | `HDMI-A-1`, `DP-1`, `eDP-1`, `auto` (match any) |
+| RESOLUTION | `3840x2160`, `1920x1200`, `preferred` |
+| HZ | `@120`, `@60` (appended to resolution) |
+| POSITION | `0x0`, `auto`, `auto-right`, `auto-left` |
+| SCALE | `1`, `1.5`, `2` |
+| EXTRAS | `vrr, 2` · `bitdepth, 10` · `cm, hdr` · `sdrbrightness, 1.3` · `sdrsaturation, 1` · `transform, N` · `disable` |
+
+**Transform values:** 0=normal, 1=90°, 2=180°, 3=270°, 4=flipped, 5=flipped+90°, 6=flipped+180°, 7=flipped+270°
+
+```ini
+# Examples from this repo
+monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5, vrr, 2, bitdepth, 10, cm, hdr, sdrbrightness, 1.3
+monitor = DP-3, 3840x2160, auto-right, 3, transform, 3
+monitor = DP-1, disable
+```
+
+### monitorv2 (block syntax — Hyprland ≥ 0.47)
+
+```ini
+monitorv2 {
+    output       = DP-1
+    mode         = 3840x2160@240
+    position     = auto-left
+    scale        = 2
+    transform    = 0
+    supports_hdr = true
+}
+```
+
+### Workspace pinning
+
+```ini
+workspace = 1, monitor:HDMI-A-1
+workspace = 4, monitor:DP-1
+```
+
+### render block (per-config)
+
+```ini
+render {
+    direct_scanout    = 1   # Reduces latency for fullscreen apps
+    cm_fs_passthrough = 1   # Pass HDR metadata for fullscreen apps
+}
+```
+
+Wiki: <https://wiki.hyprland.org/Configuring/Monitors/>
+
+---
+
+## Environment Variables
+
+```ini
+env = XCURSOR_SIZE,24
+env = HYPRCURSOR_SIZE,24
+env = QT_QPA_PLATFORM,wayland
+env = QT_QPA_PLATFORMTHEME,qt6ct
+env = QT_STYLE_OVERRIDE,kvantum
+env = GTK_THEME,Adwaita-dark
+env = GTK_ICON_THEME,Papirus-Dark
+env = GTK_CURSOR_THEME,Bibata-Modern-Ice   # AUR: bibata-cursor-theme
+env = GTK_CURSOR_SIZE,24
+env = MOZ_ENABLE_WAYLAND,1
+```
+
+Wiki: <https://wiki.hyprland.org/Configuring/Environment-variables/>
+
+---
+
+## Autostart
+
+```ini
+exec-once = program   # Runs once at Hyprland startup only
+exec       = program  # Runs at startup AND on every `hyprctl reload`
+```
+
+> **Use `exec` for anything that must survive `hyprsync`/`hyprctl reload`** (e.g. daemons, wallpaper, bar).
+> Use `exec-once` for one-shot init (polkit, kwallet).
+
+```ini
+exec      = pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf
+exec      = pkill waybar; waybar -c ~/.config/waybar/waybar.jsonc
+exec-once = /usr/lib/polkit-kde-authentication-agent-1
+exec-once = hypridle
+exec      = wl-paste --type text --watch cliphist store
+exec      = wl-paste --type image --watch cliphist store
+```
+
+---
+
+## Keybind Types
+
+```
+bind   KEY, action        # Normal keypress
+binde  KEY, action        # Repeats while held (good for resize)
+bindl  KEY, action        # Fires even when screen is locked
+bindm  KEY, action        # Mouse button bind
+bindel KEY, action        # Repeating + works locked (media/brightness keys)
+```
+
+### Syntax
+
+```ini
+bind  = $mainMod,       T,     exec, kitty
+bind  = $mainMod SHIFT, Q,     exit
+binde = $mainMod SHIFT, right, resizeactive, 40 0
+bindm = $mainMod,       mouse:272, movewindow
+bindm = $mainMod,       mouse:273, resizewindow
+bindel = , XF86AudioRaiseVolume, exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+
+bindl  = , XF86AudioNext, exec, playerctl next
+```
+
+### Common dispatchers
+
+| Dispatcher | Args | Effect |
+|---|---|---|
+| `exec` | command | Run a command |
+| `killactive` | — | Close focused window |
+| `exit` | — | Exit Hyprland |
+| `togglefloating` | — | Float/un-float window |
+| `fullscreen` | 0/1/2 | Fullscreen modes |
+| `movefocus` | l/r/u/d | Move keyboard focus |
+| `resizeactive` | dx dy | Resize active window |
+| `workspace` | N / e+1 / e-1 | Switch workspace |
+| `movetoworkspace` | N / special:name | Move window to workspace |
+| `togglespecialworkspace` | name | Show/hide scratchpad |
+| `dpms` | on/off/toggle | Display power management |
+| `pseudo` | — | Pseudotile toggle (dwindle) |
+| `togglesplit` | — | Toggle split direction |
+
+Wiki: <https://wiki.hyprland.org/Configuring/Binds/>
+
+---
+
+## Look & Feel
+
+### general
+
+```ini
+general {
+    gaps_in  = 3           # Gap between windows
+    gaps_out = 3           # Gap between windows and screen edge
+    border_size = 2
+    col.active_border   = rgba(33ccffee) rgba(00ff99ee) 45deg
+    col.inactive_border = rgba(595959aa)
+    resize_on_border = false
+    allow_tearing    = false
+    layout = bsp           # bsp | dwindle | master
+}
+```
+
+### decoration
+
+```ini
+decoration {
+    rounding       = 1
+    rounding_power = 3
+    active_opacity   = 1
+    inactive_opacity = 0.8
+
+    shadow {
+        enabled      = true
+        range        = 4
+        render_power = 3
+        color        = rgba(1a1a1aee)
+    }
+
+    blur {
+        enabled   = true
+        size      = 3
+        passes    = 4
+        vibrancy  = 0.1696
+    }
+}
+```
+
+### animations
+
+```ini
+animations {
+    enabled = yes, please :)
+
+    bezier = NAME, X0, Y0, X1, Y1   # CSS cubic-bezier
+
+    # animation = TYPE, ENABLED, SPEED, CURVE[, STYLE]
+    animation = windows,    1, 4.79, easeOutQuint
+    animation = windowsIn,  1, 4.1,  easeOutQuint, popin 87%
+    animation = workspaces, 1, 1.94, almostLinear, fade
+}
+```
+
+**Animation types:** `global`, `windows`, `windowsIn`, `windowsOut`, `border`, `fade`, `fadeIn`, `fadeOut`, `layers`, `layersIn`, `layersOut`, `workspaces`, `workspacesIn`, `workspacesOut`
+
+**Styles:** `slide`, `popin [percent%]`, `fade`
+
+Wiki: <https://wiki.hyprland.org/Configuring/Animations/>
+
+### dwindle layout
+
+```ini
+dwindle {
+    pseudotile     = true   # Maintain ratios in tiled mode
+    preserve_split = true
+    force_split    = -1     # -1=auto, 0=left/top, 1=right/bottom, 2=right/bottom always
+}
+```
+
+### misc
+
+```ini
+misc {
+    force_default_wallpaper = 0
+    disable_hyprland_logo   = true
+}
+```
+
+Wiki: <https://wiki.hyprland.org/Configuring/Variables/>
+
+---
+
+## Input & Gestures
+
+```ini
+input {
+    kb_layout  = us
+    follow_mouse    = 1   # 0=disabled, 1=full, 2=loose, 3=fullOnRelease
+    sensitivity     = 0   # -1.0 to 1.0 (libinput accel)
+    natural_scroll  = true
+
+    touchpad {
+        natural_scroll = true
+    }
+}
+
+gestures {
+    workspace_swipe                    = true
+    workspace_swipe_invert             = true    # Natural (macOS-style)
+    workspace_swipe_distance           = 300
+    workspace_swipe_min_speed_to_force = 15
+    workspace_swipe_cancel_ratio       = 0.5
+    workspace_swipe_create_new         = true
+    workspace_swipe_direction_lock     = true
+    workspace_swipe_forever            = true
+}
+
+# Per-device overrides
+device {
+    name        = epic-mouse-v1   # hyprctl devices to find name
+    sensitivity = -0.5
+}
+```
+
+Wiki: <https://wiki.hyprland.org/Configuring/Variables/#input>
+
+---
+
+## Window Rules
+
+```ini
+# windowrule = RULE, FILTER
+windowrule = float,          class:^(pavucontrol)$
+windowrule = size 820 440,   class:^(theme-switcher)$
+windowrule = center on,      class:^(theme-switcher)$
+
+# match: prefix for named matching
+windowrule = match:class theme-switcher, float on, center on, size 820 440
+```
+
+**Common rules:** `float`, `fullscreen`, `center`, `size W H`, `move X Y`, `pin`, `opacity ACTIVE INACTIVE`, `noblur`, `noborder`, `rounding N`, `workspace N`
+
+**Filter syntax:** `class:REGEX`, `title:REGEX`, `floating:0/1`, `fullscreen:0/1`, `onworkspace:N`
+
+Wiki: <https://wiki.hyprland.org/Configuring/Window-Rules/>
+
+---
+
+## Workspace Rules
+
+```ini
+workspace = N, monitor:NAME
+workspace = N, default:true
+workspace = N, gapsout:0, gapsin:0     # "Smart gaps"
+workspace = special:name               # Named scratchpad
+```
+
+Wiki: <https://wiki.hyprland.org/Configuring/Workspace-Rules/>
+
+---
+
+## hyprlock
+
+Config: `~/.config/hypr/hyprlock.conf`
+Wiki: <https://wiki.hyprland.org/Hypr-Ecosystem/hyprlock/>
+
+```ini
+general {
+    disable_loading_bar = true
+    hide_cursor         = true
+    grace               = 0         # Seconds before lock is enforced
+    no_fade_in          = false
+}
+
+background {
+    monitor     =               # Blank = all monitors
+    path        = screenshot    # Or absolute path to image
+    blur_passes = 3
+    blur_size   = 7
+    brightness  = 0.7
+    contrast    = 0.9
+    vibrancy    = 0.1696
+}
+
+label {
+    monitor     =
+    text        = cmd[update:1000] echo "<b>$(date +"%H:%M")</b>"
+    color       = rgba(255, 255, 255, 0.9)
+    font_size   = 96
+    font_family = JetBrainsMono Nerd Font
+    position    = 0, 120        # X, Y offset from halign/valign anchor
+    halign      = center        # left | center | right
+    valign      = center        # top | center | bottom
+}
+
+input-field {
+    monitor           =
+    size              = 280, 52
+    outline_thickness = 2
+    dots_size         = 0.3
+    dots_spacing      = 0.2
+    dots_center       = true
+    outer_color       = rgba(255, 255, 255, 0.2)
+    inner_color       = rgba(0, 0, 0, 0.5)
+    font_color        = rgba(255, 255, 255, 0.9)
+    fade_on_empty     = true
+    placeholder_text  = <i>Password</i>
+    check_color       = rgba(100, 220, 100, 1.0)
+    fail_color        = rgba(220, 80, 80, 1.0)
+    fail_text         = <i>Incorrect ($ATTEMPTS)</i>
+    rounding          = 8
+    position          = 0, -60
+    halign            = center
+    valign            = center
+}
+```
+
+> `cmd[update:MS]` re-runs the shell command every MS milliseconds — used for live clock.
+
+---
+
+## hypridle
+
+Config: `~/.config/hypr/hypridle.conf`
+Wiki: <https://wiki.hyprland.org/Hypr-Ecosystem/hypridle/>
+
+```ini
+general {
+    lock_cmd           = pidof hyprlock || (cliphist wipe && hyprlock)
+    before_sleep_cmd   = cliphist wipe && hyprlock
+    after_sleep_cmd    = hyprctl dispatch dpms on
+    ignore_dbus_inhibit = false
+}
+
+listener {
+    timeout    = 240                              # Seconds of inactivity
+    on-timeout = brightnessctl -s set 10%         # Save & dim
+    on-resume  = brightnessctl -r                 # Restore
+}
+
+listener {
+    timeout    = 300
+    on-timeout = pidof hyprlock || (cliphist wipe && hyprlock)
+    on-resume  = hyprctl dispatch dpms on
+}
+
+listener {
+    timeout    = 330
+    on-timeout = hyprctl dispatch dpms off
+    on-resume  = hyprctl dispatch dpms on
+}
+
+listener {
+    timeout    = 1800
+    on-timeout = systemctl suspend
+}
+```
+
+- `pidof hyprlock ||` prevents double-locking if already locked
+- `before_sleep_cmd` fires on lid close / `systemctl suspend`
+- Listeners fire in order; earlier timeouts should always be < later ones
+
+---
+
+## hyprpaper
+
+Config: `~/.config/hypr/hyprpaper.conf`
+Wiki: <https://wiki.hyprland.org/Hypr-Ecosystem/hyprpaper/>
+
+```ini
+preload  = /path/to/wallpaper.jpg       # Must preload before setting
+wallpaper = ,/path/to/wallpaper.jpg     # Blank monitor = all monitors
+wallpaper = HDMI-A-1,/path/to/wall.jpg # Specific monitor
+
+ipc = on    # Enable IPC for runtime wallpaper changes
+splash = false
+```
+
+Runtime change:
+```bash
+hyprctl hyprpaper wallpaper "HDMI-A-1,/new/path.jpg"
+```
+
+---
+
+## Color Format
+
+Hyprland uses `rgba(RRGGBBAA)` hex strings:
+
+```ini
+rgba(33ccffee)   # R=33 G=cc B=ff A=ee (87% opacity)
+rgba(00000000)   # Fully transparent
+rgba(ffffffff)   # White, fully opaque
+```
+
+Gradient borders:
+```ini
+col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
+```
+
+---
+
+## Useful hyprctl Commands
+
+```bash
+# Apply config changes (re-runs exec, not exec-once)
+hyprctl reload
+
+# List all connected monitors
+hyprctl monitors
+
+# List all open windows with class/title
+hyprctl clients
+
+# List input devices (to find device name for device{} block)
+hyprctl devices
+
+# Set an option at runtime (no reload needed)
+hyprctl keyword general:gaps_out 10
+
+# Send dispatcher action
+hyprctl dispatch workspace 3
+hyprctl dispatch dpms off
+
+# Reload hyprpaper wallpaper
+hyprctl hyprpaper wallpaper ",/path/to/new.jpg"
+
+# Query active workspace
+hyprctl activeworkspace
+
+# Query cursor position
+hyprctl cursorpos
+```
+
+Wiki: <https://wiki.hyprland.org/Configuring/Using-hyprctl/>
