@@ -96,20 +96,24 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, and reloa
 
 | Category | Packages |
 |---|---|
-| Core | `base-devel`, `git`, `curl`, `wget`, `unzip`, `stow` |
-| Hyprland | `hyprland`, `hyprpaper`, `hyprshot` |
-| Terminal | `kitty`, `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, `fastfetch` |
+| Core | `base-devel`, `git`, `curl`, `wget`, `unzip`, `stow`, `pciutils` |
+| Hyprland | `hyprland`, `hyprpaper`, `hyprshot`, `xdg-desktop-portal-hyprland` |
+| Audio | `pipewire`, `pipewire-pulse`, `wireplumber`, `pavucontrol` |
+| KDE Wallet | `kwallet`, `kwallet-pam` |
+| Terminal & shell | `kitty`, `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, `fastfetch` |
 | Bar / Launcher | `waybar`, `wofi` |
 | Notifications | `dunst` |
-| Audio / Media | `pavucontrol`, `playerctl` |
-| Brightness | `brightnessctl` |
-| Bluetooth | `bluez-utils`, `blueman` |
-| Browser | `firefox` |
-| Editor | `code` (VS Code OSS) |
+| Applications | `firefox`, `code`, `dolphin`, `htop`, `btop` |
 | Clipboard | `cliphist`, `wl-clipboard` |
+| Media & input | `playerctl`, `brightnessctl` |
+| Bluetooth | `bluez-utils`, `blueman` |
+| System monitoring | `upower`, `lm_sensors` |
+| Python | `python` |
+| GTK theme sync | `xsettingsd` |
 | Fonts | `nerd-fonts` |
-| System | `firewalld`, `power-profiles-daemon` |
-| Monitor tool | `btop` |
+| Power management | `power-profiles-daemon` |
+| Firewall | `firewalld` |
+| Optional (Nvidia) | `nvidia-utils` *(uncomment in `packages` if using an Nvidia GPU)* |
 
 ---
 
