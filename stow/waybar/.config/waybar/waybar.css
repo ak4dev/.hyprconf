@@ -64,15 +64,23 @@
   padding: 0 10px;
 }
 
-/* Right-side modules */
-#cpu, #memory, #network, #pulseaudio, #battery, #clock, #tray {
-  padding: 0 10px;
-  margin: 0 4px;
+/* Right-side modules — flush layout */
+#cpu, #memory, #custom-cpu_temp, #network, #pulseaudio, #battery, #clock, #tray,
+#custom-gpu, #custom-power_status {
+  padding: 0 8px;
+  margin: 0;
 }
 
 /* Specific module styling */
+/* CPU + temp fused: no separator between them, tight inner gap */
 #cpu {
   color: @green;
+  padding-right: 2px;
+}
+
+#custom-cpu_temp {
+  color: @green;
+  padding-left: 2px;
 }
 
 #memory {
@@ -81,6 +89,7 @@
 
 #network {
   color: @cyan;
+  min-width: 180px;
 }
 
 #pulseaudio {
@@ -119,6 +128,9 @@
   100% { opacity: 1; }
 }
 
+#custom-gpu {
+  color: @purple;
+}
 
 #custom-power_status.normal {
   color: #ffffff; /* white */
