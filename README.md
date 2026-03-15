@@ -7,7 +7,8 @@ Personal Hyprland dotfiles for Arch Linux, managed with [GNU Stow](https://www.g
 ## Features
 
 - **One-command setup** — installs packages, sets up ZSH with Oh My Zsh + Powerlevel10k, stows all configs, and reloads Hyprland
-- **`--sync` mode** — pull latest changes, re-stow, and re-apply all services without reinstalling packages; aliased to `hyprsync` in ZSH
+- **`hyprconf` CLI** — unified control centre: `hyprconf theme random`, `hyprconf sync`, `hyprconf monitor set bedroom`, and more
+- **`--sync` mode** — pull latest changes, re-stow, and re-apply all services without reinstalling packages; run via `hyprconf sync`
 - **GPU-aware monitor config** — auto-selects `pcMonitors.conf` (RTX 5090, HDR) or `laptopMonitors.conf` at setup time
 - **Hot-swappable monitor presets** — keybinds to switch between bedroom/kitchen PC configurations on the fly
 - **Screen lock & idle management** — hyprlock with blurred screenshot background; hypridle dims then locks then suspends; cliphist wiped on lock
@@ -53,9 +54,8 @@ The script will:
 ### Syncing after changes
 
 ```bash
-hyprsync        # alias defined in ~/.zshrc
-# or directly:
-~/.hyprconf/setup.sh --sync
+hyprconf sync        # canonical command
+hyprsync             # backward-compatible alias (same thing)
 ```
 
 Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applies all services (`NetworkManager`, `bluetooth`, `ufw`), and reloads Hyprland — no package installation.
@@ -90,6 +90,8 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 │   │           └── theme-switcher/
 │   │               ├── switch_theme.py     # Theme application script
 │   │               └── themes/             # 24 theme JSON files
+│   │   └── .local/bin/
+│   │       └── hyprconf                    # Unified CLI (symlinked to ~/.local/bin/)
 │   ├── kitty/                # Kitty terminal config + theme files
 │   ├── wallpaper/            # Wallpaper images
 │   ├── waybar/               # Waybar bar config, CSS, and custom scripts
@@ -123,7 +125,7 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 | Networking | `networkmanager`, `network-manager-applet` |
 | System monitoring | `upower`, `lm_sensors` |
 | Python | `python` |
-| Icons & themes | `papirus-icon-theme`, `kvantum`, `qt6ct` |
+| Icons & themes | `papirus-icon-theme`, `kvantum`, `qt5ct`, `qt6ct` |
 | GTK theme sync | `xsettingsd` |
 | Fonts | `nerd-fonts` |
 | Power management | `power-profiles-daemon` |
@@ -191,9 +193,44 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 
 ---
 
+## hyprconf CLI
+
+`hyprconf` is the unified control centre for the entire hyprconf suite. It is symlinked to `~/.local/bin/hyprconf` via GNU Stow and is available in every shell session.
+
+```
+hyprconf theme                   Interactive TUI picker
+hyprconf theme <name>            Apply a specific theme
+hyprconf theme random            Apply a random theme
+hyprconf theme next / prev       Cycle themes (alphabetical)
+hyprconf theme current           Show the active theme
+hyprconf theme list              Pretty colour table of all themes
+hyprconf theme pick              Select via wofi launcher
+hyprconf theme filter <str>      Filter themes in TUI
+
+hyprconf sync                    Pull latest configs and re-stow
+
+hyprconf monitor list            List available monitor presets
+hyprconf monitor set <preset>    Switch to a monitor preset
+hyprconf monitor <preset>        Shorthand for 'set <preset>'
+
+hyprconf display toggle          Toggle built-in screen (eDP-1) on/off
+
+hyprconf help                    Show usage
+```
+
+---
+
 ## Theme Switcher
 
-Launch from Wofi (search **"Theme"**) or from any terminal:
+Launch via the CLI or directly from Wofi (search **"Theme"**):
+
+```bash
+hyprconf theme          # interactive TUI
+hyprconf theme dracula  # apply directly
+hyprconf theme random   # random pick
+```
+
+Or call the Python script directly:
 
 ```bash
 python3 ~/.config/hypr/scripts/theme-switcher/switch_theme.py
@@ -210,20 +247,23 @@ The script presents an interactive picker (or use `--wofi` for inline Wofi selec
 - **VS Code / Code OSS** — colour theme and font settings
 - **Firefox** — installs matching theme extension
 - **GTK 3 & 4** — `settings.ini` colour scheme hints
+- **Qt / KDE apps** — `qt6ct` + `qt5ct` QPalette colour scheme (Dolphin, Ark, Gwenview, …); `kdeglobals` for Plasma sessions
 - **Wallpaper** — swaps via `hyprpaper` IPC
 
 ### CLI Flags
 
-| Flag | Short | Description |
-|---|---|---|
-| `--list` | `-l` | Print colour table of all themes |
-| `--current` | `-c` | Print the currently active theme |
-| `--next` | `-n` | Apply next theme (alphabetical) |
-| `--prev` | `-p` | Apply previous theme |
-| `--random` | `-r` | Apply a random theme |
-| `--wofi` | `-w` | Pick via `wofi --dmenu` (no terminal) |
-| `--filter STR` | `-f` | Pre-filter themes by substring |
-| `--no-reload` | | Skip `hyprctl reload` after applying |
+These flags map directly to `hyprconf theme` subcommands:
+
+| Flag | Short | `hyprconf theme` | Description |
+|---|---|---|---|
+| `--list` | `-l` | `list` | Print colour table of all themes |
+| `--current` | `-c` | `current` | Print the currently active theme |
+| `--next` | `-n` | `next` | Apply next theme (alphabetical) |
+| `--prev` | `-p` | `prev` | Apply previous theme |
+| `--random` | `-r` | `random` | Apply a random theme |
+| `--wofi` | `-w` | `pick` | Pick via `wofi --dmenu` (no terminal) |
+| `--filter STR` | `-f` | `filter <str>` | Pre-filter themes by substring |
+| `--no-reload` | | *(pass `--no-reload` directly)* | Skip `hyprctl reload` after applying |
 
 ### Available Themes
 
@@ -334,10 +374,11 @@ Lock manually at any time with `Super + L`.
 
 The setup script idempotently appends to `~/.zshrc`:
 
+- `~/.local/bin` prepended to `$PATH` (where `hyprconf` lives)
 - Oh My Zsh with `git` plugin
 - Powerlevel10k theme (sourced from `~/powerlevel10k/`)
 - `zsh-autosuggestions` and `zsh-syntax-highlighting`
-- `hyprsync` alias → `~/.hyprconf/setup.sh --sync`
+- `hyprsync` alias → `~/.hyprconf/setup.sh --sync` (backward-compat; prefer `hyprconf sync`)
 - `fastfetch` greeting with Arch logo on every new shell
 
 It also writes to `~/.zprofile` to auto-start Hyprland on login at TTY1:

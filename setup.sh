@@ -83,6 +83,7 @@ update_zshrc() {
         grep -qxF "$line" "$ZSHRC" 2>/dev/null || echo "$line" >> "$ZSHRC"
     }
 
+    add_if_missing 'export PATH="$HOME/.local/bin:$PATH"'
     add_if_missing 'export ZSH="$HOME/.oh-my-zsh"'
     add_if_missing 'ZSH_THEME="powerlevel10k/powerlevel10k"'
     add_if_missing 'plugins=(git)'
@@ -249,6 +250,7 @@ main() {
         purge_broken_symlinks
         sync_vscode_theme_extensions
         stow_all_packages
+        update_zshrc
         sync_services
         hyprctl reload
         log_info "Sync complete!"

@@ -55,6 +55,12 @@ FIREFOX_THEME_PAYLOAD_DIR = REPO_ROOT / "theme" / "firefox" / "extensions"
 GTK3_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-3.0/settings.ini")
 GTK4_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-4.0/settings.ini")
 XSETTINGSD_CONFIG_FILE = os.path.expanduser("~/.config/xsettingsd/xsettingsd.conf")
+KDEGLOBALS_FILE        = os.path.expanduser("~/.config/kdeglobals")
+TROLLTECH_CONF_FILE    = os.path.expanduser("~/.config/Trolltech.conf")
+QT6CT_CONF_FILE        = os.path.expanduser("~/.config/qt6ct/qt6ct.conf")
+QT6CT_COLORS_FILE      = os.path.expanduser("~/.config/qt6ct/colors/hyprconf.conf")
+QT5CT_CONF_FILE        = os.path.expanduser("~/.config/qt5ct/qt5ct.conf")
+QT5CT_COLORS_FILE      = os.path.expanduser("~/.config/qt5ct/colors/hyprconf.conf")
 THEME_COLORS_CONF      = os.path.expanduser("~/.config/hypr/theme-colors.conf")
 HYPRLOCK_CONFIG_FILE   = os.path.expanduser("~/.config/hypr/hyprlock.conf")
 STATE_FILE             = os.path.expanduser("~/.config/hypr/.current-theme")
@@ -235,6 +241,24 @@ def update_dunst(theme: Dict[str, str]) -> None:
             start_new_session=True,
         )
         print("Dunst restarted.")
+
+
+def hex_to_rgb_str(hex_color: str) -> str:
+    """Convert #RRGGBB to 'R,G,B' string for kdeglobals / KDE color schemes."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f"{r},{g},{b}"
+
+
+def blend_colors(hex1: str, hex2: str, ratio: float = 0.15) -> str:
+    """Blend hex1 toward hex2 by ratio (0.0 = hex1, 1.0 = hex2). Returns #RRGGBB."""
+    h1, h2 = hex1.lstrip("#"), hex2.lstrip("#")
+    r1, g1, b1 = int(h1[0:2], 16), int(h1[2:4], 16), int(h1[4:6], 16)
+    r2, g2, b2 = int(h2[0:2], 16), int(h2[2:4], 16), int(h2[4:6], 16)
+    r = max(0, min(255, int(r1 + (r2 - r1) * ratio)))
+    g = max(0, min(255, int(g1 + (g2 - g1) * ratio)))
+    b = max(0, min(255, int(b1 + (b2 - b1) * ratio)))
+    return f"#{r:02x}{g:02x}{b:02x}"
 
 
 def hex_to_rgba(hex_color: str, alpha: float = 0.8) -> str:
@@ -951,12 +975,21 @@ def update_gtk(theme: Dict[str, str]) -> None:
             f.write(content)
 
     for ini_path in (GTK3_SETTINGS_FILE, GTK4_SETTINGS_FILE):
-        if os.path.exists(ini_path):
+        os.makedirs(os.path.dirname(ini_path), exist_ok=True)
+        if not os.path.exists(ini_path):
             try:
-                patch_ini(ini_path)
-                print(f"Updated {ini_path}")
+                with open(ini_path, "w") as f:
+                    f.write("[Settings]\n")
+                    f.write(f"gtk-theme-name={gtk_theme}\n")
+                    f.write(f"gtk-application-prefer-dark-theme={dark_val}\n")
             except Exception as e:
-                print(f"Warning: could not update {ini_path}: {e}")
+                print(f"Warning: could not create {ini_path}: {e}")
+                continue
+        try:
+            patch_ini(ini_path)
+            print(f"Updated {ini_path}")
+        except Exception as e:
+            print(f"Warning: could not update {ini_path}: {e}")
 
     if os.path.exists(XSETTINGSD_CONFIG_FILE):
         try:
@@ -990,6 +1023,237 @@ def update_gtk(theme: Dict[str, str]) -> None:
             except Exception as e:
                 print(f"Warning: gsettings failed ({' '.join(cmd[3:])}): {e}")
         print(f"GTK theme set to '{gtk_theme}' ({color_scheme}).")
+
+
+def update_kde_colors(theme: Dict[str, str]) -> None:
+    """Generate ~/.config/kdeglobals KDE color scheme and Trolltech.conf from the theme palette.
+
+    kdeglobals is read directly by KConfig (used by Dolphin, Ark, Gwenview, etc.) regardless
+    of whether a full KDE Plasma session is running.  Trolltech.conf sets the fallback Qt style
+    for apps that don't use a platform theme plugin.
+    """
+    bg      = theme.get("background", "#1e1e2e")
+    fg      = theme.get("foreground", "#cdd6f4")
+    accent  = theme.get("accent",     theme.get("purple", "#bd93f9"))
+    comment = theme.get("comment",    "#6272a4")
+    red     = theme.get("red",        "#f38ba8")
+    green   = theme.get("green",      "#a6e3a1")
+    yellow  = theme.get("yellow",     "#f9e2af")
+    cyan    = theme.get("cyan",       "#89dceb")
+
+    btn_bg  = blend_colors(bg, fg, 0.10)   # slightly raised surface for buttons
+    alt_bg  = blend_colors(bg, fg, 0.05)   # alternate row background
+    sel_fg  = bg if is_dark_color(bg) else fg  # legible text on accent selection
+
+    def rgb(h: str) -> str:
+        return hex_to_rgb_str(h)
+
+    def color_section(bg_n: str, bg_a: str, fg_n: str) -> str:
+        return (
+            f"BackgroundAlternate={rgb(bg_a)}\n"
+            f"BackgroundNormal={rgb(bg_n)}\n"
+            f"DecorationFocus={rgb(accent)}\n"
+            f"DecorationHover={rgb(blend_colors(accent, bg, 0.6))}\n"
+            f"ForegroundActive={rgb(accent)}\n"
+            f"ForegroundInactive={rgb(comment)}\n"
+            f"ForegroundLink={rgb(cyan)}\n"
+            f"ForegroundNegative={rgb(red)}\n"
+            f"ForegroundNeutral={rgb(yellow)}\n"
+            f"ForegroundNormal={rgb(fg_n)}\n"
+            f"ForegroundPositive={rgb(green)}\n"
+            f"ForegroundVisited={rgb(comment)}\n"
+        )
+
+    content = (
+        "# Generated by switch_theme.py — do not edit manually\n"
+        "\n"
+        "[ColorEffects:Disabled]\n"
+        "ChangeSelectionColor=true\n"
+        "Color=112,111,110\n"
+        "ColorAmount=0\n"
+        "ColorEffect=0\n"
+        "ContrastAmount=0.65\n"
+        "ContrastEffect=1\n"
+        "Enable=false\n"
+        "IntensityAmount=0.1\n"
+        "IntensityEffect=2\n"
+        "\n"
+        "[ColorEffects:Inactive]\n"
+        "ChangeSelectionColor=true\n"
+        "Color=112,111,110\n"
+        "ColorAmount=0.025\n"
+        "ColorEffect=2\n"
+        "ContrastAmount=0.1\n"
+        "ContrastEffect=2\n"
+        "Enable=false\n"
+        "IntensityAmount=0\n"
+        "IntensityEffect=0\n"
+        "\n"
+        "[Colors:Button]\n"
+        + color_section(btn_bg, alt_bg, fg)
+        + "\n"
+        "[Colors:Complementary]\n"
+        + color_section(blend_colors(bg, fg, 0.08), blend_colors(bg, fg, 0.12), fg)
+        + "\n"
+        "[Colors:Header]\n"
+        + color_section(blend_colors(bg, fg, 0.03), blend_colors(bg, fg, 0.06), fg)
+        + "\n"
+        "[Colors:Selection]\n"
+        f"BackgroundAlternate={rgb(blend_colors(accent, bg, 0.3))}\n"
+        f"BackgroundNormal={rgb(accent)}\n"
+        f"DecorationFocus={rgb(accent)}\n"
+        f"DecorationHover={rgb(accent)}\n"
+        f"ForegroundActive={rgb(sel_fg)}\n"
+        f"ForegroundInactive={rgb(sel_fg)}\n"
+        f"ForegroundLink={rgb(sel_fg)}\n"
+        f"ForegroundNegative={rgb(red)}\n"
+        f"ForegroundNeutral={rgb(yellow)}\n"
+        f"ForegroundNormal={rgb(sel_fg)}\n"
+        f"ForegroundPositive={rgb(green)}\n"
+        f"ForegroundVisited={rgb(sel_fg)}\n"
+        "\n"
+        "[Colors:Tooltip]\n"
+        + color_section(btn_bg, alt_bg, fg)
+        + "\n"
+        "[Colors:View]\n"
+        + color_section(bg, alt_bg, fg)
+        + "\n"
+        "[Colors:Window]\n"
+        + color_section(bg, blend_colors(bg, fg, 0.05), fg)
+        + "\n"
+        "[General]\n"
+        "ColorScheme=SwitchThemeGenerated\n"
+        "Name=SwitchTheme\n"
+        "shadeSortColumn=true\n"
+        "\n"
+        "[KDE]\n"
+        "contrast=4\n"
+    )
+
+    kdeglobals_path = Path(KDEGLOBALS_FILE)
+    kdeglobals_path.parent.mkdir(parents=True, exist_ok=True)
+    kdeglobals_path.write_text(content, encoding="utf-8")
+    print("KDE color scheme (kdeglobals) updated.")
+
+    # Trolltech.conf — fallback Qt widget style for apps not using a platform plugin
+    troll_path = Path(TROLLTECH_CONF_FILE)
+    troll_path.parent.mkdir(parents=True, exist_ok=True)
+    qt_style = "kvantum" if shutil.which("kvantummanager") else "Fusion"
+    troll_path.write_text(f"[Qt]\nstyle={qt_style}\n", encoding="utf-8")
+
+    # Notify any running KDE/Qt apps to reload their color palette immediately
+    if shutil.which("dbus-send"):
+        subprocess.run(
+            [
+                "dbus-send", "--session",
+                "--dest=org.kde.KGlobalSettings",
+                "/KGlobalSettings",
+                "org.kde.KGlobalSettings.notifyChange",
+                "int32:0", "int32:0",
+            ],
+            check=False, capture_output=True,
+        )
+    print("Qt/KDE theme updated.")
+
+
+def update_qt_platform_theme(theme: Dict[str, str]) -> None:
+    """Configure qt6ct (and qt5ct if installed) with a QPalette derived from the theme.
+
+    With QT_QPA_PLATFORMTHEME=qt6ct, all Qt6 apps (Dolphin, Ark, Gwenview, …) read
+    their colours from ~/.config/qt6ct/ rather than kdeglobals.  This function writes
+    a QPalette colour-scheme file and enables custom_palette in qt[56]ct.conf so that
+    every Qt app launched after a theme switch uses the correct colours.
+    """
+    bg       = theme.get("background", "#1e1e2e")
+    fg       = theme.get("foreground", "#cdd6f4")
+    accent   = theme.get("accent",     theme.get("purple", "#bd93f9"))
+    cyan     = theme.get("cyan",       "#89dceb")
+    dark     = is_dark_color(bg)
+
+    btn_bg   = blend_colors(bg, fg, 0.10)
+    light_bg = blend_colors(bg, fg, 0.22)
+    midlight = blend_colors(bg, fg, 0.16)
+    dark_bg  = blend_colors(bg, "#000000", 0.22)
+    mid_bg   = blend_colors(bg, fg, 0.08)
+    alt_bg   = blend_colors(bg, fg, 0.05)
+    shadow   = blend_colors(bg, "#000000", 0.45)
+    tooltip  = blend_colors(bg, fg, 0.08)
+    sel_fg   = bg if dark else fg
+    link_vis = theme.get("purple", accent)
+    bright   = "#ffffff" if dark else "#000000"
+    ph_fg    = blend_colors(fg, bg, 0.50)
+
+    # QPalette roles 0-20 in declaration order:
+    # WindowText, Button, Light, Midlight, Dark, Mid, Text, BrightText, ButtonText,
+    # Base, Window, Shadow, Highlight, HighlightedText, Link, LinkVisited,
+    # AlternateBase, NoRole, ToolTipBase, ToolTipText, PlaceholderText
+    active = [
+        fg,       btn_bg,   light_bg, midlight, dark_bg, mid_bg,
+        fg,       bright,   fg,
+        bg,       bg,       shadow,
+        accent,   sel_fg,
+        cyan,     link_vis,
+        alt_bg,   bg,
+        tooltip,  fg,
+        ph_fg,
+    ]
+    inactive = list(active)
+
+    def dim(c: str) -> str:
+        return blend_colors(c, bg, 0.50)
+
+    disabled = [
+        dim(fg),  btn_bg,   light_bg, midlight, dark_bg, mid_bg,
+        dim(fg),  dim(bright), dim(fg),
+        bg,       bg,       shadow,
+        mid_bg,   dim(fg),
+        dim(cyan), dim(link_vis),
+        alt_bg,   bg,
+        tooltip,  dim(fg),
+        dim(ph_fg),
+    ]
+
+    scheme = (
+        "# Generated by switch_theme.py — do not edit manually\n"
+        "[ColorScheme]\n"
+        f"active_colors={', '.join(active)}\n"
+        f"disabled_colors={', '.join(disabled)}\n"
+        f"inactive_colors={', '.join(inactive)}\n"
+    )
+
+    def _patch_qt_conf(conf_path: str, colors_path: str) -> None:
+        """Enable custom_palette and point color_scheme_path in a qt5ct/qt6ct .conf."""
+        p = Path(conf_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        text = p.read_text(encoding="utf-8", errors="replace") if p.exists() else ""
+
+        if "[Appearance]" not in text:
+            text = "[Appearance]\n" + text
+
+        def set_key(content: str, key: str, value: str) -> str:
+            pattern = rf"^{re.escape(key)}\s*=.*$"
+            replacement = f"{key}={value}"
+            if re.search(pattern, content, re.MULTILINE):
+                return re.sub(pattern, replacement, content, flags=re.MULTILINE)
+            return re.sub(r"(\[Appearance\]\n)", rf"\1{key}={value}\n", content, count=1)
+
+        text = set_key(text, "color_scheme_path", colors_path)
+        text = set_key(text, "custom_palette", "true")
+        p.write_text(text, encoding="utf-8")
+
+    for conf_path, colors_path in (
+        (QT6CT_CONF_FILE, QT6CT_COLORS_FILE),
+        (QT5CT_CONF_FILE, QT5CT_COLORS_FILE),
+    ):
+        try:
+            colors_p = Path(colors_path)
+            colors_p.parent.mkdir(parents=True, exist_ok=True)
+            colors_p.write_text(scheme, encoding="utf-8")
+            _patch_qt_conf(conf_path, colors_path)
+            suite = Path(conf_path).parent.name  # "qt6ct" or "qt5ct"
+            print(f"{suite} colour scheme written.")
+        except Exception as e:
+            print(f"Warning: could not update {conf_path}: {e}")
 
 
 def apply_theme(theme_name: str, reload: bool = True) -> None:
@@ -1043,6 +1307,8 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
     update_wofi(theme)
     update_dunst(theme)
     update_gtk(theme)
+    update_kde_colors(theme)
+    update_qt_platform_theme(theme)
     if "vscode" in theme:
         ensure_vscode_extension_payload(theme["vscode"].get("extension"))
     update_vscode(theme)

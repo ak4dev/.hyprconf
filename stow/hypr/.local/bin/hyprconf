@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly THEME_SCRIPT="$HOME/.config/hypr/scripts/theme-switcher/switch_theme.py"
+readonly MONITOR_SCRIPT="$HOME/.config/hypr/scripts/switch_monitor.sh"
+readonly DISPLAY_SCRIPT="$HOME/.hyprconf/util/toggle-native-display"
+readonly SETUP_SCRIPT="$HOME/.hyprconf/setup.sh"
+
+_b='\e[1m'; _c='\e[36m'; _y='\e[33m'; _r='\e[0m'
+
+usage() {
+  printf "${_b}${_c}hyprconf${_r} — hyprland config control centre\n\n"
+  printf "${_b}Theme${_r}\n"
+  printf "  hyprconf theme                   Interactive TUI picker\n"
+  printf "  hyprconf theme <name>            Apply a specific theme\n"
+  printf "  hyprconf theme random            Apply a random theme\n"
+  printf "  hyprconf theme next / prev       Cycle themes (alphabetical)\n"
+  printf "  hyprconf theme current           Show the active theme\n"
+  printf "  hyprconf theme list              Pretty colour table of all themes\n"
+  printf "  hyprconf theme pick              Select via wofi launcher\n"
+  printf "  hyprconf theme filter <str>      Filter themes in TUI\n"
+  printf "\n${_b}Sync${_r}\n"
+  printf "  hyprconf sync                    Pull latest configs and re-stow\n"
+  printf "\n${_b}Monitor${_r}\n"
+  printf "  hyprconf monitor list            List available presets\n"
+  printf "  hyprconf monitor set <preset>    Switch to a monitor preset\n"
+  printf "  hyprconf monitor <preset>        Shorthand for 'set <preset>'\n"
+  printf "\n${_b}Display${_r}\n"
+  printf "  hyprconf display toggle          Toggle built-in screen (eDP-1) on/off\n"
+  printf "\n${_b}General${_r}\n"
+  printf "  hyprconf help                    Show this message\n"
+}
+
+cmd_theme() {
+  local sub="${1:-}"
+  shift || true
+  case "$sub" in
+    "")       python3 "$THEME_SCRIPT" ;;
+    random)   python3 "$THEME_SCRIPT" --random ;;
+    list)     python3 "$THEME_SCRIPT" --list ;;
+    next)     python3 "$THEME_SCRIPT" --next ;;
+    prev)     python3 "$THEME_SCRIPT" --prev ;;
+    current)  python3 "$THEME_SCRIPT" --current ;;
+    pick)     python3 "$THEME_SCRIPT" --wofi ;;
+    filter)   python3 "$THEME_SCRIPT" --filter "${1:-}" ;;
+    set)      python3 "$THEME_SCRIPT" "${1:?Usage: hyprconf theme set <name>}" ;;
+    *)        python3 "$THEME_SCRIPT" "$sub" ;;
+  esac
+}
+
+cmd_sync() {
+  "$SETUP_SCRIPT" --sync
+}
+
+cmd_monitor() {
+  local sub="${1:-list}"
+  shift || true
+  case "$sub" in
+    list)
+      printf "${_b}Available monitor presets:${_r}\n"
+      for f in "$HOME/.config/hypr/pcMonitors."*; do
+        local base; base="$(basename "$f")"
+        [[ "$base" == "pcMonitors.conf" ]] && continue
+        printf '  %s\n' "${base#pcMonitors.}"
+      done | sort
+      ;;
+    set)
+      "$MONITOR_SCRIPT" "${1:?Usage: hyprconf monitor set <preset>}"
+      ;;
+    *)
+      "$MONITOR_SCRIPT" "$sub"
+      ;;
+  esac
+}
+
+cmd_display() {
+  local sub="${1:-toggle}"
+  case "$sub" in
+    toggle) "$DISPLAY_SCRIPT" ;;
+    *) printf "${_y}Unknown display command: %s${_r}\n" "$sub" >&2; exit 1 ;;
+  esac
+}
+
+main() {
+  local cmd="${1:-help}"
+  shift || true
+  case "$cmd" in
+    theme)            cmd_theme "$@" ;;
+    sync)             cmd_sync ;;
+    monitor)          cmd_monitor "$@" ;;
+    display)          cmd_display "$@" ;;
+    help|-h|--help)   usage ;;
+    *)
+      printf "${_y}Unknown command: %s${_r}\n\n" "$cmd" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

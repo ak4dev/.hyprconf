@@ -74,6 +74,7 @@ nerd-fonts
 # Icons & themes
 papirus-icon-theme
 kvantum
+qt5ct
 qt6ct
 # bibata-cursor-theme  -- AUR only; install manually: yay -S bibata-cursor-theme
 
