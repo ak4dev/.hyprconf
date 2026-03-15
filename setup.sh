@@ -109,14 +109,12 @@ force_stow_package() {
 
     log_info "Stowing package: $package"
 
-    # Attempt to stow
-    if ! stow -d "$stow_dir" -t "$target_dir" "$package" 2>/dev/null; then
+    # --restow = unstow then restow; idempotent and handles stale links cleanly
+    if ! stow -d "$stow_dir" -t "$target_dir" --restow "$package" 2>/dev/null; then
         log_warn "Conflict detected while stowing $package. Backing up conflicting files and retrying..."
 
-        # Unstow in case of partial success
         stow -d "$stow_dir" -t "$target_dir" -D "$package" || true
 
-        # Backup conflicting files
         find "$stow_dir/$package" -type f | while read -r file; do
             local rel_path="${file#$stow_dir/$package/}"
             local target_file="$target_dir/$rel_path"
@@ -127,8 +125,7 @@ force_stow_package() {
             fi
         done
 
-        # Retry stowing
-        stow -d "$stow_dir" -t "$target_dir" "$package"
+        stow -d "$stow_dir" -t "$target_dir" --restow "$package"
     fi
 
     log_info "Stowed $package"
@@ -163,6 +160,26 @@ sync_vscode_theme_extensions() {
         log_info "Copying VS Code theme $pkg_name into $extensions_dir..."
         cp -a "$theme_pkg" "$dest_pkg"
     done < <(find "$theme_source" -mindepth 1 -maxdepth 1 -type d -print0)
+}
+
+
+purge_broken_symlinks() {
+    log_info "Pruning broken symlinks..."
+
+    local pruned=0
+    while IFS= read -r -d '' link; do
+        rm "$link"
+        log_info "  Removed broken symlink: $link"
+        (( pruned++ )) || true
+    done < <(find "$HOME/.config" -maxdepth 2 -xtype l -print0)
+
+    while IFS= read -r -d '' link; do
+        rm "$link"
+        log_info "  Removed broken symlink: $link"
+        (( pruned++ )) || true
+    done < <(find "$HOME" -maxdepth 1 -xtype l -print0)
+
+    log_info "Pruned $pruned broken symlink(s)."
 }
 
 
@@ -204,6 +221,7 @@ main() {
     if [[ "${1:-}" == "--sync" ]]; then
         log_info "Syncing configs..."
         clone_or_update_repo
+        purge_broken_symlinks
         sync_vscode_theme_extensions
         stow_all_packages
         hyprctl reload
