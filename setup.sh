@@ -21,6 +21,9 @@ readonly ZSHRC="$HOME/.zshrc"
 # ZSH_THEME="powerlevel10k/powerlevel10k" resolves without error.
 readonly P10K_DIR="${HOME}/.oh-my-zsh/custom/themes/powerlevel10k"
 
+# True when setup.sh is invoked by install.sh inside a chroot (no live systemd).
+_in_chroot() { [[ "${HYPRCONF_CHROOT:-0}" == "1" ]]; }
+
 print_header() {
   local mode="${1:-setup}"
   printf '\n%s  ──────────────────────────────────────────────────────────────%s\n' "$DM" "$RS"
@@ -284,7 +287,11 @@ detect_gpu_and_link_monitor_config() {
         ln -sf "$hypr_conf_dir/laptopMonitors.conf" "$monitors_conf"
         log_ok "Using laptopMonitors.conf"
         log_step "Enabling power-profiles-daemon..."
-        sudo systemctl enable --now power-profiles-daemon
+        if _in_chroot; then
+            sudo systemctl enable power-profiles-daemon
+        else
+            sudo systemctl enable --now power-profiles-daemon
+        fi
     fi
 }
 
@@ -304,21 +311,36 @@ enable_services() {
     log_step "Configuring firewall (ufw)..."
     sudo ufw default deny incoming
     sudo ufw default allow outgoing
-    sudo ufw enable
-    sudo systemctl enable --now ufw
+    if _in_chroot; then
+        sudo systemctl enable ufw
+    else
+        sudo ufw enable
+        sudo systemctl enable --now ufw
+    fi
 
     log_step "Disabling display manager (sddm)..."
-    sudo systemctl disable --now sddm 2>/dev/null \
-        || log_warn "sddm not found or already disabled — skipping."
+    if _in_chroot; then
+        sudo systemctl disable sddm 2>/dev/null \
+            || log_warn "sddm not found or already disabled — skipping."
+    else
+        sudo systemctl disable --now sddm 2>/dev/null \
+            || log_warn "sddm not found or already disabled — skipping."
+    fi
     log_ok "Security services configured."
 }
 
 sync_services() {
     log_step "Enabling system services..."
-    sudo systemctl enable --now NetworkManager
-    sudo systemctl enable --now bluetooth
-    sudo systemctl enable --now ufw
-    log_ok "Services running."
+    if _in_chroot; then
+        sudo systemctl enable NetworkManager
+        sudo systemctl enable bluetooth
+        sudo systemctl enable ufw
+    else
+        sudo systemctl enable --now NetworkManager
+        sudo systemctl enable --now bluetooth
+        sudo systemctl enable --now ufw
+    fi
+    log_ok "Services enabled."
 }
 
 reload_hyprland() {

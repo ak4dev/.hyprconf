@@ -386,33 +386,23 @@ EOF
   log_ok "Chroot configuration complete."
 }
 
-setup_first_boot() {
-  log_step "Staging dotfiles for first-boot setup..."
-
-  # Clone hyprconf into the new user's home (network still available from the ISO)
+run_setup_in_chroot() {
+  log_step "Cloning dotfiles repo into /home/${USERNAME}/.hyprconf ..."
   arch-chroot /mnt /bin/bash -c "
     git clone --depth=1 '${REPO_URL}' /home/${USERNAME}/.hyprconf
     chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.hyprconf
   "
+  log_ok "Repo cloned."
 
-  # Marker file — removed by .zprofile after setup.sh completes
-  touch /mnt/home/"${USERNAME}"/.first-boot
-  arch-chroot /mnt chown "${USERNAME}":"${USERNAME}" /home/"${USERNAME}"/.first-boot
+  # Grant passwordless sudo for unattended package installation; removed when done.
+  echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > /mnt/etc/sudoers.d/hyprconf-setup
 
-  # .zprofile: on first login, run setup.sh then launch Hyprland.
-  # setup.sh will append its own Hyprland autostart line via add_if_missing,
-  # but the exec below fires immediately after setup finishes this session.
-  # Uses a quoted delimiter so $HOME / $(tty) are preserved for runtime expansion.
-  cat > /mnt/home/"${USERNAME}"/.zprofile << 'ZPROFILE'
-if [[ -f "$HOME/.first-boot" ]]; then
-  rm -f "$HOME/.first-boot"
-  bash "$HOME/.hyprconf/setup.sh"
-  [[ $(tty) == /dev/tty1 ]] && exec Hyprland
-fi
-ZPROFILE
-  arch-chroot /mnt chown "${USERNAME}":"${USERNAME}" /home/"${USERNAME}"/.zprofile
+  log_step "Running setup.sh as ${USERNAME} in chroot..."
+  arch-chroot /mnt runuser -l "${USERNAME}" -c \
+    "export HYPRCONF_CHROOT=1 HYPRCONF_INSTALLER=1; bash /home/${USERNAME}/.hyprconf/setup.sh"
 
-  log_ok "First-boot hook ready — setup.sh runs automatically on first login."
+  rm -f /mnt/etc/sudoers.d/hyprconf-setup
+  log_ok "Dotfiles configured."
 }
 
 unmount_all() {
@@ -437,13 +427,13 @@ arch_install() {
   mount_filesystems
   install_base_system
   configure_in_chroot
-  setup_first_boot
+  run_setup_in_chroot
   unmount_all
 
   printf '\n%s  ════════════════════════════════════════════════════════════════%s\n' "$DM" "$RS"
   printf '%s  ✔ Arch Linux installed successfully!%s\n'                              "$GR" "$RS"
   printf '%s  · Remove the installation media and reboot.%s\n'                      "$DM" "$RS"
-  printf '%s  · Log in as %s — setup.sh and Hyprland start automatically.%s\n\n'   "$DM" "$USERNAME" "$RS"
+  printf '%s  · Log in as %s — Hyprland starts automatically on tty1.%s\n\n'       "$DM" "$USERNAME" "$RS"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
