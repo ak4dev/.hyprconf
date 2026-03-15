@@ -318,11 +318,12 @@ deploy_cert() {
     status=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
       --region us-east-1 --query 'Certificate.Status' --output text 2>/dev/null || true)
     if [[ "$status" == "ISSUED" ]]; then
-      log_ok "Certificate issued: $cert_arn"; return 0
+      log_ok "Certificate already issued: $cert_arn"; return 0
     elif [[ "$status" == "PENDING_VALIDATION" ]]; then
-      log_warn "Certificate is pending DNS validation."
-      _print_cert_dns "$cert_arn"
-      log_die "Add the CNAME record above, then re-run: hyprconf deploy"
+      log_step "Certificate pending — attempting to auto-validate via Route53 ..."
+      _upsert_cert_cname "$cert_arn"
+      _wait_cert_issued "$cert_arn"
+      return 0
     fi
   fi
 
@@ -335,25 +336,69 @@ deploy_cert() {
   state_set CERT_ARN "$cert_arn"
   log_ok "Certificate requested: $cert_arn"
 
-  sleep 5
-  _print_cert_dns "$cert_arn"
-  log_die "Add the CNAME record above, then re-run: hyprconf deploy"
+  # ACM takes a few seconds to populate the validation record
+  log_step "Waiting for ACM to generate validation record ..."
+  local rec_name rec_value
+  for i in $(seq 1 12); do
+    rec_name=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
+      --region us-east-1 \
+      --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Name' \
+      --output text 2>/dev/null || true)
+    [[ -n "$rec_name" && "$rec_name" != "None" ]] && break
+    sleep 5
+  done
+  [[ -n "$rec_name" && "$rec_name" != "None" ]] \
+    || log_die "ACM did not provide a validation record after 60s — re-run: hyprconf deploy"
+
+  _upsert_cert_cname "$cert_arn"
+  _wait_cert_issued "$cert_arn"
 }
 
-_print_cert_dns() {
+# Write (or overwrite) the ACM validation CNAME into Route53 automatically.
+_upsert_cert_cname() {
   local cert_arn="$1"
-  local name value
-  name=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
+  local rec_name rec_value
+  rec_name=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
     --region us-east-1 \
     --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Name' \
-    --output text 2>/dev/null || echo "(loading — wait a moment then re-run)")
-  value=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
+    --output text)
+  rec_value=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
     --region us-east-1 \
     --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Value' \
-    --output text 2>/dev/null || echo "(loading — wait a moment then re-run)")
-  printf '\n%s  Add this DNS CNAME record in Route53 to validate the certificate:%s\n' "$AM" "$RS"
-  printf '%s  Name:  %s%s%s\n'  "$DM" "$WH" "$name"  "$RS"
-  printf '%s  Value: %s%s%s\n\n' "$DM" "$WH" "$value" "$RS"
+    --output text)
+
+  log_step "Adding validation CNAME to Route53 zone $HYPRCONF_ZONE_ID ..."
+  printf '%s  %s%s%s\n' "$DM" "$WH" "$rec_name  →  $rec_value" "$RS"
+
+  local change_batch
+  change_batch=$(printf '{"Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"%s","Type":"CNAME","TTL":60,"ResourceRecords":[{"Value":"%s"}]}}]}' \
+    "$rec_name" "$rec_value")
+
+  aws route53 change-resource-record-sets \
+    --hosted-zone-id "$HYPRCONF_ZONE_ID" \
+    --change-batch "$change_batch" \
+    --output text --query 'ChangeInfo.Status' >/dev/null
+
+  log_ok "Validation CNAME created in Route53."
+}
+
+# Poll until ACM marks the certificate ISSUED (typically 1–3 minutes).
+_wait_cert_issued() {
+  local cert_arn="$1"
+  log_step "Waiting for ACM to validate certificate (usually 1–3 min) ..."
+  local i status
+  for i in $(seq 1 36); do
+    status=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
+      --region us-east-1 --query 'Certificate.Status' --output text 2>/dev/null || true)
+    if [[ "$status" == "ISSUED" ]]; then
+      log_ok "Certificate issued: $cert_arn"
+      return 0
+    fi
+    printf '\r%s  [%d/36] Status: %s — waiting ...%s' "$DM" "$i" "$status" "$RS"
+    sleep 5
+  done
+  printf '\n'
+  log_die "Certificate not issued after 3 min. Status: $status — re-run: hyprconf deploy"
 }
 
 # ── Step 3: CloudFront distribution ──────────────────────────────────────────
