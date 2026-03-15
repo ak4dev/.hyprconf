@@ -16,4 +16,4 @@ stow/hypr/.config/hypr/monitors.conf
 
 # Infrastructure — never commit credentials or runtime state
 infra/env.sh
-infra/.deploy-state
+infra/deploy-state

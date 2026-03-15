@@ -190,7 +190,10 @@ teardown_bucket() {
 
 # ── Entry ─────────────────────────────────────────────────────────────────────
 main() {
-  printf '\n%s  ── hyprconf infra teardown ────────────────────────────────────%s\n\n' "$GL" "$RS"
+  # shellcheck source=../assets/banner.sh
+  source "$INFRA_DIR/../assets/banner.sh" 2>/dev/null || true
+  print_banner
+
   [[ -f "$CFG_FILE" ]] \
     || log_die "~/.config/hyprconf/infra.env not found. Run 'hyprconf deploy' first."
   command -v aws &>/dev/null || log_die "AWS CLI not found."

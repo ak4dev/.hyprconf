@@ -507,9 +507,9 @@ deploy_dns() {
 
 # ── Entry ─────────────────────────────────────────────────────────────────────
 main() {
-  printf '\n%s  ──────────────────────────────────────────────────────────────%s\n' "$DM" "$RS"
-  printf '%s       .hyprconf  ▸  cloud deploy%s\n' "$WH" "$RS"
-  printf '%s  ──────────────────────────────────────────────────────────────%s\n\n' "$DM" "$RS"
+  # shellcheck source=../assets/banner.sh
+  source "$ROOT_DIR/assets/banner.sh" 2>/dev/null || true
+  print_banner
 
   configure_env
   deploy_bucket

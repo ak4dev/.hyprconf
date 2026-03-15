@@ -42,9 +42,10 @@ The script will:
 7. Stow all config packages into `$HOME`
 8. Copy VS Code theme extensions and Firefox extension payloads
 9. Auto-link the correct monitor config based on detected GPU
-10. Enable and start `NetworkManager`, `bluetooth`, and `ufw` (deny inbound, allow outbound)
-11. Disable `sddm`, enable `power-profiles-daemon` (laptop only)
-12. Reload Hyprland
+10. Configure firewall: `ufw` deny inbound / allow outbound — then enable and start
+11. Stop and disable `sddm` (display manager replaced by TTY auto-login)
+12. Enable `power-profiles-daemon` (laptop only), `NetworkManager`, `bluetooth`
+13. Reload Hyprland (skipped gracefully if not running)
 
 > **Note:** `bibata-cursor-theme` (set as `GTK_CURSOR_THEME`) is AUR-only and must be installed manually:
 > ```bash
@@ -134,8 +135,8 @@ The AWS infrastructure (S3 + CloudFront + ACM + Route53) is managed via scripts 
 
 ### Forking / Deploying Your Own
 
-1. Fork this repo and update `REPO_URL` in `install/install.sh`
-2. Copy `infra/env.sh.example` → `infra/env.sh` and fill in your values:
+1. Fork this repo and update `REPO_URL` in `install/install.sh` to point to your fork
+2. Run `hyprconf deploy` (or `bash infra/deploy.sh`) — it will interactively prompt for all settings on first run and save them to `~/.config/hyprconf/infra.env` (never committed)
 
 | Variable | Description |
 |---|---|
@@ -144,12 +145,15 @@ The AWS infrastructure (S3 + CloudFront + ACM + Route53) is managed via scripts 
 | `HYPRCONF_DOMAIN` | Your custom domain (e.g. `hyprconf.yourdomain.com`) |
 | `HYPRCONF_BUCKET` | S3 bucket name (globally unique, e.g. `hyprconf-yourdomain-com`) |
 | `HYPRCONF_ZONE_ID` | Route53 hosted zone ID for the parent domain |
-| `HYPRCONF_REPO` | Your fork's GitHub URL |
+| `HYPRCONF_REPO` | Your fork's GitHub URL (auto-detected from git remote) |
 
-3. Run `bash infra/deploy.sh` — it's idempotent and resumes if interrupted
+The deploy script is idempotent — re-run at any time to refresh `install.sh` or resume after interruption. The deploy is also fully reversible:
 
-> ACM certificates require DNS validation. The script prints the required CNAME
-> record and exits; add it, wait ~2 minutes, then re-run.
+```bash
+hyprconf teardown   # destroys all AWS resources (requires domain confirmation)
+```
+
+> See `infra/env.sh.example` for a complete variable reference and CI/CD usage notes.
 
 
 
@@ -209,6 +213,8 @@ The AWS infrastructure (S3 + CloudFront + ACM + Route53) is managed via scripts 
 | `Super + J` | Toggle split direction |
 | `Super + ← ↑ ↓ →` | Move focus |
 | `Super + Shift + ← ↑ ↓ →` | Resize active window |
+| `Super + Shift + A` | Swap window left |
+| `Super + Shift + D` | Swap window right |
 | `Super + LMB drag` | Move window |
 | `Super + RMB drag` | Resize window |
 
@@ -233,6 +239,7 @@ The AWS infrastructure (S3 + CloudFront + ACM + Route53) is managed via scripts 
 | `XF86MonBrightnessUp / Down` | Brightness ±5% (auto-detects backlight device) |
 | `XF86AudioPlay / Pause / Next / Prev` | Media playback (playerctl) |
 | `Super + L` | Lock screen (wipes clipboard, invokes hyprlock) |
+| `Super + Shift + Escape` | Lock screen (alternative) |
 | `Super + Shift + 4` | Screenshot (region, hyprshot) |
 | `Super + Shift + V` | Clipboard history picker (cliphist + wofi) |
 | `Super + Shift + Backspace` | Toggle native laptop display |
@@ -262,6 +269,9 @@ hyprconf monitor set <preset>    Switch to a monitor preset
 hyprconf monitor <preset>        Shorthand for 'set <preset>'
 
 hyprconf display toggle          Toggle built-in screen (eDP-1) on/off
+
+hyprconf deploy                  Deploy (or refresh) the cloud install endpoint on AWS
+hyprconf teardown                Destroy all AWS resources (confirmation required)
 
 hyprconf help                    Show usage
 ```

@@ -46,7 +46,7 @@ print_banner() {
   #   Row 3 is intentionally glitch-red — corrupted scanline artifact
   printf '%s         _                                        __%s\n'                        "$DM" "$RS"
   printf '%s        | |__  _   _ _ __  _ __ ___ ___  _ __  / _|%s\n'                       "$WH" "$RS"
-  printf "%s        | '_ \\| | | | '_ \\| '__/ __/ _ \\| '_ \\| |_%s\\n"                    "$GL" "$RS"
+  printf "%s        | '_ \\| | | | '_ \\| '__/ __/ _ \\| '_ \\| |_%s\n"                     "$GL" "$RS"
   printf '%s  _     | | | | |_| | |_) | | | (_| (_) | | | |  _|%s\n'                       "$WH" "$RS"
   printf '%s (_)    |_| |_|\__, | .__/|_|  \___\___/|_| |_||_|%s\n'                        "$DM" "$RS"
   printf '%s               |___/|_|%s\n'                                                    "$DM" "$RS"
@@ -100,7 +100,7 @@ get_repo() {
 run_setup() {
   log_step "Handing off to setup.sh ..."
   printf '\n'
-  bash "$REPO_DIR/setup.sh"
+  HYPRCONF_INSTALLER=1 bash "$REPO_DIR/setup.sh"
 }
 
 # ── Entry ─────────────────────────────────────────────────────────────────────

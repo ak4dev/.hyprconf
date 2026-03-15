@@ -1,85 +1,97 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# === Colors for logging ===
-readonly GREEN="\e[32m"
-readonly YELLOW="\e[33m"
-readonly RED="\e[31m"
-readonly RESET="\e[0m"
+# ── Palette (matches deploy.sh / teardown.sh / install.sh) ───────────────────
+if [[ -t 1 ]]; then
+  WH=$'\e[1;37m' GL=$'\e[1;31m' AM=$'\e[1;33m'
+  GR=$'\e[1;32m' DM=$'\e[2;37m' RS=$'\e[0m'
+else
+  WH='' GL='' AM='' GR='' DM='' RS=''
+fi
 
-log_info()  { echo -e "${GREEN}==> $1${RESET}"; }
-log_warn()  { echo -e "${YELLOW}==> $1${RESET}"; }
-log_error() { echo -e "${RED}==> $1${RESET}" >&2; }
+log_step() { printf '%s  ▸ %s%s%s\n'        "$AM" "$WH" "$1" "$RS"; }
+log_ok()   { printf '%s  ✔ %s%s%s\n'        "$GR" "$WH" "$1" "$RS"; }
+log_warn() { printf '%s  ! %s%s%s\n'        "$AM" "$WH" "$1" "$RS"; }
+log_die()  { printf '%s  ✘ FATAL: %s%s%s\n' "$GL" "$WH" "$1" "$RS" >&2; exit 1; }
 
 readonly HYPRCONF_DIR="$HOME/.hyprconf"
 readonly STOW_DIR="$HYPRCONF_DIR/stow"
 readonly ZSHRC="$HOME/.zshrc"
 readonly P10K_DIR="$HOME/powerlevel10k"
 
+print_header() {
+  local mode="${1:-setup}"
+  printf '\n%s  ──────────────────────────────────────────────────────────────%s\n' "$DM" "$RS"
+  printf '%s  .hyprconf  ▸  %s%s\n' "$WH" "$mode" "$RS"
+  printf '%s  ──────────────────────────────────────────────────────────────%s\n\n' "$DM" "$RS"
+}
+
 install_packages() {
-    log_info "Installing required packages..."
+    log_step "Installing required packages..."
     sudo pacman -Syu --noconfirm
 
     if [[ ! -f "$HYPRCONF_DIR/packages" ]]; then
-        log_error "packages file not found at $HYPRCONF_DIR/packages"
-        return 1
+        log_die "packages file not found at $HYPRCONF_DIR/packages"
     fi
 
-    # Read packages from file, ignoring empty lines and comments
     mapfile -t packages < <(grep -v '^\s*#' "$HYPRCONF_DIR/packages" | grep -v '^\s*$')
 
+    local missing=()
     for pkg in "${packages[@]}"; do
-        if ! pacman -Qi "$pkg" &>/dev/null; then
-            log_info "Installing $pkg..."
-            sudo pacman -S --noconfirm "$pkg"
-        else
-            log_info "$pkg already installed, skipping..."
-        fi
+        pacman -Qi "$pkg" &>/dev/null || missing+=("$pkg")
     done
+
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        log_step "Installing ${#missing[@]} missing package(s)..."
+        sudo pacman -S --noconfirm --needed "${missing[@]}"
+    fi
+    log_ok "All packages installed."
 }
 
 create_directories() {
-    log_info "Creating required directories..."
-    mkdir -p ~/.config
-    mkdir -p ~/.local/bin
-    mkdir -p ~/.vscode-oss/extensions
+    log_step "Creating required directories..."
+    mkdir -p ~/.config ~/.local/bin ~/.vscode-oss/extensions
     mkdir -p ~/Pictures ~/Downloads ~/wallpaper
+    log_ok "Directories ready."
 }
 
 clone_or_update_repo() {
-    if [ ! -d "$HYPRCONF_DIR" ]; then
-        log_info "Cloning hyprconf repo..."
+    if [ ! -d "$HYPRCONF_DIR/.git" ]; then
+        log_step "Cloning hyprconf repo..."
         git clone https://github.com/ak4dev/.hyprconf "$HYPRCONF_DIR"
     else
-        log_info "Updating hyprconf repo..."
-        git -C "$HYPRCONF_DIR" pull
+        log_step "Updating hyprconf repo..."
+        git -C "$HYPRCONF_DIR" pull --ff-only || log_warn "Fast-forward pull failed — using existing files."
     fi
+    log_ok "Repository ready."
 }
 
 install_oh_my_zsh() {
     if [ ! -d ~/.oh-my-zsh ]; then
-        log_info "Installing Oh My Zsh..."
+        log_step "Installing Oh My Zsh..."
         export RUNZSH=no
         sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+        log_ok "Oh My Zsh installed."
     else
-        log_info "Oh My Zsh already installed, skipping..."
+        log_ok "Oh My Zsh already installed."
     fi
 }
 
 install_powerlevel10k() {
     if [ ! -d "$P10K_DIR" ]; then
-        log_info "Installing Powerlevel10k..."
+        log_step "Installing Powerlevel10k..."
         git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P10K_DIR"
+        log_ok "Powerlevel10k installed."
     else
-        log_info "Updating Powerlevel10k..."
-        git -C "$P10K_DIR" pull
+        log_step "Updating Powerlevel10k..."
+        git -C "$P10K_DIR" pull --ff-only || true
+        log_ok "Powerlevel10k up to date."
     fi
 }
 
 update_zshrc() {
-    log_info "Ensuring .zshrc is configured..."
+    log_step "Configuring ~/.zshrc..."
 
-    # Create .zshrc if it doesn't exist yet (e.g. sync before OMZ install)
     touch "$ZSHRC"
 
     add_if_missing() {
@@ -87,60 +99,40 @@ update_zshrc() {
         grep -qxF "$line" "$ZSHRC" 2>/dev/null || echo "$line" >> "$ZSHRC"
     }
 
-    # Replace any existing ZSH_THEME line (OMZ template defaults to "robbyrussell").
-    # Must be set BEFORE source $ZSH/oh-my-zsh.sh to take effect inside OMZ.
     if grep -q '^ZSH_THEME=' "$ZSHRC" 2>/dev/null; then
         sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$ZSHRC"
-        log_info "ZSH_THEME updated to powerlevel10k."
     else
         add_if_missing 'ZSH_THEME="powerlevel10k/powerlevel10k"'
     fi
 
-    # These lines are added by the OMZ installer but are safe to re-add as a
-    # fallback (add_if_missing skips them when they already exist).
     add_if_missing 'export ZSH="$HOME/.oh-my-zsh"'
     add_if_missing 'plugins=(git)'
     add_if_missing 'source $ZSH/oh-my-zsh.sh'
 
-    # Plugin sources and p10k (not in the OMZ template — always need to be added).
     add_if_missing 'source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh'
     add_if_missing 'source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
     add_if_missing 'source ~/powerlevel10k/powerlevel10k.zsh-theme'
     add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
 
-    # PATH and aliases.
     add_if_missing 'export PATH="$HOME/.local/bin:$PATH"'
     add_if_missing "alias hyprsync='~/.hyprconf/setup.sh --sync'"
     add_if_missing "fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green"
-}
 
-enable_services() {
-    log_info "Configuring ufw firewall..."
-    sudo ufw default deny incoming
-    sudo ufw default allow outgoing
-    sudo ufw enable
-    sudo systemctl enable --now ufw
-    log_info "Disabling sddm"
-    sudo systemctl disable sddm 2>/dev/null || log_warn "sddm not found or already disabled — skipping"
-}
-
-sync_services() {
-    log_info "Syncing system services..."
-    sudo systemctl enable --now NetworkManager
-    sudo systemctl enable --now bluetooth
-    sudo systemctl enable --now ufw
+    log_ok "~/.zshrc configured."
 }
 
 configure_zprofile() {
+    log_step "Configuring ~/.zprofile..."
     local zprofile="$HOME/.zprofile"
     local autostart='[[ $(tty) == /dev/tty1 ]] && exec Hyprland'
     grep -qxF "$autostart" "$zprofile" 2>/dev/null || echo "$autostart" >> "$zprofile"
-    log_info "Configured Hyprland auto-start in ~/.zprofile"
+    log_ok "Hyprland auto-start configured in ~/.zprofile"
 }
 
 setup_user_dirs() {
-    log_info "Initialising XDG user directories..."
+    log_step "Initialising XDG user directories..."
     xdg-user-dirs-update
+    log_ok "XDG user directories ready."
 }
 
 force_stow_package() {
@@ -148,11 +140,10 @@ force_stow_package() {
     local stow_dir="$2"
     local target_dir="$3"
 
-    log_info "Stowing package: $package"
+    log_step "Stowing $package..."
 
-    # --restow = unstow then restow; idempotent and handles stale links cleanly
     if ! stow -d "$stow_dir" -t "$target_dir" --restow "$package" 2>/dev/null; then
-        log_warn "Conflict detected while stowing $package. Backing up conflicting files and retrying..."
+        log_warn "Conflict in $package — backing up and retrying..."
 
         stow -d "$stow_dir" -t "$target_dir" -D "$package" || true
 
@@ -161,18 +152,15 @@ force_stow_package() {
             local target_file="$target_dir/$rel_path"
             if [[ -L "$target_file" ]]; then
                 rm "$target_file"
-                log_info "Removed non-stow symlink: $target_file"
             elif [[ -e "$target_file" ]]; then
-                local backup_file="${target_file}.backup.$(date +%Y%m%d%H%M%S)"
-                mv "$target_file" "$backup_file"
-                log_info "Backed up $target_file to $backup_file"
+                mv "$target_file" "${target_file}.backup.$(date +%Y%m%d%H%M%S)"
             fi
         done
 
         stow -d "$stow_dir" -t "$target_dir" --restow "$package"
     fi
 
-    log_info "Stowed $package"
+    log_ok "Stowed $package."
 }
 
 sync_vscode_theme_extensions() {
@@ -181,95 +169,115 @@ sync_vscode_theme_extensions() {
     local extensions_dir="$HOME/.vscode-oss/extensions"
 
     if [ ! -d "$theme_source" ]; then
-        log_warn "VS Code theme source not found at $theme_source. Skipping copy."
+        log_warn "VS Code theme source not found — skipping."
         return
     fi
 
     mkdir -p "$extensions_dir"
 
     while IFS= read -r -d '' theme_pkg; do
-        local pkg_name
-        pkg_name=$(basename "$theme_pkg")
+        local pkg_name; pkg_name=$(basename "$theme_pkg")
         local dest_pkg="$extensions_dir/$pkg_name"
 
         if [ -d "$dest_pkg" ] && [ "$force_copy" != "true" ]; then
-            log_info "VS Code theme $pkg_name already present, skipping copy."
+            log_ok "VS Code extension $pkg_name already present."
             continue
         fi
 
-        if [ -d "$dest_pkg" ]; then
-            rm -rf "$dest_pkg"
-        fi
-
-        log_info "Copying VS Code theme $pkg_name into $extensions_dir..."
+        [ -d "$dest_pkg" ] && rm -rf "$dest_pkg"
+        log_step "Copying VS Code extension $pkg_name..."
         cp -a "$theme_pkg" "$dest_pkg"
+        log_ok "Copied $pkg_name."
     done < <(find "$theme_source" -mindepth 1 -maxdepth 1 -type d -print0)
 }
 
-
 purge_broken_symlinks() {
-    log_info "Pruning broken symlinks..."
+    log_step "Pruning broken symlinks..."
 
     local pruned=0
     while IFS= read -r -d '' link; do
         rm "$link"
-        log_info "  Removed broken symlink: $link"
         (( pruned++ )) || true
     done < <(find "$HOME/.config" -maxdepth 2 -xtype l -print0)
 
     while IFS= read -r -d '' link; do
         rm "$link"
-        log_info "  Removed broken symlink: $link"
         (( pruned++ )) || true
     done < <(find "$HOME/.local/bin" -maxdepth 1 -xtype l -print0 2>/dev/null)
 
     while IFS= read -r -d '' link; do
         rm "$link"
-        log_info "  Removed broken symlink: $link"
         (( pruned++ )) || true
     done < <(find "$HOME" -maxdepth 1 -xtype l -print0)
 
-    log_info "Pruned $pruned broken symlink(s)."
+    log_ok "Pruned $pruned broken symlink(s)."
 }
 
-
 detect_gpu_and_link_monitor_config() {
-    log_info "Detecting GPU for monitor config..."
+    log_step "Detecting GPU for monitor config..."
 
-    local gpu_info
-    gpu_info=$(lspci | grep -i vga || true)
-
+    local gpu_info; gpu_info=$(lspci | grep -i vga || true)
     local monitors_conf="$HOME/.config/hypr/monitors.conf"
     local hypr_conf_dir="$STOW_DIR/hypr/.config/hypr"
 
     rm -f "$monitors_conf"
 
     if echo "$gpu_info" | grep -qi "5090"; then
-        log_info "RTX 5090 detected, using pcMonitors.conf"
         ln -sf "$hypr_conf_dir/pcMonitors.conf" "$monitors_conf"
+        log_ok "RTX 5090 detected — using pcMonitors.conf"
     else
-        log_info "No RTX 5090 detected; using laptopMonitors.conf"
         ln -sf "$hypr_conf_dir/laptopMonitors.conf" "$monitors_conf"
-        log_info "Enabling power-profiles-daemon"
+        log_ok "Using laptopMonitors.conf"
+        log_step "Enabling power-profiles-daemon..."
         sudo systemctl enable --now power-profiles-daemon
     fi
 }
 
 stow_all_packages() {
-    log_info "Stowing all packages..."
+    log_step "Stowing all config packages..."
 
     while IFS= read -r -d '' pkg; do
-        local pkg_name
-        pkg_name=$(basename "$pkg")
+        local pkg_name; pkg_name=$(basename "$pkg")
         force_stow_package "$pkg_name" "$STOW_DIR" "$HOME"
     done < <(find "$STOW_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
 
     detect_gpu_and_link_monitor_config
+    log_ok "All packages stowed."
+}
+
+enable_services() {
+    log_step "Configuring firewall (ufw)..."
+    sudo ufw default deny incoming
+    sudo ufw default allow outgoing
+    sudo ufw enable
+    sudo systemctl enable --now ufw
+
+    log_step "Disabling display manager (sddm)..."
+    sudo systemctl disable --now sddm 2>/dev/null \
+        || log_warn "sddm not found or already disabled — skipping."
+    log_ok "Security services configured."
+}
+
+sync_services() {
+    log_step "Enabling system services..."
+    sudo systemctl enable --now NetworkManager
+    sudo systemctl enable --now bluetooth
+    sudo systemctl enable --now ufw
+    log_ok "Services running."
+}
+
+reload_hyprland() {
+    if hyprctl reload 2>/dev/null; then
+        log_ok "Hyprland reloaded."
+    else
+        log_warn "Hyprland not running — reload skipped."
+    fi
 }
 
 main() {
     if [[ "${1:-}" == "--sync" ]]; then
-        log_info "Syncing configs..."
+        print_header "sync"
+        log_step "Syncing configs..."
         clone_or_update_repo
         purge_broken_symlinks
         sync_vscode_theme_extensions
@@ -277,9 +285,21 @@ main() {
         update_zshrc
         configure_zprofile
         sync_services
-        hyprctl reload
-        log_info "Sync complete!"
+        reload_hyprland
+        printf '\n%s  ✔ Sync complete.%s\n\n' "$GR" "$RS"
         return 0
+    fi
+
+    # Show full banner only when invoked directly (not from install.sh)
+    if [[ -z "${HYPRCONF_INSTALLER:-}" ]]; then
+        local banner_src="$HYPRCONF_DIR/assets/banner.sh"
+        if [[ -f "$banner_src" ]]; then
+            # shellcheck source=assets/banner.sh
+            source "$banner_src"
+            print_banner
+        else
+            print_header "setup"
+        fi
     fi
 
     install_packages
@@ -291,11 +311,13 @@ main() {
     update_zshrc
     configure_zprofile
     setup_user_dirs
+    purge_broken_symlinks
     stow_all_packages
-    sync_services
     enable_services
-    hyprctl reload
-    log_info "Setup complete. Restart your terminal or source your ~/.zshrc."
+    sync_services
+    reload_hyprland
+
+    printf '\n%s  ✔ Setup complete. Restart your terminal or source your ~/.zshrc.%s\n\n' "$GR" "$RS"
 }
 
 main "$@"

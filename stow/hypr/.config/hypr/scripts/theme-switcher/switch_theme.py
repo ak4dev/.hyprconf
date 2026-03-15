@@ -558,12 +558,13 @@ def update_waybar(theme_colors: Dict[str, str]):
     print("Waybar theme updated.")
 
 def update_hyprpaper(theme: Dict[str, str]):
-    """Update Hyprpaper wallpaper."""
+    """Update Hyprpaper wallpaper by rewriting the $wallpaper variable declaration."""
     if "wallpaper" not in theme:
         print("No wallpaper defined in theme, skipping Hyprpaper.")
         return
 
-    wallpaper_path = os.path.expanduser(theme["wallpaper"])
+    wallpaper_entry = theme["wallpaper"]  # raw value, e.g. "~/wallpaper/gruvbox.jpg"
+    wallpaper_path = os.path.expanduser(wallpaper_entry)
     if not os.path.exists(wallpaper_path):
         print(f"Wallpaper image not found: {wallpaper_path}")
         return
@@ -577,13 +578,9 @@ def update_hyprpaper(theme: Dict[str, str]):
 
     updated_lines = []
     for line in lines:
-        if line.startswith("preload="):
-            updated_lines.append(f"preload={wallpaper_path}\n")
-        elif line.startswith("wallpaper="):
-            match = re.match(r"wallpaper=([^,]+),", line)
-            if match:
-                monitor = match.group(1)
-                updated_lines.append(f"wallpaper={monitor},{wallpaper_path}\n")
+        # Update the $wallpaper variable declaration used by all wallpaper blocks
+        if re.match(r'^\$wallpaper\s*=', line):
+            updated_lines.append(f"$wallpaper = {wallpaper_entry}\n")
         else:
             updated_lines.append(line)
 

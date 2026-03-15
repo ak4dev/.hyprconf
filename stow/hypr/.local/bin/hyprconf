@@ -6,6 +6,7 @@ readonly MONITOR_SCRIPT="$HOME/.config/hypr/scripts/switch_monitor.sh"
 readonly DISPLAY_SCRIPT="$HOME/.hyprconf/scripts/toggle-native-display"
 readonly SETUP_SCRIPT="$HOME/.hyprconf/setup.sh"
 readonly DEPLOY_SCRIPT="$HOME/.hyprconf/infra/deploy.sh"
+readonly TEARDOWN_SCRIPT="$HOME/.hyprconf/infra/teardown.sh"
 
 _b='\e[1m'; _c='\e[36m'; _y='\e[33m'; _r='\e[0m'
 
@@ -33,6 +34,8 @@ usage() {
   printf "                                   endpoint on AWS. Prompts for config on\n"
   printf "                                   first run; idempotent thereafter.\n"
   printf "                                   Config: ~/.config/hyprconf/infra.env\n"
+  printf "  hyprconf teardown                Destroy all AWS resources created by\n"
+  printf "                                   deploy. Requires domain confirmation.\n"
   printf "\n${_b}General${_r}\n"
   printf "  hyprconf help                    Show this message\n"
 }
@@ -91,6 +94,10 @@ cmd_deploy() {
   bash "$DEPLOY_SCRIPT" "$@"
 }
 
+cmd_teardown() {
+  bash "$TEARDOWN_SCRIPT" "$@"
+}
+
 main() {
   local cmd="${1:-help}"
   shift || true
@@ -100,6 +107,7 @@ main() {
     monitor)          cmd_monitor "$@" ;;
     display)          cmd_display "$@" ;;
     deploy)           cmd_deploy "$@" ;;
+    teardown)         cmd_teardown "$@" ;;
     help|-h|--help)   usage ;;
     *)
       printf "${_y}Unknown command: %s${_r}\n\n" "$cmd" >&2

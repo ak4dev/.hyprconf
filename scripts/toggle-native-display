@@ -1,17 +1,32 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly DISPLAY="eDP-1"
+# ── Palette (degraded gracefully when not a tty) ──────────────────────────────
+if [[ -t 1 ]]; then
+    AM=$'\033[38;2;255;184;108m'   # amber
+    GR=$'\033[38;2;80;250;123m'    # green
+    WH=$'\033[38;2;248;248;242m'   # white
+    RS=$'\033[0m'                  # reset
+else
+    AM=''; GR=''; WH=''; RS=''
+fi
 
-DISABLED=$(hyprctl monitors | awk -v m="$DISPLAY" '
+log_step() { printf '%s  ▸ %s%s%s\n' "$AM" "$WH" "$1" "$RS"; }
+log_ok()   { printf '%s  ✔ %s%s%s\n' "$GR" "$WH" "$1" "$RS"; }
+
+readonly PANEL="eDP-1"
+
+DISABLED=$(hyprctl monitors | awk -v m="$PANEL" '
   $0 ~ "Monitor " m {flag=1}
   flag && $1=="disabled:" {print $2; exit}
 ')
 
 if [[ "$DISABLED" == "false" ]]; then
-    echo "$DISPLAY is enabled, disabling..."
-    hyprctl keyword monitor "$DISPLAY,disable"
+    log_step "Disabling $PANEL..."
+    hyprctl keyword monitor "$PANEL,disable"
+    log_ok "$PANEL disabled."
 else
-    echo "$DISPLAY is disabled, enabling..."
-    hyprctl keyword monitor "$DISPLAY,1920x1200,auto,1"
+    log_step "Enabling $PANEL..."
+    hyprctl keyword monitor "$PANEL,1920x1200,auto,1"
+    log_ok "$PANEL enabled."
 fi

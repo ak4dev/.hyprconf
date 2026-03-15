@@ -187,6 +187,7 @@ bindl  = , XF86AudioNext, exec, playerctl next
 | `dpms` | on/off/toggle | Display power management |
 | `pseudo` | — | Pseudotile toggle (dwindle) |
 | `togglesplit` | — | Toggle split direction |
+| `swapwindow` | l/r/u/d | Swap active window with neighbour |
 
 Wiki: <https://wiki.hyprland.org/Configuring/Binds/>
 
