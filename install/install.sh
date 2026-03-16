@@ -489,8 +489,34 @@ partition_unallocated() {
   if (( parted_rc == 124 )); then
     log_die "Timed out reading partition table (parted) for $DISK"
   fi
+
   if (( parted_rc != 0 )); then
-    log_die "Failed reading partition table for $DISK: ${parted_out:-unknown error}"
+    if [[ "${parted_out:-}" == *"unrecognised disk label"* ]]; then
+      log_warn "No partition table detected on $DISK."
+      printf '\n%s  Create a new GPT partition table on %s?%s\n' "$WH" "$DISK" "$RS"
+      printf '%s  This overwrites any existing partition table metadata (partitions will be lost).%s\n' "$DM" "$RS"
+      printf '%s  Continue? [Y/n]: %s' "$AM" "$RS"
+      local mklabel_ans
+      read -r mklabel_ans
+      if [[ "${mklabel_ans,,}" == "n" ]]; then
+        log_die "Disk must use GPT."
+      fi
+
+      log_step "Initializing GPT partition table on $DISK..."
+      run_timeout 8 parted -s "$DISK" mklabel gpt >/dev/null 2>&1 \
+        || log_die "Failed to create GPT partition table on $DISK"
+
+      set +e
+      parted_out="$(run_timeout 8 parted -s "$DISK" print 2>&1)"
+      parted_rc=$?
+      set -e
+
+      if (( parted_rc != 0 )); then
+        log_die "Failed reading partition table for $DISK after GPT init: ${parted_out:-unknown error}"
+      fi
+    else
+      log_die "Failed reading partition table for $DISK: ${parted_out:-unknown error}"
+    fi
   fi
 
   disk_label="$(printf '%s\n' "$parted_out" | awk '/Partition Table:/{print $3; exit}')"
