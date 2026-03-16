@@ -28,7 +28,7 @@ Personal Hyprland dotfiles for Arch Linux, managed with [GNU Stow](https://www.g
 ## Installation
 
 ```bash
-bash <(curl -fsSL https://hyprconf.ak4.io)
+bash <(curl -fsSL https://hyprconf.sh)
 ```
 
 The installer displays the banner and prompts for one of two modes:
@@ -143,10 +143,10 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 
 ## Deploying the Install Endpoint
 
-`install/install.sh` is served over HTTPS at `https://hyprconf.ak4.io`, enabling:
+`install/install.sh` is served over HTTPS at `https://hyprconf.sh`, enabling:
 
 ```bash
-bash <(curl -fsSL https://hyprconf.ak4.io)
+bash <(curl -fsSL https://hyprconf.sh)
 ```
 
 The AWS infrastructure (S3 + CloudFront + ACM + Route53) is managed via scripts in `infra/`.

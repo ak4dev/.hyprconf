@@ -48,7 +48,7 @@ print_banner() {
   # bottom noise line + sys info
   printf '%s  ▓░▒▓░▒▓▒▓░▒▓░▒▓░░▒▓░▒▓▒░▒▓░░▒▓░▒▓░▒▓░▒▓░▒▓▒▓░▒▓░▒▓░░▒▓░▒▓░░▒▓░▒▓░▒▓%s\n' "$NG" "$RS"
   printf '%s  ──────────────────────────────────────────────────────────────────────%s\n'   "$DM" "$RS"
-  printf '%s  [ SYS ] arch linux + hyprland dotfiles bootstrap              ak4.io\n'      "$AM"
+  printf '%s  [ SYS ] arch linux + hyprland dotfiles bootstrap         hyprconf.sh\n'      "$AM"
   printf    '  [ SYS ] signal: stable   origin: github.com/ak4dev/.hyprconf%s\n'           "$RS"
   printf '%s  ──────────────────────────────────────────────────────────────────────%s\n\n' "$DM" "$RS"
 }

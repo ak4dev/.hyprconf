@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
 #  hyprconf — universal installer
-#  hosted at: https://hyprconf.ak4.io
+#  hosted at: https://hyprconf.sh
 #
 #  usage:
-#    bash <(curl -fsSL https://hyprconf.ak4.io)
+#    bash <(curl -fsSL https://hyprconf.sh)
 #
 #  Presents two modes after the banner:
 #    [1] Full Arch Linux install  (run from the Arch ISO)
@@ -59,7 +59,7 @@ print_banner() {
   printf '%s               |___/|_|%s\n'                                                    "$DM" "$RS"
   printf '%s  ▓░▒▓░▒▓▒▓░▒▓░▒▓░░▒▓░▒▓▒░▒▓░░▒▓░▒▓░▒▓░▒▓░▒▓▒▓░▒▓░▒▓░░▒▓░▒▓░░▒▓░▒▓░▒▓%s\n' "$NG" "$RS"
   printf '%s  ──────────────────────────────────────────────────────────────────────%s\n'   "$DM" "$RS"
-  printf '%s  [ SYS ] arch linux + hyprland dotfiles bootstrap              ak4.io\n'      "$AM"
+  printf '%s  [ SYS ] arch linux + hyprland dotfiles bootstrap         hyprconf.sh\n'      "$AM"
   printf    '  [ SYS ] signal: stable   origin: github.com/ak4dev/.hyprconf%s\n'           "$RS"
   printf '%s  ──────────────────────────────────────────────────────────────────────%s\n\n' "$DM" "$RS"
 }
