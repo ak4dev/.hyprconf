@@ -49,6 +49,8 @@ The installer displays the banner and prompts for one of two modes:
 
 Prompts for: username, password (shared for user account + LUKS), hostname, timezone (auto-detected from IP, user-confirmed), target disk, and partition mode.
 
+Most interactive choices support arrow-key navigation (↑/↓/Enter) when run in a TTY. If `dialog` or `fzf` is installed, the installer will use it automatically; otherwise it falls back to a built-in arrow selector or manual input. Free-space/ESP probing uses timeouts and will fail with a clear error instead of hanging.
+
 The install:
 1. Partitions the disk — **full disk** (wipe) or **unallocated space** (preserves existing partitions; detects existing EFI partitions and prompts you to reuse or create a new one)
 2. Encrypts the root partition with LUKS2 (AES-XTS 512-bit)
