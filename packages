@@ -4,6 +4,7 @@ base-devel
 curl
 wget
 unzip
+vim
 stow
 pciutils
 xdg-user-dirs

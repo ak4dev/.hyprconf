@@ -195,7 +195,7 @@ hyprconf teardown   # destroys all AWS resources (requires domain confirmation)
 
 | Category | Packages |
 |---|---|
-| Core | `base-devel`, `git`, `curl`, `wget`, `unzip`, `stow`, `pciutils`, `xdg-user-dirs` |
+| Core | `base-devel`, `git`, `curl`, `wget`, `unzip`, `vim`, `stow`, `pciutils`, `xdg-user-dirs` |
 | Hyprland | `hyprland`, `hyprpaper`, `hyprshot`, `hyprlock`, `hypridle`, `xdg-desktop-portal-hyprland` |
 | Audio | `pipewire`, `pipewire-pulse`, `pipewire-alsa`, `wireplumber`, `pavucontrol` |
 | KDE Wallet | `kwallet`, `kwallet-pam` |
