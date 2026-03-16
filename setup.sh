@@ -182,7 +182,15 @@ update_zshrc() {
 configure_zprofile() {
     log_step "Configuring ~/.zprofile..."
     local zprofile="$HOME/.zprofile"
-    local autostart='[[ $(tty) == /dev/tty1 ]] && exec Hyprland'
+
+    local old_autostart='[[ $(tty) == /dev/tty1 ]] && exec Hyprland'
+    local autostart='[[ $(tty) == /dev/tty1 ]] && { command -v start-hyprland >/dev/null && exec start-hyprland || exec Hyprland; }'
+
+    # Remove legacy autostart line (Hyprland now warns if not started via start-hyprland)
+    if [[ -f "$zprofile" ]]; then
+        sed -i "\\|^${old_autostart}$\\|d" "$zprofile" 2>/dev/null || true
+    fi
+
     grep -qxF "$autostart" "$zprofile" 2>/dev/null || echo "$autostart" >> "$zprofile"
     log_ok "Hyprland auto-start configured in ~/.zprofile"
 }

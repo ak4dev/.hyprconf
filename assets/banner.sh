@@ -41,8 +41,8 @@ print_banner() {
   printf '%s         _                                        __%s\n'                   "$DM" "$RS"
   printf '%s        | |__  _   _ _ __  _ __ ___ ___  _ __  / _|%s\n'                  "$WH" "$RS"
   printf "%s        | '_ \\| | | | '_ \\| '__/ __/ _ \\| '_ \\| |_%s\n"                "$GL" "$RS"
-  printf '%s  _     | | | | |_| | |_) | | | (_| (_) | | | |  _|%s\n'                  "$WH" "$RS"
-  printf '%s (_)    |_| |_|\__, | .__/|_|  \___\___/|_| |_||_|%s\n'                   "$DM" "$RS"
+  printf '%s       _| | | | |_| | |_) | | | (_| (_) | | | |  _|%s\n'                  "$WH" "$RS"
+  printf '%s     (_)|_| |_|\__, | .__/|_|  \___\___/|_| |_||_|%s\n'                   "$DM" "$RS"
   printf '%s               |___/|_|%s\n'                                               "$DM" "$RS"
 
   # bottom noise line + sys info

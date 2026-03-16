@@ -1,6 +1,18 @@
+<p align="center">
+  <img src="assets/banner.svg" width="920" alt=".hyprconf" />
+</p>
+
+<p align="center">
+  <a href="https://hyprconf.sh"><img alt="installer" src="https://img.shields.io/badge/installer-hyprconf.sh-0ea5e9?style=for-the-badge" /></a>
+  <img alt="arch linux" src="https://img.shields.io/badge/arch-linux-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" />
+  <img alt="hyprland" src="https://img.shields.io/badge/hyprland-wayland-111827?style=for-the-badge&logo=wayland&logoColor=white" />
+  <img alt="gnu stow" src="https://img.shields.io/badge/gnu%20stow-dotfiles-3a7f2e?style=for-the-badge&logo=gnu&logoColor=white" />
+  <img alt="themes" src="https://img.shields.io/badge/themes-44-8b5cf6?style=for-the-badge" />
+</p>
+
 # .hyprconf
 
-Personal Hyprland dotfiles for Arch Linux, managed with [GNU Stow](https://www.gnu.org/software/stow/). Includes a one-shot bootstrap script, a GPU-aware monitor configuration system, and a full-desktop theme switcher covering 24 colour schemes.
+Personal Hyprland dotfiles for Arch Linux, managed with [GNU Stow](https://www.gnu.org/software/stow/). Includes a one-shot bootstrap script, a GPU-aware monitor configuration system, and a full-desktop theme switcher covering **44** colour schemes.
 
 ---
 
@@ -12,7 +24,7 @@ Personal Hyprland dotfiles for Arch Linux, managed with [GNU Stow](https://www.g
 - **GPU-aware monitor config** — auto-selects `pcMonitors.conf` (RTX 5090, HDR) or `laptopMonitors.conf` at setup time
 - **Hot-swappable monitor presets** — keybinds to switch between bedroom/kitchen PC configurations on the fly
 - **Screen lock & idle management** — hyprlock with blurred screenshot background; hypridle dims then locks then suspends; cliphist wiped on lock
-- **Full-desktop theme switcher** — 24 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code, Firefox, GTK3/4, and wallpaper
+- **Full-desktop theme switcher** — 44 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code / Code OSS, Firefox, GTK3/4, and wallpaper
 - **Conflict-safe stowing** — existing files are backed up with timestamps before being replaced
 
 ---
@@ -89,7 +101,8 @@ Sync pulls the latest repo, purges broken symlinks, re-stows packages, re-applie
 ├── setup.sh                  # Local bootstrap + sync entry point
 │
 ├── assets/                   # Shared project assets (reused across scripts)
-│   └── banner.sh             # Canonical print_banner() — glitch palette + logo
+│   ├── banner.sh             # Canonical print_banner() — glitch palette + logo
+│   └── banner.svg            # README header banner (colorized, alignment-safe)
 │
 ├── docs/                     # Documentation
 │   └── hyprland-reference.md # Hyprland config syntax cheatsheet
@@ -349,7 +362,7 @@ These flags map directly to `hyprconf theme` subcommands:
 
 ### Available Themes
 
-**Community themes (26):**
+**Community themes (24):**
 
 | | | | |
 |---|---|---|---|
@@ -466,7 +479,7 @@ The setup script idempotently appends to `~/.zshrc`:
 It also writes to `~/.zprofile` to auto-start Hyprland on login at TTY1:
 
 ```zsh
-[[ $(tty) == /dev/tty1 ]] && exec Hyprland
+[[ $(tty) == /dev/tty1 ]] && { command -v start-hyprland >/dev/null && exec start-hyprland || exec Hyprland; }
 ```
 
 This replaces the need for a display manager (`sddm` is disabled by the setup script).
