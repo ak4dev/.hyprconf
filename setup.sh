@@ -309,11 +309,14 @@ stow_all_packages() {
 
 enable_services() {
     log_step "Configuring firewall (ufw)..."
-    sudo ufw default deny incoming
-    sudo ufw default allow outgoing
     if _in_chroot; then
+        # ufw default/enable invoke ufw-init which requires a live netfilter stack.
+        # ufw's shipped defaults (DROP inbound, ACCEPT outbound) are already correct,
+        # so just enable the service unit for first boot.
         sudo systemctl enable ufw
     else
+        sudo ufw default deny incoming
+        sudo ufw default allow outgoing
         sudo ufw enable
         sudo systemctl enable --now ufw
     fi
