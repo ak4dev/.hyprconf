@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import filecmp
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -154,6 +155,11 @@ def update_wofi(theme: Dict[str, str]):
 #entry:selected #text {{
     color: {selected_text};
     font-weight: bold;
+}}
+
+#img, image {{
+    margin: 5px;
+    margin-right: 8px;
 }}
 """
 
@@ -1525,6 +1531,8 @@ def wofi_select(initial_filter: str = "") -> Optional[str]:
     current = read_state()
     display = [f"★  {t}" if t == current else f"   {t}" for t in themes]
     try:
+        # When launched from wofi's drun, starting a second wofi immediately can race/fail.
+        time.sleep(0.15)
         proc = subprocess.run(
             ["wofi", "--dmenu", "--prompt", "Theme:", "--insensitive"],
             input="\n".join(display),

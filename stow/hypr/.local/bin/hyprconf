@@ -8,11 +8,19 @@ readonly SETUP_SCRIPT="$HOME/.hyprconf/setup.sh"
 readonly DEPLOY_SCRIPT="$HOME/.hyprconf/infra/deploy.sh"
 readonly TEARDOWN_SCRIPT="$HOME/.hyprconf/infra/teardown.sh"
 
+readonly HYPRCONF_CFG_DIR="$HOME/.config/hyprconf"
+readonly DEPLOYMENTS_DIR="$HYPRCONF_CFG_DIR/deployments"
+
 if [[ -t 1 ]]; then
   _b=$'\e[1m'; _c=$'\e[36m'; _y=$'\e[33m'; _r=$'\e[0m'
 else
   _b=''; _c=''; _y=''; _r=''
 fi
+
+die() {
+  printf "%s%s%s\n" "${_y}" "$1" "${_r}" >&2
+  exit 1
+}
 
 usage() {
   printf "${_b}${_c}hyprconf${_r} — hyprland config control centre\n\n"
@@ -34,10 +42,11 @@ usage() {
   printf "\n${_b}Display${_r}\n"
   printf "  hyprconf display toggle          Toggle built-in screen (eDP-1) on/off\n"
   printf "\n${_b}Deploy${_r}\n"
-  printf "  hyprconf deploy                  Deploy (or refresh) the cloud install\n"
-  printf "                                   endpoint on AWS. Prompts for config on\n"
-  printf "                                   first run; idempotent thereafter.\n"
+  printf "  hyprconf deploy                  Deploy/refresh the default (legacy) domain\n"
   printf "                                   Config: ~/.config/hyprconf/infra.env\n"
+  printf "  hyprconf deploy list             List configured deployments\n"
+  printf "  hyprconf deploy new              Add + deploy an additional domain\n"
+  printf "  hyprconf deploy <domain>         Deploy/refresh a previously added domain\n"
   printf "  hyprconf teardown                Destroy all AWS resources created by\n"
   printf "                                   deploy. Requires domain confirmation.\n"
   printf "\n${_b}General${_r}\n"
@@ -95,8 +104,128 @@ cmd_display() {
   esac
 }
 
+_extract_domain_from_env() {
+  local env_file="$1"
+  [[ -f "$env_file" ]] || return 1
+  grep -E '^export HYPRCONF_DOMAIN=' "$env_file" 2>/dev/null \
+    | head -1 \
+    | sed -E 's/^export HYPRCONF_DOMAIN="?([^\"]*)"?$/\1/' \
+    | tr -d '\n'
+}
+
+_deploy_status_from_state() {
+  local state_file="$1"
+  [[ -f "$state_file" ]] || { printf 'configured'; return 0; }
+  grep -q '^DISTRIBUTION_ID=' "$state_file" 2>/dev/null && { printf 'deployed'; return 0; }
+  printf 'configured'
+}
+
+cmd_deploy_list() {
+  printf "${_b}Configured deployments:${_r}\n"
+
+  local any=0
+
+  local legacy_cfg="$HYPRCONF_CFG_DIR/infra.env"
+  local legacy_state="$HYPRCONF_CFG_DIR/deploy-state"
+  if [[ -f "$legacy_cfg" ]]; then
+    local domain; domain="$(_extract_domain_from_env "$legacy_cfg" || true)"
+    [[ -z "$domain" ]] && domain='(unknown)'
+    printf '  %s  (%s, legacy)\n' "$domain" "$(_deploy_status_from_state "$legacy_state")"
+    any=1
+  fi
+
+  if [[ -d "$DEPLOYMENTS_DIR" ]]; then
+    local dir
+    for dir in "$DEPLOYMENTS_DIR"/*; do
+      [[ -d "$dir" ]] || continue
+      local cfg="$dir/infra.env"
+      local state="$dir/deploy-state"
+      local name; name="$(basename "$dir")"
+      if [[ -f "$cfg" ]]; then
+        local domain; domain="$(_extract_domain_from_env "$cfg" || true)"
+        [[ -z "$domain" ]] && domain="$name"
+        printf '  %s  (%s)\n' "$domain" "$(_deploy_status_from_state "$state")"
+      else
+        printf '  %s  (incomplete — missing infra.env)\n' "$name"
+      fi
+      any=1
+    done
+  fi
+
+  [[ $any -eq 1 ]] || printf '  (none)\n'
+}
+
+_validate_domain() {
+  local domain="$1"
+  [[ -n "$domain" ]] || return 1
+  [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || return 1
+  [[ "$domain" == *.* ]] || return 1
+  return 0
+}
+
+cmd_deploy_new() {
+  local domain="${1:-}"
+
+  if [[ -z "$domain" ]]; then
+    [[ -t 0 ]] || die "Usage: hyprconf deploy new  (interactive; requires a TTY)"
+    printf "%sNew domain%s (e.g. get.example.com): " "${_b}" "${_r}"
+    read -r domain
+  fi
+
+  _validate_domain "$domain" || die "Invalid domain: $domain"
+
+  local dir="$DEPLOYMENTS_DIR/$domain"
+  local cfg="$dir/infra.env"
+  local state="$dir/deploy-state"
+
+  if [[ -e "$cfg" ]]; then
+    die "Deployment already exists for $domain. Use: hyprconf deploy $domain"
+  fi
+
+  mkdir -p "$dir"
+
+  HYPRCONF_DOMAIN="$domain" \
+  HYPRCONF_INFRA_CFG_FILE="$cfg" \
+  HYPRCONF_INFRA_STATE_FILE="$state" \
+    bash "$DEPLOY_SCRIPT"
+}
+
+cmd_deploy_domain() {
+  local domain="$1"
+  _validate_domain "$domain" || die "Invalid domain: $domain"
+
+  local dir="$DEPLOYMENTS_DIR/$domain"
+  local cfg="$dir/infra.env"
+  local state="$dir/deploy-state"
+
+  [[ -f "$cfg" ]] || die "No deployment found for $domain. Create it first: hyprconf deploy new"
+
+  HYPRCONF_INFRA_CFG_FILE="$cfg" \
+  HYPRCONF_INFRA_STATE_FILE="$state" \
+    bash "$DEPLOY_SCRIPT"
+}
+
 cmd_deploy() {
-  bash "$DEPLOY_SCRIPT" "$@"
+  local sub="${1:-}"
+  shift || true
+
+  case "$sub" in
+    "")
+      bash "$DEPLOY_SCRIPT" "$@"
+      ;;
+    list)
+      cmd_deploy_list
+      ;;
+    new)
+      cmd_deploy_new "$@"
+      ;;
+    -h|--help|help)
+      usage
+      ;;
+    *)
+      cmd_deploy_domain "$sub"
+      ;;
+  esac
 }
 
 cmd_teardown() {

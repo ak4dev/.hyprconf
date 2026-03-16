@@ -31,9 +31,13 @@ INFRA_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$INFRA_DIR")"
 
 # Config and state live OUTSIDE the repo so they are never accidentally committed.
-CFG_DIR="$HOME/.config/hyprconf"
-CFG_FILE="$CFG_DIR/infra.env"
-STATE_FILE="$CFG_DIR/deploy-state"
+# Callers may override paths to support multiple domains:
+#   HYPRCONF_INFRA_CFG_FILE=... HYPRCONF_INFRA_STATE_FILE=... bash infra/deploy.sh
+DEFAULT_CFG_DIR="$HOME/.config/hyprconf"
+CFG_FILE="${HYPRCONF_INFRA_CFG_FILE:-$DEFAULT_CFG_DIR/infra.env}"
+STATE_FILE="${HYPRCONF_INFRA_STATE_FILE:-$DEFAULT_CFG_DIR/deploy-state}"
+CFG_DIR="$(dirname "$CFG_FILE")"
+STATE_DIR="$(dirname "$STATE_FILE")"
 
 # ── Colour palette ────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
@@ -53,7 +57,7 @@ log_head() { printf '\n%s  ── %s ─%s\n\n'   "$DM" "$1" "$RS"; }
 # ── State helpers ─────────────────────────────────────────────────────────────
 state_get() { grep "^${1}=" "$STATE_FILE" 2>/dev/null | cut -d= -f2- || true; }
 state_set() {
-  mkdir -p "$CFG_DIR"
+  mkdir -p "$CFG_DIR" "$STATE_DIR"
   touch "$STATE_FILE"
   if grep -q "^${1}=" "$STATE_FILE" 2>/dev/null; then
     sed -i "s|^${1}=.*|${1}=${2}|" "$STATE_FILE"

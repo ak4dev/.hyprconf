@@ -154,7 +154,10 @@ The AWS infrastructure (S3 + CloudFront + ACM + Route53) is managed via scripts 
 ### Forking / Deploying Your Own
 
 1. Fork this repo and update `REPO_URL` in `install/install.sh` to point to your fork
-2. Run `hyprconf deploy` (or `bash infra/deploy.sh`) — it will interactively prompt for all settings on first run and save them to `~/.config/hyprconf/infra.env` (never committed)
+2. Run `hyprconf deploy` (or `bash infra/deploy.sh`) — it will interactively prompt for all settings on first run and save them to `~/.config/hyprconf/infra.env` (never committed).
+   - Deploy to an additional domain: `hyprconf deploy new` (saved under `~/.config/hyprconf/deployments/<domain>/`)
+   - List configured deployments: `hyprconf deploy list`
+   - Refresh an additional domain later: `hyprconf deploy <domain>`
 
 | Variable | Description |
 |---|---|
@@ -288,7 +291,10 @@ hyprconf monitor <preset>        Shorthand for 'set <preset>'
 
 hyprconf display toggle          Toggle built-in screen (eDP-1) on/off
 
-hyprconf deploy                  Deploy (or refresh) the cloud install endpoint on AWS
+hyprconf deploy                  Deploy/refresh the default (legacy) cloud install endpoint on AWS
+hyprconf deploy list             List configured deployments
+hyprconf deploy new              Add + deploy an additional domain
+hyprconf deploy <domain>         Deploy/refresh a previously added domain
 hyprconf teardown                Destroy all AWS resources (confirmation required)
 
 hyprconf help                    Show usage
