@@ -82,6 +82,68 @@ human_bytes() {
   fi
 }
 
+run_timeout() {
+  local seconds="$1"; shift
+  if command -v timeout &>/dev/null; then
+    timeout "${seconds}s" "$@"
+  else
+    "$@"
+  fi
+}
+
+arrow_select() {
+  # Prints selected 0-based index. Requires a TTY.
+  local prompt="$1"; shift
+  local -a items=("$@")
+  local n=${#items[@]}
+  (( n > 0 )) || return 1
+  [[ -t 0 && -t 1 ]] || return 1
+
+  local cur=0 key rest
+
+  printf '\n%s  %s%s\n' "$WH" "$prompt" "$RS"
+  printf '%s  (use ↑/↓ and Enter)%s\n\n' "$DM" "$RS"
+
+  printf '\e[?25l'
+  trap 'printf "\e[?25h"' RETURN
+
+  while true; do
+    local i
+    for (( i=0; i<n; i++ )); do
+      printf '\033[2K\r'
+      if (( i == cur )); then
+        printf '%s  > %s%s\n' "$AM" "${items[i]}" "$RS"
+      else
+        printf '    %s\n' "${items[i]}"
+      fi
+    done
+
+    IFS= read -rsn1 key || return 1
+    case "$key" in
+      $'\x1b')
+        IFS= read -rsn2 rest || true
+        case "$rest" in
+          "[A") cur=$(( cur - 1 )) ;;
+          "[B") cur=$(( cur + 1 )) ;;
+        esac
+        ;;
+      "")
+        printf '\e[?25h'
+        trap - RETURN
+        printf '%s\n' "$cur"
+        return 0
+        ;;
+      k) cur=$(( cur - 1 )) ;;
+      j) cur=$(( cur + 1 )) ;;
+    esac
+
+    (( cur < 0 )) && cur=0
+    (( cur >= n )) && cur=$(( n - 1 ))
+
+    printf '\033[%dA' "$n"
+  done
+}
+
 esp_candidates_on_disk() {
   local disk="$1"
   # ESP GUID: c12a7328-f81f-11d2-ba4b-00a0c93ec93b
@@ -101,7 +163,7 @@ esp_free_bytes() {
 
   local tmp
   tmp="$(mktemp -d)"
-  if mount -o ro,umask=0077 "$dev" "$tmp" 2>/dev/null; then
+  if run_timeout 4 mount -o ro,umask=0077 "$dev" "$tmp" 2>/dev/null; then
     df -B1 --output=avail "$tmp" 2>/dev/null | tail -1 | tr -d ' ' || true
     umount "$tmp" 2>/dev/null || true
   fi
@@ -127,11 +189,27 @@ choose_free_region() {
   # Prints: "start end size" in sectors (without the 's' suffix)
   local disk="$1" need_sectors="$2"
 
+  local sector_size
+  sector_size="$(blockdev --getss "$disk" 2>/dev/null || echo 512)"
+
+  local out rc
+  set +e
+  out="$(run_timeout 8 parted -m -s "$disk" unit s print free 2>/dev/null)"
+  rc=$?
+  set -e
+
+  if (( rc == 124 )); then
+    log_warn "Timed out reading free space map (parted) on $disk"
+    return 1
+  fi
+  if (( rc != 0 || -z "${out:-}" )); then
+    log_warn "Failed to read free space map (parted) on $disk"
+    return 1
+  fi
+
   local -a regions
-  while IFS= read -r line; do
-    regions+=("$line")
-  done < <(
-    parted -m -s "$disk" unit s print free 2>/dev/null \
+  mapfile -t regions < <(
+    printf '%s\n' "$out" \
       | awk -F: '
           BEGIN { OFS=" " }
           /^BYT;/ { next }
@@ -147,10 +225,9 @@ choose_free_region() {
           }'
   )
 
-  local i=0
   local -a viable
+  local r
   for r in "${regions[@]}"; do
-    i=$(( i + 1 ))
     local s e z
     read -r s e z <<<"$r"
     (( z >= need_sectors )) || continue
@@ -164,13 +241,60 @@ choose_free_region() {
     return 0
   fi
 
-  printf '\n%s  Multiple free regions detected. Choose where to install:%s\n\n' "$DM" "$RS"
+  # Arrow-able selector when available (dialog/fzf/arrow_select), otherwise numeric.
   local idx=1
+  if command -v dialog &>/dev/null && [[ -t 1 ]]; then
+    local -a opts
+    for r in "${viable[@]}"; do
+      local s e z
+      read -r s e z <<<"$r"
+      opts+=("$idx" "start=${s}s end=${e}s size=$(human_bytes $(( z * sector_size )))")
+      idx=$(( idx + 1 ))
+    done
+    local choice
+    choice="$(dialog --stdout --menu "Select unallocated region" 20 80 10 "${opts[@]}")" || return 1
+    printf '%s\n' "${viable[$(( choice - 1 ))]}"
+    return 0
+  fi
+
+  if command -v fzf &>/dev/null && [[ -t 1 ]]; then
+    local picked
+    picked="$(
+      idx=1
+      for r in "${viable[@]}"; do
+        local s e z
+        read -r s e z <<<"$r"
+        printf '%d\tstart=%ss end=%ss size=%s\n' "$idx" "$s" "$e" "$(human_bytes $(( z * sector_size )))"
+        idx=$(( idx + 1 ))
+      done | fzf --prompt='Select unallocated region > ' --with-nth=2.. --height=12 --reverse
+    )" || return 1
+    local n
+    n="$(printf '%s' "$picked" | awk '{print $1}')"
+    [[ "$n" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "${viable[$(( n - 1 ))]}"
+    return 0
+  fi
+
+  if [[ -t 1 ]]; then
+    local -a desc
+    for r in "${viable[@]}"; do
+      local s e z
+      read -r s e z <<<"$r"
+      desc+=("start=${s}s end=${e}s size=$(human_bytes $(( z * sector_size )))")
+    done
+    local picked_idx
+    picked_idx="$(arrow_select 'Select unallocated region' "${desc[@]}")" || return 1
+    printf '%s\n' "${viable[$picked_idx]}"
+    return 0
+  fi
+
+  printf '\n%s  Multiple free regions detected. Choose where to install:%s\n\n' "$DM" "$RS"
+  idx=1
   for r in "${viable[@]}"; do
     local s e z
     read -r s e z <<<"$r"
-    printf '%s  [%d]%s start=%ss end=%ss size=%s (%s)\n' \
-      "$WH" "$idx" "$RS" "$s" "$e" "$z" "$(human_bytes $(( z * $(blockdev --getss "$disk") )))"
+    printf '%s  [%d]%s start=%ss end=%ss size=%s\n' \
+      "$WH" "$idx" "$RS" "$s" "$e" "$(human_bytes $(( z * sector_size )))"
     idx=$(( idx + 1 ))
   done
 
@@ -242,12 +366,44 @@ detect_timezone() {
 
 select_disk() {
   printf '\n%s  ── Available Disks ─────────────────────────────────────────────%s\n\n' "$DM" "$RS"
-  lsblk -d -p -o NAME,SIZE,MODEL -e 7,11
-  printf '\n%s  Disk to install on (e.g. /dev/sda, /dev/nvme0n1): %s' "$AM" "$RS"
-  read -r DISK
+
+  local -a lines
+  mapfile -t lines < <(lsblk -d -p -n -o NAME,SIZE,MODEL -e 7,11)
+  (( ${#lines[@]} > 0 )) || log_die "No disks detected."
+
+  # Arrow-able selector when available.
+  if command -v dialog &>/dev/null && [[ -t 1 ]]; then
+    local -a opts
+    local l name rest
+    for l in "${lines[@]}"; do
+      name="$(printf '%s' "$l" | awk '{print $1}')"
+      rest="$(printf '%s' "$l" | cut -d' ' -f2- | sed -E 's/[[:space:]]+/ /g')"
+      opts+=("$name" "$rest")
+    done
+    DISK="$(dialog --stdout --menu 'Select target disk' 20 90 12 "${opts[@]}")" \
+      || log_die "Disk selection cancelled."
+  elif command -v fzf &>/dev/null && [[ -t 1 ]]; then
+    local picked
+    picked="$(printf '%s\n' "${lines[@]}" | fzf --prompt='Select target disk > ' --height=12 --reverse)" \
+      || log_die "Disk selection cancelled."
+    DISK="$(printf '%s' "$picked" | awk '{print $1}')"
+  elif [[ -t 1 ]]; then
+    local idx
+    idx="$(arrow_select 'Select target disk' "${lines[@]}")" \
+      || log_die "Disk selection cancelled."
+    DISK="$(printf '%s' "${lines[$idx]}" | awk '{print $1}')"
+  else
+    lsblk -d -p -o NAME,SIZE,MODEL -e 7,11
+    printf '\n%s  Disk to install on (e.g. /dev/sda, /dev/nvme0n1): %s' "$AM" "$RS"
+    read -r DISK
+  fi
+
   [[ -b "$DISK" ]] || log_die "Not a valid block device: $DISK"
   local sz; sz=$(lsblk -d -n -o SIZE "$DISK")
   log_ok "Target disk: $DISK ($sz)"
+
+  log_info "Current layout:"
+  lsblk -p -o NAME,SIZE,FSTYPE,TYPE,MOUNTPOINT "$DISK" 2>/dev/null || true
 }
 
 select_partition_mode() {
@@ -295,9 +451,21 @@ partition_full() {
 partition_unallocated() {
   log_step "Detecting free space on $DISK..."
 
-  # Require GPT
-  local disk_label
-  disk_label=$(parted -s "$DISK" print 2>/dev/null | awk '/Partition Table:/{print $3}')
+  # Require GPT (avoid silent exit under set -euo pipefail if parted fails)
+  local parted_out parted_rc disk_label
+  set +e
+  parted_out="$(run_timeout 8 parted -s "$DISK" print 2>&1)"
+  parted_rc=$?
+  set -e
+
+  if (( parted_rc == 124 )); then
+    log_die "Timed out reading partition table (parted) for $DISK"
+  fi
+  if (( parted_rc != 0 )); then
+    log_die "Failed reading partition table for $DISK: ${parted_out:-unknown error}"
+  fi
+
+  disk_label="$(printf '%s\n' "$parted_out" | awk '/Partition Table:/{print $3; exit}')"
   [[ "$disk_label" == "gpt" ]] \
     || log_die "Disk must use GPT. Detected: '${disk_label:-unknown}'."
 
@@ -328,13 +496,32 @@ partition_unallocated() {
     # Default to the first ESP, but allow choosing if multiple.
     selected_esp="${esp_parts[0]}"
     if (( ${#esp_parts[@]} > 1 )); then
-      printf '\n%s  Use which existing ESP? [1-%d] (default 1): %s' "$AM" "${#esp_parts[@]}" "$RS"
-      local esp_choice
-      read -r esp_choice
-      if [[ -n "${esp_choice:-}" ]]; then
-        [[ "$esp_choice" =~ ^[0-9]+$ ]] || log_die "Invalid choice."
-        (( esp_choice >= 1 && esp_choice <= ${#esp_parts[@]} )) || log_die "Invalid choice."
+      if command -v dialog &>/dev/null && [[ -t 1 ]]; then
+        local -a opts
+        local i
+        for i in "${!esp_parts[@]}"; do
+          opts+=("$(( i + 1 ))" "${esp_parts[$i]}")
+        done
+        local esp_choice
+        esp_choice="$(dialog --stdout --menu 'Select existing ESP' 20 80 10 "${opts[@]}")" || log_die "Selection cancelled."
         selected_esp="${esp_parts[$(( esp_choice - 1 ))]}"
+      elif command -v fzf &>/dev/null && [[ -t 1 ]]; then
+        local picked
+        picked="$(printf '%s\n' "${esp_parts[@]}" | fzf --prompt='Select existing ESP > ' --height=10 --reverse)" || log_die "Selection cancelled."
+        selected_esp="$picked"
+      elif [[ -t 1 ]]; then
+        local picked_idx
+        picked_idx="$(arrow_select 'Select existing ESP' "${esp_parts[@]}")" || log_die "Selection cancelled."
+        selected_esp="${esp_parts[$picked_idx]}"
+      else
+        printf '\n%s  Use which existing ESP? [1-%d] (default 1): %s' "$AM" "${#esp_parts[@]}" "$RS"
+        local esp_choice
+        read -r esp_choice
+        if [[ -n "${esp_choice:-}" ]]; then
+          [[ "$esp_choice" =~ ^[0-9]+$ ]] || log_die "Invalid choice."
+          (( esp_choice >= 1 && esp_choice <= ${#esp_parts[@]} )) || log_die "Invalid choice."
+          selected_esp="${esp_parts[$(( esp_choice - 1 ))]}"
+        fi
       fi
     fi
 
