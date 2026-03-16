@@ -33,6 +33,10 @@ $name = value
 # Source another file
 source = ~/.config/hypr/keybinds.conf
 
+# Machine-local overrides (used by this repo for things like $mainMod)
+# Note: Hyprland errors if a glob matches nothing, so this repo uses a conf.d dir.
+source = ~/.config/hypr/conf.d/*.conf
+
 # Set an option
 general {
     option = value

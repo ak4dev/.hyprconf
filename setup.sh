@@ -106,8 +106,22 @@ install_packages() {
 
 create_directories() {
     log_step "Creating required directories..."
-    mkdir -p ~/.config ~/.local/bin ~/.vscode-oss/extensions
+    mkdir -p ~/.config ~/.config/hypr ~/.local/bin ~/.vscode-oss/extensions
     mkdir -p ~/Pictures ~/Downloads ~/wallpaper
+
+    mkdir -p "$HOME/.config/hypr/conf.d"
+
+    local hypr_local="$HOME/.config/hypr/conf.d/99-hyprconf-local.conf"
+    if [[ ! -f "$hypr_local" ]]; then
+        cat >"$hypr_local" <<'EOF'
+# 99-hyprconf-local.conf — local Hyprland overrides
+# This file is intentionally machine-local and not managed by GNU Stow.
+#
+# Examples:
+#   $mainMod = ALT
+EOF
+    fi
+
     log_ok "Directories ready."
 }
 
@@ -410,6 +424,7 @@ main() {
         print_header "sync"
         log_step "Syncing configs..."
         clone_or_update_repo
+        create_directories
         purge_broken_symlinks
         sync_vscode_theme_extensions
         stow_all_packages

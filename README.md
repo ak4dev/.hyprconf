@@ -223,7 +223,16 @@ hyprconf teardown   # destroys all AWS resources (requires domain confirmation)
 
 ## Keybindings
 
-`$mainMod` = **Super (Win)** key.
+`$mainMod` defaults to **Super (Win)**.
+
+Change it live (and persist locally):
+
+```bash
+hyprconf set mainMod ALT
+```
+
+This writes a machine-local override file at:
+`~/.config/hypr/conf.d/99-hyprconf-local.conf`
 
 ### Applications
 
@@ -309,6 +318,8 @@ hyprconf deploy list             List configured deployments
 hyprconf deploy new              Add + deploy an additional domain
 hyprconf deploy <domain>         Deploy/refresh a previously added domain
 hyprconf teardown                Destroy all AWS resources (confirmation required)
+
+hyprconf set mainMod <KEY...>    Set $mainMod (e.g. SUPER, ALT, CTRL)
 
 hyprconf help                    Show usage
 ```
