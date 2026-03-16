@@ -150,31 +150,74 @@ update_zshrc() {
 
     touch "$ZSHRC"
 
+    local zsh_line='export ZSH="$HOME/.oh-my-zsh"'
+    local theme_line='ZSH_THEME="powerlevel10k/powerlevel10k"'
+    local omz_line='source $ZSH/oh-my-zsh.sh'
+    local p10k_line='[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
+
+    # Ensure a single OMZ source, with theme config before it and ~/.p10k.zsh after it.
+    # This prevents cases where a second `source $ZSH/oh-my-zsh.sh` later in the file
+    # resets the prompt back to the default theme.
+    local tmp
+    tmp="$(mktemp)"
+
+    awk -v zsh_line="$zsh_line" \
+        -v theme_line="$theme_line" \
+        -v omz_line="$omz_line" \
+        -v p10k_line="$p10k_line" '
+        BEGIN { omz_seen = 0 }
+
+        # Remove legacy/manual Powerlevel10k sourcing (we use OMZ ZSH_THEME instead).
+        /powerlevel10k\.zsh-theme/ { next }
+
+        # Remove theme + OMZ vars we manage (re-inserted in the right place).
+        /^[[:space:]]*export[[:space:]]+ZSH=/ { next }
+        /^[[:space:]]*ZSH_THEME=/ { next }
+
+        # Remove existing p10k config sourcing (re-insert after OMZ).
+        /\.p10k\.zsh/ { next }
+
+        # Keep only the first OMZ source line (quotes optional) and inject managed lines.
+        /^[[:space:]]*(source|\.)[[:space:]]+"?\\$ZSH\/oh-my-zsh\.sh"?[[:space:]]*$/ {
+            if (omz_seen == 0) {
+                print zsh_line
+                print theme_line
+                print omz_line
+                print p10k_line
+                omz_seen = 1
+            }
+            next
+        }
+
+        { print }
+
+        END {
+            if (omz_seen == 0) {
+                print zsh_line
+                print theme_line
+                print omz_line
+                print p10k_line
+            }
+        }
+    ' "$ZSHRC" > "$tmp"
+
+    mv "$tmp" "$ZSHRC"
+
     add_if_missing() {
         local line="$1"
         grep -qxF "$line" "$ZSHRC" 2>/dev/null || echo "$line" >> "$ZSHRC"
     }
 
-    if grep -q '^ZSH_THEME=' "$ZSHRC" 2>/dev/null; then
-        sed -i 's|^ZSH_THEME=.*|ZSH_THEME="powerlevel10k/powerlevel10k"|' "$ZSHRC"
-    else
-        add_if_missing 'ZSH_THEME="powerlevel10k/powerlevel10k"'
-    fi
-
-    add_if_missing 'export ZSH="$HOME/.oh-my-zsh"'
-    add_if_missing 'plugins=(git)'
-    add_if_missing 'source $ZSH/oh-my-zsh.sh'
-
     add_if_missing 'source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh'
     add_if_missing 'source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
-    # p10k is sourced by OMZ via ZSH_THEME — no manual source needed here.
-    # Remove any stale direct-source line from older installs.
-    sed -i '\|source ~/powerlevel10k/powerlevel10k.zsh-theme|d' "$ZSHRC" 2>/dev/null || true
-    add_if_missing '[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
 
     add_if_missing 'export PATH="$HOME/.local/bin:$PATH"'
     add_if_missing "alias hyprsync='~/.hyprconf/setup.sh --sync'"
     add_if_missing "fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green"
+
+    if [[ ! -f "$P10K_DIR/powerlevel10k.zsh-theme" ]]; then
+        log_warn "Powerlevel10k theme not found at $P10K_DIR — prompt will fall back until setup.sh installs it."
+    fi
 
     log_ok "~/.zshrc configured."
 }
