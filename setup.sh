@@ -148,6 +148,9 @@ install_oh_my_zsh() {
 }
 
 install_powerlevel10k() {
+    # Ensure parent dirs exist (sync mode might not have OMZ yet).
+    mkdir -p "$(dirname "$P10K_DIR")"
+
     if [ ! -d "$P10K_DIR" ]; then
         log_step "Installing Powerlevel10k..."
         git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$P10K_DIR"
@@ -164,53 +167,106 @@ update_zshrc() {
 
     touch "$ZSHRC"
 
-    local zsh_line='export ZSH="$HOME/.oh-my-zsh"'
-    local theme_line='ZSH_THEME="powerlevel10k/powerlevel10k"'
-    local omz_line='source $ZSH/oh-my-zsh.sh'
-    local p10k_line='[[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh'
+    # In sync mode it's possible the user never installed OMZ / p10k yet.
+    # Prompt to install (interactive only) instead of silently breaking the prompt.
+    if [[ ! -f "$HOME/.oh-my-zsh/oh-my-zsh.sh" ]]; then
+        log_warn "Oh My Zsh not found at $HOME/.oh-my-zsh — the prompt will fall back until setup.sh installs it."
+        if [[ -t 0 ]]; then
+            read -r -p "Install Oh My Zsh now? [Y/n] " _ans
+            if [[ -z "${_ans:-}" || "${_ans:-}" =~ ^[Yy]$ ]]; then
+                install_oh_my_zsh
+            fi
+        fi
+    fi
 
-    # Ensure a single OMZ source, with theme config before it and ~/.p10k.zsh after it.
-    # This prevents cases where a second `source $ZSH/oh-my-zsh.sh` later in the file
-    # resets the prompt back to the default theme.
+    if [[ ! -f "$P10K_DIR/powerlevel10k.zsh-theme" ]]; then
+        log_warn "Powerlevel10k theme not found at $P10K_DIR — prompt will fall back until setup.sh installs it."
+        if [[ -t 0 ]]; then
+            read -r -p "Install Powerlevel10k now? [Y/n] " _ans
+            if [[ -z "${_ans:-}" || "${_ans:-}" =~ ^[Yy]$ ]]; then
+                install_powerlevel10k
+            fi
+        fi
+    fi
+
     local tmp
     tmp="$(mktemp)"
 
-    awk -v zsh_line="$zsh_line" \
-        -v theme_line="$theme_line" \
-        -v omz_line="$omz_line" \
-        -v p10k_line="$p10k_line" '
-        BEGIN { omz_seen = 0 }
+    # Rewrite OMZ / p10k bits into a single managed block at the first OMZ source line.
+    awk '
+        BEGIN {
+            in_block = 0
+            inserted = 0
+        }
 
-        # Remove legacy/manual Powerlevel10k sourcing (we use OMZ ZSH_THEME instead).
+        # Drop any previous managed block.
+        /^# >>> hyprconf zsh >>>$/ { in_block = 1; next }
+        /^# <<< hyprconf zsh <<<$/{ in_block = 0; next }
+        in_block == 1 { next }
+
+        # Drop legacy/manual Powerlevel10k sourcing (we use OMZ theme).
         /powerlevel10k\.zsh-theme/ { next }
 
-        # Remove theme + OMZ vars we manage (re-inserted in the right place).
+        # Drop OMZ / theme / p10k lines we manage.
         /^[[:space:]]*export[[:space:]]+ZSH=/ { next }
         /^[[:space:]]*ZSH_THEME=/ { next }
-
-        # Remove existing p10k config sourcing (re-insert after OMZ).
         /\.p10k\.zsh/ { next }
 
-        # Keep only the first OMZ source line (quotes optional) and inject managed lines.
-        /^[[:space:]]*(source|\.)[[:space:]]+"?\\$ZSH\/oh-my-zsh\.sh"?[[:space:]]*$/ {
-            if (omz_seen == 0) {
-                print zsh_line
-                print theme_line
-                print omz_line
-                print p10k_line
-                omz_seen = 1
+        # Remove any OMZ source line (we will insert exactly one block).
+        /^[[:space:]]*(source|\.)[[:space:]].*oh-my-zsh\.sh[[:space:]]*$/ {
+            if (inserted == 0) {
+                print "# >>> hyprconf zsh >>>"
+                print "export ZSH=\"$HOME/.oh-my-zsh\""
+                print "P10K_THEME=\"$ZSH/custom/themes/powerlevel10k/powerlevel10k.zsh-theme\""
+                print "if [[ -r \"$P10K_THEME\" ]]; then"
+                print "  ZSH_THEME=\"powerlevel10k/powerlevel10k\""
+                print "else"
+                print "  ZSH_THEME=\"robbyrussell\""
+                print "fi"
+                print ""
+                print "if [[ -r \"$ZSH/oh-my-zsh.sh\" ]]; then"
+                print "  source \"$ZSH/oh-my-zsh.sh\""
+                print "else"
+                print "  echo \"[hyprconf] Oh My Zsh not found at $ZSH — run: ~/.hyprconf/setup.sh\""
+                print "fi"
+                print ""
+                print "if [[ -r \"$P10K_THEME\" && -f \"$HOME/.p10k.zsh\" ]]; then"
+                print "  source \"$HOME/.p10k.zsh\""
+                print "fi"
+                print "# <<< hyprconf zsh <<<"
+                inserted = 1
             }
             next
         }
 
+        # De-duplicate hyprconf-managed aliases (sync has historically appended many).
+        /^[[:space:]]*alias[[:space:]]+hyprsync=/ { next }
+        /^[[:space:]]*alias[[:space:]]+confsync=/ { next }
+
         { print }
 
         END {
-            if (omz_seen == 0) {
-                print zsh_line
-                print theme_line
-                print omz_line
-                print p10k_line
+            if (inserted == 0) {
+                print ""
+                print "# >>> hyprconf zsh >>>"
+                print "export ZSH=\"$HOME/.oh-my-zsh\""
+                print "P10K_THEME=\"$ZSH/custom/themes/powerlevel10k/powerlevel10k.zsh-theme\""
+                print "if [[ -r \"$P10K_THEME\" ]]; then"
+                print "  ZSH_THEME=\"powerlevel10k/powerlevel10k\""
+                print "else"
+                print "  ZSH_THEME=\"robbyrussell\""
+                print "fi"
+                print ""
+                print "if [[ -r \"$ZSH/oh-my-zsh.sh\" ]]; then"
+                print "  source \"$ZSH/oh-my-zsh.sh\""
+                print "else"
+                print "  echo \"[hyprconf] Oh My Zsh not found at $ZSH — run: ~/.hyprconf/setup.sh\""
+                print "fi"
+                print ""
+                print "if [[ -r \"$P10K_THEME\" && -f \"$HOME/.p10k.zsh\" ]]; then"
+                print "  source \"$HOME/.p10k.zsh\""
+                print "fi"
+                print "# <<< hyprconf zsh <<<"
             }
         }
     ' "$ZSHRC" > "$tmp"
@@ -224,14 +280,9 @@ update_zshrc() {
 
     add_if_missing 'source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh'
     add_if_missing 'source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
-
     add_if_missing 'export PATH="$HOME/.local/bin:$PATH"'
     add_if_missing "alias hyprsync='~/.hyprconf/setup.sh --sync'"
     add_if_missing "fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green"
-
-    if [[ ! -f "$P10K_DIR/powerlevel10k.zsh-theme" ]]; then
-        log_warn "Powerlevel10k theme not found at $P10K_DIR — prompt will fall back until setup.sh installs it."
-    fi
 
     log_ok "~/.zshrc configured."
 }
