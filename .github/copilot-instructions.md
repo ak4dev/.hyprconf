@@ -32,6 +32,32 @@ When making any Hyprland configuration change, consult these resources in order:
 - Changing monitor config logic in `setup.sh` or adding new monitor presets
 - Any change to the ZSH setup in `setup.sh`
 
+---
+
+## Commit Message Tags (Required)
+
+When creating git commits in this repo, **always use one of the tags below**, and use this **exact subject-line format**:
+
+`<tag>: [section] <message>`
+
+Rules:
+- The *subject line* must be readable in a single line and **≤ 140 characters** total.
+- `[section]` should be a short area name (e.g., `installer`, `hyprland`, `theme`, `docs`, `infra`).
+- Breaking changes: add `!` to the tag (e.g., `feat!: ...`) and/or a `BREAKING CHANGE:` footer.
+
+Tags:
+- `feat`: new user-facing functionality
+- `fix`: bug fix
+- `docs`: documentation-only changes
+- `style`: formatting/whitespace (no behavior change)
+- `refactor`: code restructure (no new feature/fix)
+- `perf`: performance improvement
+- `test`: add/fix tests
+- `build`: build system/deps/tooling changes
+- `ci`: CI pipeline/config changes
+- `chore`: maintenance (non-prod code changes)
+- `revert`: revert a previous commit
+
 ## Project Structure
 
 This is a **GNU Stow dotfiles repo** for Arch Linux + Hyprland. Configs live under `stow/<package>/` and are symlinked into `$HOME` by `setup.sh` or `hyprsync`.
