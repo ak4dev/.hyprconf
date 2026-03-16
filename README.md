@@ -50,7 +50,7 @@ The installer displays the banner and prompts for one of two modes:
 Prompts for: username, password (shared for user account + LUKS), hostname, timezone (auto-detected from IP, user-confirmed), target disk, and partition mode.
 
 The install:
-1. Partitions the disk — **full disk** (wipe) or **unallocated space** (preserves existing partitions; reuses an existing EFI partition if found)
+1. Partitions the disk — **full disk** (wipe) or **unallocated space** (preserves existing partitions; detects existing EFI partitions and prompts you to reuse or create a new one)
 2. Encrypts the root partition with LUKS2 (AES-XTS 512-bit)
 3. Formats root as btrfs with subvolumes: `@` `/`, `@home` `/home`, `@snapshots` `/.snapshots`, `@var_log` `/var/log`
 4. Installs base system via `pacstrap` (including CPU microcode, NetworkManager, ZSH)

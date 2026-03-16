@@ -71,6 +71,118 @@ part_dev() {
     && echo "${disk}p${num}" || echo "${disk}${num}"
 }
 
+# ── Helper: humanize bytes (best-effort) ───────────────────────────────────────
+human_bytes() {
+  local bytes="${1:-0}"
+  if command -v numfmt &>/dev/null; then
+    numfmt --to=iec-i --suffix=B "$bytes" 2>/dev/null || printf '%sB' "$bytes"
+  else
+    # Fallback: MiB
+    printf '%sMiB' $(( bytes / 1024 / 1024 ))
+  fi
+}
+
+esp_candidates_on_disk() {
+  local disk="$1"
+  # ESP GUID: c12a7328-f81f-11d2-ba4b-00a0c93ec93b
+  lsblk -lnpo NAME,PARTTYPE "$disk" 2>/dev/null \
+    | awk 'tolower($2)=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b"{print $1}'
+}
+
+esp_free_bytes() {
+  local dev="$1"
+  local mp
+  mp="$(lsblk -npo MOUNTPOINT "$dev" 2>/dev/null | head -1 || true)"
+
+  if [[ -n "${mp:-}" ]]; then
+    df -B1 --output=avail "$mp" 2>/dev/null | tail -1 | tr -d ' ' || true
+    return 0
+  fi
+
+  local tmp
+  tmp="$(mktemp -d)"
+  if mount -o ro,umask=0077 "$dev" "$tmp" 2>/dev/null; then
+    df -B1 --output=avail "$tmp" 2>/dev/null | tail -1 | tr -d ' ' || true
+    umount "$tmp" 2>/dev/null || true
+  fi
+  rmdir "$tmp" 2>/dev/null || true
+}
+
+print_esp_report() {
+  local dev="$1"
+  local sz fstype label free
+  sz="$(lsblk -bno SIZE "$dev" 2>/dev/null | head -1 || echo 0)"
+  fstype="$(lsblk -no FSTYPE "$dev" 2>/dev/null | head -1 || true)"
+  label="$(lsblk -no LABEL "$dev" 2>/dev/null | head -1 || true)"
+  free="$(esp_free_bytes "$dev" || true)"
+
+  if [[ -n "${free:-}" ]]; then
+    log_info "ESP: $dev  size=$(human_bytes "$sz")  free=$(human_bytes "$free")  fstype=${fstype:-?}  label=${label:-?}"
+  else
+    log_info "ESP: $dev  size=$(human_bytes "$sz")  free=?  fstype=${fstype:-?}  label=${label:-?}"
+  fi
+}
+
+choose_free_region() {
+  # Prints: "start end size" in sectors (without the 's' suffix)
+  local disk="$1" need_sectors="$2"
+
+  local -a regions
+  while IFS= read -r line; do
+    regions+=("$line")
+  done < <(
+    parted -m -s "$disk" unit s print free 2>/dev/null \
+      | awk -F: '
+          BEGIN { OFS=" " }
+          /^BYT;/ { next }
+          $1 ~ /^\// { next }
+          {
+            isfree=0
+            for (i=1;i<=NF;i++) if ($i=="free") isfree=1
+            if (!isfree) next
+            s=$2; e=$3; z=$4
+            gsub(/s/,"",s); gsub(/s/,"",e); gsub(/s/,"",z)
+            if (s=="" || e=="" || z=="") next
+            print s,e,z
+          }'
+  )
+
+  local i=0
+  local -a viable
+  for r in "${regions[@]}"; do
+    i=$(( i + 1 ))
+    local s e z
+    read -r s e z <<<"$r"
+    (( z >= need_sectors )) || continue
+    viable+=("$r")
+  done
+
+  (( ${#viable[@]} > 0 )) || return 1
+
+  if (( ${#viable[@]} == 1 )); then
+    printf '%s\n' "${viable[0]}"
+    return 0
+  fi
+
+  printf '\n%s  Multiple free regions detected. Choose where to install:%s\n\n' "$DM" "$RS"
+  local idx=1
+  for r in "${viable[@]}"; do
+    local s e z
+    read -r s e z <<<"$r"
+    printf '%s  [%d]%s start=%ss end=%ss size=%s (%s)\n' \
+      "$WH" "$idx" "$RS" "$s" "$e" "$z" "$(human_bytes $(( z * $(blockdev --getss "$disk") )))"
+    idx=$(( idx + 1 ))
+  done
+
+  printf '\n%s  Choice [1-%d]: %s' "$AM" "${#viable[@]}" "$RS"
+  local choice
+  read -r choice
+  [[ "$choice" =~ ^[0-9]+$ ]] || return 1
+  (( choice >= 1 && choice <= ${#viable[@]} )) || return 1
+
+  printf '%s\n' "${viable[choice-1]}"
+}
+
 # ════════════════════════════════════════════════════════════════════════════
 #  PHASE 1 — Full Arch Linux Installation
 # ════════════════════════════════════════════════════════════════════════════
@@ -189,46 +301,136 @@ partition_unallocated() {
   [[ "$disk_label" == "gpt" ]] \
     || log_die "Disk must use GPT. Detected: '${disk_label:-unknown}'."
 
-  local sector_size; sector_size=$(blockdev --getss "$DISK")
-  local free_start free_end free_gib
-  free_start=$(sgdisk -F "$DISK")
-  free_end=$(sgdisk   -E "$DISK")
-  free_gib=$(( (free_end - free_start) * sector_size / 1024 / 1024 / 1024 ))
-  (( free_gib >= 20 )) || log_die "Only ${free_gib} GiB available — need ≥20 GiB."
-  log_info "~${free_gib} GiB of free space found."
+  local sector_size
+  sector_size=$(blockdev --getss "$DISK")
+
+  local root_min_gib=20
+  local efi_mib=512
+  local root_need_sectors=$(( root_min_gib * 1024 * 1024 * 1024 / sector_size ))
+  local efi_need_sectors=$(( efi_mib * 1024 * 1024 / sector_size ))
+
+  # Detect existing ESP(s)
+  local -a esp_parts
+  mapfile -t esp_parts < <(esp_candidates_on_disk "$DISK" || true)
+
+  local create_new_efi=1
+  local selected_esp=""
+
+  if (( ${#esp_parts[@]} > 0 )); then
+    printf '\n%s  ── EFI System Partition (ESP) ───────────────────────────────────%s\n\n' "$DM" "$RS"
+    log_info "Existing ESP(s) detected on $DISK:"
+
+    local i
+    for i in "${!esp_parts[@]}"; do
+      print_esp_report "${esp_parts[$i]}"
+    done
+
+    # Default to the first ESP, but allow choosing if multiple.
+    selected_esp="${esp_parts[0]}"
+    if (( ${#esp_parts[@]} > 1 )); then
+      printf '\n%s  Use which existing ESP? [1-%d] (default 1): %s' "$AM" "${#esp_parts[@]}" "$RS"
+      local esp_choice
+      read -r esp_choice
+      if [[ -n "${esp_choice:-}" ]]; then
+        [[ "$esp_choice" =~ ^[0-9]+$ ]] || log_die "Invalid choice."
+        (( esp_choice >= 1 && esp_choice <= ${#esp_parts[@]} )) || log_die "Invalid choice."
+        selected_esp="${esp_parts[$(( esp_choice - 1 ))]}"
+      fi
+    fi
+
+    local free_bytes
+    free_bytes="$(esp_free_bytes "$selected_esp" || true)"
+    if [[ -n "${free_bytes:-}" ]]; then
+      # Heuristic warnings: systemd-boot + kernel + fallback initramfs can be large.
+      if (( free_bytes < 150 * 1024 * 1024 )); then
+        log_warn "Low free space on ESP ($(human_bytes "$free_bytes")). Bootloader/kernel updates may fail."
+      elif (( free_bytes < 300 * 1024 * 1024 )); then
+        log_warn "ESP free space is a bit tight ($(human_bytes "$free_bytes")). Consider creating a new ESP."
+      fi
+    else
+      log_warn "Could not determine free space on $selected_esp (mount failed). Consider creating a new ESP."
+    fi
+
+    printf '\n%s  How should we handle EFI?%s\n\n' "$WH" "$RS"
+    printf '%s  [1]%s Use existing ESP (%s)\n' "$WH" "$RS" "$selected_esp"
+    printf '%s  [2]%s Create a new %dMiB ESP in the selected unallocated space\n\n' "$WH" "$RS" "$efi_mib"
+    printf '%s  Choice [1/2] (default 1): %s' "$AM" "$RS"
+    local efi_choice
+    read -r efi_choice
+    if [[ "${efi_choice:-1}" == "2" ]]; then
+      create_new_efi=1
+    else
+      create_new_efi=0
+      EFI_PART="$selected_esp"
+    fi
+  else
+    log_info "No ESP detected on this disk — a new ESP will be created in free space."
+    create_new_efi=1
+  fi
+
+  local need_sectors="$root_need_sectors"
+  local efi_note=""
+  if (( create_new_efi == 1 )); then
+    need_sectors=$(( root_need_sectors + efi_need_sectors ))
+    efi_note=" + ${efi_mib}MiB ESP"
+  fi
+
+  # Choose which free region to use (handles multiple unallocated regions)
+  local region
+  region="$(choose_free_region "$DISK" "$need_sectors")" \
+    || log_die "No unallocated region large enough. Need at least ${root_min_gib}GiB${efi_note} on $DISK."
+
+  local free_start free_end free_sectors
+  read -r free_start free_end free_sectors <<<"$region"
+
+  local free_gib
+  free_gib=$(( free_sectors * sector_size / 1024 / 1024 / 1024 ))
+  log_info "Using ~${free_gib} GiB free region (start=${free_start}s end=${free_end}s)."
+
+  printf '\n%s  Before formatting, wipe any existing filesystem signatures on the NEW partition(s)?%s\n' "$WH" "$RS"
+  printf '%s  This is recommended when installing into previously-used unallocated space.%s\n' "$DM" "$RS"
+  printf '%s  Wipe signatures (wipefs)? [Y/n]: %s' "$AM" "$RS"
+  local wipe_ans
+  read -r wipe_ans
+  local do_wipe=1
+  [[ "${wipe_ans,,}" == "n" ]] && do_wipe=0
 
   # Next available partition number
   local next_num
   next_num=$(sgdisk --print "$DISK" 2>/dev/null \
     | awk '$1+0 > 0 {n=$1} END {print n+0+1}')
 
-  # Reuse an existing EFI System Partition if one is present on this disk
-  local existing_efi
-  existing_efi=$(lsblk -lno NAME,PARTTYPE "$DISK" 2>/dev/null \
-    | awk 'tolower($2)=="c12a7328-f81f-11d2-ba4b-00a0c93ec93b"{print "/dev/"$1}' \
-    | head -1 || true)
-
-  if [[ -n "$existing_efi" ]]; then
-    log_info "Reusing existing EFI partition: $existing_efi"
-    EFI_PART="$existing_efi"
-    sgdisk -n "${next_num}:${free_start}:${free_end}" \
-           -t "${next_num}:8309" -c "${next_num}:Linux LUKS" "$DISK"
-    partprobe "$DISK" && sleep 1
-    ROOT_PART=$(part_dev "$DISK" "$next_num")
-  else
-    log_info "No EFI partition found — carving EFI + root from free space."
-    local efi_end=$(( free_start + (512 * 1024 * 1024 / sector_size) - 1 ))
+  if (( create_new_efi == 1 )); then
+    log_info "Creating new ${efi_mib}MiB ESP + root in free space."
+    local efi_num="$next_num"
     local root_num=$(( next_num + 1 ))
-    sgdisk -n "${next_num}:${free_start}:${efi_end}"           \
-           -t "${next_num}:ef00" -c "${next_num}:EFI System"   "$DISK"
-    sgdisk -n "${root_num}:$(( efi_end + 1 )):${free_end}"     \
-           -t "${root_num}:8309" -c "${root_num}:Linux LUKS"   "$DISK"
+
+    local efi_end=$(( free_start + efi_need_sectors - 1 ))
+    (( efi_end < free_end )) || log_die "Selected free region is too small for a new ESP + root."
+
+    sgdisk -n "${efi_num}:${free_start}:${efi_end}" \
+           -t "${efi_num}:ef00" -c "${efi_num}:EFI System" "$DISK"
+    sgdisk -n "${root_num}:$(( efi_end + 1 )):${free_end}" \
+           -t "${root_num}:8309" -c "${root_num}:Linux LUKS" "$DISK"
+
     partprobe "$DISK" && sleep 1
-    EFI_PART=$(part_dev "$DISK" "$next_num")
+
+    EFI_PART=$(part_dev "$DISK" "$efi_num")
     ROOT_PART=$(part_dev "$DISK" "$root_num")
+
+    (( do_wipe == 1 )) && wipefs -af "$EFI_PART" || true
     mkfs.fat -F32 -n EFI "$EFI_PART"
     log_ok "EFI: $EFI_PART"
+  else
+    log_info "Reusing existing ESP: $EFI_PART"
+    sgdisk -n "${next_num}:${free_start}:${free_end}" \
+           -t "${next_num}:8309" -c "${next_num}:Linux LUKS" "$DISK"
+
+    partprobe "$DISK" && sleep 1
+    ROOT_PART=$(part_dev "$DISK" "$next_num")
   fi
+
+  (( do_wipe == 1 )) && wipefs -af "$ROOT_PART" || true
   log_ok "Root: $ROOT_PART"
 }
 
