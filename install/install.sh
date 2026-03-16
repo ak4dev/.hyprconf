@@ -371,8 +371,16 @@ select_disk() {
   mapfile -t lines < <(lsblk -d -p -n -o NAME,SIZE,MODEL -e 7,11)
   (( ${#lines[@]} > 0 )) || log_die "No disks detected."
 
-  # Arrow-able selector when available.
-  if command -v dialog &>/dev/null && [[ -t 1 ]]; then
+  DISK="${DISK:-}"
+
+  # Common VM case (e.g. /dev/vda): if there's only one disk, auto-select it.
+  if [[ -z "${DISK:-}" && ${#lines[@]} -eq 1 ]]; then
+    DISK="$(printf '%s' "${lines[0]}" | awk '{print $1}')"
+    log_info "Only one disk detected; selecting $DISK"
+  fi
+
+  # Arrow-able selector when available (dialog/fzf/arrow_select), otherwise manual.
+  if [[ -z "${DISK:-}" && -t 1 ]] && command -v dialog &>/dev/null; then
     local -a opts
     local l name rest
     for l in "${lines[@]}"; do
@@ -380,21 +388,41 @@ select_disk() {
       rest="$(printf '%s' "$l" | cut -d' ' -f2- | sed -E 's/[[:space:]]+/ /g')"
       opts+=("$name" "$rest")
     done
-    DISK="$(dialog --stdout --menu 'Select target disk' 20 90 12 "${opts[@]}")" \
-      || log_die "Disk selection cancelled."
-  elif command -v fzf &>/dev/null && [[ -t 1 ]]; then
-    local picked
-    picked="$(printf '%s\n' "${lines[@]}" | fzf --prompt='Select target disk > ' --height=12 --reverse)" \
-      || log_die "Disk selection cancelled."
-    DISK="$(printf '%s' "$picked" | awk '{print $1}')"
-  elif [[ -t 1 ]]; then
+
+    local choice rc
+    if choice="$(dialog --stdout --menu 'Select target disk' 20 90 12 "${opts[@]}")"; then
+      DISK="$choice"
+    else
+      rc=$?
+      if (( rc == 1 )); then
+        log_die "Disk selection cancelled."
+      fi
+      log_warn "dialog failed (rc=$rc); falling back to other selectors"
+    fi
+  fi
+
+  if [[ -z "${DISK:-}" && -t 1 ]] && command -v fzf &>/dev/null; then
+    local picked rc
+    if picked="$(printf '%s\n' "${lines[@]}" | fzf --prompt='Select target disk > ' --height=12 --reverse)"; then
+      DISK="$(printf '%s' "$picked" | awk '{print $1}')"
+    else
+      rc=$?
+      log_die "Disk selection cancelled."
+    fi
+  fi
+
+  if [[ -z "${DISK:-}" && -t 1 ]]; then
     local idx
-    idx="$(arrow_select 'Select target disk' "${lines[@]}")" \
-      || log_die "Disk selection cancelled."
-    DISK="$(printf '%s' "${lines[$idx]}" | awk '{print $1}')"
-  else
+    if idx="$(arrow_select 'Select target disk' "${lines[@]}")"; then
+      DISK="$(printf '%s' "${lines[$idx]}" | awk '{print $1}')"
+    else
+      log_warn "Arrow selector unavailable; falling back to manual entry"
+    fi
+  fi
+
+  if [[ -z "${DISK:-}" ]]; then
     lsblk -d -p -o NAME,SIZE,MODEL -e 7,11
-    printf '\n%s  Disk to install on (e.g. /dev/sda, /dev/nvme0n1): %s' "$AM" "$RS"
+    printf '\n%s  Disk to install on (e.g. /dev/sda, /dev/vda, /dev/nvme0n1): %s' "$AM" "$RS"
     read -r DISK
   fi
 
