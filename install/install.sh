@@ -32,6 +32,9 @@ USER_HOSTNAME=""
 TIMEZONE=""
 CPU_UCODE=""
 
+# Installer options (PHASE 1 only)
+COPY_NETCONF=1
+
 # ── Palette ───────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
   WH=$'\e[1;37m' GL=$'\e[1;31m' NG=$'\e[2;32m'
@@ -345,6 +348,16 @@ gather_user_input() {
   printf '%s  Hostname [arch]: %s' "$AM" "$RS"
   read -r USER_HOSTNAME
   [[ -z "$USER_HOSTNAME" ]] && USER_HOSTNAME="arch"
+
+  printf '%s  Copy network config from ISO (keeps WiFi for first boot)? [Y/n]: %s' "$AM" "$RS"
+  local net_ans
+  read -r net_ans
+  if [[ -z "$net_ans" || "${net_ans,,}" == "y" || "${net_ans,,}" == "yes" ]]; then
+    COPY_NETCONF=1
+  else
+    COPY_NETCONF=0
+  fi
+
   log_ok "Username: $USERNAME  Hostname: $USER_HOSTNAME"
 }
 
@@ -459,7 +472,8 @@ confirm_install() {
   printf '%s  Bootloader :%s systemd-boot\n'     "$DM" "$RS"
   printf '%s  Username   :%s %s\n'               "$DM" "$RS" "$USERNAME"
   printf '%s  Hostname   :%s %s\n'               "$DM" "$RS" "$USER_HOSTNAME"
-  printf '%s  Timezone   :%s %s\n\n'             "$DM" "$RS" "$TIMEZONE"
+  printf '%s  Timezone   :%s %s\n'               "$DM" "$RS" "$TIMEZONE"
+  printf '%s  Net config :%s %s\n\n'             "$DM" "$RS" "$([[ "$COPY_NETCONF" -eq 1 ]] && echo 'copy from ISO' || echo 'do not copy')"
   [[ "$PART_MODE" == "full" ]] && \
     printf '%s  !! ALL DATA ON %s WILL BE PERMANENTLY ERASED !!%s\n\n' "$GL" "$DISK" "$RS"
   printf '%s  Type "yes" to begin: %s' "$AM" "$RS"
@@ -737,6 +751,94 @@ install_base_system() {
   log_ok "Base system installed. fstab generated."
 }
 
+copy_network_config_from_iso() {
+  (( COPY_NETCONF == 1 )) || { log_info "Skipping network config copy."; return 0; }
+
+  log_step "Copying network config from ISO..."
+
+  local target_dir="/mnt/etc/NetworkManager/system-connections"
+  mkdir -p "$target_dir"
+  chmod 700 "$target_dir"
+  chown root:root "$target_dir"
+
+  # Prefer copying existing NetworkManager profiles if they exist on the ISO.
+  if [[ -d /etc/NetworkManager/system-connections ]] \
+    && compgen -G "/etc/NetworkManager/system-connections/*" >/dev/null; then
+    cp -a /etc/NetworkManager/system-connections/. "$target_dir/"
+    chmod 600 "$target_dir"/* 2>/dev/null || true
+    chown root:root "$target_dir"/* 2>/dev/null || true
+    log_ok "NetworkManager profiles copied."
+    return 0
+  fi
+
+  # Common Arch ISO WiFi path: iwctl/iwd stores networks in /var/lib/iwd/*.psk
+  if [[ -d /var/lib/iwd ]]; then
+    local imported=0 skipped=0
+    local f ssid psk uuid file_safe out
+
+    shopt -s nullglob
+    local -a psk_files=(/var/lib/iwd/*.psk)
+    shopt -u nullglob
+
+    if (( ${#psk_files[@]} > 0 )); then
+      for f in "${psk_files[@]}"; do
+        ssid="$(basename "$f")"
+        ssid="${ssid%.psk}"
+
+        # Prefer PreSharedKey (hex) when present; it avoids special-char escaping issues.
+        psk="$(sed -n 's/^PreSharedKey=//p' "$f" | head -n1)"
+        [[ -z "$psk" ]] && psk="$(sed -n 's/^Passphrase=//p' "$f" | head -n1)"
+
+        if [[ -z "$psk" ]]; then
+          skipped=$(( skipped + 1 ))
+          continue
+        fi
+
+        uuid="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
+        [[ -n "$uuid" ]] || uuid="$(uuidgen 2>/dev/null || true)"
+        [[ -n "$uuid" ]] || uuid="00000000-0000-0000-0000-000000000000"
+
+        file_safe="$(printf '%s' "$ssid" | sed -E 's#[/\\]#_#g; s/[[:space:]]+$//')"
+        [[ -n "$file_safe" ]] || file_safe="wifi-${imported}"
+
+        out="$target_dir/${file_safe}.nmconnection"
+        cat > "$out" << EOF
+[connection]
+id=${ssid}
+uuid=${uuid}
+type=wifi
+autoconnect=true
+
+[wifi]
+mode=infrastructure
+ssid=${ssid}
+
+[wifi-security]
+key-mgmt=wpa-psk
+psk=${psk}
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+EOF
+        chmod 600 "$out"
+        chown root:root "$out"
+        imported=$(( imported + 1 ))
+      done
+
+      if (( imported > 0 )); then
+        log_ok "Imported ${imported} WiFi network(s) from ISO."
+        (( skipped > 0 )) && log_warn "Skipped ${skipped} iwd profile(s) missing PSK/passphrase."
+        return 0
+      fi
+    fi
+  fi
+
+  log_warn "No ISO network profiles found to copy."
+}
+
 configure_in_chroot() {
   log_step "Configuring system in chroot..."
 
@@ -880,6 +982,7 @@ arch_install() {
   setup_btrfs
   mount_filesystems
   install_base_system
+  copy_network_config_from_iso
   configure_in_chroot
   run_setup_in_chroot
   unmount_all

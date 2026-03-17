@@ -47,7 +47,7 @@ The installer displays the banner and prompts for one of two modes:
 
 ### [1] Full Arch Linux install  *(run from the Arch ISO)*
 
-Prompts for: username, password (shared for user account + LUKS), hostname, timezone (auto-detected from IP, user-confirmed), target disk, and partition mode.
+Prompts for: username, password (shared for user account + LUKS), hostname, whether to **copy network config from ISO** (keeps WiFi on first boot), timezone (auto-detected from IP, user-confirmed), target disk, and partition mode.
 
 Most interactive choices support arrow-key navigation (↑/↓/Enter) when run in a TTY. If `dialog` or `fzf` is installed, the installer will use it automatically; otherwise it falls back to a built-in arrow selector or manual input. Free-space/ESP probing uses timeouts and will fail with a clear error instead of hanging.
 
@@ -56,6 +56,7 @@ The install:
 2. Encrypts the root partition with LUKS2 (AES-XTS 512-bit)
 3. Formats root as btrfs with subvolumes: `@` `/`, `@home` `/home`, `@snapshots` `/.snapshots`, `@var_log` `/var/log`
 4. Installs base system via `pacstrap` (including CPU microcode, NetworkManager, ZSH)
+   - If you connected to WiFi on the ISO and choose **Copy network config from ISO**, the installer imports that WiFi profile into NetworkManager so the first boot is online.
 5. Configures in chroot: locale (`en_US.UTF-8`), timezone, hostname, `mkinitcpio` with `systemd`+`sd-encrypt` hooks, `systemd-boot` with LUKS kernel parameters, user account, `sudo`, TTY1 auto-login
 6. Pre-clones this repo into the new user's home and sets a first-boot hook in `~/.zprofile`
 
