@@ -31,6 +31,11 @@ When making any Hyprland configuration change, consult these resources in order:
 - Adding new themes to `theme-switcher/themes/`
 - Changing monitor config logic in `setup.sh` or adding new monitor presets
 - Any change to the ZSH setup in `setup.sh`
+- **Any change that affects functionality or the user experience** — new CLI subcommands, changed behaviour, new TUI sections, installer changes, etc.
+
+**Keep the README concise.** Its primary purpose is to give an AI agent — or any reader — immediate, accurate context about the project with minimal scanning. Every section must earn its place. Avoid repetition and verbose narrative; prefer tables and code blocks. The README must also be clean and well-structured for human readers.
+
+**Never alter the hyprconf branding block** (banner SVG + badges) at the top of `README.md`.
 
 ---
 
@@ -60,7 +65,7 @@ Tags:
 
 ## Project Structure
 
-This is a **GNU Stow dotfiles repo** for Arch Linux + Hyprland. Configs live under `stow/<package>/` and are symlinked into `$HOME` by `setup.sh` or `hyprsync`.
+This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a standalone CLI/TUI binary (`hyprconf`) combined with the maintainer's personal dotfiles. Configs live under `stow/<package>/` and are symlinked into `$HOME` by `setup.sh` / `hyprconf sync`. The Python core library lives at `stow/hypr/.local/lib/hyprconf/`.
 
 - Do not manually create files under `~/.config/` — add them to the appropriate `stow/<package>/` directory instead.
 - Do not create new top-level stow packages without also adding any required binaries to the `packages` file.
