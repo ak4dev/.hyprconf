@@ -322,6 +322,7 @@ hyprconf deploy <domain>         Deploy/refresh a previously added domain
 hyprconf teardown                Destroy all AWS resources (confirmation required)
 
 hyprconf set mainMod <KEY...>    Set $mainMod (e.g. SUPER, ALT, CTRL)
+hyprconf show keybinds           Pretty table of keybinds from config
 
 hyprconf help                    Show usage
 ```

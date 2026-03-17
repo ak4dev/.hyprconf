@@ -54,6 +54,8 @@ usage() {
   printf "                                   deploy. Requires domain confirmation.\n"
   printf "\n${_b}Config${_r}\n"
   printf "  hyprconf set mainMod <KEY...>    Set \$mainMod (e.g. SUPER, ALT, CTRL)\n"
+  printf "\n${_b}Show${_r}\n"
+  printf "  hyprconf show keybinds           Pretty table of keybinds from config\n"
   printf "\n${_b}General${_r}\n"
   printf "  hyprconf help                    Show this message\n"
 }
@@ -286,6 +288,211 @@ cmd_set() {
   esac
 }
 
+_trim() {
+  local s="$1"
+  s="${s#${s%%[![:space:]]*}}"
+  s="${s%${s##*[![:space:]]}}"
+  printf '%s' "$s"
+}
+
+_strip_comment() {
+  # Remove trailing comments like: "...  # comment"
+  # (does not attempt to parse quotes)
+  local s="$1"
+  printf '%s' "$s" | sed -E 's/(^|[[:space:]])#.*$//'
+}
+
+_find_keybinds_conf() {
+  local cfg_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+  local kb="$cfg_home/hypr/keybinds.conf"
+  if [[ -f "$kb" ]]; then
+    printf '%s' "$kb"
+    return 0
+  fi
+
+  local fallback="$HOME/.hyprconf/stow/hypr/.config/hypr/keybinds.conf"
+  [[ -f "$fallback" ]] || return 1
+  printf '%s' "$fallback"
+}
+
+cmd_show_keybinds() {
+  local keybinds
+  keybinds="$(_find_keybinds_conf)" || die "Could not find keybinds.conf at ~/.config/hypr/keybinds.conf"
+
+  declare -A vars=()
+  declare -A visited=()
+  local -a binds=()
+
+  _expand_known_vars() {
+    local s="$1"
+    local pass
+    for pass in 1 2; do
+      local k
+      for k in "${!vars[@]}"; do
+        s="${s//\$$k/${vars[$k]}}"
+      done
+    done
+    printf '%s' "$s"
+  }
+
+  _read_conf_recursive() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+    [[ -z "${visited[$file]+x}" ]] || return 0
+    visited["$file"]=1
+
+    local line lineno=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      lineno=$(( lineno + 1 ))
+      line="$(_strip_comment "$line")"
+      line="$(_trim "$line")"
+      [[ -n "$line" ]] || continue
+
+      if [[ "$line" =~ ^\$([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(.+)$ ]]; then
+        local k="${BASH_REMATCH[1]}"
+        local v
+        v="$(_trim "${BASH_REMATCH[2]}")"
+        vars["$k"]="$v"
+        continue
+      fi
+
+      if [[ "$line" =~ ^source[[:space:]]*=[[:space:]]*(.+)$ ]]; then
+        local src
+        src="$(_trim "${BASH_REMATCH[1]}")"
+        src="${src%\"}"; src="${src#\"}"
+        src="${src#\'}"; src="${src%\'}"
+
+        src="${src/#\~/$HOME}"
+        src="${src//\$HOME/$HOME}"
+        src="${src//\${HOME}/$HOME}"
+
+        local -a src_files=()
+        local had_nullglob=0
+        shopt -q nullglob && had_nullglob=1
+        shopt -s nullglob
+        # shellcheck disable=SC2206
+        src_files=( $src )
+        (( had_nullglob == 1 )) || shopt -u nullglob
+
+        local f
+        for f in "${src_files[@]}"; do
+          _read_conf_recursive "$f"
+        done
+        continue
+      fi
+
+      if [[ "$line" =~ ^(bind[a-z]*)[[:space:]]*=[[:space:]]*(.+)$ ]]; then
+        local kind="${BASH_REMATCH[1]}"
+        local payload
+        payload="$(_trim "${BASH_REMATCH[2]}")"
+        binds+=("$kind|$payload")
+      fi
+    done < "$file"
+  }
+
+  _read_conf_recursive "$keybinds"
+
+  if (( ${#binds[@]} == 0 )); then
+    die "No keybinds found in $keybinds"
+  fi
+
+  local mainmod="${vars[mainMod]:-${vars[mainmod]:-}}"
+
+  printf "${_b}Keybinds${_r} (%s)" "$keybinds"
+  if [[ -n "${mainmod:-}" ]]; then
+    printf " — ${_b}\$mainMod${_r}=%s\n\n" "$mainmod"
+  else
+    printf "\n\n"
+  fi
+
+  {
+    printf 'TYPE\tMODS\tKEY\tDISPATCH\tARG\n'
+    local row
+    for row in "${binds[@]}"; do
+      local kind payload
+      kind="${row%%|*}"
+      payload="${row#*|}"
+
+      local -a parts
+      IFS=',' read -r -a parts <<<"$payload"
+
+      local mods key dispatch arg
+      mods="$(_trim "${parts[0]:-}")"
+      key="$(_trim "${parts[1]:-}")"
+      dispatch="$(_trim "${parts[2]:-}")"
+
+      if (( ${#parts[@]} > 3 )); then
+        arg="${parts[3]}"
+        local i
+        for (( i=4; i<${#parts[@]}; i++ )); do
+          arg+=",${parts[$i]}"
+        done
+        arg="$(_trim "$arg")"
+      else
+        arg=""
+      fi
+
+      mods="$(_expand_known_vars "$mods")"
+      key="$(_expand_known_vars "$key")"
+      dispatch="$(_expand_known_vars "$dispatch")"
+      arg="$(_expand_known_vars "$arg")"
+
+      mods="$(_trim "$mods")"
+      [[ -z "$mods" ]] && mods='-'
+      mods="${mods// /+}"
+
+      printf '%s\t%s\t%s\t%s\t%s\n' "$kind" "$mods" "$key" "$dispatch" "$arg"
+    done
+  } | {
+    if command -v python3 &>/dev/null; then
+      python3 -c '
+import sys
+lines = [l.rstrip("\n") for l in sys.stdin if l.strip()]
+if not lines:
+  raise SystemExit(0)
+rows = [ln.split("\t") for ln in lines]
+cols = max(len(r) for r in rows)
+for r in rows:
+  r.extend([""] * (cols - len(r)))
+widths = [0] * cols
+for r in rows:
+  for i, c in enumerate(r):
+    widths[i] = max(widths[i], len(c))
+
+def hline(left, mid, right, ch="─"):
+  return left + mid.join(ch * (w + 2) for w in widths) + right
+
+def rowline(r):
+  return "│" + "│".join(f" {c.ljust(widths[i])} " for i, c in enumerate(r)) + "│"
+
+top = hline("┌", "┬", "┐")
+sep = hline("├", "┼", "┤")
+bot = hline("└", "┴", "┘")
+out = [top, rowline(rows[0])]
+if len(rows) > 1:
+  out.append(sep)
+  out.extend(rowline(r) for r in rows[1:])
+out.append(bot)
+sys.stdout.write("\n".join(out) + "\n")
+'
+    elif command -v column &>/dev/null; then
+      column -t -s $'\t'
+    else
+      cat
+    fi
+  }
+}
+
+cmd_show() {
+  local sub="${1:-}"
+  shift || true
+  case "$sub" in
+    keybinds|keys|binds) cmd_show_keybinds "$@" ;;
+    -h|--help|help|"") die "Usage: hyprconf show keybinds" ;;
+    *) die "Unknown show target: $sub" ;;
+  esac
+}
+
 cmd_teardown() {
   bash "$TEARDOWN_SCRIPT" "$@"
 }
@@ -301,6 +508,7 @@ main() {
     deploy)           cmd_deploy "$@" ;;
     teardown)         cmd_teardown "$@" ;;
     set)              cmd_set "$@" ;;
+    show)             cmd_show "$@" ;;
     help|-h|--help)   usage ;;
     *)
       printf "${_y}Unknown command: %s${_r}\n\n" "$cmd" >&2
