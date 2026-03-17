@@ -216,7 +216,11 @@ choose_free_region() {
           $1 ~ /^\// { next }
           {
             isfree=0
-            for (i=1;i<=NF;i++) if ($i=="free") isfree=1
+            for (i=1;i<=NF;i++) {
+              v=tolower($i)
+              sub(/;$/, "", v)
+              if (v=="free" || v=="free space") isfree=1
+            }
             if (!isfree) next
             s=$2; e=$3; z=$4
             gsub(/s/,"",s); gsub(/s/,"",e); gsub(/s/,"",z)
@@ -624,7 +628,7 @@ partition_unallocated() {
   # Choose which free region to use (handles multiple unallocated regions)
   local region
   region="$(choose_free_region "$DISK" "$need_sectors")" \
-    || log_die "No unallocated region large enough. Need at least ${need_desc} on $DISK."
+    || log_die "No unallocated region large enough. Need at least ${need_desc} on $DISK (must be unallocated disk space, not free space inside a partition)."
 
   local free_start free_end free_sectors
   read -r free_start free_end free_sectors <<<"$region"
