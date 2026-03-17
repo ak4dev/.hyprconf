@@ -51,7 +51,7 @@
 ## Installation
 
 ```bash
-bash <(curl -fsSL https://hyprconf.sh)
+bash <(curl -fsSL hyprconf.sh)
 ```
 
 The installer prompts for one of two modes:
