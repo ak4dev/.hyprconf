@@ -778,31 +778,66 @@ copy_network_config_from_iso() {
 
     shopt -s nullglob
     local -a psk_files=(/var/lib/iwd/*.psk)
+    local -a open_files=(/var/lib/iwd/*.open)
+    local -a eap_files=(/var/lib/iwd/*.8021x)
     shopt -u nullglob
 
-    if (( ${#psk_files[@]} > 0 )); then
-      for f in "${psk_files[@]}"; do
-        ssid="$(basename "$f")"
-        ssid="${ssid%.psk}"
+    for f in "${open_files[@]}"; do
+      ssid="$(basename "$f")"
+      ssid="${ssid%.open}"
 
-        # Prefer PreSharedKey (hex) when present; it avoids special-char escaping issues.
-        psk="$(sed -n 's/^PreSharedKey=//p' "$f" | head -n1)"
-        [[ -z "$psk" ]] && psk="$(sed -n 's/^Passphrase=//p' "$f" | head -n1)"
+      uuid="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
+      [[ -n "$uuid" ]] || uuid="$(uuidgen 2>/dev/null || true)"
+      [[ -n "$uuid" ]] || uuid="00000000-0000-0000-0000-000000000000"
 
-        if [[ -z "$psk" ]]; then
-          skipped=$(( skipped + 1 ))
-          continue
-        fi
+      file_safe="$(printf '%s' "$ssid" | sed -E 's#[/\\]#_#g; s/[[:space:]]+$//')"
+      [[ -n "$file_safe" ]] || file_safe="wifi-${imported}"
 
-        uuid="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
-        [[ -n "$uuid" ]] || uuid="$(uuidgen 2>/dev/null || true)"
-        [[ -n "$uuid" ]] || uuid="00000000-0000-0000-0000-000000000000"
+      out="$target_dir/${file_safe}.nmconnection"
+      cat > "$out" << EOF
+[connection]
+id=${ssid}
+uuid=${uuid}
+type=wifi
+autoconnect=true
 
-        file_safe="$(printf '%s' "$ssid" | sed -E 's#[/\\]#_#g; s/[[:space:]]+$//')"
-        [[ -n "$file_safe" ]] || file_safe="wifi-${imported}"
+[wifi]
+mode=infrastructure
+ssid=${ssid}
 
-        out="$target_dir/${file_safe}.nmconnection"
-        cat > "$out" << EOF
+[ipv4]
+method=auto
+
+[ipv6]
+method=auto
+EOF
+      chmod 600 "$out"
+      chown root:root "$out"
+      imported=$(( imported + 1 ))
+    done
+
+    for f in "${psk_files[@]}"; do
+      ssid="$(basename "$f")"
+      ssid="${ssid%.psk}"
+
+      # Prefer PreSharedKey (hex) when present; it avoids special-char escaping issues.
+      psk="$(sed -n 's/^PreSharedKey=//p' "$f" | head -n1)"
+      [[ -z "$psk" ]] && psk="$(sed -n 's/^Passphrase=//p' "$f" | head -n1)"
+
+      if [[ -z "$psk" ]]; then
+        skipped=$(( skipped + 1 ))
+        continue
+      fi
+
+      uuid="$(cat /proc/sys/kernel/random/uuid 2>/dev/null || true)"
+      [[ -n "$uuid" ]] || uuid="$(uuidgen 2>/dev/null || true)"
+      [[ -n "$uuid" ]] || uuid="00000000-0000-0000-0000-000000000000"
+
+      file_safe="$(printf '%s' "$ssid" | sed -E 's#[/\\]#_#g; s/[[:space:]]+$//')"
+      [[ -n "$file_safe" ]] || file_safe="wifi-${imported}"
+
+      out="$target_dir/${file_safe}.nmconnection"
+      cat > "$out" << EOF
 [connection]
 id=${ssid}
 uuid=${uuid}
@@ -823,16 +858,19 @@ method=auto
 [ipv6]
 method=auto
 EOF
-        chmod 600 "$out"
-        chown root:root "$out"
-        imported=$(( imported + 1 ))
-      done
+      chmod 600 "$out"
+      chown root:root "$out"
+      imported=$(( imported + 1 ))
+    done
 
-      if (( imported > 0 )); then
-        log_ok "Imported ${imported} WiFi network(s) from ISO."
-        (( skipped > 0 )) && log_warn "Skipped ${skipped} iwd profile(s) missing PSK/passphrase."
-        return 0
-      fi
+    if (( imported > 0 )); then
+      log_ok "Imported ${imported} WiFi network(s) from ISO."
+      (( skipped > 0 )) && log_warn "Skipped ${skipped} iwd PSK profile(s) missing PSK/passphrase."
+      return 0
+    fi
+
+    if (( ${#eap_files[@]} > 0 )); then
+      log_warn "Detected iwd enterprise WiFi profile(s) (.8021x) which are not auto-imported."
     fi
   fi
 
