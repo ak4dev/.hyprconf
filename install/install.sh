@@ -526,8 +526,8 @@ partition_unallocated() {
   local sector_size
   sector_size=$(blockdev --getss "$DISK")
 
-  local root_min_gib=20
-  local total_min_gib=20
+  local root_min_gib=10
+  local total_min_gib=10
   local efi_mib=512
 
   local root_need_sectors=$(( root_min_gib * 1024 * 1024 * 1024 / sector_size ))
@@ -616,7 +616,7 @@ partition_unallocated() {
   local need_desc="${root_min_gib}GiB"
   if (( create_new_efi == 1 )); then
     # When creating a new ESP, treat the minimum as TOTAL space, not root+ESP.
-    # This allows small VM disks (e.g. ~20GiB total) to proceed with ~19.5GiB root.
+    # This allows small VM disks (e.g. ~10GiB total) to proceed with ~9.5GiB root.
     need_sectors="$total_need_sectors"
     need_desc="${total_min_gib}GiB total (incl ${efi_mib}MiB ESP)"
   fi
