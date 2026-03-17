@@ -526,3 +526,45 @@ hyprctl cursorpos
 ```
 
 Wiki: <https://wiki.hyprland.org/Configuring/Using-hyprctl/>
+
+
+---
+
+## hyprconf keyword tool
+
+`hyprconf` wraps `hyprctl keyword` with a type-checked schema, readline tab completion, and persistent writes to `~/.config/hypr/conf.d/99-hyprconf-local.conf`.
+
+The shared Python core (`~/.local/lib/hyprconf/`) is the single source of truth for all configuration state. Both the CLI and TUI import from it — no business logic is duplicated.
+
+```bash
+# Read options
+hyprconf get                         # list sections
+hyprconf get general                 # all options in section (with live values)
+hyprconf get general gaps_in         # single option with type + description
+
+# Write options (validates type, applies live, persists)
+hyprconf set general gaps_in 8
+hyprconf set decoration rounding 12
+hyprconf set misc vrr 1
+
+# Interactive REPL (Tab completes section/key names, history navigation)
+hyprconf configure
+# hyprconf(config)# general         → enter section
+# hyprconf(config-general)# gaps_in 8
+# hyprconf(config-general)# no gaps_in   → reset to default
+# hyprconf(config-general)# gaps_in ?    → show details
+# hyprconf(config-general)# show         → list all options
+# hyprconf(config-general)# exit         → back to root
+
+# Schema / AI changelog interface
+hyprconf schema dump                 # JSON of all sections/keys/types/defaults/descriptions
+hyprconf schema list-sections        # list section names
+hyprconf schema keys general         # keys in a section
+
+# First-run detection: locate and non-destructively migrate existing config
+hyprconf autodetect
+```
+
+Persistence key format: `section:subsection:key = value` (matching `hyprctl keyword` syntax).
+
+Wiki options reference: <https://wiki.hyprland.org/Configuring/Variables/>

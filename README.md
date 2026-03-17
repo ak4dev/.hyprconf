@@ -298,6 +298,27 @@ This writes a machine-local override file at:
 
 `hyprconf` is the unified control centre for the entire hyprconf suite. It is symlinked to `~/.local/bin/hyprconf` via GNU Stow and is available in every shell session.
 
+### Architecture
+
+hyprconf has two independent but linked parts:
+
+- **The `hyprconf` binary** — a self-contained tool installable by any Hyprland user (AUR-compatible), regardless of their dotfiles. It exposes a CLI and a TUI that share a common Python core library at `~/.local/lib/hyprconf/`.
+- **The managed dotfile set** — this repo's daily-driven Hyprland configuration, optionally installed and managed via `hyprconf sync`.
+
+The shared Python core (`~/.local/lib/hyprconf/`) is the single source of truth for all configuration state:
+
+| Module | Responsibility |
+|---|---|
+| `schema.py` | Canonical `OPTION_SCHEMA` — all configurable Hyprland keys, types, defaults, descriptions |
+| `config.py` | Unified config reader/writer — reads/writes `99-hyprconf-local.conf` |
+| `hyprctl.py` | Thin wrapper around `hyprctl` IPC |
+| `autodetect.py` | First-run detection and non-destructive migration of existing configs |
+| `cli.py` | Python CLI backend (get/set/configure REPL/schema/autodetect/keybind/rule/monitor) |
+| `file_edit.py` | Atomic line-level file operations used by all file-backed sections |
+| `keybinds.py` | Location-aware keybind read/write with add, delete, update |
+| `rules.py` | Window and workspace rule read/write; new rules written to `conf.d/` |
+| `monitors.py` | Monitor config read/write with live `hyprctl` sync |
+
 ```
 hyprconf theme                   Interactive TUI picker
 hyprconf theme <name>            Apply a specific theme
@@ -313,6 +334,9 @@ hyprconf sync                    Pull latest configs and re-stow
 hyprconf monitor list            List available monitor presets
 hyprconf monitor set <preset>    Switch to a monitor preset
 hyprconf monitor <preset>        Shorthand for 'set <preset>'
+hyprconf monitor config list     Show parsed monitor config entries
+hyprconf monitor config set <name> <resolution> <position> <scale> [extras]
+hyprconf monitor config delete <name>
 
 hyprconf display toggle          Toggle built-in screen (eDP-1) on/off
 
@@ -322,13 +346,84 @@ hyprconf deploy new              Add + deploy an additional domain
 hyprconf deploy <domain>         Deploy/refresh a previously added domain
 hyprconf teardown                Destroy all AWS resources (confirmation required)
 
+# Hyprland option control — sections: general, decoration, input, misc, binds, cursor, dwindle, master, ...
+hyprconf get <section>           Show all options in a section with current values
+hyprconf get <section> <key>     Show one option with type, default, and current value
+hyprconf set <section> <key> <value>   Set an option (runtime via hyprctl + persistent)
+
+# Interactive Cisco IOS-style REPL
+hyprconf configure               Enter interactive configure mode
+# In configure mode:
+#   general                      Enter a section context
+#   gaps_in 8                    Set an option
+#   gaps_in ?                    Show option details + current value
+#   no gaps_in                   Reset option to its default
+#   show                         Show all options in current section
+#   ?                            List all sections / context help
+#   exit                         Return to root (or quit)
+
+# Keybind management
+hyprconf keybind list
+hyprconf keybind add <kind> <mods|-> <key> <dispatcher> [args]
+hyprconf keybind delete <index>
+hyprconf keybind update <index> <kind> <mods|-> <key> <dispatcher> [args]
+
+# Window / workspace rule management
+hyprconf rule window list
+hyprconf rule window add <rule> <filter>
+hyprconf rule window delete <index>
+hyprconf rule workspace list
+hyprconf rule workspace add <ws_id> <options>
+hyprconf rule workspace delete <index>
+
+# Lock screen (hyprlock)
+hyprconf lock list
+hyprconf lock add <block_type>          Add a block with defaults  (general|background|label|input-field|shape)
+hyprconf lock set <index> <key> <value> Set a field in a block
+hyprconf lock delete <index>            Delete a block by index
+
+# Idle daemon (hypridle)
+hyprconf idle list
+hyprconf idle add <block_type>          Add a block with defaults  (general|listener)
+hyprconf idle set <index> <key> <value> Set a field in a block
+hyprconf idle delete <index>            Delete a block by index
+
+# Wallpaper daemon (hyprpaper)
+hyprconf paper list
+hyprconf paper add <path>               Preload a wallpaper and add a wallpaper block
+hyprconf paper set <key> <value>        Set a top-level setting (e.g. splash true)
+hyprconf paper delete <index>           Delete a wallpaper block by index
+
+# Full Textual TUI (requires python-textual)
+hyprconf tui                     Launch full TUI configuration suite
+hyprconf tui --section general   Open TUI at a specific section
+hyprconf tui --slim              Slim mode: sidebar hidden (requires --section)
+
 hyprconf set mainMod <KEY...>    Set $mainMod (e.g. SUPER, ALT, CTRL)
 hyprconf show keybinds           Pretty table of keybinds from config
+
+# Schema / AI changelog interface
+hyprconf schema dump             Dump full schema as JSON (for AI-assisted changelog parsing)
+hyprconf schema validate         Validate current config against schema
+hyprconf schema list-sections    List all known section names
+hyprconf schema keys <section>   List all keys in a section
+
+# First-run auto-detection
+hyprconf autodetect              Detect and non-destructively migrate existing Hyprland config
 
 hyprconf help                    Show usage
 ```
 
----
+### Persistence
+
+All changes made via `hyprconf set`, `hyprconf configure`, or the TUI are applied immediately at runtime (via `hyprctl keyword` when a Hyprland session is active) and written persistently to:
+
+```
+~/.config/hypr/conf.d/99-hyprconf-local.conf
+```
+
+This file is sourced by Hyprland via the `conf.d/*.conf` glob and survives restarts.
+
 
 ## Theme Switcher
 

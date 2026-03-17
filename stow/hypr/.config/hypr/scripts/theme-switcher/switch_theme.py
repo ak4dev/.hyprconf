@@ -238,7 +238,12 @@ def update_dunst(theme: Dict[str, str]) -> None:
     print("Dunst theme updated.")
 
     if subprocess.run(["pgrep", "dunst"], capture_output=True).returncode == 0:
-        subprocess.run(["pkill", "dunst"], check=False)
+        proc = subprocess.run(["pgrep", "dunst"], capture_output=True, text=True)
+        for pid in proc.stdout.split():
+            try:
+                os.kill(int(pid), 15)  # SIGTERM
+            except (ProcessLookupError, ValueError):
+                pass
         subprocess.Popen(
             ["dunst"],
             stdin=subprocess.DEVNULL,

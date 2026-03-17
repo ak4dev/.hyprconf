@@ -6,13 +6,16 @@
 #  usage:
 #    bash <(curl -fsSL https://hyprconf.sh)
 #
-#  Presents two modes after the banner:
+#  Presents three modes after the banner:
 #    [1] Full Arch Linux install  (run from the Arch ISO)
 #        Partitions disk, LUKS2 encrypts, creates btrfs subvolumes, installs
 #        base system, configures with systemd-boot, then stages dotfiles for
 #        automatic setup on first login.
 #    [2] Dotfiles only  (existing Arch installation)
 #        Clones the repo and hands off to setup.sh — original behaviour.
+#    [3] hyprconf binary only  (any existing Hyprland system)
+#        Installs the hyprconf CLI/TUI into ~/.local/bin and ~/.local/lib
+#        without touching any Hyprland config files.
 
 set -euo pipefail
 
@@ -95,29 +98,41 @@ run_timeout() {
 }
 
 arrow_select() {
-  # Prints selected 0-based index. Requires a TTY.
+  # Prints selected 0-based index to stdout. Display goes to /dev/tty directly
+  # so this works correctly inside $() command substitutions.
+  # Optional: first two args may be -d <N> to set the initial cursor position.
+  local default_cur=0
+  if [[ "${1:-}" == "-d" ]]; then
+    default_cur="${2:-0}"
+    shift 2
+  fi
+
   local prompt="$1"; shift
   local -a items=("$@")
   local n=${#items[@]}
   (( n > 0 )) || return 1
-  [[ -t 0 && -t 1 ]] || return 1
+  # Need stdin to be a TTY and /dev/tty to be openable.
+  [[ -t 0 ]] || return 1
+  { exec 9>/dev/tty; } 2>/dev/null || return 1
 
-  local cur=0 key rest
+  local cur="$default_cur" key rest
+  (( cur < 0 )) && cur=0
+  (( cur >= n )) && cur=$(( n - 1 ))
 
-  printf '\n%s  %s%s\n' "$WH" "$prompt" "$RS"
-  printf '%s  (use ↑/↓ and Enter)%s\n\n' "$DM" "$RS"
+  printf '\n%s  %s%s\n' "$WH" "$prompt" "$RS" >&9
+  printf '%s  (use ↑/↓ and Enter)%s\n\n' "$DM" "$RS" >&9
 
-  printf '\e[?25l'
-  trap 'printf "\e[?25h"' RETURN
+  printf '\e[?25l' >&9
+  trap 'printf "\e[?25h" >&9; exec 9>&-' RETURN
 
   while true; do
     local i
     for (( i=0; i<n; i++ )); do
-      printf '\033[2K\r'
+      printf '\033[2K\r' >&9
       if (( i == cur )); then
-        printf '%s  > %s%s\n' "$AM" "${items[i]}" "$RS"
+        printf '%s  > %s%s\n' "$AM" "${items[i]}" "$RS" >&9
       else
-        printf '    %s\n' "${items[i]}"
+        printf '    %s\n' "${items[i]}" >&9
       fi
     done
 
@@ -131,7 +146,8 @@ arrow_select() {
         esac
         ;;
       "")
-        printf '\e[?25h'
+        printf '\e[?25h' >&9
+        exec 9>&-
         trap - RETURN
         printf '%s\n' "$cur"
         return 0
@@ -143,8 +159,19 @@ arrow_select() {
     (( cur < 0 )) && cur=0
     (( cur >= n )) && cur=$(( n - 1 ))
 
-    printf '\033[%dA' "$n"
+    printf '\033[%dA' "$n" >&9
   done
+}
+
+# ── Passive existing-install detection ───────────────────────────────────────
+# Reads only — no network, no disk writes, no side effects.
+# Returns 0 if any signal of an existing hyprconf/Hyprland install is found.
+detect_existing_install() {
+  command -v hyprconf            &>/dev/null && return 0
+  [[ -f "$HOME/.local/bin/hyprconf"         ]] && return 0
+  [[ -d "$REPO_DIR/.git"                    ]] && return 0
+  [[ -f "$HOME/.config/hypr/hyprland.conf"  ]] && return 0
+  return 1
 }
 
 esp_candidates_on_disk() {
@@ -364,21 +391,82 @@ gather_user_input() {
 detect_timezone() {
   log_step "Detecting timezone from IP..."
   local suggested
-  suggested=$(curl -fsSL --max-time 5 "https://ipapi.co/timezone" 2>/dev/null || echo "")
-  # Fall back to UTC if the response looks wrong
+  suggested=$(curl -fsSL --max-time 5 "https://ipapi.co/timezone" 2>/dev/null || true)
+  # Fall back to UTC if the response looks wrong (JSON error body, empty, etc.)
   [[ -z "$suggested" || "$suggested" == *"{"* ]] && suggested="UTC"
 
   printf '\n%s  Suggested timezone: %s%s%s\n' "$DM" "$WH" "$suggested" "$RS"
   printf '%s  Accept? [Y/n]: %s' "$AM" "$RS"
+  local tz_ans
   read -r tz_ans
   if [[ "${tz_ans,,}" == "n" ]]; then
-    printf '%s  Timezone (e.g. Europe/London, America/New_York): %s' "$AM" "$RS"
-    read -r TIMEZONE
-    [[ -f "/usr/share/zoneinfo/$TIMEZONE" ]] || log_die "Unknown timezone: $TIMEZONE"
+    _pick_timezone
   else
     TIMEZONE="$suggested"
   fi
   log_ok "Timezone: $TIMEZONE"
+}
+
+_pick_timezone() {
+  # Build a sorted list of valid timezones from /usr/share/zoneinfo.
+  local -a zones=()
+  if [[ -d /usr/share/zoneinfo ]]; then
+    mapfile -t zones < <(
+      find /usr/share/zoneinfo -type f -o -type l \
+        | sed 's|/usr/share/zoneinfo/||' \
+        | grep -E '^[A-Z][^/]+/[^/]+$' \
+        | sort
+    )
+  fi
+
+  # Try fzf first (most comfortable), then arrow_select, then plain read.
+  if (( ${#zones[@]} > 0 )) && command -v fzf &>/dev/null && [[ -t 0 && -t 1 ]]; then
+    local picked
+    picked=$(printf '%s\n' "${zones[@]}" | fzf \
+      --prompt='  Timezone > ' \
+      --height=15 \
+      --reverse \
+      --header='Type to filter  (e.g. Europe, America, Asia)') || true
+    if [[ -n "$picked" && -f "/usr/share/zoneinfo/$picked" ]]; then
+      TIMEZONE="$picked"
+      return 0
+    fi
+    log_warn "No timezone selected via fzf — falling back."
+  fi
+
+  if (( ${#zones[@]} > 0 )) && [[ -t 0 ]]; then
+    # Grouped arrow picker: let user pick a region then a city.
+    local -a regions=()
+    mapfile -t regions < <(printf '%s\n' "${zones[@]}" | cut -d/ -f1 | sort -u)
+
+    if [[ -t 0 && -t 1 ]]; then
+      local ridx
+      ridx="$(arrow_select 'Select region' "${regions[@]}")" || ridx=""
+    fi
+
+    if [[ -n "${ridx:-}" ]]; then
+      local region="${regions[$ridx]}"
+      local -a cities=()
+      mapfile -t cities < <(printf '%s\n' "${zones[@]}" | grep "^${region}/" | sed "s|^${region}/||" | sort)
+      local cidx
+      cidx="$(arrow_select "Select city  (${region})" "${cities[@]}")" || cidx=""
+      if [[ -n "${cidx:-}" ]]; then
+        TIMEZONE="${region}/${cities[$cidx]}"
+        return 0
+      fi
+    fi
+  fi
+
+  # Plain-text fallback with retry loop.
+  while true; do
+    printf '%s  Timezone%s (e.g. Europe/London, America/New_York, UTC): %s' "$AM" "$DM" "$RS"
+    read -r TIMEZONE
+    [[ -z "$TIMEZONE" ]] && { TIMEZONE="UTC"; break; }
+    if [[ -f "/usr/share/zoneinfo/$TIMEZONE" ]]; then
+      break
+    fi
+    log_warn "Unknown timezone: $TIMEZONE — check spelling or pick from: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+  done
 }
 
 select_disk() {
@@ -1080,21 +1168,145 @@ dotfiles_install() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+#  PHASE 3 — Binary-only install  (any existing Hyprland system)
+# ════════════════════════════════════════════════════════════════════════════
+
+_ensure_git_any() {
+  command -v git &>/dev/null && return 0
+  log_step "git not found — attempting to install..."
+  if command -v pacman &>/dev/null; then
+    sudo pacman -Sy --noconfirm --needed git \
+      || log_die "pacman could not install git."
+  elif command -v apt-get &>/dev/null; then
+    sudo apt-get install -y git \
+      || log_die "apt-get could not install git."
+  elif command -v dnf &>/dev/null; then
+    sudo dnf install -y git \
+      || log_die "dnf could not install git."
+  else
+    log_die "git is required. Install it manually and re-run."
+  fi
+  log_ok "git installed."
+}
+
+_link() {
+  local src="$1" dst="$2"
+  local dst_dir; dst_dir="$(dirname "$dst")"
+  mkdir -p "$dst_dir"
+  if [[ -L "$dst" ]]; then
+    local existing; existing="$(readlink "$dst")"
+    if [[ "$existing" == "$src" ]]; then
+      log_info "$(basename "$dst") already linked — skipping"
+      return 0
+    fi
+    log_info "Updating symlink: $dst → $src"
+  fi
+  ln -sfn "$src" "$dst"
+}
+
+binary_install() {
+  log_step "Installing hyprconf binary..."
+
+  _ensure_git_any
+
+  # Clone or update repo
+  if [[ -d "$REPO_DIR/.git" ]]; then
+    log_step "Existing repo found — pulling latest..."
+    git -C "$REPO_DIR" pull --ff-only \
+      || log_warn "Fast-forward failed — continuing with existing files."
+  else
+    log_step "Cloning $REPO_URL → $REPO_DIR ..."
+    git clone --depth=1 "$REPO_URL" "$REPO_DIR" \
+      || log_die "Clone failed. Check your network connection."
+  fi
+  log_ok "Repository ready."
+
+  # Symlink binary and library — do not touch ~/.config/hypr
+  _link "$REPO_DIR/stow/hypr/.local/bin/hyprconf" \
+        "$HOME/.local/bin/hyprconf"
+  _link "$REPO_DIR/stow/hypr/.local/lib/hyprconf" \
+        "$HOME/.local/lib/hyprconf"
+
+  log_ok "hyprconf installed → ~/.local/bin/hyprconf"
+
+  # PATH hint
+  if ! command -v hyprconf &>/dev/null; then
+    log_warn "~/.local/bin is not in your PATH."
+    printf '%s  Add this to your shell rc:%s\n'         "$DM" "$RS"
+    printf '%s    export PATH="$HOME/.local/bin:$PATH"%s\n\n' "$AM" "$RS"
+  fi
+
+  # Python check (required for CLI backend and TUI)
+  if ! command -v python3 &>/dev/null; then
+    log_warn "python3 not found — CLI backend and TUI will not work."
+    log_warn "Install python3 to use 'hyprconf configure', 'hyprconf tui', etc."
+  else
+    log_ok "python3 $(python3 --version 2>&1 | awk '{print $2}')"
+    if ! python3 -c "import textual" &>/dev/null; then
+      log_warn "python-textual not installed — TUI unavailable."
+      log_info "Install with: sudo pacman -S python-textual  (or pip install textual)"
+    else
+      log_ok "python-textual available."
+    fi
+  fi
+
+  printf '\n%s  hyprconf is ready.%s\n'             "$GR" "$RS"
+  printf '%s  Run:%s hyprconf help\n\n'              "$DM" "$RS"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
 #  Entry
 # ════════════════════════════════════════════════════════════════════════════
 
 main() {
   print_banner
 
-  printf '%s  What would you like to do?%s\n\n' "$WH" "$RS"
-  printf '%s  [1]%s Full Arch Linux install  %s(from Arch ISO — partition, encrypt, install)%s\n' "$WH" "$RS" "$DM" "$RS"
-  printf '%s  [2]%s Dotfiles only             %s(existing Arch system)%s\n\n'                      "$WH" "$RS" "$DM" "$RS"
-  printf '%s  Choice [1/2]: %s' "$AM" "$RS"
-  read -r install_mode
+  # Passive detection — no writes, no network calls.
+  local _existing=0
+  detect_existing_install && _existing=1
 
-  case "$install_mode" in
-    1) arch_install ;;
-    2) dotfiles_install ;;
+  local -a _options=(
+    "Full Arch Linux install   (from Arch ISO — partition, encrypt, install)"
+    "Dotfiles only             (existing Arch system)"
+  )
+
+  if (( _existing )); then
+    _options+=(
+      "hyprconf binary only      (update existing install) ← recommended"
+    )
+  else
+    _options+=(
+      "hyprconf binary only      (any existing Hyprland system)"
+    )
+  fi
+
+  local _default=$(( _existing ? 2 : 0 ))
+  local _choice
+
+  if [[ -t 0 && -t 1 ]]; then
+    _choice="$(arrow_select -d "$_default" 'What would you like to do?' "${_options[@]}")" \
+      || { printf '\n'; log_die "No selection made."; }
+  else
+    printf '%s  What would you like to do?%s\n\n' "$WH" "$RS"
+    local _i=1
+    for _opt in "${_options[@]}"; do
+      printf '%s  [%d]%s %s\n' "$WH" "$_i" "$RS" "$_opt"
+      (( _i++ ))
+    done
+    if (( _existing )); then
+      printf '\n%s  Existing install detected — default: [3]%s\n' "$DM" "$RS"
+    fi
+    printf '%s  Choice [1/2/3]: %s' "$AM" "$RS"
+    read -r _raw
+    # Accept empty input → default
+    [[ -z "$_raw" ]] && _raw=$(( _default + 1 ))
+    _choice=$(( _raw - 1 ))
+  fi
+
+  case "$_choice" in
+    0) arch_install ;;
+    1) dotfiles_install ;;
+    2) binary_install ;;
     *) log_die "Invalid choice." ;;
   esac
 }

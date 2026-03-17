@@ -233,6 +233,7 @@ update_zshrc() {
                 print "if [[ -r \"$P10K_THEME\" && -f \"$HOME/.p10k.zsh\" ]]; then"
                 print "  source \"$HOME/.p10k.zsh\""
                 print "fi"
+                print "typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION=$\047\\uf303\047"
                 print "# <<< hyprconf zsh <<<"
                 inserted = 1
             }
@@ -266,6 +267,7 @@ update_zshrc() {
                 print "if [[ -r \"$P10K_THEME\" && -f \"$HOME/.p10k.zsh\" ]]; then"
                 print "  source \"$HOME/.p10k.zsh\""
                 print "fi"
+                print "typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION=$\047\\uf303\047"
                 print "# <<< hyprconf zsh <<<"
             }
         }
@@ -316,12 +318,12 @@ force_stow_package() {
 
     log_step "Stowing $package..."
 
-    if ! stow -d "$stow_dir" -t "$target_dir" --restow "$package" 2>/dev/null; then
+    if ! stow -d "$stow_dir" -t "$target_dir" --no-folding --restow "$package" 2>/dev/null; then
         log_warn "Conflict in $package — backing up and retrying..."
 
-        stow -d "$stow_dir" -t "$target_dir" -D "$package" || true
+        stow -d "$stow_dir" -t "$target_dir" --no-folding -D "$package" || true
 
-        find "$stow_dir/$package" -type f | while read -r file; do
+        find "$stow_dir/$package" \( -type f -o -type l \) | while read -r file; do
             local rel_path="${file#$stow_dir/$package/}"
             local target_file="$target_dir/$rel_path"
             if [[ -L "$target_file" ]]; then
@@ -331,7 +333,7 @@ force_stow_package() {
             fi
         done
 
-        stow -d "$stow_dir" -t "$target_dir" --restow "$package"
+        stow -d "$stow_dir" -t "$target_dir" --no-folding --restow "$package"
     fi
 
     log_ok "Stowed $package."
@@ -483,6 +485,38 @@ main() {
         configure_zprofile
         sync_services
         reload_hyprland
+
+        # After stowing, check for any packages not yet installed.
+        if [[ -f "$HYPRCONF_DIR/packages" ]] && command -v pacman &>/dev/null; then
+            local _sync_missing=()
+            while IFS= read -r _pkg; do
+                [[ -z "$_pkg" ]] && continue
+                pacman -Qi "$_pkg" &>/dev/null || _sync_missing+=("$_pkg")
+            done < <(grep -v '^\s*#' "$HYPRCONF_DIR/packages" | grep -v '^\s*$')
+
+            if [[ ${#_sync_missing[@]} -gt 0 ]]; then
+                printf '\n%s  ! Missing packages detected:%s\n' "$AM" "$RS"
+                printf '    %s\n' "${_sync_missing[@]}"
+                printf '\n%s  Install missing packages now? [Y/n] %s' "$WH" "$RS"
+                local _ans
+                if [[ -t 0 ]]; then
+                    read -r _ans
+                else
+                    _ans="n"
+                fi
+                case "${_ans,,}" in
+                    ""|y|yes)
+                        log_step "Installing ${#_sync_missing[@]} missing package(s)..."
+                        sudo pacman -S --noconfirm --needed "${_sync_missing[@]}"
+                        log_ok "Packages installed."
+                        ;;
+                    *)
+                        log_warn "Skipped. Run: sudo pacman -S ${_sync_missing[*]}"
+                        ;;
+                esac
+            fi
+        fi
+
         printf '\n%s  ✔ Sync complete.%s\n\n' "$GR" "$RS"
         return 0
     fi

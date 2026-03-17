@@ -1,21 +1,21 @@
 window {
     margin: 0px;
-    border: 1px solid #3b82f6;
-    background-color: #0a0f1a;
-    color: #c8d6e5;
+    border: 1px solid #b45309;
+    background-color: #120a04;
+    color: #e8d5c0;
 }
 
 #input {
     margin: 5px;
     border: none;
-    color: #c8d6e5;
-    background-color: #2d3f55;
+    color: #e8d5c0;
+    background-color: #5c3d1f;
 }
 
 #inner-box, #outer-box {
     margin: 5px;
     border: none;
-    background-color: #0a0f1a;
+    background-color: #120a04;
 }
 
 #scroll {
@@ -26,23 +26,28 @@ window {
 #text {
     margin: 5px;
     border: none;
-    color: #c8d6e5;
+    color: #e8d5c0;
 }
 
 #entry.activatable #text {
-    color: #c8d6e5;
+    color: #e8d5c0;
 }
 
 #entry > * {
-    color: #c8d6e5;
+    color: #e8d5c0;
 }
 
 #entry:selected {
-    background-color: #3b82f6;
-    color: #0a0f1a;
+    background-color: #b45309;
+    color: #120a04;
 }
 
 #entry:selected #text {
-    color: #0a0f1a;
+    color: #120a04;
     font-weight: bold;
+}
+
+#img, image {
+    margin: 5px;
+    margin-right: 8px;
 }

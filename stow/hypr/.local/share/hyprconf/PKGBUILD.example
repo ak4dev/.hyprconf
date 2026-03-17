@@ -1,0 +1,75 @@
+# Maintainer: ak4dev <https://github.com/ak4dev>
+# PKGBUILD skeleton for hyprconf — Hyprland configuration utility
+#
+# Usage:
+#   cp PKGBUILD.example /tmp/hyprconf-pkg/PKGBUILD
+#   cd /tmp/hyprconf-pkg && makepkg -si
+#
+# Update pkgver and source hash before each AUR release.
+
+pkgname=hyprconf
+pkgver=2.0.0
+pkgrel=1
+pkgdesc="Hyprland configuration utility with CLI, TUI, and schema-driven config management"
+arch=('any')
+url="https://github.com/ak4dev/.hyprconf"
+license=('MIT')
+depends=(
+    'hyprland'
+    'python'
+    'python-textual'
+    'python-rich'
+)
+optdepends=(
+    'aws-cli: for deploy/teardown infrastructure commands'
+    'wofi: for theme picker launcher (hyprconf theme pick)'
+)
+makedepends=('git')
+provides=('hyprconf')
+conflicts=()
+
+source=("$pkgname-$pkgver.tar.gz::https://github.com/ak4dev/.hyprconf/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')  # replace with actual hash before AUR release
+
+package() {
+    cd "$srcdir/.hyprconf-$pkgver"
+
+    # ── Binary ────────────────────────────────────────────────────────────
+    install -Dm755 stow/hypr/.local/bin/hyprconf \
+        "$pkgdir/usr/bin/hyprconf"
+
+    # ── Shared Python library ─────────────────────────────────────────────
+    # Installed to /usr/lib/hyprconf/ so the binary can find it.
+    # The binary uses: CLI_LIB="$HOME/.local/lib/hyprconf" for user installs,
+    # but /usr/lib/hyprconf is preferred when present.
+    local libdir="$pkgdir/usr/lib/hyprconf"
+    install -d "$libdir"
+    for f in stow/hypr/.local/lib/hyprconf/*.py; do
+        install -Dm644 "$f" "$libdir/$(basename "$f")"
+    done
+
+    # ── TUI script ────────────────────────────────────────────────────────
+    install -Dm755 stow/hypr/.config/hypr/scripts/hyprconf-tui/main.py \
+        "$pkgdir/usr/lib/hyprconf/tui.py"
+
+    # ── Deploy scripts (bundled; no-op for users without dotfiles) ────────
+    install -Dm755 infra/deploy.sh \
+        "$pkgdir/usr/lib/hyprconf/infra/deploy.sh"
+    install -Dm755 infra/teardown.sh \
+        "$pkgdir/usr/lib/hyprconf/infra/teardown.sh"
+    # Copy any additional infra files
+    for f in infra/*.env infra/*.tf infra/*.json 2>/dev/null; do
+        [[ -f "$f" ]] && install -Dm644 "$f" "$pkgdir/usr/lib/hyprconf/infra/$(basename "$f")"
+    done
+
+    # ── Documentation ─────────────────────────────────────────────────────
+    install -Dm644 README.md \
+        "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 docs/hyprland-reference.md \
+        "$pkgdir/usr/share/doc/$pkgname/hyprland-reference.md"
+    install -Dm644 AGENTS.md \
+        "$pkgdir/usr/share/doc/$pkgname/AGENTS.md"
+
+    # ── License ───────────────────────────────────────────────────────────
+    # install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

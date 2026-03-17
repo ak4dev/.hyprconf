@@ -63,8 +63,9 @@ gvfs
 upower
 lm_sensors
 
-# Python (theme switcher)
+# Python (theme switcher + hyprconf TUI)
 python
+python-textual
 
 # Theme / GTK sync (theme switcher)
 xsettingsd
