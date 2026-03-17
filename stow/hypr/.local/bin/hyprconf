@@ -38,8 +38,11 @@ usage() {
   printf "  hyprconf theme list              Pretty colour table of all themes\n"
   printf "  hyprconf theme pick              Select via wofi launcher\n"
   printf "  hyprconf theme filter <str>      Filter themes in TUI\n"
-  printf "\n${_b}Sync${_r}\n"
+  printf "\n${_b}Sync / Repair${_r}\n"
   printf "  hyprconf sync                    Pull latest configs and re-stow\n"
+  printf "  hyprconf repair                  Scan and fix installation discrepancies\n"
+  printf "                                   (stow dir-symlinks, broken links, Python\n"
+  printf "                                    imports, monitors.conf)\n"
   printf "\n${_b}Monitor${_r}\n"
   printf "  hyprconf monitor list            List available presets\n"
   printf "  hyprconf monitor set <preset>    Switch to a monitor preset\n"
@@ -126,6 +129,10 @@ cmd_theme() {
 
 cmd_sync() {
   "$SETUP_SCRIPT" --sync
+}
+
+cmd_repair() {
+  "$SETUP_SCRIPT" --repair
 }
 
 cmd_monitor() {
@@ -1164,6 +1171,7 @@ main() {
   case "$cmd" in
     theme)            cmd_theme "$@" ;;
     sync)             cmd_sync ;;
+    repair)           cmd_repair ;;
     monitor)          cmd_monitor "$@" ;;
     display)          cmd_display "$@" ;;
     deploy)           cmd_deploy "$@" ;;

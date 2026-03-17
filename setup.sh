@@ -323,6 +323,17 @@ force_stow_package() {
 
         stow -d "$stow_dir" -t "$target_dir" --no-folding -D "$package" || true
 
+        # Remove directory-level symlinks (e.g. from a prior binary-only install
+        # which links ~/.local/lib/hyprconf → repo dir directly).  stow
+        # --no-folding needs real directories, not directory symlinks.
+        find "$stow_dir/$package" -mindepth 1 -type d | while IFS= read -r dir; do
+            local rel_path="${dir#$stow_dir/$package/}"
+            local target_path="$target_dir/$rel_path"
+            if [[ -L "$target_path" ]]; then
+                rm "$target_path"
+            fi
+        done
+
         find "$stow_dir/$package" \( -type f -o -type l \) | while read -r file; do
             local rel_path="${file#$stow_dir/$package/}"
             local target_file="$target_dir/$rel_path"
@@ -472,7 +483,76 @@ reload_hyprland() {
     fi
 }
 
+repair_install() {
+    print_header "repair"
+    log_step "Scanning installation for discrepancies..."
+    local fixed=0
+
+    # ── 1. Remove directory-level symlinks inside stow territory ─────────
+    # These are left behind by the binary-only install mode, which links
+    # ~/.local/lib/hyprconf → repo dir directly rather than using stow.
+    log_step "Checking for directory-level symlinks..."
+    while IFS= read -r -d '' pkg; do
+        while IFS= read -r dir; do
+            local rel="${dir#$pkg/}"
+            local tgt="$HOME/$rel"
+            if [[ -L "$tgt" ]]; then
+                log_warn "Directory symlink removed: ~/$rel → $(readlink "$tgt")"
+                rm "$tgt"
+                (( fixed++ )) || true
+            fi
+        done < <(find "$pkg" -mindepth 1 -type d)
+    done < <(find "$STOW_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
+
+    # ── 2. Purge broken symlinks ──────────────────────────────────────────
+    purge_broken_symlinks
+
+    # ── 3. Re-stow all packages and refresh shell config ─────────────────
+    stow_all_packages
+    update_zshrc
+    configure_zprofile
+
+    # ── 4. Verify Python module imports ──────────────────────────────────
+    log_step "Verifying Python module imports..."
+    if python3 - <<'PY' 2>/dev/null
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path.home() / ".local" / "lib"))
+import hyprconf.schema, hyprconf.config, hyprconf.hyprctl
+PY
+    then
+        log_ok "Python module imports OK."
+    else
+        log_warn "Python imports still failing — library path: $HOME/.local/lib/hyprconf"
+        log_warn "Try: ls -la $HOME/.local/lib/hyprconf/"
+        (( fixed++ )) || true
+    fi
+
+    # ── 5. Verify monitors.conf ───────────────────────────────────────────
+    log_step "Verifying monitors.conf..."
+    if [[ ! -e "$HOME/.config/hypr/monitors.conf" ]]; then
+        log_warn "monitors.conf missing — recreating..."
+        detect_gpu_and_link_monitor_config
+        (( fixed++ )) || true
+    else
+        log_ok "monitors.conf OK → $(readlink -f "$HOME/.config/hypr/monitors.conf")"
+    fi
+
+    reload_hyprland
+
+    if (( fixed > 0 )); then
+        printf '\n%s  ✔ Repair complete — %d issue(s) resolved.%s\n\n' "$GR" "$fixed" "$RS"
+    else
+        printf '\n%s  ✔ No issues found — installation looks healthy.%s\n\n' "$GR" "$RS"
+    fi
+}
+
+
 main() {
+    if [[ "${1:-}" == "--repair" ]]; then
+        repair_install
+        return 0
+    fi
+
     if [[ "${1:-}" == "--sync" ]]; then
         print_header "sync"
         log_step "Syncing configs..."
