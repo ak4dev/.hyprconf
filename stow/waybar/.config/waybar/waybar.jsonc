@@ -6,7 +6,6 @@
   "spacing": 0,
   "expand-right": true,
   "modules-left": [
-    "tray",
     "hyprland/workspaces",
     "hyprland/window"
   ],
@@ -14,6 +13,7 @@
     "clock"
   ],
   "modules-right": [
+    "tray",
     "cpu",
     "custom/cpu_temp",
     "memory",
