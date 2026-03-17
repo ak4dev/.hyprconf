@@ -318,25 +318,33 @@ force_stow_package() {
 
     log_step "Stowing $package..."
 
+    # Pre-flight: remove directory-level symlinks in the target that correspond
+    # to real directories in the stow package.  These are left by the binary-only
+    # install mode (which links e.g. ~/.local/lib/hyprconf → repo dir directly).
+    # stow --no-folding requires a real directory there, not a dir symlink.
+    find "$stow_dir/$package" -mindepth 1 -type d | while IFS= read -r dir; do
+        local rel_path="${dir#$stow_dir/$package/}"
+        local target_path="$target_dir/$rel_path"
+        if [[ -L "$target_path" ]]; then
+            rm "$target_path"
+        fi
+    done
+
     if ! stow -d "$stow_dir" -t "$target_dir" --no-folding --restow "$package" 2>/dev/null; then
         log_warn "Conflict in $package — backing up and retrying..."
 
         stow -d "$stow_dir" -t "$target_dir" --no-folding -D "$package" || true
 
-        # Remove directory-level symlinks (e.g. from a prior binary-only install
-        # which links ~/.local/lib/hyprconf → repo dir directly).  stow
-        # --no-folding needs real directories, not directory symlinks.
-        find "$stow_dir/$package" -mindepth 1 -type d | while IFS= read -r dir; do
-            local rel_path="${dir#$stow_dir/$package/}"
-            local target_path="$target_dir/$rel_path"
-            if [[ -L "$target_path" ]]; then
-                rm "$target_path"
-            fi
-        done
-
         find "$stow_dir/$package" \( -type f -o -type l \) | while read -r file; do
             local rel_path="${file#$stow_dir/$package/}"
             local target_file="$target_dir/$rel_path"
+            # Guard: never back up a file that resolves into the stow tree itself.
+            # This can happen if a directory symlink in the target still points
+            # into the stow tree; moving such a file would corrupt the stow tree.
+            local real_target; real_target=$(realpath "$target_file" 2>/dev/null || true)
+            if [[ -n "$real_target" && "$real_target" == "$stow_dir"/* ]]; then
+                continue
+            fi
             if [[ -L "$target_file" ]]; then
                 rm "$target_file"
             elif [[ -e "$target_file" ]]; then
@@ -391,6 +399,11 @@ purge_broken_symlinks() {
         rm "$link"
         (( pruned++ )) || true
     done < <(find "$HOME/.local/bin" -maxdepth 1 -xtype l -print0 2>/dev/null)
+
+    while IFS= read -r -d '' link; do
+        rm "$link"
+        (( pruned++ )) || true
+    done < <(find "$HOME/.local/lib" -maxdepth 2 -xtype l -print0 2>/dev/null)
 
     while IFS= read -r -d '' link; do
         rm "$link"
@@ -487,6 +500,18 @@ repair_install() {
     print_header "repair"
     log_step "Scanning installation for discrepancies..."
     local fixed=0
+
+    # ── 0. Restore stow tree from git ────────────────────────────────────
+    # A previous failed sync may have used the old backup-and-retry code to
+    # `mv` .py files OUT of the stow tree (reached through a directory
+    # symlink).  Restore all tracked files to their committed state so stow
+    # can create clean symlinks to them.
+    log_step "Restoring stow tree from git..."
+    if git -C "$HYPRCONF_DIR" restore . 2>/dev/null; then
+        log_ok "Stow tree restored."
+    else
+        log_warn "git restore failed — stow tree may have local modifications."
+    fi
 
     # ── 1. Remove directory-level symlinks inside stow territory ─────────
     # These are left behind by the binary-only install mode, which links
