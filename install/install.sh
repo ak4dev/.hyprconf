@@ -527,8 +527,11 @@ partition_unallocated() {
   sector_size=$(blockdev --getss "$DISK")
 
   local root_min_gib=20
+  local total_min_gib=20
   local efi_mib=512
+
   local root_need_sectors=$(( root_min_gib * 1024 * 1024 * 1024 / sector_size ))
+  local total_need_sectors=$(( total_min_gib * 1024 * 1024 * 1024 / sector_size ))
   local efi_need_sectors=$(( efi_mib * 1024 * 1024 / sector_size ))
 
   # Detect existing ESP(s)
@@ -610,16 +613,18 @@ partition_unallocated() {
   fi
 
   local need_sectors="$root_need_sectors"
-  local efi_note=""
+  local need_desc="${root_min_gib}GiB"
   if (( create_new_efi == 1 )); then
-    need_sectors=$(( root_need_sectors + efi_need_sectors ))
-    efi_note=" + ${efi_mib}MiB ESP"
+    # When creating a new ESP, treat the minimum as TOTAL space, not root+ESP.
+    # This allows small VM disks (e.g. ~20GiB total) to proceed with ~19.5GiB root.
+    need_sectors="$total_need_sectors"
+    need_desc="${total_min_gib}GiB total (incl ${efi_mib}MiB ESP)"
   fi
 
   # Choose which free region to use (handles multiple unallocated regions)
   local region
   region="$(choose_free_region "$DISK" "$need_sectors")" \
-    || log_die "No unallocated region large enough. Need at least ${root_min_gib}GiB${efi_note} on $DISK."
+    || log_die "No unallocated region large enough. Need at least ${need_desc} on $DISK."
 
   local free_start free_end free_sectors
   read -r free_start free_end free_sectors <<<"$region"
