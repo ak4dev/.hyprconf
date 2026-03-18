@@ -28,7 +28,7 @@
 ## Features
 
 - **`hyprconf` CLI** — unified control: `hyprconf theme random`, `hyprconf set general gaps_in 8`, `hyprconf keybind add`, `hyprconf monitor set bedroom`, `hyprconf configure` (IOS-style REPL), and more
-- **`hyprconf tui`** — full-screen Textual TUI with arrow-selectable pickers for enums, interactive sliders for numeric fields, mode lists fetched from `hyprctl`, and scale/VRR menus; covers all sections, keybinds, rules, monitors, lock, idle, and wallpaper
+- **`hyprconf tui`** — full-screen Textual TUI with arrow-selectable pickers for enums, interactive sliders for numeric fields, and mode lists fetched from `hyprctl`; covers all Hyprland config sections (general, decoration, animations, input, gestures, group, misc, binds, cursor, render, opengl, xwayland, dwindle, master and their subsections), plus keybinds, window/workspace rules, monitors, hyprlock, hypridle, hyprpaper, and a built-in theme picker
 - **One-command setup** — installs packages (including `yay` AUR helper), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
 - **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
@@ -148,12 +148,14 @@ hyprsync          # backward-compatible alias for hyprconf sync
     │           ├── autodetect.py          # First-run config migration
     │           ├── cli.py                 # Python CLI backend
     │           ├── file_edit.py           # Atomic file operations
+    │           ├── block_conf.py          # Generic block-format config parser
     │           ├── keybinds.py            # Keybind read/write
     │           ├── rules.py               # Window/workspace rule read/write
     │           ├── monitors.py            # Monitor config read/write
     │           ├── hyprlock.py            # hyprlock block read/write
     │           ├── hypridle.py            # hypridle block read/write
-    │           └── hyprpaper.py           # hyprpaper read/write
+    │           ├── hyprpaper.py           # hyprpaper read/write
+    │           └── __init__.py
     ├── btop/   kitty/   dunst/   fastfetch/   code-oss/
     ├── waybar/ wofi/    wallpaper/
     └── theme/                  # Vendor extension payloads (not stowed)
@@ -180,9 +182,10 @@ hyprconf theme filter <str>      Filter themes in TUI
 # Hyprland options (persistent + live via hyprctl)
 hyprconf get [section] [key]
 hyprconf set <section> <key> <value>
+hyprconf set mainMod <key>        Change the main modifier key
 
 # Interactive Cisco IOS-style REPL
-hyprconf configure               Enter configure mode
+hyprconf configure / conf         Enter configure mode
 #   general                      Enter section context
 #   gaps_in 8                    Set option
 #   no gaps_in                   Reset to default
@@ -197,8 +200,8 @@ hyprconf rule window  list / add / delete / update
 hyprconf rule workspace list / add / delete
 
 # Monitor presets
-hyprconf monitor list / set <preset>
-hyprconf monitor config list / set / delete
+hyprconf monitor list / <preset> / set <preset>
+hyprconf monitor config list / set <name> <res> <pos> <scale> [extras…] / delete <name>
 
 # Display
 hyprconf display toggle          Toggle eDP-1 on/off
@@ -210,7 +213,12 @@ hyprconf lock list / add / set / delete
 hyprconf idle list / add / set / delete
 
 # Wallpaper daemon (hyprpaper)
-hyprconf paper list / add / set / delete
+hyprconf paper list
+hyprconf paper set-wallpaper <monitor|-> <path>
+hyprconf paper add-preload <path>
+hyprconf paper delete-wallpaper <index>
+hyprconf paper delete-preload <index>
+hyprconf paper setting <key> <value>
 
 # Full Textual TUI
 hyprconf tui
@@ -351,7 +359,7 @@ Hot-swap presets activate at runtime via keybind or `hyprconf monitor set <prese
 |---|---|
 | 4 min | Dim display to 10% |
 | 5 min | Wipe clipboard + lock (hyprlock) |
-| 5 min 30 s | Displays off (DPMS) |
+| 5 min 30 s | Displays off (DPMS) — 30 s after lock |
 | 30 min | Suspend (`systemctl suspend`) |
 
 Lock manually: `Super + L` or `Super + Shift + Escape`.
@@ -378,7 +386,8 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | Bluetooth | `bluez`, `bluez-utils`, `blueman` |
 | Networking | `networkmanager`, `network-manager-applet` |
 | System monitoring | `upower`, `lm_sensors` |
-| Python | `python` |
+| Python | `python`, `python-textual` |
+| File manager support | `gvfs` |
 | Icons & themes | `papirus-icon-theme` |
 | GTK sync | `xsettingsd` |
 | Fonts | `nerd-fonts` |
