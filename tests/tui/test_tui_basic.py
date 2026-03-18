@@ -33,7 +33,7 @@ for p in (str(LIB_DIR), str(TUI_DIR)):
 # Textual is required for TUI tests — skip gracefully if absent
 pytest.importorskip("textual", reason="python-textual not installed")
 
-from textual.testing import Pilot  # noqa: E402 — after importorskip
+from textual.pilot import Pilot  # noqa: E402 — after importorskip
 
 
 # ---------------------------------------------------------------------------
@@ -105,7 +105,7 @@ async def test_sidebar_has_items(patched_tui_env: Path) -> None:
     app = HyprconfApp()
     async with app.run_test(size=(120, 40)) as pilot:
         sidebar = app.query_one("#section-list", ListView)
-        assert sidebar.item_count > 0
+        assert len(sidebar) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,8 @@ async def test_option_select_screen_cancel(patched_tui_env: Path) -> None:
     app = HyprconfApp()
     async with app.run_test(size=(80, 24)) as pilot:
         await app.push_screen(
-            OptionSelectScreen(options=["alpha", "beta", "gamma"],
+            OptionSelectScreen(title="Pick a value",
+                               options=[("alpha", "alpha"), ("beta", "beta"), ("gamma", "gamma")],
                                current="beta"),
             callback=lambda v: received.append(v),
         )
@@ -167,7 +168,8 @@ async def test_option_select_screen_select(patched_tui_env: Path) -> None:
     app = HyprconfApp()
     async with app.run_test(size=(80, 24)) as pilot:
         await app.push_screen(
-            OptionSelectScreen(options=["alpha", "beta", "gamma"],
+            OptionSelectScreen(title="Pick a value",
+                               options=[("alpha", "alpha"), ("beta", "beta"), ("gamma", "gamma")],
                                current="alpha"),
             callback=lambda v: received.append(v),
         )
@@ -190,13 +192,13 @@ async def test_slider_bar_clamps_at_max(patched_tui_env: Path) -> None:
 
     app = HyprconfApp()
     async with app.run_test(size=(80, 24)) as pilot:
-        slider = SliderBar(min_val=0, max_val=1.0, value=0.9, step=0.1)
+        slider = SliderBar(min_val=0, max_val=1.0, value=0.9, step=0.1, fine_step=0.01, is_int=False)
         await app.mount(slider)
         await pilot.pause()
         # Move up past max
-        slider.step(+1)
-        slider.step(+1)
-        slider.step(+1)
+        slider.action_step(+1)
+        slider.action_step(+1)
+        slider.action_step(+1)
         assert slider.value <= 1.0
 
 
@@ -208,10 +210,10 @@ async def test_slider_bar_clamps_at_min(patched_tui_env: Path) -> None:
 
     app = HyprconfApp()
     async with app.run_test(size=(80, 24)) as pilot:
-        slider = SliderBar(min_val=0, max_val=10, value=1, step=1)
+        slider = SliderBar(min_val=0, max_val=10, value=1, step=1, fine_step=1, is_int=True)
         await app.mount(slider)
         await pilot.pause()
-        slider.step(-5)
+        slider.action_step(-5)
         assert slider.value >= 0
 
 
@@ -223,10 +225,10 @@ async def test_slider_bar_home_end(patched_tui_env: Path) -> None:
 
     app = HyprconfApp()
     async with app.run_test(size=(80, 24)) as pilot:
-        slider = SliderBar(min_val=0, max_val=100, value=50, step=5)
+        slider = SliderBar(min_val=0, max_val=100, value=50, step=5, fine_step=1, is_int=True)
         await app.mount(slider)
         await pilot.pause()
-        slider.to_min()
+        slider.action_to_min()
         assert slider.value == 0
-        slider.to_max()
+        slider.action_to_max()
         assert slider.value == 100
