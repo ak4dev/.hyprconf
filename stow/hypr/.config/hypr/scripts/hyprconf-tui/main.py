@@ -98,6 +98,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen
+from textual.message import Message
 from textual.widgets import (
     DataTable,
     Footer,
@@ -379,6 +380,77 @@ EditScreen {{
 .mon-input:focus {{
     border: tall {_ACC};
 }}
+
+/* ── Option-select modal ────────────────────────────────────── */
+OptionSelectScreen {{
+    align: center middle;
+    background: rgba(0, 0, 0, 0.7);
+}}
+#select-dialog {{
+    width: 56;
+    height: auto;
+    max-height: 24;
+    border: round {_ACC};
+    padding: 1 2;
+    background: {_BG2};
+}}
+#select-dialog #option-list {{
+    background: {_BG2};
+    border: none;
+    padding: 0;
+    height: auto;
+    max-height: 16;
+    overflow-y: auto;
+}}
+
+/* ── Numeric slider modal ───────────────────────────────────── */
+NumericEditScreen {{
+    align: center middle;
+    background: rgba(0, 0, 0, 0.7);
+}}
+#slider-dialog {{
+    width: 68;
+    height: auto;
+    border: round {_ACC};
+    padding: 1 2;
+    background: {_BG2};
+}}
+SliderBar {{
+    height: 3;
+    color: {_FG};
+    background: {_BG2};
+    padding: 0 1;
+    margin-bottom: 0;
+}}
+SliderBar:focus {{
+    color: {_ACC};
+}}
+#slider-input {{
+    background: {_BG};
+    color: {_FG};
+    border: tall {_CMT};
+    height: 3;
+    margin-top: 1;
+}}
+#slider-input:focus {{
+    border: tall {_ACC};
+}}
+
+/* ── Monitor edit modal ─────────────────────────────────────── */
+#monitor-dialog {{
+    width: 72;
+    height: auto;
+    max-height: 85vh;
+    border: round {_ACC};
+    padding: 1 2;
+    background: {_BG2};
+    overflow-y: auto;
+}}
+.mon-section-header {{
+    color: {_ACC};
+    padding: 1 0 0 0;
+    text-style: bold;
+}}
 """
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -486,6 +558,73 @@ def _get_wallpapers() -> list[Path]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+#  Numeric range + enum label helpers  (used by modal screens)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _parse_numeric_range(
+    description: str, type_: str
+) -> tuple[float, float, float, float]:
+    """Return (min_val, max_val, step, fine_step) parsed from a schema description."""
+    # Match [X-Y] (handles negative lows like [-1.0-1.0]) or [X to Y]
+    m = re.search(r'\[(-?\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\]', description)
+    if not m:
+        m = re.search(r'\[(-?\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)\]',
+                      description, re.IGNORECASE)
+    if m:
+        lo, hi = float(m.group(1)), float(m.group(2))
+    elif type_ == "float":
+        lo, hi = 0.0, 1.0
+    elif any(k in description.lower() for k in ("ms", "delay", "timeout")):
+        lo, hi = 0.0, 2000.0
+    elif any(k in description.lower() for k in ("fps", "hz", "rate")):
+        lo, hi = 1.0, 240.0
+    elif "px" in description.lower():
+        lo, hi = 0.0, 100.0
+    else:
+        lo, hi = 0.0, 100.0
+
+    span = max(hi - lo, 0.001)
+    if type_ == "float":
+        step      = max(0.01, round(span / 20, 4))
+        fine_step = max(0.01, round(span / 100, 4))
+        if fine_step >= step:
+            fine_step = round(step / 5, 4)
+    else:
+        step      = max(1, int(round(span / 20)))
+        fine_step = max(1, int(round(span / 100)))
+        if fine_step >= step:
+            fine_step = max(1, step // 5)
+
+    return lo, hi, float(step), float(fine_step)
+
+
+def _enrich_enum_labels(
+    description: str, choices: list[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Attach inline N=label annotations from the schema description, if present."""
+    annotated: dict[str, str] = {}
+    for m in re.finditer(r'(\w+)=([^,\]\s][^,\]]*?)(?=[,\]\s]|$)', description):
+        annotated[m.group(1).strip()] = m.group(2).strip()
+    if not annotated:
+        return choices
+    return [
+        (v, f"{v} — {annotated[v]}" if v in annotated else v)
+        for v, _ in choices
+    ]
+
+
+def _parse_monitor_extras(extras: str) -> dict[str, str]:
+    """Parse 'vrr, 2, bitdepth, 10, cm, hdr' → {'vrr': '2', 'bitdepth': '10', 'cm': 'hdr'}."""
+    tokens = [t.strip() for t in extras.split(",") if t.strip()]
+    result: dict[str, str] = {}
+    i = 0
+    while i + 1 < len(tokens):
+        result[tokens[i].lower()] = tokens[i + 1]
+        i += 2
+    return result
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 #  Keybind edit / new screen
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -535,23 +674,42 @@ class KeybindEditScreen(ModalScreen):
         self.query_one("#kb-kind", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        # kb-kind gets an arrow-selectable list instead of free text
+        if event.input.id == "kb-kind":
+            kind_opts = [
+                ("bind",    "bind — standard keybind"),
+                ("bindl",   "bindl — fires while locked"),
+                ("bindr",   "bindr — fires on key release"),
+                ("binde",   "binde — repeats while held"),
+                ("bindm",   "bindm — mouse binding"),
+                ("bindel",  "bindel — locked + on release"),
+                ("bindrel", "bindrel — release binding"),
+            ]
+            current_kind = self.query_one("#kb-kind", Input).value.strip() or "bind"
+            def _set_kind(val: Optional[str]) -> None:
+                if val:
+                    self.query_one("#kb-kind", Input).value = val
+                self.query_one("#kb-mods", Input).focus()
+            self.app.push_screen(
+                OptionSelectScreen("Bind type", kind_opts, current_kind),
+                _set_kind,
+            )
+            return
+
         fields = list(self._FIELDS)
         idx = fields.index(event.input.id) if event.input.id in fields else -1
         if 0 <= idx < len(fields) - 1:
             self.query_one(f"#{fields[idx + 1]}", Input).focus()
         else:
-            self._submit()
-
-    def _submit(self) -> None:
-        kind = self.query_one("#kb-kind", Input).value.strip() or "bind"
-        mods = self.query_one("#kb-mods", Input).value.strip()
-        key  = self.query_one("#kb-key",  Input).value.strip()
-        disp = self.query_one("#kb-disp", Input).value.strip()
-        args = self.query_one("#kb-args", Input).value.strip()
-        if not key or not disp:
-            self.notify("Key and Dispatcher are required.", severity="warning")
-            return
-        self.dismiss((kind, mods, key, disp, args))
+            kind = self.query_one("#kb-kind", Input).value.strip() or "bind"
+            mods = self.query_one("#kb-mods", Input).value.strip()
+            key  = self.query_one("#kb-key",  Input).value.strip()
+            disp = self.query_one("#kb-disp", Input).value.strip()
+            args = self.query_one("#kb-args", Input).value.strip()
+            if not key or not disp:
+                self.notify("Key and Dispatcher are required.", severity="warning")
+                return
+            self.dismiss((kind, mods, key, disp, args))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -759,9 +917,13 @@ class MonitorEditScreen(ModalScreen):
     """Edit a single monitor's configuration."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
-    _FIELDS = ("mon-res", "mon-scale", "mon-pos", "mon-vrr")
+    _FIELDS = (
+        "mon-res", "mon-scale", "mon-pos", "mon-vrr",
+        "mon-bitdepth", "mon-cm", "mon-sdrbrightness", "mon-sdrsaturation",
+        "mon-transform", "mon-mirror",
+    )
 
-    def __init__(self, monitor: dict) -> None:
+    def __init__(self, monitor: dict, extras: str = "") -> None:
         super().__init__()
         self._monitor = monitor
         self._name    = monitor.get("name", "")
@@ -773,30 +935,74 @@ class MonitorEditScreen(ModalScreen):
         x             = monitor.get("x", 0)
         y             = monitor.get("y", 0)
         self._pos     = f"{x}x{y}"
-        self._vrr     = str(int(bool(monitor.get("vrr", False))))
         self._modes   = monitor.get("availableModes", [])
+        ex = _parse_monitor_extras(extras)
+        self._vrr           = ex.get("vrr", str(int(bool(monitor.get("vrr", False)))))
+        self._bitdepth      = ex.get("bitdepth", "")
+        self._cm            = ex.get("cm", "")
+        self._sdrbrightness = ex.get("sdrbrightness", "1.0")
+        self._sdrsaturation = ex.get("sdrsaturation", "1.0")
+        self._transform     = ex.get("transform", "")
+        self._mirror        = ex.get("mirror", "")
 
     def compose(self) -> ComposeResult:
         modes_str = "  " + "  ".join(self._modes[:6]) if self._modes else "  (unavailable)"
-        with Container(id="edit-dialog"):
+        with Container(id="monitor-dialog"):
             yield Label(f"  Monitor: {self._name}", id="edit-title")
             yield Label(f"  {self._monitor.get('description', '')}", id="edit-meta")
-            yield Label("  Resolution @ Hz  (WIDTHxHEIGHT@HZ)", classes="mon-field-label")
+
+            # ── Basic ──────────────────────────────────────────────────
+            yield Label("  ─── Basic", classes="mon-section-header")
+            yield Label("  Resolution @ Hz  (Enter to choose from available modes)",
+                        classes="mon-field-label")
             yield Label(modes_str, classes="mon-field-hint")
             yield Input(value=self._res,   id="mon-res",   classes="mon-input",
                         select_on_focus=False)
-            yield Label("  Scale  (1.0  1.25  1.5  2.0)", classes="mon-field-label")
+            yield Label("  Scale  (Enter to choose — or type a custom value)",
+                        classes="mon-field-label")
             yield Input(value=self._scale, id="mon-scale", classes="mon-input",
                         select_on_focus=False)
-            yield Label("  Position  XxY  (e.g. 0x0, 1920x0)", classes="mon-field-label")
+            yield Label("  Position  XxY  (e.g. 0x0, auto, auto-right)",
+                        classes="mon-field-label")
             yield Input(value=self._pos,   id="mon-pos",   classes="mon-input",
                         select_on_focus=False)
-            yield Label("  VRR  (0 = off, 1 = always, 2 = fullscreen only)",
+            yield Label("  VRR / Adaptive Sync  (Enter to choose)",
                         classes="mon-field-label")
             yield Input(value=self._vrr,   id="mon-vrr",   classes="mon-input",
                         select_on_focus=False)
+
+            # ── Display quality ────────────────────────────────────────
+            yield Label("  ─── Display quality", classes="mon-section-header")
+            yield Label("  Bit depth  (Enter to choose; 10-bit requires HDR-capable output)",
+                        classes="mon-field-label")
+            yield Input(value=self._bitdepth, id="mon-bitdepth", classes="mon-input",
+                        select_on_focus=False)
+            yield Label("  Color management  (Enter to choose preset)",
+                        classes="mon-field-label")
+            yield Input(value=self._cm, id="mon-cm", classes="mon-input",
+                        select_on_focus=False)
+            yield Label("  SDR brightness  (HDR mode only; Enter to adjust [0.5–3.0])",
+                        classes="mon-field-label")
+            yield Input(value=self._sdrbrightness, id="mon-sdrbrightness",
+                        classes="mon-input", select_on_focus=False)
+            yield Label("  SDR saturation  (HDR mode only; Enter to adjust [0.0–2.0])",
+                        classes="mon-field-label")
+            yield Input(value=self._sdrsaturation, id="mon-sdrsaturation",
+                        classes="mon-input", select_on_focus=False)
+
+            # ── Advanced ───────────────────────────────────────────────
+            yield Label("  ─── Advanced", classes="mon-section-header")
+            yield Label("  Transform / rotation  (Enter to choose)",
+                        classes="mon-field-label")
+            yield Input(value=self._transform, id="mon-transform", classes="mon-input",
+                        select_on_focus=False)
+            yield Label("  Mirror  (optional — name of monitor to mirror, e.g. DP-1)",
+                        classes="mon-field-label")
+            yield Input(value=self._mirror, id="mon-mirror", classes="mon-input",
+                        select_on_focus=False)
+
             yield Label(
-                "  [Enter] next field / apply on last   [Esc] cancel",
+                "  [Enter] open picker / apply on last   [Esc] cancel",
                 id="edit-hint",
             )
 
@@ -804,24 +1010,473 @@ class MonitorEditScreen(ModalScreen):
         self.query_one("#mon-res", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        fields = list(self._FIELDS)
-        idx = fields.index(event.input.id) if event.input.id in fields else -1
-        if 0 <= idx < len(fields) - 1:
-            self.query_one(f"#{fields[idx + 1]}", Input).focus()
-        else:
+        fid = event.input.id
+
+        if fid == "mon-res":
+            if self._modes:
+                mode_opts = [(m, m) for m in self._modes]
+                current_res = self.query_one("#mon-res", Input).value.strip()
+                def _apply_res(val: Optional[str]) -> None:
+                    if val:
+                        self.query_one("#mon-res", Input).value = val
+                    self.query_one("#mon-scale", Input).focus()
+                self.app.push_screen(
+                    OptionSelectScreen(f"Resolution — {self._name}", mode_opts, current_res),
+                    _apply_res,
+                )
+            else:
+                self.query_one("#mon-scale", Input).focus()
+            return
+
+        if fid == "mon-scale":
+            scale_opts = [
+                ("1.0",  "1.0  — native (100 %)"),
+                ("1.25", "1.25 — 125 %"),
+                ("1.5",  "1.5  — 150 %"),
+                ("2.0",  "2.0  — 200 % (HiDPI)"),
+                ("auto", "auto — let Hyprland decide"),
+            ]
+            current_scale = self.query_one("#mon-scale", Input).value.strip()
+            def _apply_scale(val: Optional[str]) -> None:
+                if val:
+                    self.query_one("#mon-scale", Input).value = val
+                self.query_one("#mon-pos", Input).focus()
+            self.app.push_screen(
+                OptionSelectScreen("Scale factor", scale_opts, current_scale),
+                _apply_scale,
+            )
+            return
+
+        if fid == "mon-pos":
+            self.query_one("#mon-vrr", Input).focus()
+            return
+
+        if fid == "mon-vrr":
+            vrr_opts = [
+                ("0", "0 — off"),
+                ("1", "1 — always on"),
+                ("2", "2 — fullscreen only"),
+            ]
+            current_vrr = self.query_one("#mon-vrr", Input).value.strip()
+            def _apply_vrr(val: Optional[str]) -> None:
+                if val is not None:
+                    self.query_one("#mon-vrr", Input).value = val
+                self.query_one("#mon-bitdepth", Input).focus()
+            self.app.push_screen(
+                OptionSelectScreen("VRR / Adaptive Sync", vrr_opts, current_vrr),
+                _apply_vrr,
+            )
+            return
+
+        if fid == "mon-bitdepth":
+            bd_opts = [
+                ("",   "— auto (default 8-bit)"),
+                ("8",  "8  — standard 8-bit colour"),
+                ("10", "10 — 10-bit wide colour (requires HDR-capable output)"),
+            ]
+            current_bd = self.query_one("#mon-bitdepth", Input).value.strip()
+            def _apply_bd(val: Optional[str]) -> None:
+                if val is not None:
+                    self.query_one("#mon-bitdepth", Input).value = val
+                self.query_one("#mon-cm", Input).focus()
+            self.app.push_screen(
+                OptionSelectScreen("Bit depth", bd_opts, current_bd),
+                _apply_bd,
+            )
+            return
+
+        if fid == "mon-cm":
+            cm_opts = [
+                ("",        "— default (sRGB)"),
+                ("auto",    "auto    — sRGB for 8-bit, wide for 10-bit if supported"),
+                ("srgb",    "srgb    — sRGB primaries"),
+                ("dcip3",   "dcip3   — DCI-P3 primaries"),
+                ("dp3",     "dp3     — Apple P3 primaries"),
+                ("adobe",   "adobe   — Adobe RGB primaries"),
+                ("wide",    "wide    — BT.2020 wide gamut"),
+                ("edid",    "edid    — primaries from EDID (may be inaccurate)"),
+                ("hdr",     "hdr     — HDR PQ transfer function (experimental)"),
+                ("hdredid", "hdredid — HDR PQ with EDID primaries (experimental)"),
+            ]
+            current_cm = self.query_one("#mon-cm", Input).value.strip()
+            def _apply_cm(val: Optional[str]) -> None:
+                if val is not None:
+                    self.query_one("#mon-cm", Input).value = val
+                self.query_one("#mon-sdrbrightness", Input).focus()
+            self.app.push_screen(
+                OptionSelectScreen("Color management preset", cm_opts, current_cm),
+                _apply_cm,
+            )
+            return
+
+        if fid == "mon-sdrbrightness":
+            current_sbr = self.query_one("#mon-sdrbrightness", Input).value.strip()
+            def _apply_sbr(val: Optional[str]) -> None:
+                if val is not None:
+                    self.query_one("#mon-sdrbrightness", Input).value = val
+                self.query_one("#mon-sdrsaturation", Input).focus()
+            self.app.push_screen(
+                NumericEditScreen(
+                    "monitor", "sdrbrightness", current_sbr or "1.0",
+                    "float", "1.0",
+                    "SDR brightness multiplier in HDR mode. Typical range 1.0–2.0.",
+                    0.5, 3.0, 0.05, 0.01,
+                ),
+                _apply_sbr,
+            )
+            return
+
+        if fid == "mon-sdrsaturation":
+            current_ssat = self.query_one("#mon-sdrsaturation", Input).value.strip()
+            def _apply_ssat(val: Optional[str]) -> None:
+                if val is not None:
+                    self.query_one("#mon-sdrsaturation", Input).value = val
+                self.query_one("#mon-transform", Input).focus()
+            self.app.push_screen(
+                NumericEditScreen(
+                    "monitor", "sdrsaturation", current_ssat or "1.0",
+                    "float", "1.0",
+                    "SDR colour saturation multiplier in HDR mode. [0.0-2.0]",
+                    0.0, 2.0, 0.05, 0.01,
+                ),
+                _apply_ssat,
+            )
+            return
+
+        if fid == "mon-transform":
+            tr_opts = [
+                ("",  "— no transform"),
+                ("0", "0 — normal"),
+                ("1", "1 — 90°"),
+                ("2", "2 — 180°"),
+                ("3", "3 — 270°"),
+                ("4", "4 — flipped"),
+                ("5", "5 — flipped + 90°"),
+                ("6", "6 — flipped + 180°"),
+                ("7", "7 — flipped + 270°"),
+            ]
+            current_tr = self.query_one("#mon-transform", Input).value.strip()
+            def _apply_tr(val: Optional[str]) -> None:
+                if val is not None:
+                    self.query_one("#mon-transform", Input).value = val
+                self.query_one("#mon-mirror", Input).focus()
+            self.app.push_screen(
+                OptionSelectScreen("Display transform", tr_opts, current_tr),
+                _apply_tr,
+            )
+            return
+
+        if fid == "mon-mirror":
             self._submit()
+            return
 
     def _submit(self) -> None:
-        res   = self.query_one("#mon-res",   Input).value.strip()
-        scale = self.query_one("#mon-scale", Input).value.strip()
-        pos   = self.query_one("#mon-pos",   Input).value.strip()
-        vrr   = self.query_one("#mon-vrr",   Input).value.strip()
-        # keyword format: NAME,WIDTHxHEIGHT@HZ,XxY,SCALE[,vrr,N]
+        res   = self.query_one("#mon-res",          Input).value.strip()
+        scale = self.query_one("#mon-scale",        Input).value.strip()
+        pos   = self.query_one("#mon-pos",          Input).value.strip()
+        vrr   = self.query_one("#mon-vrr",          Input).value.strip()
+        bd    = self.query_one("#mon-bitdepth",     Input).value.strip()
+        cm    = self.query_one("#mon-cm",           Input).value.strip()
+        sbr   = self.query_one("#mon-sdrbrightness",Input).value.strip()
+        ssat  = self.query_one("#mon-sdrsaturation",Input).value.strip()
+        tr    = self.query_one("#mon-transform",    Input).value.strip()
+        mir   = self.query_one("#mon-mirror",       Input).value.strip()
+
         keyword = f"{self._name},{res},{pos},{scale}"
-        # Always include vrr so the user can toggle it off (0) as well as on
+        extras: list[str] = []
         if vrr in ("0", "1", "2"):
-            keyword += f",vrr,{vrr}"
+            extras += ["vrr", vrr]
+        if bd in ("8", "10"):
+            extras += ["bitdepth", bd]
+        if cm:
+            extras += ["cm", cm]
+        if sbr not in ("", "1.0", "1"):
+            extras += ["sdrbrightness", sbr]
+        if ssat not in ("", "1.0", "1"):
+            extras += ["sdrsaturation", ssat]
+        if tr not in ("", "0"):
+            extras += ["transform", tr]
+        if mir:
+            extras += ["mirror", mir]
+        if extras:
+            keyword += ", " + ", ".join(extras)
         self.dismiss(keyword)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Option-select screen  (arrow-navigable list of discrete choices)
+# ──────────────────────────────────────────────────────────────────────────────
+
+class OptionSelectScreen(ModalScreen):
+    """Scrollable, arrow-navigable list that returns the chosen value."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(
+        self,
+        title: str,
+        options: list[tuple[str, str]],
+        current: str = "",
+    ) -> None:
+        super().__init__()
+        self._title   = title
+        self._options = options   # [(value, display_label), ...]
+        self._current = current
+
+    def compose(self) -> ComposeResult:
+        initial = next(
+            (i for i, (v, _) in enumerate(self._options) if v == self._current), 0
+        )
+        items = [
+            ListItem(
+                Label(f"  {'▶' if v == self._current else ' '} {lbl}"),
+                id=f"sel-opt-{i}",
+            )
+            for i, (v, lbl) in enumerate(self._options)
+        ]
+        with Container(id="select-dialog"):
+            yield Label(f"  {self._title}", id="edit-title")
+            yield ListView(*items, id="option-list", initial_index=initial)
+            yield Label(
+                "  [↑↓] navigate   [Enter] select   [Esc] cancel",
+                id="edit-hint",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#option-list", ListView).focus()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        item_id = event.item.id or ""
+        if item_id.startswith("sel-opt-"):
+            idx = int(item_id[8:])
+            self.dismiss(self._options[idx][0])
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+#  Numeric slider widget + screen
+# ──────────────────────────────────────────────────────────────────────────────
+
+class SliderBar(Static):
+    """Focusable slider bar — arrow keys step through a numeric range."""
+
+    can_focus = True
+
+    BINDINGS = [
+        Binding("left",        "step(-1)",  "◄",    show=False),
+        Binding("right",       "step(1)",   "►",    show=False),
+        Binding("shift+left",  "fine(-1)",  "◄◄",   show=False),
+        Binding("shift+right", "fine(1)",   "►► ",  show=False),
+        Binding("home",        "to_min",    "min",  show=False),
+        Binding("end",         "to_max",    "max",  show=False),
+    ]
+
+    class Changed(Message):
+        def __init__(self, value: float) -> None:
+            super().__init__()
+            self.value = value
+
+    def __init__(
+        self,
+        value: float,
+        min_val: float,
+        max_val: float,
+        step: float,
+        fine_step: float,
+        is_int: bool,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self._min    = min_val
+        self._max    = max_val
+        self._step   = step
+        self._fine   = fine_step
+        self._is_int = is_int
+        self._value  = self._clamp(value)
+        self._BAR_W  = 32
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _precision(self) -> int:
+        s = f"{self._fine:.10f}".rstrip("0")
+        return len(s.split(".")[-1]) if "." in s else 2
+
+    def _clamp(self, v: float) -> float:
+        v = max(self._min, min(self._max, v))
+        return round(v) if self._is_int else round(v, self._precision())
+
+    def _fmt(self, v: float) -> str:
+        return str(int(round(v))) if self._is_int else f"{v:.{self._precision()}f}"
+
+    @property
+    def value(self) -> float:
+        return self._value
+
+    @value.setter
+    def value(self, v: float) -> None:
+        new = self._clamp(v)
+        if new != self._value:
+            self._value = new
+            self._redraw()
+
+    # ── Rendering ─────────────────────────────────────────────────────────────
+
+    def _redraw(self) -> None:
+        span   = self._max - self._min or 1.0
+        ratio  = max(0.0, min(1.0, (self._value - self._min) / span))
+        filled = int(ratio * self._BAR_W)
+        bar    = "█" * filled + "░" * (self._BAR_W - filled)
+
+        val_str  = self._fmt(self._value)
+        min_str  = self._fmt(self._min)
+        max_str  = self._fmt(self._max)
+        step_str = self._fmt(self._step)
+        fine_str = self._fmt(self._fine)
+
+        inner_w = self._BAR_W + 2
+        pad     = max(inner_w - len(min_str) - len(max_str), len(val_str) + 2)
+        mid_row = min_str + val_str.center(pad) + max_str
+
+        self.update(
+            f"  [{bar}]\n"
+            f"  {mid_row}\n"
+            f"  [←/→] ±{step_str}   [Shift+←/→] ±{fine_str}   [Home/End] min / max"
+        )
+
+    def on_mount(self) -> None:
+        self._redraw()
+
+    # ── Key actions ───────────────────────────────────────────────────────────
+
+    def _move(self, delta: float) -> None:
+        self._value = self._clamp(self._value + delta)
+        self._redraw()
+        self.post_message(self.Changed(self._value))
+
+    def action_step(self, direction: int) -> None:
+        self._move(direction * self._step)
+
+    def action_fine(self, direction: int) -> None:
+        self._move(direction * self._fine)
+
+    def action_to_min(self) -> None:
+        self._value = self._min
+        self._redraw()
+        self.post_message(self.Changed(self._value))
+
+    def action_to_max(self) -> None:
+        self._value = self._max
+        self._redraw()
+        self.post_message(self.Changed(self._value))
+
+
+class NumericEditScreen(ModalScreen):
+    """Slider + direct text input for int / float config values."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel")]
+
+    def __init__(
+        self,
+        section: str,
+        key: str,
+        current: str,
+        type_: str,
+        default: str,
+        description: str,
+        min_val: float,
+        max_val: float,
+        step: float,
+        fine_step: float,
+    ) -> None:
+        super().__init__()
+        self._section = section
+        self._key     = key
+        self._type    = type_
+        self._default = default
+        self._desc    = description
+        self._is_int  = (type_ == "int")
+        self._min     = min_val
+        self._max     = max_val
+        self._step    = step
+        self._fine    = fine_step
+        try:
+            self._init_val = float(current)
+        except ValueError:
+            try:
+                self._init_val = float(default)
+            except ValueError:
+                self._init_val = min_val
+
+    def _fmt(self, v: float) -> str:
+        if self._is_int:
+            return str(int(round(v)))
+        s = f"{self._fine:.10f}".rstrip("0")
+        prec = len(s.split(".")[-1]) if "." in s else 2
+        return f"{v:.{prec}f}"
+
+    def compose(self) -> ComposeResult:
+        init_str = self._fmt(self._init_val)
+        with Container(id="slider-dialog"):
+            yield Label(f"  {self._section}:{self._key}", id="edit-title")
+            yield Label(
+                f"  type: {self._type}   default: {self._default}"
+                f"   range: [{self._fmt(self._min)}, {self._fmt(self._max)}]\n"
+                f"  {self._desc}",
+                id="edit-meta",
+            )
+            yield SliderBar(
+                self._init_val, self._min, self._max,
+                self._step, self._fine, self._is_int,
+                id="num-slider",
+            )
+            yield Input(
+                value=init_str,
+                id="slider-input",
+                placeholder="type for precision…",
+                select_on_focus=True,
+            )
+            yield Label(
+                "  [←/→] adjust   [Shift+←/→] fine   [Tab] type value   [Enter] apply   [Esc] cancel",
+                id="edit-hint",
+            )
+
+    def on_mount(self) -> None:
+        self.query_one("#num-slider", SliderBar).focus()
+
+    @on(SliderBar.Changed)
+    def _slider_moved(self, event: SliderBar.Changed) -> None:
+        self.query_one("#slider-input", Input).value = self._fmt(event.value)
+
+    @on(Input.Changed, "#slider-input")
+    def _input_changed(self, event: Input.Changed) -> None:
+        try:
+            self.query_one("#num-slider", SliderBar).value = float(event.value)
+        except ValueError:
+            pass
+
+    def on_key(self, event) -> None:
+        if event.key == "enter":
+            focused = self.focused
+            if focused and getattr(focused, "id", "") == "num-slider":
+                self._apply()
+                event.stop()
+
+    @on(Input.Submitted, "#slider-input")
+    def _input_submitted(self, _) -> None:
+        self._apply()
+
+    def _apply(self) -> None:
+        raw = self.query_one("#slider-input", Input).value.strip()
+        try:
+            v = max(self._min, min(self._max, float(raw)))
+            self.dismiss(self._fmt(v))
+        except ValueError:
+            self.notify("Invalid number — enter a numeric value.", severity="warning")
 
     def action_cancel(self) -> None:
         self.dismiss(None)
@@ -1409,6 +2064,11 @@ class HyprconfApp(App):
                     )
                     return
 
+                # Read persisted extras (bitdepth, cm, sdrbrightness, etc.) from monitors.conf
+                file_configs = _lib_monitor_configs()
+                file_mc = next((mc for mc in file_configs if mc.name == monitor_name), None)
+                file_extras = file_mc.extras if file_mc else ""
+
                 def handle_monitor(keyword: Optional[str]) -> None:
                     if not keyword:
                         return
@@ -1429,7 +2089,7 @@ class HyprconfApp(App):
                         self.notify(f"hyprctl rejected: {keyword}", severity="error")
                     self._refresh_monitors()
 
-                self.push_screen(MonitorEditScreen(mon_data), handle_monitor)
+                self.push_screen(MonitorEditScreen(mon_data, file_extras), handle_monitor)
             return
 
         # ── Theme picker ─────────────────────────────────────────────────────
@@ -1470,27 +2130,23 @@ class HyprconfApp(App):
 
     def _new_block_entry(self, section: str, block_types: list) -> None:
         """Prompt for block type then add a new block with defaults."""
-        type_str = " / ".join(block_types)
-        placeholder = block_types[0] if block_types else ""
-        path = HYPRLOCK_CONF if section == "hyprlock" else HYPRIDLE_CONF
-        scr = TextLineEditScreen(path, -1, placeholder,
-                                 prompt=f"Block type  ({type_str}):")
-        def _handle(result) -> None:
-            if not result or not result.strip():
-                return
-            btype = result.strip().lower()
-            if btype not in block_types:
-                self.notify(f"Unknown block type: {btype!r}. Valid: {type_str}",
-                            severity="warning")
+        label = "hyprlock" if section == "hyprlock" else "hypridle"
+        opts  = [(bt, bt) for bt in block_types]
+
+        def _handle(btype: Optional[str]) -> None:
+            if not btype:
                 return
             if section == "hyprlock":
                 ok = _lib_add_lock_block(btype)
             else:
                 ok = _lib_add_idle_block(btype)
-            self.notify(f"Block [{btype}] added" if ok else f"Failed to add block",
-                        severity="information" if ok else "error")
+            self.notify(
+                f"Block [{btype}] added" if ok else "Failed to add block",
+                severity="information" if ok else "error",
+            )
             self._load_section(section)
-        self.push_screen(scr, _handle)
+
+        self.push_screen(OptionSelectScreen(f"Add {label} block", opts), _handle)
 
     def _new_paper_entry(self) -> None:
         """Add a new wallpaper entry to hyprpaper.conf."""
@@ -1689,10 +2345,26 @@ class HyprconfApp(App):
                 return
             self._commit(section, key, new_value, row_idx)
 
-        self.push_screen(
-            EditScreen(section, key, current, type_, default, desc),
-            handle_result,
-        )
+        if type_.startswith("enum:"):
+            raw_choices = [v.strip() for v in type_[5:].split(",") if v.strip()]
+            choices = [(v, v) for v in raw_choices]
+            opts = _enrich_enum_labels(desc, choices)
+            self.push_screen(
+                OptionSelectScreen(f"{section} › {key}", opts, current),
+                handle_result,
+            )
+        elif type_ in ("int", "float"):
+            lo, hi, step, fine = _parse_numeric_range(desc, type_)
+            self.push_screen(
+                NumericEditScreen(section, key, current, type_, default, desc,
+                                  lo, hi, step, fine),
+                handle_result,
+            )
+        else:
+            self.push_screen(
+                EditScreen(section, key, current, type_, default, desc),
+                handle_result,
+            )
 
     def action_toggle_bool(self) -> None:
         section = self._current_section

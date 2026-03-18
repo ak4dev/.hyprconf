@@ -63,14 +63,24 @@ monitor = NAME, RESOLUTION@HZ, POSITION, SCALE[, EXTRAS...]
 
 | Field | Examples |
 |---|---|
-| NAME | `HDMI-A-1`, `DP-1`, `eDP-1`, `auto` (match any) |
-| RESOLUTION | `3840x2160`, `1920x1200`, `preferred` |
+| NAME | `HDMI-A-1`, `DP-1`, `eDP-1`, `` (match any) |
+| RESOLUTION | `3840x2160`, `1920x1200`, `preferred`, `highres`, `highrr` |
 | HZ | `@120`, `@60` (appended to resolution) |
-| POSITION | `0x0`, `auto`, `auto-right`, `auto-left` |
-| SCALE | `1`, `1.5`, `2` |
-| EXTRAS | `vrr, 2` · `bitdepth, 10` · `cm, hdr` · `sdrbrightness, 1.3` · `sdrsaturation, 1` · `transform, N` · `disable` |
+| POSITION | `0x0`, `auto`, `auto-right`, `auto-left`, `auto-up`, `auto-down` |
+| SCALE | `1`, `1.5`, `2`, `auto` |
+| EXTRAS | comma-separated `key, value` pairs (see below) |
 
-**Transform values:** 0=normal, 1=90°, 2=180°, 3=270°, 4=flipped, 5=flipped+90°, 6=flipped+180°, 7=flipped+270°
+**Extra args:**
+
+| Key | Values | Notes |
+|---|---|---|
+| `vrr` | `0` off · `1` always · `2` fullscreen | Adaptive sync (VRR / FreeSync / G-Sync) |
+| `bitdepth` | `8` · `10` | 10-bit requires HDR-capable output |
+| `cm` | `auto` · `srgb` · `dcip3` · `dp3` · `adobe` · `wide` · `edid` · `hdr` · `hdredid` | Colour management preset; `hdr`/`hdredid` are experimental |
+| `sdrbrightness` | float, default `1.0` | SDR brightness multiplier in HDR mode (typical 1.0–2.0) |
+| `sdrsaturation` | float, default `1.0` | SDR saturation multiplier in HDR mode |
+| `transform` | `0`–`7` | 0=normal, 1=90°, 2=180°, 3=270°, 4=flipped, 5–7=flipped+rotation |
+| `mirror` | monitor name | Mirror another output (no re-render; aspect ratio warning applies) |
 
 ```ini
 # Examples from this repo
@@ -83,12 +93,14 @@ monitor = DP-1, disable
 
 ```ini
 monitorv2 {
-    output       = DP-1
-    mode         = 3840x2160@240
-    position     = auto-left
-    scale        = 2
-    transform    = 0
-    supports_hdr = true
+    output             = DP-1
+    mode               = 3840x2160@240
+    position           = auto-left
+    scale              = 2
+    transform          = 0
+    supports_wide_color = 1   # -1=force off, 0=auto, 1=force on
+    supports_hdr       = 1   # -1=force off, 0=auto, 1=force on
+    sdr_max_luminance  = 250  # SDR→HDR brightness (80–400 reasonable)
 }
 ```
 

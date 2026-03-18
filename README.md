@@ -28,8 +28,8 @@
 ## Features
 
 - **`hyprconf` CLI** — unified control: `hyprconf theme random`, `hyprconf set general gaps_in 8`, `hyprconf keybind add`, `hyprconf monitor set bedroom`, `hyprconf configure` (IOS-style REPL), and more
-- **`hyprconf tui`** — full-screen Textual TUI covering all sections, keybinds, rules, monitors, lock, idle, and wallpaper
-- **One-command setup** — installs packages, configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
+- **`hyprconf tui`** — full-screen Textual TUI with arrow-selectable pickers for enums, interactive sliders for numeric fields, mode lists fetched from `hyprctl`, and scale/VRR menus; covers all sections, keybinds, rules, monitors, lock, idle, and wallpaper
+- **One-command setup** — installs packages (including `yay` AUR helper), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
 - **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
 - **GPU-aware monitor config** — auto-selects `pcMonitors.conf` (RTX 5090, HDR) or `laptopMonitors.conf` at setup
@@ -383,7 +383,7 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | Fonts | `nerd-fonts` |
 | Power management | `power-profiles-daemon` |
 | Firewall | `ufw` |
-| AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` |
+| AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` *(yay is installed automatically during full setup)* |
 | Optional (Nvidia) | `nvidia-utils` *(uncomment in `packages` if needed)* |
 
 ---

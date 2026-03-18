@@ -104,6 +104,32 @@ install_packages() {
     log_ok "All packages installed."
 }
 
+install_yay() {
+    if command -v yay &>/dev/null; then
+        log_ok "yay already installed."
+        return 0
+    fi
+
+    log_step "Installing yay (AUR helper)..."
+
+    local build_dir; build_dir=$(mktemp -d)
+    # shellcheck disable=SC2064
+    trap "rm -rf '$build_dir'" RETURN
+
+    if ! git clone --depth=1 https://aur.archlinux.org/yay-bin.git "$build_dir/yay-bin"; then
+        log_warn "yay: could not reach AUR — skipping (install manually: cd /tmp && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si)."
+        return 0
+    fi
+
+    if ! ( cd "$build_dir/yay-bin" && makepkg -si --noconfirm ); then
+        log_warn "yay: build failed — skipping (install manually: yay-bin from AUR)."
+        return 0
+    fi
+
+    log_ok "yay installed."
+}
+
+
 create_directories() {
     log_step "Creating required directories..."
     mkdir -p ~/.config ~/.config/hypr ~/.local/bin ~/.vscode-oss/extensions
@@ -338,14 +364,18 @@ force_stow_package() {
         find "$stow_dir/$package" \( -type f -o -type l \) | while read -r file; do
             local rel_path="${file#$stow_dir/$package/}"
             local target_file="$target_dir/$rel_path"
-            # Guard: never back up a file that resolves into the stow tree itself.
-            # This can happen if a directory symlink in the target still points
-            # into the stow tree; moving such a file would corrupt the stow tree.
-            local real_target; real_target=$(realpath "$target_file" 2>/dev/null || true)
-            if [[ -n "$real_target" && "$real_target" == "$stow_dir"/* ]]; then
-                continue
-            fi
             if [[ -L "$target_file" ]]; then
+                # Guard: only skip RELATIVE symlinks that resolve into the stow tree —
+                # those were created by stow and must not be touched.
+                # ABSOLUTE symlinks (e.g. created by detect_gpu_and_link_monitor_config)
+                # are NOT stow-managed; they are safe to remove so stow can re-own them.
+                local link_dest; link_dest=$(readlink "$target_file")
+                if [[ "$link_dest" != /* ]]; then
+                    local real_target; real_target=$(realpath "$target_file" 2>/dev/null || true)
+                    if [[ -n "$real_target" && "$real_target" == "$stow_dir"/* ]]; then
+                        continue
+                    fi
+                fi
                 rm "$target_file"
             elif [[ -e "$target_file" ]]; then
                 mv "$target_file" "${target_file}.backup.$(date +%Y%m%d%H%M%S)"
@@ -440,12 +470,28 @@ detect_gpu_and_link_monitor_config() {
 stow_all_packages() {
     log_step "Stowing all config packages..."
 
+    local _stow_failures=()
     while IFS= read -r -d '' pkg; do
         local pkg_name; pkg_name=$(basename "$pkg")
-        force_stow_package "$pkg_name" "$STOW_DIR" "$HOME"
+        force_stow_package "$pkg_name" "$STOW_DIR" "$HOME" || _stow_failures+=("$pkg_name")
     done < <(find "$STOW_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
 
+    # Safety net: stow -D runs before the retry, so a failed hypr stow leaves
+    # ~/.local/bin/hyprconf unlinked.  Re-link it so the CLI stays accessible
+    # and the user can run 'hyprconf repair' to fully recover.
+    local _hc_src="$STOW_DIR/hypr/.local/bin/hyprconf"
+    local _hc_dst="$HOME/.local/bin/hyprconf"
+    if [[ -f "$_hc_src" && ! -e "$_hc_dst" ]]; then
+        ln -sf "$_hc_src" "$_hc_dst"
+        log_warn "hyprconf binary re-linked as fallback — run 'hyprconf repair' to fully restore."
+    fi
+
     detect_gpu_and_link_monitor_config
+
+    if [[ ${#_stow_failures[@]} -gt 0 ]]; then
+        log_warn "Stow failed for: ${_stow_failures[*]} — run 'hyprconf repair' to fix."
+        return 1
+    fi
     log_ok "All packages stowed."
 }
 
@@ -533,7 +579,7 @@ repair_install() {
     purge_broken_symlinks
 
     # ── 3. Re-stow all packages and refresh shell config ─────────────────
-    stow_all_packages
+    stow_all_packages || true
     update_zshrc
     configure_zprofile
 
@@ -585,7 +631,7 @@ main() {
         create_directories
         purge_broken_symlinks
         sync_vscode_theme_extensions
-        stow_all_packages
+        stow_all_packages || true
         update_zshrc
         configure_zprofile
         sync_services
@@ -596,7 +642,7 @@ main() {
             local _sync_missing=()
             while IFS= read -r _pkg; do
                 [[ -z "$_pkg" ]] && continue
-                pacman -Qi "$_pkg" &>/dev/null || _sync_missing+=("$_pkg")
+                pacman -Qi "$_pkg" &>/dev/null || pacman -Qg "$_pkg" &>/dev/null || _sync_missing+=("$_pkg")
             done < <(grep -v '^\s*#' "$HYPRCONF_DIR/packages" | grep -v '^\s*$')
 
             if [[ ${#_sync_missing[@]} -gt 0 ]]; then
@@ -640,6 +686,7 @@ main() {
 
     configure_pacman
     install_packages
+    install_yay
     create_directories
     clone_or_update_repo
     sync_vscode_theme_extensions
@@ -649,7 +696,7 @@ main() {
     configure_zprofile
     setup_user_dirs
     purge_broken_symlinks
-    stow_all_packages
+    stow_all_packages || true
     enable_services
     sync_services
     reload_hyprland
