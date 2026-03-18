@@ -1303,6 +1303,12 @@ binary_install() {
 main() {
   print_banner
 
+  # CI mode: skip menu entirely and jump straight to the full Arch install.
+  if [[ "$HYPRCONF_CI" == "1" ]]; then
+    arch_install
+    return
+  fi
+
   # Passive detection — no writes, no network calls.
   local _existing=0
   detect_existing_install && _existing=1
