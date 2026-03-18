@@ -32,7 +32,7 @@
 - **One-command setup** — installs packages (including `yay` AUR helper), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
 - **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
-- **GPU-aware monitor config** — auto-selects `pcMonitors.conf` (RTX 5090, HDR) or `laptopMonitors.conf` at setup
+- **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 44 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, and wallpaper
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
@@ -77,7 +77,7 @@ Clones the repo and runs `setup.sh`:
 4. `~/.zshrc` (plugins, aliases, fastfetch greeting) + `~/.zprofile` (Hyprland auto-start on TTY1)
 5. Stow all packages into `$HOME`
 6. VS Code theme extensions + Firefox extension payloads
-7. GPU-based monitor config symlink
+7. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
 8. `ufw` deny-inbound / allow-outbound; enable + start
 9. Disable `sddm`; enable `NetworkManager`, `bluetooth`, `power-profiles-daemon`
 10. Reload Hyprland
@@ -330,10 +330,11 @@ Create a JSON file in `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`:
 
 ## Monitor Configuration
 
-| GPU detected | Config symlinked |
+| Device type detected | Config symlinked |
 |---|---|
-| RTX 5090 | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-3 4K rotated |
-| Anything else | `laptopMonitors.conf` — eDP-1 1920×1200 + external |
+| Desktop (chassis type 3–7, 13, 24) | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-3 4K rotated |
+| Laptop / portable (all other types) | `laptopMonitors.conf` — eDP-1 1920×1200 + external |
+| Unknown chassis (fallback) | No battery present → desktop; battery present → laptop |
 
 Hot-swap presets activate at runtime via keybind or `hyprconf monitor set <preset>`:
 

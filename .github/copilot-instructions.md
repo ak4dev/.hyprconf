@@ -33,6 +33,8 @@ When making any Hyprland configuration change, consult these resources in order:
 - Any change to the ZSH setup in `setup.sh`
 - **Any change that affects functionality or the user experience** — new CLI subcommands, changed behaviour, new TUI sections, installer changes, etc.
 
+**Before every commit, actively grep `README.md` for content related to what you changed.** If any README section describes, names, or references the changed behaviour — even indirectly (e.g. a table row, a feature bullet, a step in an install list) — update it before committing. Do not rely solely on the trigger list above; it is illustrative, not exhaustive. Drift between the README and actual behaviour is a defect.
+
 **Keep the README concise.** Its primary purpose is to give an AI agent — or any reader — immediate, accurate context about the project with minimal scanning. Every section must earn its place. Avoid repetition and verbose narrative; prefer tables and code blocks. The README must also be clean and well-structured for human readers.
 
 **Never alter the hyprconf branding block** (banner SVG + badges) at the top of `README.md`.
