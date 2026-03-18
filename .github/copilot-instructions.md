@@ -22,20 +22,20 @@ When making any Hyprland configuration change, consult these resources in order:
 
 ## README
 
-**Always update `README.md` when making any change that could contradict or become inconsistent with its contents.** This includes:
+**`README.md` is the primary source of truth for any AI agent working on this project.** Inaccurate README content means flawed context for every future agent — treat drift as a correctness bug, not a documentation gap.
+
+**Any configuration change must include a README review as a non-optional step.** Before committing, grep `README.md` for content related to what you changed. If any section — feature bullet, table row, install step, code example, or any other reference — describes or implies the old behaviour, update it to match reality. This applies to every change, regardless of how small it seems. The trigger list below is illustrative, not exhaustive:
 
 - Adding, removing, or renaming packages in the `packages` file
 - Adding, changing, or removing keybindings in `keybinds.conf`
 - Adding or removing autostart entries in `hyprland.conf`
 - Adding new stow packages or scripts under `stow/`
 - Adding new themes to `theme-switcher/themes/`
-- Changing monitor config logic in `setup.sh` or adding new monitor presets
-- Any change to the ZSH setup in `setup.sh`
-- **Any change that affects functionality or the user experience** — new CLI subcommands, changed behaviour, new TUI sections, installer changes, etc.
+- Changing any logic in `setup.sh` (detection, install steps, service management, etc.)
+- Adding new monitor presets
+- Any change that affects functionality or the user experience — new CLI subcommands, changed behaviour, new TUI sections, installer changes, etc.
 
-**Before every commit, actively grep `README.md` for content related to what you changed.** If any README section describes, names, or references the changed behaviour — even indirectly (e.g. a table row, a feature bullet, a step in an install list) — update it before committing. Do not rely solely on the trigger list above; it is illustrative, not exhaustive. Drift between the README and actual behaviour is a defect.
-
-**Keep the README concise.** Its primary purpose is to give an AI agent — or any reader — immediate, accurate context about the project with minimal scanning. Every section must earn its place. Avoid repetition and verbose narrative; prefer tables and code blocks. The README must also be clean and well-structured for human readers.
+**Keep the README concise.** Every section must earn its place. Avoid repetition and verbose narrative; prefer tables and code blocks. The README must be clean and well-structured for human readers too.
 
 **Never alter the hyprconf branding block** (banner SVG + badges) at the top of `README.md`.
 
