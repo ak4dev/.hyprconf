@@ -1,0 +1,153 @@
+"""
+Shared pytest fixtures for hyprconf tests.
+
+All tests that touch config files receive an isolated tmpdir-based config
+tree via the ``hypr_dir`` fixture — no test ever touches ~/.config/hypr.
+"""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# Path constants — repo root is two levels above this file
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).parent.parent
+LIB_DIR   = REPO_ROOT / "stow" / "hypr" / ".local" / "lib"
+
+# Ensure the library is importable regardless of how pytest was invoked.
+if str(LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(LIB_DIR))
+
+
+# ---------------------------------------------------------------------------
+# Isolated config directory
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def hypr_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Return a temporary ~/.config/hypr directory.
+
+    All hyprconf modules that look up XDG_CONFIG_HOME are monkeypatched to
+    point at this temp tree so no test ever touches the real config.
+    """
+    cfg  = tmp_path / ".config"
+    hypr = cfg / "hypr"
+    hypr.mkdir(parents=True)
+    (hypr / "conf.d").mkdir()
+
+    # Seed minimal stub files so parsers don't see a missing file as an error
+    (hypr / "keybinds.conf").write_text("$mainMod = SUPER\n")
+    (hypr / "monitors.conf").write_text("")
+    (hypr / "hyprlock.conf").write_text("")
+    (hypr / "hypridle.conf").write_text("")
+    (hypr / "hyprpaper.conf").write_text("")
+    (hypr / "hyprland.conf").write_text("")
+
+    # Monkeypatch every module-level path constant that was resolved at
+    # import time from XDG_CONFIG_HOME.
+    import hyprconf.config as _config_mod
+    import hyprconf.keybinds as _keybinds_mod
+    import hyprconf.monitors as _monitors_mod
+    import hyprconf.rules as _rules_mod
+    import hyprconf.hyprlock as _hyprlock_mod
+    import hyprconf.hypridle as _hypridle_mod
+    import hyprconf.hyprpaper as _hyprpaper_mod
+
+    monkeypatch.setattr(_config_mod, "OVERRIDES_FILE",
+                        hypr / "conf.d" / "99-hyprconf-local.conf")
+    monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE",
+                        hypr / "hyprconf.local.conf")
+    monkeypatch.setattr(_keybinds_mod, "KEYBINDS_FILE",
+                        hypr / "keybinds.conf")
+    monkeypatch.setattr(_monitors_mod, "MONITORS_FILE",
+                        hypr / "monitors.conf")
+    monkeypatch.setattr(_rules_mod, "HYPRLAND_CONF",
+                        hypr / "hyprland.conf")
+    monkeypatch.setattr(_rules_mod, "HYPR_DIR", hypr)
+    monkeypatch.setattr(_rules_mod, "WINRULES_FILE",
+                        hypr / "conf.d" / "50-windowrules.conf")
+    monkeypatch.setattr(_rules_mod, "WKSPRULES_FILE",
+                        hypr / "conf.d" / "50-workspacerules.conf")
+    monkeypatch.setattr(_hyprlock_mod, "HYPRLOCK_FILE",
+                        hypr / "hyprlock.conf")
+    monkeypatch.setattr(_hypridle_mod, "HYPRIDLE_FILE",
+                        hypr / "hypridle.conf")
+    monkeypatch.setattr(_hyprpaper_mod, "HYPRPAPER_FILE",
+                        hypr / "hyprpaper.conf")
+
+    return hypr
+
+
+# ---------------------------------------------------------------------------
+# Mock hyprctl (for tests that exercise IPC calls)
+# ---------------------------------------------------------------------------
+
+def _make_hyprctl_response(value: Any) -> MagicMock:
+    mock = MagicMock()
+    mock.returncode = 0
+    mock.stdout = json.dumps(value)
+    mock.stderr = ""
+    return mock
+
+
+@pytest.fixture()
+def mock_hyprctl(monkeypatch: pytest.MonkeyPatch):
+    """Return a factory that patches subprocess.run for hyprctl calls.
+
+    Usage::
+
+        def test_foo(mock_hyprctl):
+            mock_hyprctl({"int": 8, "str": "", "float": 0.0, "custom_type": "int"})
+            result = hyprctl.get_option("general", "gaps_in")
+            assert result["int"] == 8
+    """
+    import hyprconf.hyprctl as _hyprctl_mod
+
+    responses: list[MagicMock] = []
+
+    def _setup(response: Any) -> None:
+        mock = _make_hyprctl_response(response)
+        responses.clear()
+        responses.append(mock)
+        monkeypatch.setattr("subprocess.run", lambda *a, **kw: mock)
+
+    return _setup
+
+
+# ---------------------------------------------------------------------------
+# VM / install markers — skip unless explicitly requested
+# ---------------------------------------------------------------------------
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.addinivalue_line(
+        "markers",
+        "vm: live Hyprland session in QEMU/KVM (pass --run-vm to enable)"
+    )
+    config.addinivalue_line(
+        "markers",
+        "install: full Arch install smoke test (pass --run-install to enable)"
+    )
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--run-vm",      action="store_true", default=False)
+    parser.addoption("--run-install", action="store_true", default=False)
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    skip_vm      = pytest.mark.skip(reason="pass --run-vm to enable")
+    skip_install = pytest.mark.skip(reason="pass --run-install to enable")
+    for item in items:
+        if "vm" in item.keywords and not config.getoption("--run-vm"):
+            item.add_marker(skip_vm)
+        if "install" in item.keywords and not config.getoption("--run-install"):
+            item.add_marker(skip_install)

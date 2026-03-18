@@ -1,0 +1,180 @@
+"""Tests for hyprconf.file_edit — the atomic line-editing primitives."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from hyprconf.file_edit import (
+    append_block,
+    delete_line,
+    delete_lines,
+    insert_line,
+    insert_lines,
+    read_lines,
+    update_line,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _file(tmp_path: Path, content: str) -> Path:
+    p = tmp_path / "test.conf"
+    p.write_text(content)
+    return p
+
+
+# ---------------------------------------------------------------------------
+# read_lines
+# ---------------------------------------------------------------------------
+
+def test_read_lines_normal(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\nc\n")
+    assert read_lines(p) == ["a", "b", "c"]
+
+
+def test_read_lines_missing_file(tmp_path: Path) -> None:
+    assert read_lines(tmp_path / "nonexistent.conf") == []
+
+
+def test_read_lines_empty_file(tmp_path: Path) -> None:
+    p = _file(tmp_path, "")
+    assert read_lines(p) == []
+
+
+# ---------------------------------------------------------------------------
+# update_line
+# ---------------------------------------------------------------------------
+
+def test_update_line_first(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\nc\n")
+    assert update_line(p, 0, "X") is True
+    assert read_lines(p) == ["X", "b", "c"]
+
+
+def test_update_line_last(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\nc\n")
+    assert update_line(p, 2, "Z") is True
+    assert read_lines(p)[2] == "Z"
+
+
+def test_update_line_out_of_range(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\n")
+    assert update_line(p, 99, "X") is False
+    assert read_lines(p) == ["a", "b"]
+
+
+def test_update_line_negative_index(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\n")
+    assert update_line(p, -1, "X") is False
+
+
+# ---------------------------------------------------------------------------
+# delete_line
+# ---------------------------------------------------------------------------
+
+def test_delete_line_middle(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\nc\n")
+    assert delete_line(p, 1) is True
+    assert read_lines(p) == ["a", "c"]
+
+
+def test_delete_line_only_line(tmp_path: Path) -> None:
+    p = _file(tmp_path, "only\n")
+    assert delete_line(p, 0) is True
+    assert read_lines(p) == []
+
+
+def test_delete_line_out_of_range(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\n")
+    assert delete_line(p, 5) is False
+
+
+# ---------------------------------------------------------------------------
+# delete_lines
+# ---------------------------------------------------------------------------
+
+def test_delete_lines_range(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\nc\nd\n")
+    assert delete_lines(p, 1, 2) is True
+    assert read_lines(p) == ["a", "d"]
+
+
+def test_delete_lines_entire_file(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\nc\n")
+    assert delete_lines(p, 0, 2) is True
+    assert read_lines(p) == []
+
+
+def test_delete_lines_invalid_range(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\n")
+    assert delete_lines(p, 1, 0) is False  # start > end
+    assert delete_lines(p, 0, 99) is False  # end out of range
+
+
+# ---------------------------------------------------------------------------
+# append_block
+# ---------------------------------------------------------------------------
+
+def test_append_block_to_empty(tmp_path: Path) -> None:
+    p = _file(tmp_path, "")
+    assert append_block(p, "new line") is True
+    assert read_lines(p) == ["new line"]
+
+
+def test_append_block_adds_separator(tmp_path: Path) -> None:
+    p = _file(tmp_path, "existing\n")
+    append_block(p, "new line")
+    lines = read_lines(p)
+    # There should be a blank separator between existing and new content
+    assert lines[0] == "existing"
+    assert lines[-1] == "new line"
+    assert "" in lines  # separator present
+
+
+def test_append_block_multiline(tmp_path: Path) -> None:
+    p = _file(tmp_path, "")
+    append_block(p, "line1\nline2\nline3")
+    assert read_lines(p) == ["line1", "line2", "line3"]
+
+
+def test_append_block_creates_parent_dirs(tmp_path: Path) -> None:
+    p = tmp_path / "deep" / "nested" / "file.conf"
+    assert append_block(p, "content") is True
+    assert p.exists()
+
+
+# ---------------------------------------------------------------------------
+# insert_line / insert_lines
+# ---------------------------------------------------------------------------
+
+def test_insert_line_at_start(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\n")
+    assert insert_line(p, 0, "X") is True
+    assert read_lines(p) == ["X", "a", "b"]
+
+
+def test_insert_line_at_end(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nb\n")
+    assert insert_line(p, 99, "Z") is True
+    assert read_lines(p)[-1] == "Z"
+
+
+def test_insert_lines_batch(tmp_path: Path) -> None:
+    p = _file(tmp_path, "a\nd\n")
+    assert insert_lines(p, 1, ["b", "c"]) is True
+    assert read_lines(p) == ["a", "b", "c", "d"]
+
+
+# ---------------------------------------------------------------------------
+# Atomicity: write never partially corrupts a file
+# ---------------------------------------------------------------------------
+
+def test_update_line_is_atomic(tmp_path: Path) -> None:
+    """A successful update should not leave temp files behind."""
+    p = _file(tmp_path, "a\nb\nc\n")
+    update_line(p, 0, "X")
+    tmp_files = list(tmp_path.glob(".hyprconf-tmp-*"))
+    assert tmp_files == [], "Temp file should be cleaned up after write"

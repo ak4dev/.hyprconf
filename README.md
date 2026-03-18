@@ -495,3 +495,62 @@ Config is stored at `~/.config/hyprconf/infra.env` (never committed). See `infra
 | `HYPRCONF_BUCKET` | S3 bucket name (globally unique) |
 | `HYPRCONF_ZONE_ID` | Route53 hosted zone ID |
 | `HYPRCONF_REPO` | Fork's GitHub URL |
+
+## Testing
+
+hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python and run without a Hyprland session; Tiers 4–5 are opt-in and require a VM.
+
+```
+tests/
+├── conftest.py              # shared fixtures (isolated config dirs, mock hyprctl)
+├── unit/                    # Tier 1 — pure Python, no Hyprland
+│   ├── test_config.py
+│   ├── test_schema.py
+│   ├── test_file_edit.py
+│   ├── test_block_conf.py
+│   ├── test_keybinds.py
+│   ├── test_rules.py
+│   ├── test_monitors.py
+│   ├── test_hyprlock.py
+│   ├── test_hypridle.py
+│   └── test_hyprpaper.py
+├── integration/             # Tier 2 — Python CLI layer with mock hyprctl
+│   └── test_cli_get_set.py
+├── tui/                     # Tier 3 — Textual Pilot (headless, no terminal needed)
+│   └── test_tui_basic.py
+├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in)
+│   ├── run_vm.sh
+│   └── test_hyprland_integration.py
+└── install/                 # Tier 5 — full Arch install smoke test (opt-in)
+```
+
+**Run tests:**
+
+```bash
+# Tier 1 — unit tests (fastest, no deps beyond pytest)
+pytest tests/unit/
+
+# Tier 2 — integration tests (mock hyprctl)
+pytest tests/integration/
+
+# Tier 3 — TUI tests (requires python-pytest-asyncio + python-textual)
+pytest tests/tui/
+
+# Tiers 1–3 together with coverage
+pytest tests/unit/ tests/integration/ tests/tui/ --cov=stow/hypr/.local/lib/hyprconf
+
+# Tier 4 — live Hyprland in QEMU (requires KVM + a pre-built image)
+bash tests/vm/run_vm.sh
+pytest tests/vm/ --run-vm
+
+# Run VM tests against an already-running VM
+pytest tests/vm/ --run-vm
+```
+
+**Key fixtures** (`tests/conftest.py`):
+- `hypr_dir` — isolated `~/.config/hypr` in a `tmp_path`, monkeypatches all 9 module-level path constants so each test gets a clean slate
+- `mock_hyprctl` — patches `subprocess.run` with canned JSON responses; tests pass even when `HYPRLAND_INSTANCE_SIGNATURE` is unset
+
+**CI** (`.github/workflows/test.yml`): Tiers 1–3 run on every push/PR via GitHub Actions. Tier 4 requires a self-hosted runner with KVM.
+
+**Test packages** (`packages`): `python-pytest`, `python-pytest-asyncio`, `python-coverage`

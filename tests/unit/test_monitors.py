@@ -1,0 +1,237 @@
+"""Tests for hyprconf.monitors — monitor line parser and writer."""
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from hyprconf.monitors import (
+    MonitorConfig,
+    delete_monitor,
+    disable_monitor,
+    enable_monitor,
+    read_monitor_configs,
+    upsert_monitor,
+)
+
+MONITORS_CONF = """\
+monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5
+monitor = DP-1, 1920x1080@60, 3840x0, 1.0
+"""
+
+EXTRAS_CONF = """\
+monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5, vrr, 1, bitdepth, 10, cm, hdr
+"""
+
+DISABLED_CONF = """\
+monitor = eDP-1, disable
+"""
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _mon_file(hypr_dir: Path, content: str) -> Path:
+    p = hypr_dir / "monitors.conf"
+    p.write_text(content)
+    return p
+
+
+# ---------------------------------------------------------------------------
+# read_monitor_configs
+# ---------------------------------------------------------------------------
+
+def test_reads_two_monitors(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    configs = read_monitor_configs(p)
+    assert len(configs) == 2
+
+
+def test_parses_fields_correctly(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    m = read_monitor_configs(p)[0]
+    assert m.name == "HDMI-A-1"
+    assert m.resolution == "3840x2160@120"
+    assert m.position == "0x0"
+    assert m.scale == "1.5"
+
+
+def test_parses_extras(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, EXTRAS_CONF)
+    m = read_monitor_configs(p)[0]
+    assert "vrr" in m.extras
+    assert "bitdepth" in m.extras
+    assert "cm" in m.extras
+
+
+def test_empty_file(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, "")
+    assert read_monitor_configs(p) == []
+
+
+def test_missing_file(hypr_dir: Path) -> None:
+    assert read_monitor_configs(hypr_dir / "nonexistent.conf") == []
+
+
+def test_ignores_comments(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, "# monitor = DP-1, preferred, auto, 1\nmonitor = HDMI-A-1, preferred, auto, 1\n")
+    configs = read_monitor_configs(p)
+    assert len(configs) == 1
+    assert configs[0].name == "HDMI-A-1"
+
+
+def test_is_disabled_false(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    m = read_monitor_configs(p)[0]
+    assert m.is_disabled is False
+
+
+def test_is_disabled_true(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, DISABLED_CONF)
+    m = read_monitor_configs(p)[0]
+    assert m.is_disabled is True
+
+
+def test_to_line_no_extras(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    m = read_monitor_configs(p)[0]
+    line = m.to_line()
+    assert line == "monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5"
+
+
+def test_to_line_with_extras(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, EXTRAS_CONF)
+    m = read_monitor_configs(p)[0]
+    line = m.to_line()
+    assert "vrr" in line
+    assert "cm" in line
+
+
+def test_line_idx_correct(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    configs = read_monitor_configs(p)
+    assert configs[0].line_idx == 0
+    assert configs[1].line_idx == 1
+
+
+# ---------------------------------------------------------------------------
+# upsert_monitor
+# ---------------------------------------------------------------------------
+
+def test_upsert_appends_new(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, "")
+    assert upsert_monitor("HDMI-A-1", "preferred", "auto", "1", file=p) is True
+    configs = read_monitor_configs(p)
+    assert len(configs) == 1
+    assert configs[0].name == "HDMI-A-1"
+
+
+def test_upsert_updates_existing(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1.0", file=p)
+    configs = read_monitor_configs(p)
+    hdmi = next(c for c in configs if c.name == "HDMI-A-1")
+    assert hdmi.resolution == "1920x1080@60"
+    assert hdmi.scale == "1.0"
+
+
+def test_upsert_with_extras(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, "")
+    upsert_monitor("HDMI-A-1", "3840x2160@120", "0x0", "1.5",
+                   "vrr, 1, bitdepth, 10", file=p)
+    text = p.read_text()
+    assert "vrr, 1, bitdepth, 10" in text
+
+
+def test_upsert_preserves_other_monitors(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    upsert_monitor("HDMI-A-1", "preferred", "auto", "1", file=p)
+    configs = read_monitor_configs(p)
+    names = [c.name for c in configs]
+    assert "DP-1" in names  # second monitor preserved
+
+
+# ---------------------------------------------------------------------------
+# delete_monitor
+# ---------------------------------------------------------------------------
+
+def test_delete_monitor(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    configs = read_monitor_configs(p)
+    first = configs[0]
+    assert delete_monitor(first.file_path, first.line_idx) is True
+    remaining = read_monitor_configs(p)
+    assert len(remaining) == 1
+    assert remaining[0].name == "DP-1"
+
+
+def test_delete_monitor_invalid_idx(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    assert delete_monitor(p, 999) is False
+
+
+# ---------------------------------------------------------------------------
+# disable_monitor / enable_monitor
+# ---------------------------------------------------------------------------
+
+def test_disable_monitor(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    assert disable_monitor("HDMI-A-1", file=p) is True
+    configs = read_monitor_configs(p)
+    hdmi = next(c for c in configs if c.name == "HDMI-A-1")
+    assert hdmi.is_disabled is True
+
+
+def test_disable_monitor_not_found_appends(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, "")
+    disable_monitor("HDMI-A-1", file=p)
+    text = p.read_text()
+    assert "HDMI-A-1" in text
+    assert "disable" in text
+
+
+def test_enable_disabled_monitor(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, DISABLED_CONF)
+    assert enable_monitor("eDP-1", file=p) is True
+    configs = read_monitor_configs(p)
+    edp = next(c for c in configs if c.name == "eDP-1")
+    assert edp.is_disabled is False
+    assert edp.resolution == "preferred"
+
+
+def test_enable_already_enabled_returns_false(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, MONITORS_CONF)
+    assert enable_monitor("HDMI-A-1", file=p) is False
+
+
+# ---------------------------------------------------------------------------
+# Round-trip
+# ---------------------------------------------------------------------------
+
+def test_full_crud_round_trip(hypr_dir: Path) -> None:
+    p = _mon_file(hypr_dir, "")
+
+    # Add
+    upsert_monitor("TEST-1", "1920x1080@60", "0x0", "1.0", file=p)
+    configs = read_monitor_configs(p)
+    assert len(configs) == 1
+
+    # Update
+    upsert_monitor("TEST-1", "2560x1440@144", "0x0", "1.25", file=p)
+    configs = read_monitor_configs(p)
+    assert configs[0].resolution == "2560x1440@144"
+
+    # Disable
+    disable_monitor("TEST-1", file=p)
+    configs = read_monitor_configs(p)
+    assert configs[0].is_disabled is True
+
+    # Enable
+    enable_monitor("TEST-1", file=p)
+    configs = read_monitor_configs(p)
+    assert configs[0].is_disabled is False
+
+    # Delete
+    delete_monitor(configs[0].file_path, configs[0].line_idx)
+    assert read_monitor_configs(p) == []

@@ -1,0 +1,54 @@
+name: Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  unit-integration:
+    name: "Unit + Integration (Tiers 1–2)"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pytest-asyncio coverage
+
+      - name: Run tests
+        run: |
+          python -m pytest tests/unit/ tests/integration/ \
+            --tb=short -q \
+            --cov=stow/hypr/.local/lib/hyprconf \
+            --cov-report=term-missing
+
+  tui:
+    name: "TUI (Tier 3)"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          pip install pytest pytest-asyncio textual
+
+      - name: Run TUI tests
+        run: |
+          python -m pytest tests/tui/ --tb=short -q
+        env:
+          # TUI tests run headless; no HYPRLAND_INSTANCE_SIGNATURE needed
+          PYTHONDONTWRITEBYTECODE: "1"
