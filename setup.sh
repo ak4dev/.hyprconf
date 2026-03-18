@@ -443,21 +443,35 @@ purge_broken_symlinks() {
     log_ok "Pruned $pruned broken symlink(s)."
 }
 
-detect_gpu_and_link_monitor_config() {
-    log_step "Detecting GPU for monitor config..."
+_is_desktop() {
+    # Primary: DMI chassis type (3-7 = Desktop/Tower variants, 13 = All-in-one, 24 = Space-saving)
+    local chassis
+    chassis=$(< /sys/class/dmi/id/chassis_type 2>/dev/null) || chassis=""
+    case "$chassis" in
+        3|4|5|6|7|13|24) return 0 ;;
+        "")  ;;  # DMI unavailable — fall through to battery check
+        *)   return 1 ;;  # Known non-desktop (laptop, notebook, tablet, etc.)
+    esac
 
-    local gpu_info; gpu_info=$(lspci | grep -i vga || true)
+    # Fallback: no battery present → assume desktop
+    compgen -G "/sys/class/power_supply/BAT*" > /dev/null && return 1
+    return 0
+}
+
+detect_gpu_and_link_monitor_config() {
+    log_step "Detecting device type for monitor config..."
+
     local monitors_conf="$HOME/.config/hypr/monitors.conf"
     local hypr_conf_dir="$STOW_DIR/hypr/.config/hypr"
 
     rm -f "$monitors_conf"
 
-    if echo "$gpu_info" | grep -qi "5090"; then
+    if _is_desktop; then
         ln -sf "$hypr_conf_dir/pcMonitors.conf" "$monitors_conf"
-        log_ok "RTX 5090 detected — using pcMonitors.conf"
+        log_ok "Desktop detected — using pcMonitors.conf"
     else
         ln -sf "$hypr_conf_dir/laptopMonitors.conf" "$monitors_conf"
-        log_ok "Using laptopMonitors.conf"
+        log_ok "Laptop/portable detected — using laptopMonitors.conf"
         log_step "Enabling power-profiles-daemon..."
         if _in_chroot; then
             sudo systemctl enable power-profiles-daemon
