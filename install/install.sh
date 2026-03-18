@@ -1084,7 +1084,8 @@ chmod 440 /etc/sudoers.d/wheel
 # ── Services ──────────────────────────────────────────────────────────────────
 systemctl enable NetworkManager
 systemctl enable systemd-resolved
-systemctl enable sshd
+# Enable sshd only in CI (VM tests need it; not appropriate for desktop installs)
+[[ "${HYPRCONF_CI:-0}" == "1" ]] && systemctl enable sshd || true
 
 # ── TTY1 auto-login ───────────────────────────────────────────────────────────
 # Uses a quoted inner heredoc so \u (agetty format specifier) is preserved literally.
