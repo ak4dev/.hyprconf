@@ -870,7 +870,7 @@ install_base_system() {
     || log_info "No microcode package required."
 
   log_step "Installing base system via pacstrap (this takes a few minutes)..."
-  local pkgs=(base base-devel linux linux-firmware btrfs-progs networkmanager git zsh sudo nano)
+  local pkgs=(base base-devel linux linux-firmware btrfs-progs networkmanager openssh git zsh sudo nano)
   [[ -n "$CPU_UCODE" ]] && pkgs+=("$CPU_UCODE")
   pacstrap /mnt "${pkgs[@]}"
   genfstab -U /mnt >> /mnt/etc/fstab
