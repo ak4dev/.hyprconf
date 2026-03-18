@@ -12,6 +12,14 @@ Runs Tiers 1–3 (unit, integration, TUI). No Hyprland session required.
 
 ## Full Suite (All 5 Tiers)
 
+### TL;DR — Run Everything From Scratch
+
+```bash
+make build-vm-image          # build VM image (~20 min, one-time)
+bash tests/vm/run_vm.sh      # start VM (blocks until SSH-ready)
+make test test-vm test-install
+```
+
 ### One-Time Setup
 
 ```bash
