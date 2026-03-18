@@ -41,7 +41,7 @@ from test_hyprland_integration import VMClient  # noqa: E402
 # ---------------------------------------------------------------------------
 
 _INSTALL_VM_HOST = "127.0.0.1"
-_INSTALL_VM_PORT = 2223
+_INSTALL_VM_PORT = 2222
 _INSTALL_VM_USER = "hyprtest"
 
 

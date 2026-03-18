@@ -1084,6 +1084,7 @@ chmod 440 /etc/sudoers.d/wheel
 # ── Services ──────────────────────────────────────────────────────────────────
 systemctl enable NetworkManager
 systemctl enable systemd-resolved
+systemctl enable sshd
 
 # ── TTY1 auto-login ───────────────────────────────────────────────────────────
 # Uses a quoted inner heredoc so \u (agetty format specifier) is preserved literally.

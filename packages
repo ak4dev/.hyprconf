@@ -91,6 +91,7 @@ blueman
 # Networking
 networkmanager
 network-manager-applet
+openssh
 
 # Power management
 power-profiles-daemon

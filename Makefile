@@ -12,9 +12,11 @@ test-tui:
 test: test-unit test-integration test-tui
 
 test-vm: ## Requires running VM (bash tests/vm/run_vm.sh first)
+	bash tests/vm/run_vm.sh --wait
 	pytest tests/vm/ --run-vm -v
 
-test-install: ## Requires packer-built image (bash tests/install/build_image.sh first)
+test-install: ## Requires packer-built image and running VM (bash tests/vm/run_vm.sh first)
+	bash tests/vm/run_vm.sh --wait
 	pytest tests/install/ --run-install -v
 
 build-vm-image:

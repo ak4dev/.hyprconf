@@ -29,7 +29,7 @@ class VMClient:
     """Thin wrapper around SSH commands to the test VM."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = 2222,
-                 user: str = "user", key: Path | None = None) -> None:
+                 user: str = "hyprtest", key: Path | None = None) -> None:
         self.host = host
         self.port = port
         self.user = user

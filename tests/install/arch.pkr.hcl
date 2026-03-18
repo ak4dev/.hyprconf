@@ -22,6 +22,12 @@ variable "ssh_password" {
   sensitive   = true
 }
 
+variable "ssh_pubkey" {
+  description = "Public key to inject into the test VM for passwordless SSH (content of ~/.ssh/hyprconf_vm_key.pub)."
+  type        = string
+  default     = ""
+}
+
 variable "disk_size" {
   description = "Size of the qcow2 disk image (e.g. '20G')."
   type        = string
@@ -110,10 +116,16 @@ build {
     ]
   }
 
-  # Sanity-check: hyprconf binary must be present in the installed system
+  # Inject the test SSH public key into the installed user's authorized_keys
+  # so run_vm.sh can authenticate without a password.
   provisioner "shell" {
+    environment_vars = ["SSH_PUBKEY=${var.ssh_pubkey}"]
     inline = [
-      "arch-chroot /mnt bash -c 'test -x /home/hyprtest/.local/bin/hyprconf'",
+      "mkdir -p /mnt/home/hyprtest/.ssh",
+      "echo \"$SSH_PUBKEY\" >> /mnt/home/hyprtest/.ssh/authorized_keys",
+      "chmod 700 /mnt/home/hyprtest/.ssh",
+      "chmod 600 /mnt/home/hyprtest/.ssh/authorized_keys",
+      "arch-chroot /mnt chown -R hyprtest:hyprtest /home/hyprtest/.ssh",
     ]
   }
 

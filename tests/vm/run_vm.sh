@@ -56,18 +56,23 @@ esac
 
 if [[ ! -f "${IMAGE}" ]]; then
     echo "ERROR: VM image not found at ${IMAGE}." >&2
-    echo "Build it first with: packer build tests/install/arch.pkr.hcl" >&2
+    echo "Build it first with: bash tests/install/build_image.sh" >&2
     exit 1
 fi
 
-# Launch QEMU with virtio-gpu-gl (software OpenGL — enough for Hyprland)
+if [[ ! -f "${SSH_KEY}" ]]; then
+    echo "Generating test SSH key at ${SSH_KEY}..."
+    ssh-keygen -t ed25519 -f "${SSH_KEY}" -N ""
+fi
+
+# Launch QEMU with virtio-gpu-gl + egl-headless display (OpenGL without a window)
 qemu-system-x86_64 \
     -enable-kvm \
     -m 4G \
     -smp 2 \
     -drive file="${IMAGE}",format=qcow2,if=virtio \
     -device virtio-gpu-gl \
-    -display none \
+    -display egl-headless \
     -net nic,model=virtio \
     -net user,hostfwd=tcp::${SSH_PORT}-:22 \
     -daemonize \
