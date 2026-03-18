@@ -50,6 +50,7 @@ COPY_NETCONF=1
 #   HYPRCONF_CI_TIMEZONE=UTC
 #   HYPRCONF_CI_PART_MODE=full         # full | unallocated
 #   HYPRCONF_CI_COPY_NETCONF=0         # 0 | 1
+#   HYPRCONF_CI_SSH_PUBKEY=            # optional — inject authorized_keys before unmount
 HYPRCONF_CI="${HYPRCONF_CI:-0}"
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -1155,6 +1156,17 @@ arch_install() {
   copy_network_config_from_iso
   configure_in_chroot
   run_setup_in_chroot
+
+  # Inject test SSH public key before unmounting (CI only)
+  if [[ "${HYPRCONF_CI:-0}" == "1" && -n "${HYPRCONF_CI_SSH_PUBKEY:-}" ]]; then
+    local ssh_dir="/mnt/home/${USERNAME}/.ssh"
+    mkdir -p "$ssh_dir"
+    echo "${HYPRCONF_CI_SSH_PUBKEY}" >> "${ssh_dir}/authorized_keys"
+    chmod 700 "$ssh_dir"
+    chmod 600 "${ssh_dir}/authorized_keys"
+    arch-chroot /mnt chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.ssh"
+  fi
+
   unmount_all
 
   printf '\n%s  ════════════════════════════════════════════════════════════════%s\n' "$DM" "$RS"

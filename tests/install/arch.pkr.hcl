@@ -99,6 +99,7 @@ build {
 
   # Run the real installer with HYPRCONF_CI=1 to bypass interactive prompts.
   # HYPRCONF_CI_DISK must match the QEMU disk device (/dev/vda for virtio).
+  # HYPRCONF_CI_SSH_PUBKEY is injected into authorized_keys before unmount.
   provisioner "shell" {
     environment_vars = [
       "HYPRCONF_CI=1",
@@ -109,23 +110,11 @@ build {
       "HYPRCONF_CI_TIMEZONE=UTC",
       "HYPRCONF_CI_PART_MODE=full",
       "HYPRCONF_CI_COPY_NETCONF=0",
+      "HYPRCONF_CI_SSH_PUBKEY=${var.ssh_pubkey}",
     ]
     inline = [
       "chmod +x /tmp/install.sh",
       "bash /tmp/install.sh",
-    ]
-  }
-
-  # Inject the test SSH public key into the installed user's authorized_keys
-  # so run_vm.sh can authenticate without a password.
-  provisioner "shell" {
-    environment_vars = ["SSH_PUBKEY=${var.ssh_pubkey}"]
-    inline = [
-      "mkdir -p /mnt/home/hyprtest/.ssh",
-      "echo \"$SSH_PUBKEY\" >> /mnt/home/hyprtest/.ssh/authorized_keys",
-      "chmod 700 /mnt/home/hyprtest/.ssh",
-      "chmod 600 /mnt/home/hyprtest/.ssh/authorized_keys",
-      "arch-chroot /mnt chown -R hyprtest:hyprtest /home/hyprtest/.ssh",
     ]
   }
 
