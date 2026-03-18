@@ -157,3 +157,360 @@ def test_hyprland_reports_no_errors(vm: VMClient) -> None:
         pytest.skip("hyprctl not available or Hyprland not running")
     log = result.stdout
     assert "[error]" not in log.lower(), f"Hyprland logged errors:\n{log}"
+
+
+# ---------------------------------------------------------------------------
+# hyprconf get
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_get_section_table(vm: VMClient) -> None:
+    """hyprconf get <section> prints a table of keys."""
+    result = vm.run("hyprconf get general 2>&1", check=False)
+    assert result.returncode == 0
+    assert "gaps_in" in result.stdout
+
+
+@pytest.mark.vm
+def test_get_section_key_returns_value(vm: VMClient) -> None:
+    """hyprconf get <section> <key> prints the current value."""
+    result = vm.run("hyprconf get general gaps_in 2>&1", check=False)
+    assert result.returncode == 0
+    assert "general:gaps_in" in result.stdout
+
+
+@pytest.mark.vm
+def test_get_unknown_section_exits_nonzero(vm: VMClient) -> None:
+    """hyprconf get <bad_section> exits non-zero."""
+    result = vm.run("hyprconf get __nonexistent_section__ 2>&1", check=False)
+    assert result.returncode != 0
+
+
+# ---------------------------------------------------------------------------
+# hyprconf set
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_set_writes_overrides_file(vm: VMClient) -> None:
+    """hyprconf set <section> <key> <value> writes to the overrides conf."""
+    vm.run("hyprconf set general gaps_out 15 2>&1")
+    conf = vm.read_file("~/.config/hypr/conf.d/99-hyprconf-local.conf")
+    assert "general:gaps_out = 15" in conf
+    # Reset to default
+    vm.run("hyprconf set general gaps_out 10 2>&1", check=False)
+
+
+@pytest.mark.vm
+def test_set_invalid_section_exits_nonzero(vm: VMClient) -> None:
+    """hyprconf set <bad_section> exits non-zero."""
+    result = vm.run("hyprconf set __bad__ gaps_in 0 2>&1", check=False)
+    assert result.returncode != 0
+
+
+# ---------------------------------------------------------------------------
+# hyprconf schema
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_schema_dump_outputs_valid_json(vm: VMClient) -> None:
+    """hyprconf schema dump returns valid, non-empty JSON."""
+    result = vm.run("hyprconf schema dump 2>&1", check=False)
+    assert result.returncode == 0
+    data = json.loads(result.stdout)
+    assert isinstance(data, dict)
+    assert len(data) > 0
+
+
+@pytest.mark.vm
+def test_schema_list_sections(vm: VMClient) -> None:
+    """hyprconf schema list-sections includes the 'general' section."""
+    result = vm.run("hyprconf schema list-sections 2>&1", check=False)
+    assert result.returncode == 0
+    assert "general" in result.stdout
+
+
+@pytest.mark.vm
+def test_schema_keys_section(vm: VMClient) -> None:
+    """hyprconf schema keys <section> lists keys for that section."""
+    result = vm.run("hyprconf schema keys general 2>&1", check=False)
+    assert result.returncode == 0
+    assert "gaps_in" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# hyprconf autodetect
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_autodetect_runs_without_error(vm: VMClient) -> None:
+    """hyprconf autodetect completes without crashing."""
+    result = vm.run("hyprconf autodetect 2>&1", check=False)
+    assert result.returncode == 0
+
+
+# ---------------------------------------------------------------------------
+# hyprconf keybind
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_keybind_list_returns_output(vm: VMClient) -> None:
+    """hyprconf keybind list produces a table without crashing."""
+    result = vm.run("hyprconf keybind list 2>&1", check=False)
+    assert result.returncode == 0
+
+
+@pytest.mark.vm
+def test_keybind_add_creates_entry(vm: VMClient) -> None:
+    """hyprconf keybind add appends a new keybind line."""
+    before = vm.run("hyprconf keybind list 2>&1", check=False)
+    before_count = sum(
+        1 for l in before.stdout.splitlines()
+        if l.strip() and l.strip()[0].isdigit()
+    )
+
+    add = vm.run(
+        "hyprconf keybind add bind SUPER F12 exec hyprconf-test-sentinel 2>&1",
+        check=False,
+    )
+    assert add.returncode == 0
+    assert "Added" in add.stdout
+
+    after = vm.run("hyprconf keybind list 2>&1", check=False)
+    after_count = sum(
+        1 for l in after.stdout.splitlines()
+        if l.strip() and l.strip()[0].isdigit()
+    )
+    assert after_count == before_count + 1
+
+
+@pytest.mark.vm
+def test_keybind_delete_removes_entry(vm: VMClient) -> None:
+    """hyprconf keybind delete removes the entry at a given 1-based index."""
+    # Ensure the sentinel keybind exists (add if missing)
+    listing = vm.run("hyprconf keybind list 2>&1", check=False)
+    if "hyprconf-test-sentinel" not in listing.stdout:
+        vm.run(
+            "hyprconf keybind add bind SUPER F12 exec hyprconf-test-sentinel 2>&1"
+        )
+        listing = vm.run("hyprconf keybind list 2>&1", check=False)
+
+    # Find its 1-based index
+    idx = None
+    for line in listing.stdout.splitlines():
+        if "hyprconf-test-sentinel" in line and line.strip() and line.strip()[0].isdigit():
+            idx = line.split()[0].strip()
+            break
+    assert idx is not None, "Sentinel keybind not found in list"
+
+    del_result = vm.run(f"hyprconf keybind delete {idx} 2>&1", check=False)
+    assert del_result.returncode == 0
+    assert "Deleted" in del_result.stdout
+
+    final = vm.run("hyprconf keybind list 2>&1", check=False)
+    assert "hyprconf-test-sentinel" not in final.stdout
+
+
+# ---------------------------------------------------------------------------
+# hyprconf rule
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_rule_window_list_runs_without_error(vm: VMClient) -> None:
+    """hyprconf rule window list does not crash."""
+    result = vm.run("hyprconf rule window list 2>&1", check=False)
+    assert result.returncode == 0
+
+
+@pytest.mark.vm
+def test_rule_window_add_creates_entry(vm: VMClient) -> None:
+    """hyprconf rule window add appends a new window rule."""
+    add = vm.run(
+        "hyprconf rule window add float 'class:hyprconf-test-window' 2>&1",
+        check=False,
+    )
+    assert add.returncode == 0
+    assert "Added" in add.stdout
+
+    listing = vm.run("hyprconf rule window list 2>&1", check=False)
+    assert "hyprconf-test-window" in listing.stdout
+
+
+@pytest.mark.vm
+def test_rule_window_delete_removes_entry(vm: VMClient) -> None:
+    """hyprconf rule window delete removes the rule at the given index."""
+    # Ensure test rule exists
+    listing = vm.run("hyprconf rule window list 2>&1", check=False)
+    if "hyprconf-test-window" not in listing.stdout:
+        vm.run(
+            "hyprconf rule window add float 'class:hyprconf-test-window' 2>&1"
+        )
+        listing = vm.run("hyprconf rule window list 2>&1", check=False)
+
+    idx = None
+    for line in listing.stdout.splitlines():
+        if "hyprconf-test-window" in line and line.strip() and line.strip()[0].isdigit():
+            idx = line.split()[0].strip()
+            break
+    assert idx is not None, "Test rule not found in list"
+
+    del_result = vm.run(f"hyprconf rule window delete {idx} 2>&1", check=False)
+    assert del_result.returncode == 0
+    assert "Deleted" in del_result.stdout
+
+    final = vm.run("hyprconf rule window list 2>&1", check=False)
+    assert "hyprconf-test-window" not in final.stdout
+
+
+# ---------------------------------------------------------------------------
+# hyprconf monitor (set / delete — list already covered above)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_monitor_set_writes_config(vm: VMClient) -> None:
+    """hyprconf monitor set creates a monitor entry in monitors.conf."""
+    monitor_name = "HYPRCONF-TEST-MON"
+    set_result = vm.run(
+        f"hyprconf monitor set {monitor_name} 1920x1080 0x0 1 2>&1",
+        check=False,
+    )
+    assert set_result.returncode == 0
+    assert "Set" in set_result.stdout
+
+    conf = vm.read_file("~/.config/hypr/monitors.conf")
+    assert monitor_name in conf
+
+
+@pytest.mark.vm
+def test_monitor_delete_removes_entry(vm: VMClient) -> None:
+    """hyprconf monitor delete removes the named monitor entry."""
+    monitor_name = "HYPRCONF-TEST-MON"
+    # Ensure it exists
+    vm.run(
+        f"hyprconf monitor set {monitor_name} 1920x1080 0x0 1 2>&1",
+        check=False,
+    )
+
+    del_result = vm.run(
+        f"hyprconf monitor delete {monitor_name} 2>&1",
+        check=False,
+    )
+    assert del_result.returncode == 0
+    assert "Deleted" in del_result.stdout
+
+    listing = vm.run("hyprconf monitor list 2>&1", check=False)
+    assert monitor_name not in listing.stdout
+
+
+# ---------------------------------------------------------------------------
+# hyprconf lock
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_lock_list_runs_without_error(vm: VMClient) -> None:
+    """hyprconf lock list does not crash."""
+    result = vm.run("hyprconf lock list 2>&1", check=False)
+    assert result.returncode == 0
+
+
+@pytest.mark.vm
+def test_lock_add_set_delete(vm: VMClient) -> None:
+    """hyprconf lock add creates a block; set updates a field; delete removes it."""
+    before = vm.run("hyprconf lock list 2>&1", check=False)
+    before_count = sum(
+        1 for l in before.stdout.splitlines()
+        if l.strip() and l.strip()[0].isdigit()
+    )
+
+    add = vm.run("hyprconf lock add background 2>&1", check=False)
+    assert add.returncode == 0
+    assert "Added" in add.stdout
+
+    new_idx = before_count + 1
+    set_result = vm.run(
+        f"hyprconf lock set {new_idx} blur_passes 3 2>&1",
+        check=False,
+    )
+    assert set_result.returncode == 0
+    assert "Set" in set_result.stdout
+
+    del_result = vm.run(
+        f"hyprconf lock delete {new_idx} 2>&1",
+        check=False,
+    )
+    assert del_result.returncode == 0
+    assert "Deleted" in del_result.stdout
+
+
+# ---------------------------------------------------------------------------
+# hyprconf idle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_idle_list_runs_without_error(vm: VMClient) -> None:
+    """hyprconf idle list does not crash."""
+    result = vm.run("hyprconf idle list 2>&1", check=False)
+    assert result.returncode == 0
+
+
+@pytest.mark.vm
+def test_idle_add_set_delete(vm: VMClient) -> None:
+    """hyprconf idle add listener creates a block; set updates timeout; delete removes it."""
+    before = vm.run("hyprconf idle list 2>&1", check=False)
+    before_count = sum(
+        1 for l in before.stdout.splitlines()
+        if l.strip() and l.strip()[0].isdigit()
+    )
+
+    add = vm.run("hyprconf idle add listener 2>&1", check=False)
+    assert add.returncode == 0
+    assert "Added" in add.stdout
+
+    new_idx = before_count + 1
+    set_result = vm.run(
+        f"hyprconf idle set {new_idx} timeout 600 2>&1",
+        check=False,
+    )
+    assert set_result.returncode == 0
+    assert "Set" in set_result.stdout
+
+    del_result = vm.run(
+        f"hyprconf idle delete {new_idx} 2>&1",
+        check=False,
+    )
+    assert del_result.returncode == 0
+    assert "Deleted" in del_result.stdout
+
+
+# ---------------------------------------------------------------------------
+# hyprconf sync (idempotency)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_sync_is_idempotent(vm: VMClient) -> None:
+    """Running hyprconf sync twice both succeed."""
+    first  = vm.run("hyprconf sync --no-reload 2>&1", check=False)
+    second = vm.run("hyprconf sync --no-reload 2>&1", check=False)
+    assert first.returncode  == 0, f"First sync failed:\n{first.stdout}"
+    assert second.returncode == 0, f"Second sync failed:\n{second.stdout}"
+
+
+# ---------------------------------------------------------------------------
+# hyprconf tui
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_tui_launches_cleanly(vm: VMClient) -> None:
+    """hyprconf tui starts without crashing (3-second headless smoke test)."""
+    dep = vm.run("python3 -c 'import textual' 2>&1", check=False)
+    if dep.returncode != 0:
+        pytest.skip("python-textual not installed in VM")
+
+    # Run with a 3-second timeout; 0=clean exit, 124=timeout-killed — both fine.
+    result = vm.run(
+        "timeout 3 hyprconf tui 2>/dev/null; "
+        "rc=$?; [[ $rc -eq 0 || $rc -eq 124 ]] && echo PASS || echo FAIL:$rc",
+        check=False,
+    )
+    assert "PASS" in result.stdout, (
+        f"TUI did not launch cleanly: stdout={result.stdout!r}"
+    )

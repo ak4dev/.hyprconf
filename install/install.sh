@@ -38,6 +38,20 @@ CPU_UCODE=""
 # Installer options (PHASE 1 only)
 COPY_NETCONF=1
 
+# ── CI / non-interactive mode ─────────────────────────────────────────────────
+# Set HYPRCONF_CI=1 to bypass all interactive prompts.
+# All variables can be pre-set via env vars; defaults are shown below.
+#
+#   HYPRCONF_CI=1
+#   HYPRCONF_CI_DISK=/dev/vda          # required — no default
+#   HYPRCONF_CI_USERNAME=hyprtest
+#   HYPRCONF_CI_PASSWORD=hyprtest
+#   HYPRCONF_CI_HOSTNAME=hyprconf-test
+#   HYPRCONF_CI_TIMEZONE=UTC
+#   HYPRCONF_CI_PART_MODE=full         # full | unallocated
+#   HYPRCONF_CI_COPY_NETCONF=0         # 0 | 1
+HYPRCONF_CI="${HYPRCONF_CI:-0}"
+
 # ── Palette ───────────────────────────────────────────────────────────────────
 if [[ -t 1 ]]; then
   WH=$'\e[1;37m' GL=$'\e[1;31m' NG=$'\e[2;32m'
@@ -345,8 +359,32 @@ choose_free_region() {
 #  PHASE 1 — Full Arch Linux Installation
 # ════════════════════════════════════════════════════════════════════════════
 
+ci_load_config() {
+  # Populate all install variables from environment variables.
+  # Called instead of the interactive gather/select functions when HYPRCONF_CI=1.
+  DISK="${HYPRCONF_CI_DISK:-}"
+  [[ -n "$DISK" ]] || log_die "CI mode: HYPRCONF_CI_DISK must be set (e.g. /dev/vda)."
+
+  USERNAME="${HYPRCONF_CI_USERNAME:-hyprtest}"
+  USER_PASSWORD="${HYPRCONF_CI_PASSWORD:-hyprtest}"
+  USER_HOSTNAME="${HYPRCONF_CI_HOSTNAME:-hyprconf-test}"
+  TIMEZONE="${HYPRCONF_CI_TIMEZONE:-UTC}"
+  PART_MODE="${HYPRCONF_CI_PART_MODE:-full}"
+  COPY_NETCONF="${HYPRCONF_CI_COPY_NETCONF:-0}"
+
+  [[ "$PART_MODE" == "full" || "$PART_MODE" == "unallocated" ]] \
+    || log_die "CI mode: HYPRCONF_CI_PART_MODE must be 'full' or 'unallocated'."
+
+  log_ok "CI mode: disk=$DISK user=$USERNAME hostname=$USER_HOSTNAME tz=$TIMEZONE part=$PART_MODE"
+}
+
 check_iso_env() {
   log_step "Checking environment..."
+  if [[ "$HYPRCONF_CI" == "1" ]]; then
+    command -v pacstrap &>/dev/null  || log_die "CI mode: pacstrap not found — install arch-install-scripts."
+    log_ok "CI mode: environment check passed."
+    return
+  fi
   command -v pacstrap &>/dev/null  || log_die "pacstrap not found — run this from the Arch Linux ISO."
   [[ -d /sys/firmware/efi/efivars ]] || log_die "UEFI mode required. Reboot with UEFI enabled."
   timedatectl set-ntp true
@@ -1096,11 +1134,15 @@ unmount_all() {
 
 arch_install() {
   check_iso_env
-  gather_user_input
-  detect_timezone
-  select_disk
-  select_partition_mode
-  confirm_install
+  if [[ "$HYPRCONF_CI" == "1" ]]; then
+    ci_load_config
+  else
+    gather_user_input
+    detect_timezone
+    select_disk
+    select_partition_mode
+    confirm_install
+  fi
 
   [[ "$PART_MODE" == "full" ]] && partition_full || partition_unallocated
 

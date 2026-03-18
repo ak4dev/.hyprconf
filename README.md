@@ -498,12 +498,12 @@ Config is stored at `~/.config/hyprconf/infra.env` (never committed). See `infra
 
 ## Testing
 
-hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python and run without a Hyprland session; Tiers 4–5 are opt-in and require a VM.
+hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python and run without a Hyprland session; Tiers 4–5 are opt-in and require KVM.
 
 ```
 tests/
 ├── conftest.py              # shared fixtures (isolated config dirs, mock hyprctl)
-├── unit/                    # Tier 1 — pure Python, no Hyprland
+├── unit/                    # Tier 1 — pure Python, no Hyprland (246 tests)
 │   ├── test_config.py
 │   ├── test_schema.py
 │   ├── test_file_edit.py
@@ -518,10 +518,13 @@ tests/
 │   └── test_cli_get_set.py
 ├── tui/                     # Tier 3 — Textual Pilot (headless, no terminal needed)
 │   └── test_tui_basic.py
-├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in)
-│   ├── run_vm.sh
+├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in, 40 tests)
+│   ├── run_vm.sh            # QEMU launch script (virtio-gpu-gl, SSH port 2222)
 │   └── test_hyprland_integration.py
-└── install/                 # Tier 5 — full Arch install smoke test (opt-in)
+└── install/                 # Tier 5 — full Arch install smoke test (opt-in, 9 tests)
+    ├── arch.pkr.hcl         # Packer template — builds image using real install.sh
+    ├── build_image.sh       # Convenience: packer build + move image
+    └── test_full_install.py
 ```
 
 **Run tests:**
@@ -539,18 +542,27 @@ pytest tests/tui/
 # Tiers 1–3 together with coverage
 pytest tests/unit/ tests/integration/ tests/tui/ --cov=stow/hypr/.local/lib/hyprconf
 
-# Tier 4 — live Hyprland in QEMU (requires KVM + a pre-built image)
-bash tests/vm/run_vm.sh
-pytest tests/vm/ --run-vm
+# Tier 4 — live Hyprland in QEMU (requires KVM; sudo modprobe kvm_amd first)
+bash tests/vm/run_vm.sh           # start VM, wait for SSH
+pytest tests/vm/ --run-vm -v
 
-# Run VM tests against an already-running VM
-pytest tests/vm/ --run-vm
+# Tier 5 — full Arch install smoke test (builds image from real install/install.sh)
+bash tests/install/build_image.sh  # ~20 min; requires packer + KVM
+pytest tests/install/ --run-install -v
+
+# Convenience via Makefile
+make test            # Tiers 1–3
+make test-vm         # Tier 4 (VM must be running)
+make test-install    # Tier 5 (image must be built)
+make build-vm-image  # runs build_image.sh
 ```
+
+**Tier 5 CI mode** — `install/install.sh` supports non-interactive execution via `HYPRCONF_CI=1`. The Packer build sets all required env vars (`HYPRCONF_CI_DISK`, `HYPRCONF_CI_USERNAME`, etc.) so the real installer runs end-to-end without prompts. See comments at the top of `install/install.sh` for the full variable list.
 
 **Key fixtures** (`tests/conftest.py`):
 - `hypr_dir` — isolated `~/.config/hypr` in a `tmp_path`, monkeypatches all 9 module-level path constants so each test gets a clean slate
-- `mock_hyprctl` — patches `subprocess.run` with canned JSON responses; tests pass even when `HYPRLAND_INSTANCE_SIGNATURE` is unset
+- `mock_hyprctl` — patches `subprocess.run` with canned JSON responses; tests pass even without `HYPRLAND_INSTANCE_SIGNATURE`
 
-**CI** (`.github/workflows/test.yml`): Tiers 1–3 run on every push/PR via GitHub Actions. Tier 4 requires a self-hosted runner with KVM.
+**CI** (`.github/workflows/test.yml`): Tiers 1–3 run on every push/PR via GitHub Actions. Tiers 4–5 require a self-hosted runner with KVM.
 
 **Test packages** (`packages`): `python-pytest`, `python-pytest-asyncio`, `python-coverage`
