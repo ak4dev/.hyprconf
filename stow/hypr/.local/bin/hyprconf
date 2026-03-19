@@ -3,7 +3,7 @@ set -euo pipefail
 
 readonly THEME_SCRIPT="$HOME/.config/hypr/scripts/theme-switcher/switch_theme.py"
 readonly MONITOR_SCRIPT="$HOME/.config/hypr/scripts/switch_monitor.sh"
-readonly DISPLAY_SCRIPT="$HOME/.hyprconf/scripts/toggle-native-display"
+readonly DISPLAY_SCRIPT="$HOME/.config/hypr/scripts/toggle-native-display"
 readonly SETUP_SCRIPT="$HOME/.hyprconf/setup.sh"
 readonly DEPLOY_SCRIPT="$HOME/.hyprconf/infra/deploy.sh"
 readonly TEARDOWN_SCRIPT="$HOME/.hyprconf/infra/teardown.sh"

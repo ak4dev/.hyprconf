@@ -18,7 +18,7 @@ set -euo pipefail
 #   4. Deploys to hyprconf.sh via:  hyprconf deploy hyprconf.sh
 #   5. Creates a filtered snapshot of dev and pushes it to origin/mainline
 #      — the following dev-only paths are stripped from the mainline commit:
-#           tests/  pyproject.toml  AGENTS.md  .github/  Makefile
+#           tests/  scripts/  pyproject.toml  AGENTS.md  .github/  Makefile
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -43,6 +43,7 @@ _install_vm_is_running() {
 # ── Dev-only paths stripped from mainline ─────────────────────────────────────
 EXCLUDE_PATHS=(
   tests
+  scripts
   pyproject.toml
   AGENTS.md
   .github
@@ -230,7 +231,7 @@ dev_sha=$(git -C "$REPO_ROOT" rev-parse HEAD)
 git commit --quiet -m "chore: [publish] sync mainline from dev ${dev_sha:0:7}
 
 Filtered snapshot of dev (${dev_sha}).
-Dev-only paths excluded: tests/ pyproject.toml AGENTS.md .github/ Makefile
+Dev-only paths excluded: tests/ scripts/ pyproject.toml AGENTS.md .github/ Makefile
 
 Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 

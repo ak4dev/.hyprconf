@@ -117,8 +117,7 @@ hyprsync          # backward-compatible alias for hyprconf sync
 │   └── install.sh            # Self-contained installer (served from CloudFront)
 │
 ├── scripts/
-│   ├── publish               # Run tests, deploy, push filtered dev → mainline
-│   └── toggle-native-display # Toggle built-in laptop screen (eDP-1)
+│   └── publish               # Run tests, deploy, push filtered dev → mainline
 │
 └── stow/                     # GNU Stow packages — symlinked into $HOME
     ├── hypr/
@@ -137,6 +136,7 @@ hyprsync          # backward-compatible alias for hyprconf sync
     │   │   └── scripts/
     │   │       ├── hyprconf-tui/main.py    # Textual TUI
     │   │       ├── switch_monitor.sh
+    │   │       ├── toggle-native-display   # Toggle built-in laptop screen (eDP-1)
     │   │       └── theme-switcher/
     │   │           ├── switch_theme.py
     │   │           └── themes/             # Theme JSON files
@@ -589,7 +589,7 @@ make build-vm-image  # runs build_image.sh
 | `dev` | All active development — tests, docs, scripts, configs |
 | `mainline` | Public-facing snapshot — dev-only paths stripped |
 
-`mainline` is the default branch and what users clone. It never contains `tests/`, `AGENTS.md`, `.github/`, `Makefile`, or `pyproject.toml`. All work happens on `dev`; the `scripts/publish` script produces and pushes the filtered mainline snapshot.
+`mainline` is the default branch and what users clone. It never contains `tests/`, `scripts/`, `AGENTS.md`, `.github/`, `Makefile`, or `pyproject.toml`. All work happens on `dev`; the `scripts/publish` script produces and pushes the filtered mainline snapshot.
 
 ### Publishing to mainline
 
@@ -609,7 +609,7 @@ bash scripts/publish
 6. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
 7. Builds a filtered commit on top of `origin/mainline` (dev-only paths excluded) and pushes it
 
-Paths excluded from mainline: `tests/` `pyproject.toml` `AGENTS.md` `.github/` `Makefile`
+Paths excluded from mainline: `tests/` `scripts/` `pyproject.toml` `AGENTS.md` `.github/` `Makefile`
 
 | Flag | Effect |
 |------|--------|
