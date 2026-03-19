@@ -1046,6 +1046,15 @@ echo "KEYMAP=us" > /etc/vconsole.conf
 
 # ── Initramfs — systemd + sd-encrypt hooks for LUKS ──────────────────────────
 sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf keyboard sd-vconsole block sd-encrypt filesystems fsck)/' /etc/mkinitcpio.conf
+
+# CI only: embed a LUKS keyfile so the VM boots unattended (no console to type password)
+if [[ "${HYPRCONF_CI:-0}" == "1" ]]; then
+  dd bs=512 count=4 if=/dev/urandom of=/etc/crypto_keyfile.bin 2>/dev/null
+  chmod 000 /etc/crypto_keyfile.bin
+  echo -n "${USER_PASSWORD}" | cryptsetup luksAddKey "${ROOT_PART}" /etc/crypto_keyfile.bin -
+  sed -i 's|^FILES=.*|FILES=(/etc/crypto_keyfile.bin)|' /etc/mkinitcpio.conf
+fi
+
 mkinitcpio -P
 
 # ── systemd-boot ──────────────────────────────────────────────────────────────
@@ -1059,12 +1068,16 @@ console-mode max
 editor no
 LOADER
 
+# Boot options — CI mode appends rd.luks.key so the keyfile unlocks LUKS at boot
+luks_key_opt=""
+[[ "${HYPRCONF_CI:-0}" == "1" ]] && luks_key_opt=" rd.luks.key=/etc/crypto_keyfile.bin"
+
 cat > /boot/loader/entries/arch.conf << ENTRY
 title   Arch Linux
 linux   /vmlinuz-linux
 ${ucode_line}
 initrd  /initramfs-linux.img
-options rd.luks.name=${root_uuid}=${LUKS_NAME} root=/dev/mapper/${LUKS_NAME} rootflags=subvol=@ rw quiet
+options rd.luks.name=${root_uuid}=${LUKS_NAME} root=/dev/mapper/${LUKS_NAME} rootflags=subvol=@ rw quiet${luks_key_opt}
 ENTRY
 
 cat > /boot/loader/entries/arch-fallback.conf << ENTRY2
@@ -1072,7 +1085,7 @@ title   Arch Linux (fallback initramfs)
 linux   /vmlinuz-linux
 ${ucode_line}
 initrd  /initramfs-linux-fallback.img
-options rd.luks.name=${root_uuid}=${LUKS_NAME} root=/dev/mapper/${LUKS_NAME} rootflags=subvol=@ rw
+options rd.luks.name=${root_uuid}=${LUKS_NAME} root=/dev/mapper/${LUKS_NAME} rootflags=subvol=@ rw${luks_key_opt}
 ENTRY2
 
 # ── User ──────────────────────────────────────────────────────────────────────
