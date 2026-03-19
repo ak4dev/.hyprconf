@@ -45,6 +45,7 @@ _wait_for_ssh() {
     echo "Waiting for install VM SSH on port ${SSH_PORT}..."
     local attempts=0
     while ! ssh -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
                 -o ConnectTimeout=3 \
                 -o BatchMode=yes \
                 -i "${SSH_KEY}" \
@@ -64,13 +65,14 @@ _wait_for_ssh() {
 _sync_vm_to_dev() {
     echo "Syncing install VM repo to origin/dev..."
     ssh -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
         -o ConnectTimeout=10 \
         -i "${SSH_KEY}" \
         -p "${SSH_PORT}" \
         hyprtest@127.0.0.1 \
         "cd ~/.hyprconf \
          && git fetch --quiet origin dev \
-         && git checkout --quiet dev \
+         && git checkout -B dev FETCH_HEAD --quiet 2>/dev/null \
          && git reset --quiet --hard FETCH_HEAD \
          && echo 'Install VM repo synced to dev.'"
 }
