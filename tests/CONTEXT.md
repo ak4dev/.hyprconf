@@ -9,10 +9,10 @@
 | 1 | Unit (`tests/unit/`) | 230 passed |
 | 2 | Integration (`tests/integration/`) | 16 passed |
 | 3 | TUI (`tests/tui/`) | 8 passed |
-| 4 | VM (`tests/vm/`) | 31 passed, 0 skipped |
+| 4 | VM (`tests/vm/`) | 42 passed, 0 skipped |
 | 5 | Install (`tests/install/`) | 9 passed |
 
-**Total: 294 passed, 0 skipped, 0 failed.**
+**Total: 305 passed, 0 skipped, 0 failed.**
 
 ## How to Run
 
@@ -40,7 +40,7 @@ make test-install # Tier 5
 
 **A fresh `make build-vm-image` will bake all of these in.**
 
-## Fixes in this session (commits f398be4, 4930423)
+## Fixes in this session (commits f398be4, 4930423, 44b1a6c)
 
 1. **`stow/hypr/.local/bin/hyprconf`**: `_read_persisted_value()` + fallback in `cmd_get`
 2. **`packages`**: `nerd-fonts` → `ttf-jetbrains-mono-nerd`
@@ -48,9 +48,11 @@ make test-install # Tier 5
 4. **`setup.sh`**: `update_zshenv()` for SSH non-interactive PATH
 5. **`tests/vm/run_vm.sh`**: SSH user fix; UEFI OVMF firmware
 6. **`tests/install/arch.pkr.hcl`**: OVMF firmware
-7. **`tests/vm/test_hyprland_integration.py`**: Removed `hyprland_running` skip fixture; redesigned 3 previously-skipped tests to run without live Hyprland
-8. **`.gitignore`**: VM artefacts
+7. **`tests/vm/test_hyprland_integration.py`**: Removed `hyprland_running` skip fixture; redesigned 3 previously-skipped tests; added 11 new tests covering theme/repair/show/mainmod/paper/deploy/configure/display
+8. **`README.md`**: `nerd-fonts` → `ttf-jetbrains-mono-nerd`
+9. **`.gitignore`**: VM artefacts
 
 ## Next Steps
 
 - **Rebuild VM image** (`make build-vm-image`) to bake in all installer fixes.
+- All commands now have VM-level coverage. Coverage is complete.
