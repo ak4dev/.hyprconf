@@ -125,11 +125,43 @@ if [[ "$SKIP_TESTS" == false ]]; then
   make test 2>&1 || die "Tiers 1-3 failed — fix before publishing."
   ok "Tiers 1-3 passed"
 
-  # ── VM lifecycle ────────────────────────────────────────────────────────────
+  # ── VM image check (required by both tier 4 and tier 5) ─────────────────────
+  step "Checking VM image"
+  _build_image=false
+  if [[ -f "$INSTALL_IMAGE" ]]; then
+    _built_at="unknown"
+    _built_commit="unknown"
+    if [[ -f "$INSTALL_META" ]]; then
+      _built_at="$(grep '^built_at='    "$INSTALL_META" | cut -d= -f2- || echo unknown)"
+      _built_commit="$(grep '^git_commit=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
+    fi
+    printf '%s  ─ Image found%s\n'              "$DM" "$RS"
+    printf '%s  ─   Built:  %s%s\n'             "$DM" "$_built_at"    "$RS"
+    printf '%s  ─   Commit: %s%s\n\n'           "$DM" "$_built_commit" "$RS"
+    printf '  1) Use existing image  (skip install.sh test — faster)\n'
+    printf '  2) Rebuild from scratch (tests install.sh end-to-end — ~20 min)\n\n'
+    read -rp "  Choice [1/2, default 1]: " _img_choice
+    case "${_img_choice:-1}" in
+      2) _build_image=true ;;
+      *) ok "Reusing existing image" ;;
+    esac
+  else
+    warn "No VM image found — must build before running tiers 4 and 5 (~20 min)"
+    _build_image=true
+  fi
+
+  if [[ "$_build_image" == true ]]; then
+    step "Building VM image (Packer runs install.sh end-to-end)"
+    bash "$REPO_ROOT/tests/install/build_image.sh" 2>&1 \
+      || die "VM image build failed — fix before publishing."
+    ok "VM image built"
+  fi
+
+  # ── Tier 4: VM lifecycle ────────────────────────────────────────────────────
   if _vm_is_running; then
     info "VM already running — reusing"
   else
-    info "Starting test VM..."
+    info "Starting test VM (port 2222)..."
     bash "$VM_RUN_SCRIPT" 2>&1 || die "VM failed to start."
     VM_STARTED_BY_US=true
   fi
@@ -138,40 +170,7 @@ if [[ "$SKIP_TESTS" == false ]]; then
   make test-vm 2>&1 || die "Tier 4 (VM) failed — fix before publishing."
   ok "Tier 4 passed"
 
-  info "Tier 5: install validation"
-
-  # ── Install image detection ────────────────────────────────────────────────
-  _build_install_image=false
-  if [[ -f "$INSTALL_IMAGE" ]]; then
-    _built_at="unknown"
-    _built_commit="unknown"
-    if [[ -f "$INSTALL_META" ]]; then
-      _built_at="$(grep '^built_at='    "$INSTALL_META" | cut -d= -f2- || echo unknown)"
-      _built_commit="$(grep '^git_commit=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
-    fi
-    printf '\n%s  ─ Install image found%s\n'          "$DM" "$RS"
-    printf '%s  ─   Built:  %s%s\n'                   "$DM" "$_built_at"    "$RS"
-    printf '%s  ─   Commit: %s%s\n\n'                 "$DM" "$_built_commit" "$RS"
-    printf '  1) Use existing image (skip install.sh test — faster)\n'
-    printf '  2) Rebuild from scratch (tests install.sh — ~20 min)\n\n'
-    read -rp "  Choice [1/2, default 1]: " _img_choice
-    case "${_img_choice:-1}" in
-      2) _build_install_image=true ;;
-      *) info "Reusing existing install image" ;;
-    esac
-  else
-    info "No install image found — building from scratch..."
-    _build_install_image=true
-  fi
-
-  if [[ "$_build_install_image" == true ]]; then
-    step "Building install image (running install.sh end-to-end via Packer)"
-    bash "$REPO_ROOT/tests/install/build_image.sh" 2>&1 \
-      || die "Install image build failed — fix before publishing."
-    ok "Install image built"
-  fi
-
-  # ── Install VM lifecycle ───────────────────────────────────────────────────
+  # ── Tier 5: install VM lifecycle ───────────────────────────────────────────
   if _install_vm_is_running; then
     info "Install VM already running — reusing"
   else
@@ -180,6 +179,7 @@ if [[ "$SKIP_TESTS" == false ]]; then
     INSTALL_VM_STARTED_BY_US=true
   fi
 
+  info "Tier 5: install validation"
   make test-install 2>&1 || die "Tier 5 (install) failed — fix before publishing."
   ok "Tier 5 passed"
 
