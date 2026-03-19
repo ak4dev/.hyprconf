@@ -508,3 +508,127 @@ def test_tui_launches_cleanly(vm: VMClient) -> None:
     assert "PASS" in result.stdout, (
         f"TUI did not launch cleanly: stdout={result.stdout!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# hyprconf theme
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_theme_list_shows_themes(vm: VMClient) -> None:
+    """hyprconf theme list outputs a table containing theme names."""
+    result = vm.run("hyprconf theme list 2>&1", check=False)
+    assert result.returncode == 0
+    assert "dracula" in result.stdout.lower()
+
+
+@pytest.mark.vm
+def test_theme_current_returns_name(vm: VMClient) -> None:
+    """hyprconf theme current prints the active theme name."""
+    result = vm.run("hyprconf theme current 2>&1", check=False)
+    assert result.returncode == 0
+    assert result.stdout.strip() != ""
+
+
+@pytest.mark.vm
+def test_theme_set_switches_theme(vm: VMClient) -> None:
+    """hyprconf theme set <name> exits 0 and reports the switch."""
+    result = vm.run("hyprconf theme set dracula 2>&1", check=False)
+    assert result.returncode == 0
+    assert "dracula" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# hyprconf repair
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_repair_runs_successfully(vm: VMClient) -> None:
+    """hyprconf repair exits 0 and reports no issues."""
+    result = vm.run("hyprconf repair 2>&1", check=False)
+    assert result.returncode == 0
+    assert "healthy" in result.stdout.lower() or "stowed" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# hyprconf show
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_show_keybinds_outputs_table(vm: VMClient) -> None:
+    """hyprconf show keybinds prints a formatted keybinds table."""
+    result = vm.run("hyprconf show keybinds 2>&1", check=False)
+    assert result.returncode == 0
+    assert "SUPER" in result.stdout or "mainMod" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# hyprconf set mainMod
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_set_mainmod_writes_overrides_file(vm: VMClient) -> None:
+    """hyprconf set mainMod SUPER persists $mainMod in the overrides file."""
+    result = vm.run("hyprconf set mainMod SUPER 2>&1", check=False)
+    assert result.returncode == 0
+    conf = vm.read_file("~/.config/hypr/conf.d/99-hyprconf-local.conf")
+    assert "$mainMod = SUPER" in conf
+
+
+# ---------------------------------------------------------------------------
+# hyprconf paper
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_paper_list_runs_without_error(vm: VMClient) -> None:
+    """hyprconf paper list does not crash."""
+    result = vm.run("hyprconf paper list 2>&1", check=False)
+    assert result.returncode == 0
+
+
+@pytest.mark.vm
+def test_paper_set_wallpaper_writes_config(vm: VMClient) -> None:
+    """hyprconf paper set-wallpaper writes the entry to hyprpaper.conf."""
+    wallpaper_path = "~/wallpaper/dracula.png"
+    result = vm.run(
+        f"hyprconf paper set-wallpaper VIRTUAL-1 {wallpaper_path} 2>&1",
+        check=False,
+    )
+    assert result.returncode == 0
+    conf = vm.read_file("~/.config/hypr/hyprpaper.conf")
+    assert "VIRTUAL-1" in conf
+
+
+# ---------------------------------------------------------------------------
+# hyprconf deploy
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_deploy_list_runs_without_error(vm: VMClient) -> None:
+    """hyprconf deploy list exits 0 (empty list is valid)."""
+    result = vm.run("hyprconf deploy list 2>&1", check=False)
+    assert result.returncode == 0
+
+
+# ---------------------------------------------------------------------------
+# hyprconf configure
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_configure_requires_interactive_tty(vm: VMClient) -> None:
+    """hyprconf configure exits non-zero with a clear message over SSH."""
+    result = vm.run("hyprconf configure 2>&1", check=False)
+    assert result.returncode != 0
+    assert "tty" in result.stdout.lower() or "interactive" in result.stdout.lower()
+
+
+# ---------------------------------------------------------------------------
+# hyprconf display
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_display_unknown_subcommand_exits_nonzero(vm: VMClient) -> None:
+    """hyprconf display <unknown> exits non-zero with an error message."""
+    result = vm.run("hyprconf display unknown-sub 2>&1", check=False)
+    assert result.returncode != 0
+    assert "unknown" in result.stdout.lower() or "unknown" in result.stderr.lower()

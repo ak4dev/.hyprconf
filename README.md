@@ -390,7 +390,7 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | File manager support | `gvfs` |
 | Icons & themes | `papirus-icon-theme` |
 | GTK sync | `xsettingsd` |
-| Fonts | `nerd-fonts` |
+| Fonts | `ttf-jetbrains-mono-nerd` |
 | Power management | `power-profiles-daemon` |
 | Firewall | `ufw` |
 | AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` *(yay is installed automatically during full setup)* |
