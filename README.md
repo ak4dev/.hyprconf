@@ -566,3 +566,21 @@ make build-vm-image  # runs build_image.sh
 **CI** (`.github/workflows/test.yml`): Tiers 1–3 run on every push/PR via GitHub Actions. Tiers 4–5 require a self-hosted runner with KVM.
 
 **Test packages** (`packages`): `python-pytest`, `python-pytest-asyncio`, `python-coverage`
+
+### Publishing to mainline
+
+```bash
+# Start the VM first (required for tiers 4-5)
+bash tests/vm/run_vm.sh
+
+# Run full test suite, deploy hyprconf.sh, and push a filtered snapshot to mainline
+bash scripts/publish
+```
+
+`scripts/publish` runs all 5 test tiers, invokes `hyprconf deploy hyprconf.sh`, then pushes a filtered commit to `origin/mainline`. The following dev-only paths are stripped from the mainline commit: `tests/` `pyproject.toml` `AGENTS.md` `.github/` `Makefile`.
+
+| Flag | Effect |
+|------|--------|
+| `--skip-tests` | Skip the test suite |
+| `--skip-deploy` | Skip the deploy step |
+| `--dry-run` | Build the filtered commit but do not push |
