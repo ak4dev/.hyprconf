@@ -117,6 +117,7 @@ hyprsync          # backward-compatible alias for hyprconf sync
 │   └── install.sh            # Self-contained installer (served from CloudFront)
 │
 ├── scripts/
+│   ├── publish               # Run tests, deploy, push filtered dev → mainline
 │   └── toggle-native-display # Toggle built-in laptop screen (eDP-1)
 │
 └── stow/                     # GNU Stow packages — symlinked into $HOME
@@ -518,7 +519,7 @@ tests/
 │   └── test_cli_get_set.py
 ├── tui/                     # Tier 3 — Textual Pilot (headless, no terminal needed)
 │   └── test_tui_basic.py
-├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in, 40 tests)
+├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in, 42 tests)
 │   ├── run_vm.sh            # QEMU launch script (virtio-gpu-gl, SSH port 2222)
 │   └── test_hyprland_integration.py
 └── install/                 # Tier 5 — full Arch install smoke test (opt-in, 9 tests)
@@ -567,6 +568,19 @@ make build-vm-image  # runs build_image.sh
 
 **Test packages** (`packages`): `python-pytest`, `python-pytest-asyncio`, `python-coverage`
 
+---
+
+## Developer Workflow
+
+### Branches
+
+| Branch | Purpose |
+|--------|---------|
+| `dev` | All active development — tests, docs, scripts, configs |
+| `mainline` | Public-facing snapshot — dev-only paths stripped |
+
+`mainline` is the default branch and what users clone. It never contains `tests/`, `AGENTS.md`, `.github/`, `Makefile`, or `pyproject.toml`. All work happens on `dev`; the `scripts/publish` script produces and pushes the filtered mainline snapshot.
+
 ### Publishing to mainline
 
 ```bash
@@ -577,7 +591,13 @@ bash tests/vm/run_vm.sh
 bash scripts/publish
 ```
 
-`scripts/publish` runs all 5 test tiers, invokes `hyprconf deploy hyprconf.sh`, then pushes a filtered commit to `origin/mainline`. The following dev-only paths are stripped from the mainline commit: `tests/` `pyproject.toml` `AGENTS.md` `.github/` `Makefile`.
+`scripts/publish` does the following in sequence:
+1. Verifies `dev` branch with a clean working tree
+2. Runs all 5 test tiers (must all pass)
+3. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
+4. Builds a filtered commit on top of `origin/mainline` (dev-only paths excluded) and pushes it
+
+Paths excluded from mainline: `tests/` `pyproject.toml` `AGENTS.md` `.github/` `Makefile`
 
 | Flag | Effect |
 |------|--------|
