@@ -1044,13 +1044,32 @@ def update_gtk(theme: Dict[str, str]) -> None:
                 print(f"Warning: gsettings failed ({' '.join(cmd[3:])}): {e}")
 
     # hyprctl setenv — updates GTK_THEME for all apps launched after this point.
-    # Running apps receive the theme via xsettingsd (above).
+    # Running apps receive the theme via xsettingsd (above) or a restart below.
     hyprctl = shutil.which("hyprctl")
     if hyprctl:
         try:
             subprocess.run([hyprctl, "setenv", "GTK_THEME", gtk_theme], check=False, capture_output=True)
         except Exception:
             pass
+
+    # Restart blueman-applet if running so it picks up the new GTK theme.
+    # GTK3 apps inherit GTK_THEME at launch; the applet must be restarted to
+    # see the updated value — identical to how dunst is handled above.
+    if subprocess.run(["pgrep", "-x", "blueman-applet"], capture_output=True).returncode == 0:
+        proc = subprocess.run(["pgrep", "-x", "blueman-applet"], capture_output=True, text=True)
+        for pid in proc.stdout.split():
+            try:
+                os.kill(int(pid), 15)  # SIGTERM
+            except (ProcessLookupError, ValueError):
+                pass
+        subprocess.Popen(
+            ["blueman-applet"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        print("Blueman applet restarted.")
 
     print(f"GTK theme set to '{gtk_theme}' ({color_scheme}).")
 
