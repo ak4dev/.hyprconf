@@ -1129,11 +1129,14 @@ run_setup_in_chroot() {
     # under test is installed. After extraction we initialise a git repo and set
     # the origin remote so that _sync_vm_to_dev (used by the test suite) works.
     log_step "Extracting bundled repo into /home/${USERNAME}/.hyprconf ..."
-    cp "${HYPRCONF_CI_REPO_TGZ}" /mnt/tmp/hyprconf-repo.tar.gz
+    # NOTE: arch-chroot mounts a fresh tmpfs at /tmp inside the chroot, so
+    # anything copied to /mnt/tmp/ beforehand is shadowed. Use /mnt/root/
+    # (root's home dir) which arch-chroot never overlays.
+    cp "${HYPRCONF_CI_REPO_TGZ}" /mnt/root/hyprconf-repo.tar.gz
     arch-chroot /mnt /bin/bash -c "
       mkdir -p /home/${USERNAME}
-      tar -xzf /tmp/hyprconf-repo.tar.gz -C /home/${USERNAME}/
-      rm -f /tmp/hyprconf-repo.tar.gz
+      tar -xzf /root/hyprconf-repo.tar.gz -C /home/${USERNAME}/
+      rm -f /root/hyprconf-repo.tar.gz
       git -C /home/${USERNAME}/.hyprconf init --quiet
       git -C /home/${USERNAME}/.hyprconf remote add origin '${REPO_URL}'
       chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.hyprconf
