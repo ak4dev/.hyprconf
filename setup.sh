@@ -156,11 +156,22 @@ clone_or_update_repo() {
     if [ ! -d "$HYPRCONF_DIR/.git" ]; then
         log_step "Cloning hyprconf repo..."
         git clone https://github.com/ak4dev/.hyprconf "$HYPRCONF_DIR"
+        log_ok "Repository ready."
     else
-        log_step "Updating hyprconf repo..."
-        git -C "$HYPRCONF_DIR" pull --ff-only || log_warn "Fast-forward pull failed — using existing files."
+        # Skip pull when no upstream tracking branch is configured (e.g. CI /
+        # Packer builds where the repo was seeded from a git archive bundle).
+        # The bundle-based _sync_vm_to_dev step keeps the VM repo current.
+        local upstream
+        upstream="$(git -C "$HYPRCONF_DIR" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
+        if [[ -n "$upstream" ]]; then
+            log_step "Updating hyprconf repo..."
+            git -C "$HYPRCONF_DIR" pull --ff-only \
+                || log_warn "Fast-forward pull failed — using existing files."
+            log_ok "Repository ready."
+        else
+            log_ok "Repository ready (no upstream — skipping pull)."
+        fi
     fi
-    log_ok "Repository ready."
 }
 
 install_oh_my_zsh() {

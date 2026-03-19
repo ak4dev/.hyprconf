@@ -106,6 +106,11 @@ usage() {
   printf "  hyprconf schema keys <section>   List keys in a section\n"
   printf "\n${_b}Auto-detect${_r}\n"
   printf "  hyprconf autodetect              Detect and migrate existing Hyprland config\n"
+  printf "\n${_b}Developer${_r}\n"
+  printf "  hyprconf dev                     Show developer pipeline commands\n"
+  printf "  hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]\n"
+  printf "  hyprconf dev vm [start|stop|stop-all|build|status]\n"
+  printf "  hyprconf dev publish             Full pipeline: tests → deploy → mainline push\n"
   printf "\n${_b}General${_r}\n"
   printf "  hyprconf help                    Show this message\n"
 }
@@ -1176,6 +1181,142 @@ cmd_paper() {
   python3 "$CLI_LIB/cli.py" paper "$@"
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+#  hyprconf dev  — developer pipeline commands
+# ════════════════════════════════════════════════════════════════════════════
+
+readonly DEV_REPO="${HOME}/.hyprconf"
+
+_dev_require_repo() {
+  [[ -d "${DEV_REPO}/.git" ]] \
+    || die "Repo not found at ${DEV_REPO} — is hyprconf installed?"
+}
+
+_dev_vm_is_running() {
+  local pf="/tmp/hyprconf-vm.pid"
+  [[ -f "$pf" ]] && kill -0 "$(< "$pf")" 2>/dev/null
+}
+
+_dev_install_vm_is_running() {
+  local pf="/tmp/hyprconf-install-vm.pid"
+  [[ -f "$pf" ]] && kill -0 "$(< "$pf")" 2>/dev/null
+}
+
+_dev_test_with_vm() {
+  if ! _dev_vm_is_running; then
+    printf "Starting test VM (port 2222)...\n"
+    (cd "${DEV_REPO}" && bash tests/vm/run_vm.sh)
+  fi
+  (cd "${DEV_REPO}" && make test-vm)
+}
+
+_dev_test_with_install_vm() {
+  if ! _dev_install_vm_is_running; then
+    printf "Starting install VM (port 2223)...\n"
+    (cd "${DEV_REPO}" && bash tests/install/run_install_vm.sh)
+  fi
+  (cd "${DEV_REPO}" && make test-install)
+}
+
+_dev_test() {
+  _dev_require_repo
+  local flag="${1:-}"
+  case "$flag" in
+    --unit)        (cd "${DEV_REPO}" && make test-unit) ;;
+    --integration) (cd "${DEV_REPO}" && make test-integration) ;;
+    --tui)         (cd "${DEV_REPO}" && make test-tui) ;;
+    --vm)          _dev_test_with_vm ;;
+    --install)     _dev_test_with_install_vm ;;
+    --all)
+      (cd "${DEV_REPO}" && make test)   # tiers 1-3
+      _dev_test_with_vm                  # tier 4 (starts VM if needed)
+      _dev_test_with_install_vm          # tier 5 (starts install VM if needed)
+      ;;
+    "") (cd "${DEV_REPO}" && make test) ;;
+    *)  die "Unknown test flag: ${flag}\nUsage: hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]" ;;
+  esac
+}
+
+_dev_vm() {
+  _dev_require_repo
+  local sub="${1:-status}"
+  case "$sub" in
+    start)
+      (cd "${DEV_REPO}" && bash tests/vm/run_vm.sh)
+      ;;
+    stop)
+      (cd "${DEV_REPO}" && bash tests/vm/run_vm.sh --stop)
+      ;;
+    build)
+      (cd "${DEV_REPO}" && bash tests/install/build_image.sh)
+      ;;
+    status)
+      local pf="/tmp/hyprconf-vm.pid"
+      local ipf="/tmp/hyprconf-install-vm.pid"
+      if [[ -f "$pf" ]] && kill -0 "$(< "$pf")" 2>/dev/null; then
+        printf "Test VM:    running (PID %s, port 2222)\n" "$(< "$pf")"
+      else
+        printf "Test VM:    stopped\n"
+      fi
+      if [[ -f "$ipf" ]] && kill -0 "$(< "$ipf")" 2>/dev/null; then
+        printf "Install VM: running (PID %s, port 2223)\n" "$(< "$ipf")"
+      else
+        printf "Install VM: stopped\n"
+      fi
+      if [[ -f "${DEV_REPO}/tests/vm/arch-hyprconf.meta" ]]; then
+        printf "Image:      %s (commit %s)\n" \
+          "$(grep '^built_at='    "${DEV_REPO}/tests/vm/arch-hyprconf.meta" | cut -d= -f2-)" \
+          "$(grep '^git_commit='  "${DEV_REPO}/tests/vm/arch-hyprconf.meta" | cut -d= -f2-)"
+      else
+        printf "Image:      not built\n"
+      fi
+      ;;
+    stop-all)
+      (cd "${DEV_REPO}" && bash tests/vm/run_vm.sh         --stop 2>/dev/null || true)
+      (cd "${DEV_REPO}" && bash tests/install/run_install_vm.sh --stop 2>/dev/null || true)
+      ;;
+    *)
+      die "Unknown vm subcommand: ${sub}\nUsage: hyprconf dev vm [start|stop|stop-all|build|status]"
+      ;;
+  esac
+}
+
+_dev_usage() {
+  printf "${_b}${_c}hyprconf dev${_r} — developer pipeline\n\n"
+  printf "${_b}Tests${_r}\n"
+  printf "  hyprconf dev test                   Tiers 1-3: unit / integration / tui\n"
+  printf "  hyprconf dev test --all             All tiers (1-5); starts VMs if needed\n"
+  printf "  hyprconf dev test --unit            Unit tests only\n"
+  printf "  hyprconf dev test --integration     Integration tests only\n"
+  printf "  hyprconf dev test --tui             TUI tests only\n"
+  printf "  hyprconf dev test --vm              Tier 4: VM integration (starts VM if needed)\n"
+  printf "  hyprconf dev test --install         Tier 5: install-script (starts install VM if needed)\n"
+  printf "\n${_b}VM${_r}\n"
+  printf "  hyprconf dev vm start               Start test VM (port 2222)\n"
+  printf "  hyprconf dev vm stop                Stop test VM\n"
+  printf "  hyprconf dev vm stop-all            Stop both test and install VMs\n"
+  printf "  hyprconf dev vm build               Build VM image via Packer (~20 min)\n"
+  printf "  hyprconf dev vm status              Show VM and image status\n"
+  printf "\n${_b}Publish${_r}\n"
+  printf "  hyprconf dev publish                Full pipeline: tests → deploy → mainline push\n"
+}
+
+cmd_dev() {
+  local sub="${1:-}"
+  shift || true
+  case "$sub" in
+    test)            _dev_test "$@" ;;
+    vm)              _dev_vm "$@" ;;
+    publish)         _dev_require_repo; bash "${DEV_REPO}/scripts/publish" ;;
+    help|-h|--help|"") _dev_usage ;;
+    *)
+      printf "${_y}Unknown dev subcommand: %s${_r}\n\n" "$sub" >&2
+      _dev_usage >&2
+      exit 1
+      ;;
+  esac
+}
+
 main() {
   local cmd="${1:-help}"
   shift || true
@@ -1199,6 +1340,7 @@ main() {
     lock)             cmd_lock "$@" ;;
     idle)             cmd_idle "$@" ;;
     paper)            cmd_paper "$@" ;;
+    dev)              cmd_dev "$@" ;;
     help|-h|--help)   usage ;;
     *)
       printf "${_y}Unknown command: %s${_r}\n\n" "$cmd" >&2
