@@ -15,7 +15,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-IMAGE="${SCRIPT_DIR}/arch-hyprconf.qcow2"
+BASE_IMAGE="${SCRIPT_DIR}/arch-hyprconf.qcow2"
+COW_IMAGE="${SCRIPT_DIR}/arch-hyprconf-vm-overlay.qcow2"
 PID_FILE="/tmp/hyprconf-vm.pid"
 SSH_PORT=2222
 SSH_KEY="${HOME}/.ssh/hyprconf_vm_key"
@@ -34,6 +35,7 @@ _stop() {
     else
         echo "No PID file found; VM may not be running."
     fi
+    rm -f "${COW_IMAGE}"
 }
 
 _wait_for_ssh() {
@@ -78,8 +80,8 @@ case "${1:-}" in
     --wait)  _wait_for_ssh; _sync_vm_to_dev; exit 0 ;;
 esac
 
-if [[ ! -f "${IMAGE}" ]]; then
-    echo "ERROR: VM image not found at ${IMAGE}." >&2
+if [[ ! -f "${BASE_IMAGE}" ]]; then
+    echo "ERROR: VM image not found at ${BASE_IMAGE}." >&2
     echo "Build it first with: bash tests/install/build_image.sh" >&2
     exit 1
 fi
@@ -95,6 +97,13 @@ if [[ ! -f "${OVMF_VARS}" ]]; then
     cp "${OVMF_VARS_SRC}" "${OVMF_VARS}"
 fi
 
+# Create a fresh COW overlay so the base image is opened read-only.
+# This avoids an exclusive write-lock on arch-hyprconf.qcow2, allowing the
+# tier-5 install VM to use it as a backing file concurrently.
+echo "Creating COW overlay of base image..."
+rm -f "${COW_IMAGE}"
+qemu-img create -f qcow2 -b "$(realpath "${BASE_IMAGE}")" -F qcow2 "${COW_IMAGE}"
+
 # Launch QEMU with UEFI firmware + virtio-gpu-gl + egl-headless display
 qemu-system-x86_64 \
     -enable-kvm \
@@ -103,7 +112,7 @@ qemu-system-x86_64 \
     -smp 2 \
     -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}" \
     -drive if=pflash,format=raw,file="${OVMF_VARS}" \
-    -drive file="${IMAGE}",format=qcow2,if=virtio \
+    -drive file="${COW_IMAGE}",format=qcow2,if=virtio \
     -device virtio-gpu-gl \
     -display egl-headless \
     -net nic,model=virtio \

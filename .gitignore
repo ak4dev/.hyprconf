@@ -21,6 +21,7 @@ infra/deploy-state
 # VM test artefacts
 tests/vm/arch-hyprconf.qcow2
 tests/vm/arch-hyprconf.meta
+tests/vm/arch-hyprconf-vm-overlay.qcow2
 tests/vm/OVMF_VARS.4m.fd
 tests/vm/OVMF_VARS_install.4m.fd
 tests/vm/arch-hyprconf-install-overlay.qcow2

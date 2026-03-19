@@ -176,8 +176,35 @@ if [[ "$SKIP_TESTS" == false ]]; then
     info "Install VM already running — reusing"
   else
     info "Starting install test VM (port 2223)..."
-    bash "$INSTALL_VM_RUN_SCRIPT" 2>&1 || die "Install VM failed to start."
-    INSTALL_VM_STARTED_BY_US=true
+    if ! bash "$INSTALL_VM_RUN_SCRIPT" 2>&1; then
+      printf '\n%s  ✘ Install VM failed to start.%s\n\n' "$GL" "$RS"
+      printf '  1) Clean up stale overlays and retry\n'
+      printf '  2) Skip tier 5 (not recommended before publishing)\n'
+      printf '  3) Abort\n\n'
+      read -rp "  Choice [1/2/3, default 3]: " _recovery
+      case "${_recovery:-3}" in
+        1)
+          warn "Cleaning up and retrying..."
+          bash "$INSTALL_VM_RUN_SCRIPT" --stop 2>/dev/null || true
+          bash "$VM_RUN_SCRIPT" --stop 2>/dev/null || true
+          VM_STARTED_BY_US=false
+          info "Restarting tier-4 VM..."
+          bash "$VM_RUN_SCRIPT" 2>&1 || die "Tier-4 VM failed to restart."
+          VM_STARTED_BY_US=true
+          info "Restarting install VM..."
+          bash "$INSTALL_VM_RUN_SCRIPT" 2>&1 || die "Install VM failed after cleanup — aborting."
+          INSTALL_VM_STARTED_BY_US=true
+          ;;
+        2)
+          warn "Skipping tier 5 — publish will proceed without install validation"
+          ;;
+        *)
+          die "Aborted by user."
+          ;;
+      esac
+    else
+      INSTALL_VM_STARTED_BY_US=true
+    fi
   fi
 
   info "Tier 5: install validation"
