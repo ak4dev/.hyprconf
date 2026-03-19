@@ -17,3 +17,8 @@ stow/hypr/.config/hypr/monitors.conf
 # Infrastructure — never commit credentials or runtime state
 infra/env.sh
 infra/deploy-state
+
+# VM test artefacts
+tests/vm/arch-hyprconf.qcow2
+tests/vm/OVMF_VARS.4m.fd
+tests/install/output-arch/

@@ -59,6 +59,10 @@ source "qemu" "arch_hyprconf" {
   disk_size    = var.disk_size
   net_device   = "virtio-net"
 
+  # UEFI firmware — systemd-boot requires UEFI (OVMF).
+  efi_firmware_code = "/usr/share/edk2/x64/OVMF_CODE.4m.fd"
+  efi_firmware_vars = "/usr/share/edk2/x64/OVMF_VARS.4m.fd"
+
   # Storage
   format     = "qcow2"
   disk_image = false

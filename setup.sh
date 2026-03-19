@@ -17,6 +17,7 @@ log_die()  { printf '%s  ✘ FATAL: %s%s%s\n' "$GL" "$WH" "$1" "$RS" >&2; exit 1
 readonly HYPRCONF_DIR="$HOME/.hyprconf"
 readonly STOW_DIR="$HYPRCONF_DIR/stow"
 readonly ZSHRC="$HOME/.zshrc"
+readonly ZSHENV="$HOME/.zshenv"
 # Powerlevel10k must live inside OMZ's custom themes dir so that
 # ZSH_THEME="powerlevel10k/powerlevel10k" resolves without error.
 readonly P10K_DIR="${HOME}/.oh-my-zsh/custom/themes/powerlevel10k"
@@ -315,6 +316,15 @@ update_zshrc() {
     log_ok "~/.zshrc configured."
 }
 
+update_zshenv() {
+    # ~/.zshenv is sourced by ALL zsh invocations — including non-interactive SSH
+    # sessions — so PATH must live here to make `hyprconf` reachable over SSH.
+    touch "${ZSHENV}"
+    grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' "${ZSHENV}" 2>/dev/null \
+        || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${ZSHENV}"
+    log_ok "~/.zshenv configured."
+}
+
 configure_zprofile() {
     log_step "Configuring ~/.zprofile..."
     local zprofile="$HOME/.zprofile"
@@ -596,9 +606,8 @@ repair_install() {
     # ── 3. Re-stow all packages and refresh shell config ─────────────────
     stow_all_packages || true
     update_zshrc
+    update_zshenv
     configure_zprofile
-
-    # ── 4. Verify Python module imports ──────────────────────────────────
     log_step "Verifying Python module imports..."
     if python3 - <<'PY' 2>/dev/null
 import sys, pathlib
@@ -648,6 +657,7 @@ main() {
         sync_vscode_theme_extensions
         stow_all_packages || true
         update_zshrc
+        update_zshenv
         configure_zprofile
         sync_services
         reload_hyprland
@@ -708,8 +718,8 @@ main() {
     install_oh_my_zsh
     install_powerlevel10k
     update_zshrc
+    update_zshenv
     configure_zprofile
-    setup_user_dirs
     purge_broken_symlinks
     stow_all_packages || true
     enable_services

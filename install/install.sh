@@ -1129,10 +1129,15 @@ run_setup_in_chroot() {
   "
   log_ok "Repo cloned."
 
-  # Grant passwordless sudo for unattended package installation; removed when done.
+  # Grant passwordless sudo for unattended package installation.
   # File must sort after "wheel" alphabetically so this NOPASSWD rule wins.
+  # In CI mode the rule is also written inside the installed system so that
+  # SSH test sessions can run sudo commands without a terminal.
   echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > /mnt/etc/sudoers.d/zz-hyprconf-setup
   chmod 440 /mnt/etc/sudoers.d/zz-hyprconf-setup
+  if [[ "${HYPRCONF_CI:-0}" == "1" ]]; then
+    cp /mnt/etc/sudoers.d/zz-hyprconf-setup /mnt/etc/sudoers.d/zz-ci-nopasswd
+  fi
 
   log_step "Running setup.sh as ${USERNAME} in chroot..."
   arch-chroot /mnt runuser -l "${USERNAME}" -c \

@@ -76,7 +76,7 @@ python-coverage
 xsettingsd
 
 # Fonts
-nerd-fonts
+ttf-jetbrains-mono-nerd
 
 # Icons & themes (KDEPlasmaPlatformTheme6 is pulled in as a dolphin dependency;
 # qt5ct/qt6ct are not needed with QT_QPA_PLATFORMTHEME=kde)

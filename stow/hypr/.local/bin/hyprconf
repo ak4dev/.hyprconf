@@ -853,6 +853,15 @@ print(i)
   printf '%s' "$v"
 }
 
+# Read a persisted value from the overrides file.
+# Echos the value string or nothing if not found.
+_read_persisted_value() {
+  local hkey="$1"
+  local file="$HYPR_LOCAL_OVERRIDES"
+  [[ -f "$file" ]] || return 0
+  grep -m1 -F "${hkey} =" "$file" 2>/dev/null | sed -E 's/^[^=]+=\s*//' | sed 's/[[:space:]]*$//' || true
+}
+
 # Apply a value at runtime via hyprctl keyword.
 _hyprctl_apply() {
   local hkey="$1" value="$2"
@@ -919,6 +928,7 @@ cmd_get() {
     IFS='|' read -r type default desc <<<"$meta"
     local hkey; hkey="$(_hyprctl_key "$section" "$key")"
     local current; current="$(_hyprctl_get_value "$hkey" 2>/dev/null || true)"
+    [[ -z "$current" ]] && current="$(_read_persisted_value "$hkey")"
     [[ -z "$current" ]] && current="(${default})"
     printf '%-40s  %s\n' "${_b}${section}:${key}${_r}" "${_c}${current}${_r}"
     printf '  type: %s   default: %s\n' "$type" "$default"
@@ -935,6 +945,7 @@ cmd_get() {
       IFS='|' read -r type default desc <<<"$meta"
       local hkey; hkey="$(_hyprctl_key "$section" "$k")"
       local current; current="$(_hyprctl_get_value "$hkey" 2>/dev/null || true)"
+      [[ -z "$current" ]] && current="$(_read_persisted_value "$hkey")"
       [[ -z "$current" ]] && current="${_y}(${default})${_r}"
       printf "  %-38s  ${_c}%-22s${_r}  %s\n" "$k" "$current" "$default"
     done

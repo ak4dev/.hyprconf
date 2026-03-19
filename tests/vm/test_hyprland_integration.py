@@ -74,6 +74,14 @@ def vm() -> Generator[VMClient, None, None]:
     yield client
 
 
+@pytest.fixture(scope="session")
+def hyprland_running(vm: VMClient) -> None:
+    """Skip the test if Hyprland is not running in the VM."""
+    result = vm.run("hyprctl version 2>&1", check=False)
+    if result.returncode != 0 or "HYPRLAND_INSTANCE_SIGNATURE not set" in result.stdout:
+        pytest.skip("Hyprland not running in VM")
+
+
 # ---------------------------------------------------------------------------
 # Connectivity
 # ---------------------------------------------------------------------------
@@ -107,7 +115,7 @@ def test_sync_completes_successfully(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.vm
-def test_set_gaps_in_updates_hyprctl(vm: VMClient) -> None:
+def test_set_gaps_in_updates_hyprctl(vm: VMClient, hyprland_running: None) -> None:
     vm.run("hyprconf set general gaps_in 12")
     result = vm.run("hyprctl getoption general:gaps_in -j")
     data = json.loads(result.stdout)
@@ -133,7 +141,7 @@ def test_monitor_list_returns_output(vm: VMClient) -> None:
 
 
 @pytest.mark.vm
-def test_set_monitor_writes_monitors_conf(vm: VMClient) -> None:
+def test_set_monitor_writes_monitors_conf(vm: VMClient, hyprland_running: None) -> None:
     # List available monitors from hyprctl
     result = vm.run("hyprctl monitors -j")
     monitors = json.loads(result.stdout)
@@ -367,10 +375,10 @@ def test_rule_window_delete_removes_entry(vm: VMClient) -> None:
 
 @pytest.mark.vm
 def test_monitor_set_writes_config(vm: VMClient) -> None:
-    """hyprconf monitor set creates a monitor entry in monitors.conf."""
+    """hyprconf monitor config set creates a monitor entry in monitors.conf."""
     monitor_name = "HYPRCONF-TEST-MON"
     set_result = vm.run(
-        f"hyprconf monitor set {monitor_name} 1920x1080 0x0 1 2>&1",
+        f"hyprconf monitor config set {monitor_name} 1920x1080 0x0 1 2>&1",
         check=False,
     )
     assert set_result.returncode == 0
@@ -382,16 +390,16 @@ def test_monitor_set_writes_config(vm: VMClient) -> None:
 
 @pytest.mark.vm
 def test_monitor_delete_removes_entry(vm: VMClient) -> None:
-    """hyprconf monitor delete removes the named monitor entry."""
+    """hyprconf monitor config delete removes the named monitor entry."""
     monitor_name = "HYPRCONF-TEST-MON"
     # Ensure it exists
     vm.run(
-        f"hyprconf monitor set {monitor_name} 1920x1080 0x0 1 2>&1",
+        f"hyprconf monitor config set {monitor_name} 1920x1080 0x0 1 2>&1",
         check=False,
     )
 
     del_result = vm.run(
-        f"hyprconf monitor delete {monitor_name} 2>&1",
+        f"hyprconf monitor config delete {monitor_name} 2>&1",
         check=False,
     )
     assert del_result.returncode == 0

@@ -20,6 +20,11 @@ PID_FILE="/tmp/hyprconf-vm.pid"
 SSH_PORT=2222
 SSH_KEY="${HOME}/.ssh/hyprconf_vm_key"
 
+# UEFI firmware — systemd-boot requires UEFI; OVMF_VARS must be a writable copy.
+OVMF_CODE="/usr/share/edk2/x64/OVMF_CODE.4m.fd"
+OVMF_VARS_SRC="/usr/share/edk2/x64/OVMF_VARS.4m.fd"
+OVMF_VARS="${SCRIPT_DIR}/OVMF_VARS.4m.fd"
+
 _stop() {
     if [[ -f "${PID_FILE}" ]]; then
         local pid
@@ -65,11 +70,20 @@ if [[ ! -f "${SSH_KEY}" ]]; then
     ssh-keygen -t ed25519 -f "${SSH_KEY}" -N ""
 fi
 
-# Launch QEMU with virtio-gpu-gl + egl-headless display (OpenGL without a window)
+# Copy OVMF_VARS on first use so the writable EFI variable store persists
+# across reboots but is never modified in place.
+if [[ ! -f "${OVMF_VARS}" ]]; then
+    cp "${OVMF_VARS_SRC}" "${OVMF_VARS}"
+fi
+
+# Launch QEMU with UEFI firmware + virtio-gpu-gl + egl-headless display
 qemu-system-x86_64 \
     -enable-kvm \
+    -machine q35 \
     -m 4G \
     -smp 2 \
+    -drive if=pflash,format=raw,readonly=on,file="${OVMF_CODE}" \
+    -drive if=pflash,format=raw,file="${OVMF_VARS}" \
     -drive file="${IMAGE}",format=qcow2,if=virtio \
     -device virtio-gpu-gl \
     -display egl-headless \
