@@ -7,23 +7,29 @@ set -euo pipefail
 #   bash scripts/publish [options]
 #
 # Options:
-#   --skip-tests    Skip the full test suite (tiers 1-5)
+#   --skip-tests    Skip the full test suite (tiers 1-5); also skips VM lifecycle
 #   --skip-deploy   Skip the hyprconf deploy step
 #   --dry-run       Build the filtered commit but do not push
 #
 # What this script does:
 #   1. Verifies dev branch with clean working tree
-#   2. Runs all 5 test tiers (unit / integration / tui / vm / install)
-#   3. Deploys to hyprconf.sh via:  hyprconf deploy hyprconf.sh
-#   4. Creates a filtered snapshot of dev and pushes it to origin/mainline
+#   2. Starts the test VM if not already running, stops it when done
+#   3. Runs all 5 test tiers (unit / integration / tui / vm / install)
+#   4. Deploys to hyprconf.sh via:  hyprconf deploy hyprconf.sh
+#   5. Creates a filtered snapshot of dev and pushes it to origin/mainline
 #      — the following dev-only paths are stripped from the mainline commit:
 #           tests/  pyproject.toml  AGENTS.md  .github/  Makefile
-#
-# Tier 4 (VM) and tier 5 (install) require a running VM.
-# Start it first with:  bash tests/vm/run_vm.sh
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+
+VM_RUN_SCRIPT="$REPO_ROOT/tests/vm/run_vm.sh"
+VM_PID_FILE="/tmp/hyprconf-vm.pid"
+
+# ── VM lifecycle helpers ───────────────────────────────────────────────────────
+_vm_is_running() {
+  [[ -f "$VM_PID_FILE" ]] && kill -0 "$(cat "$VM_PID_FILE")" 2>/dev/null
+}
 
 # ── Dev-only paths stripped from mainline ─────────────────────────────────────
 EXCLUDE_PATHS=(
@@ -66,6 +72,25 @@ info() { printf '%s  ─ %s%s\n'        "$DM" "$1" "$RS"; }
 warn() { printf '%s  ! %s%s\n'        "$AM" "$1" "$RS"; }
 die()  { printf '%s  ✘ FATAL: %s%s\n' "$GL" "$1" "$RS" >&2; exit 1; }
 
+# ── Single EXIT handler (accumulates cleanup tasks) ───────────────────────────
+VM_STARTED_BY_US=false
+WORKTREE_DIR=""
+
+_on_exit() {
+  # Remove git worktree if one was created
+  if [[ -n "$WORKTREE_DIR" ]]; then
+    git worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
+    rm -rf "$WORKTREE_DIR"
+  fi
+  # Stop the VM if we started it
+  if [[ "$VM_STARTED_BY_US" == true ]]; then
+    printf '\n%s  ▸ Stopping test VM%s\n' "$AM" "$RS"
+    bash "$VM_RUN_SCRIPT" --stop 2>&1 || true
+    ok "VM stopped"
+  fi
+}
+trap _on_exit EXIT
+
 # ── 1. Pre-flight checks ──────────────────────────────────────────────────────
 step "Pre-flight checks"
 
@@ -84,6 +109,15 @@ if [[ "$SKIP_TESTS" == false ]]; then
   make test 2>&1 || die "Tiers 1-3 failed — fix before publishing."
   ok "Tiers 1-3 passed"
 
+  # ── VM lifecycle ────────────────────────────────────────────────────────────
+  if _vm_is_running; then
+    info "VM already running — reusing"
+  else
+    info "Starting test VM..."
+    bash "$VM_RUN_SCRIPT" 2>&1 || die "VM failed to start."
+    VM_STARTED_BY_US=true
+  fi
+
   info "Tier 4: VM integration tests"
   make test-vm 2>&1 || die "Tier 4 (VM) failed — fix before publishing."
   ok "Tier 4 passed"
@@ -94,7 +128,7 @@ if [[ "$SKIP_TESTS" == false ]]; then
 
   ok "All tests passed"
 else
-  warn "Skipping test suite (--skip-tests)"
+  warn "Skipping test suite and VM lifecycle (--skip-tests)"
 fi
 
 # ── 3. Deploy ─────────────────────────────────────────────────────────────────
@@ -112,8 +146,6 @@ step "Building filtered mainline snapshot"
 git fetch --quiet origin mainline
 
 WORKTREE_DIR="$(mktemp -d /tmp/hyprconf-publish.XXXXXX)"
-cleanup() { git worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true; rm -rf "$WORKTREE_DIR"; }
-trap cleanup EXIT
 
 # Create a detached worktree at origin/mainline
 git worktree add --detach --quiet "$WORKTREE_DIR" origin/mainline

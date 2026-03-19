@@ -584,18 +584,15 @@ make build-vm-image  # runs build_image.sh
 ### Publishing to mainline
 
 ```bash
-# Start the VM first (required for tiers 4-5)
-bash tests/vm/run_vm.sh
-
-# Run full test suite, deploy hyprconf.sh, and push a filtered snapshot to mainline
 bash scripts/publish
 ```
 
-`scripts/publish` does the following in sequence:
+`scripts/publish` handles the full pipeline automatically:
 1. Verifies `dev` branch with a clean working tree
-2. Runs all 5 test tiers (must all pass)
-3. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
-4. Builds a filtered commit on top of `origin/mainline` (dev-only paths excluded) and pushes it
+2. Starts the test VM if not already running (stops it when done)
+3. Runs all 5 test tiers (abort on any failure)
+4. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
+5. Builds a filtered commit on top of `origin/mainline` (dev-only paths excluded) and pushes it
 
 Paths excluded from mainline: `tests/` `pyproject.toml` `AGENTS.md` `.github/` `Makefile`
 
