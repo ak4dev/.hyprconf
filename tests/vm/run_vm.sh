@@ -58,21 +58,41 @@ _wait_for_ssh() {
 }
 
 # Ensure the VM's hyprconf repo is on origin/dev so that 'hyprconf sync'
-# (which runs 'git restore .') restores to the current dev codebase, not
-# an older mainline snapshot that lacks recent fixes.
+# (which runs 'git restore .') restores to the current dev codebase.
+# Uses a git bundle pushed host→VM to avoid any outbound network from the VM
+# (QEMU SLiRP NAT cannot reach external hosts reliably).
 _sync_vm_to_dev() {
     echo "Syncing VM repo to origin/dev..."
+    local repo_root bundle
+    repo_root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+    bundle="/tmp/hyprconf-vm-sync.bundle"
+
+    # Bundle current HEAD + the dev ref so 'git clone' checks out dev.
+    git -C "${repo_root}" bundle create "${bundle}" HEAD refs/heads/dev
+
+    # Push bundle to VM.
+    scp -q \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -i "${SSH_KEY}" \
+        -P "${SSH_PORT}" \
+        "${bundle}" hyprtest@127.0.0.1:/tmp/hyprconf-vm-sync.bundle
+
+    # On VM: replace the stub repo (git-init only) with a real clone from
+    # the bundle, then point origin back at GitHub for informational purposes.
     ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o ConnectTimeout=10 \
         -i "${SSH_KEY}" \
         -p "${SSH_PORT}" \
         hyprtest@127.0.0.1 \
-        "cd ~/.hyprconf \
-         && git fetch --quiet origin dev \
-         && git checkout -B dev FETCH_HEAD --quiet 2>/dev/null \
-         && git reset --quiet --hard FETCH_HEAD \
+        "rm -rf ~/.hyprconf \
+         && git clone --quiet /tmp/hyprconf-vm-sync.bundle ~/.hyprconf \
+         && git -C ~/.hyprconf remote set-url origin 'https://github.com/ak4dev/.hyprconf' \
+         && rm -f /tmp/hyprconf-vm-sync.bundle \
          && echo 'VM repo synced to dev.'"
+
+    rm -f "${bundle}"
 }
 
 case "${1:-}" in

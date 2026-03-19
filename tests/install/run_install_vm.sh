@@ -60,21 +60,37 @@ _wait_for_ssh() {
     echo "Install VM is reachable."
 }
 
-# Sync the VM's hyprconf repo to origin/dev so validation tests run against
-# the current codebase, not the snapshot baked into the image.
+# Sync the VM's hyprconf repo to origin/dev using a host-side git bundle.
+# Avoids outbound GitHub access from within the VM (QEMU SLiRP is unreliable
+# for external hosts).
 _sync_vm_to_dev() {
     echo "Syncing install VM repo to origin/dev..."
+    local repo_root bundle
+    repo_root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+    bundle="/tmp/hyprconf-install-vm-sync.bundle"
+
+    git -C "${repo_root}" bundle create "${bundle}" HEAD refs/heads/dev
+
+    scp -q \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -i "${SSH_KEY}" \
+        -P "${SSH_PORT}" \
+        "${bundle}" hyprtest@127.0.0.1:/tmp/hyprconf-install-vm-sync.bundle
+
     ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o ConnectTimeout=10 \
         -i "${SSH_KEY}" \
         -p "${SSH_PORT}" \
         hyprtest@127.0.0.1 \
-        "cd ~/.hyprconf \
-         && git fetch --quiet origin dev \
-         && git checkout -B dev FETCH_HEAD --quiet 2>/dev/null \
-         && git reset --quiet --hard FETCH_HEAD \
+        "rm -rf ~/.hyprconf \
+         && git clone --quiet /tmp/hyprconf-install-vm-sync.bundle ~/.hyprconf \
+         && git -C ~/.hyprconf remote set-url origin 'https://github.com/ak4dev/.hyprconf' \
+         && rm -f /tmp/hyprconf-install-vm-sync.bundle \
          && echo 'Install VM repo synced to dev.'"
+
+    rm -f "${bundle}"
 }
 
 case "${1:-}" in
