@@ -2,15 +2,17 @@
 
 ## Status (as of session end)
 
-**All 5 tiers: ✅ FULLY PASSING**
+**All 5 tiers: ✅ FULLY PASSING — 0 skipped**
 
 | Tier | Suite | Result |
 |------|-------|--------|
 | 1 | Unit (`tests/unit/`) | 230 passed |
 | 2 | Integration (`tests/integration/`) | 16 passed |
 | 3 | TUI (`tests/tui/`) | 8 passed |
-| 4 | VM (`tests/vm/`) | 28 passed, 3 skipped (Hyprland not running — correct) |
+| 4 | VM (`tests/vm/`) | 31 passed, 0 skipped |
 | 5 | Install (`tests/install/`) | 9 passed |
+
+**Total: 294 passed, 0 skipped, 0 failed.**
 
 ## How to Run
 
@@ -30,31 +32,24 @@ make test-install # Tier 5
 - QEMU PID: check with `pgrep qemu`
 - Run VM: `bash tests/vm/run_vm.sh`
 
-### Manual patches applied to running VM (not baked into image yet)
+### Manual patches applied to running VM (not baked into image)
 
-The current image was patched directly on the running VM for:
-1. Persistent CI NOPASSWD sudoers rule (via `install.sh` changes)
-2. `~/.zshenv` PATH setup (via `setup.sh` changes)
+1. Persistent CI NOPASSWD sudoers rule (`install.sh` fix)
+2. `~/.zshenv` PATH setup (`setup.sh` fix)
+3. `hyprconf` bash script updates (persisted-value fallback, `packages` fix)
 
-**These patches ARE committed to `install.sh` and `setup.sh`** — a fresh `make build-vm-image` will bake them in automatically.
+**A fresh `make build-vm-image` will bake all of these in.**
 
-## Fixes Committed (this session)
+## Fixes in this session (commits f398be4, 4930423)
 
-1. **`stow/hypr/.local/bin/hyprconf`**: `_read_persisted_value()` helper + fallback in `cmd_get` — `hyprconf get` now shows the persisted config file value when Hyprland is not running.
-
-2. **`packages`**: `nerd-fonts` (meta-group) → `ttf-jetbrains-mono-nerd` (the specific font used everywhere).
-
-3. **`install/install.sh`**: Pre-compute `luks_key_opt` before heredoc; add persistent `zz-ci-nopasswd` sudoers when `HYPRCONF_CI=1`; add `update_zshenv()` call sites.
-
-4. **`setup.sh`**: `update_zshenv()` writes `~/.zshenv` so `~/.local/bin` is in PATH for non-interactive SSH sessions.
-
-5. **`tests/vm/run_vm.sh`**: Fixed SSH user (`user`→`hyprtest`); added UEFI OVMF firmware + `-machine q35`.
-
-6. **`tests/install/arch.pkr.hcl`**: Explicit `efi_firmware_code`/`efi_firmware_vars` for OVMF.
-
-7. **`tests/vm/test_hyprland_integration.py`**: `hyprland_running` fixture for hyprctl-dependent tests; fixed `monitor set/delete` → `monitor config set/delete`.
-
-8. **`.gitignore`**: Added `*.qcow2`, `OVMF_VARS.4m.fd`, `output-arch/`.
+1. **`stow/hypr/.local/bin/hyprconf`**: `_read_persisted_value()` + fallback in `cmd_get`
+2. **`packages`**: `nerd-fonts` → `ttf-jetbrains-mono-nerd`
+3. **`install/install.sh`**: `luks_key_opt` pre-compute; CI NOPASSWD sudoers; zshenv calls
+4. **`setup.sh`**: `update_zshenv()` for SSH non-interactive PATH
+5. **`tests/vm/run_vm.sh`**: SSH user fix; UEFI OVMF firmware
+6. **`tests/install/arch.pkr.hcl`**: OVMF firmware
+7. **`tests/vm/test_hyprland_integration.py`**: Removed `hyprland_running` skip fixture; redesigned 3 previously-skipped tests to run without live Hyprland
+8. **`.gitignore`**: VM artefacts
 
 ## Next Steps
 
