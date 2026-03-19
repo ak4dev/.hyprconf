@@ -58,6 +58,7 @@ GTK3_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-3.0/settings.ini")
 GTK4_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-4.0/settings.ini")
 XSETTINGSD_CONFIG_FILE = os.path.expanduser("~/.config/xsettingsd/xsettingsd.conf")
 KDEGLOBALS_FILE        = os.path.expanduser("~/.config/kdeglobals")
+KDE_COLOR_SCHEMES_DIR  = os.path.expanduser("~/.local/share/color-schemes")
 QT6CT_CONF_FILE        = os.path.expanduser("~/.config/qt6ct/qt6ct.conf")
 QT6CT_COLORS_FILE      = os.path.expanduser("~/.config/qt6ct/colors/hyprconf.conf")
 QT5CT_CONF_FILE        = os.path.expanduser("~/.config/qt5ct/qt5ct.conf")
@@ -999,24 +1000,35 @@ def update_gtk(theme: Dict[str, str]) -> None:
         except Exception as e:
             print(f"Warning: could not update {ini_path}: {e}")
 
-    if os.path.exists(XSETTINGSD_CONFIG_FILE):
-        try:
+    # xsettingsd — signals running GTK apps to reload the theme immediately.
+    # Create the config if it doesn't exist (xsettingsd must be in autostart).
+    try:
+        os.makedirs(os.path.dirname(XSETTINGSD_CONFIG_FILE), exist_ok=True)
+        if os.path.exists(XSETTINGSD_CONFIG_FILE):
             with open(XSETTINGSD_CONFIG_FILE) as f:
                 lines = f.readlines()
+            patched = False
+            new_lines = []
+            for line in lines:
+                if line.startswith("Net/ThemeName"):
+                    new_lines.append(f'Net/ThemeName "{gtk_theme}"\n')
+                    patched = True
+                else:
+                    new_lines.append(line)
+            if not patched:
+                new_lines.append(f'Net/ThemeName "{gtk_theme}"\n')
             with open(XSETTINGSD_CONFIG_FILE, "w") as f:
-                for line in lines:
-                    if line.startswith("Net/ThemeName"):
-                        f.write(f'Net/ThemeName "{gtk_theme}"\n')
-                    else:
-                        f.write(line)
-            # Reload xsettingsd so running apps pick up the change immediately
-            pid_result = subprocess.run(["pgrep", "-x", "xsettingsd"], capture_output=True, text=True)
-            if pid_result.returncode == 0:
-                for pid in pid_result.stdout.strip().splitlines():
-                    subprocess.run(["kill", "-HUP", pid.strip()], check=False)
-                print("Reloaded xsettingsd.")
-        except Exception as e:
-            print(f"Warning: could not update xsettingsd: {e}")
+                f.writelines(new_lines)
+        else:
+            with open(XSETTINGSD_CONFIG_FILE, "w") as f:
+                f.write(f'Net/ThemeName "{gtk_theme}"\n')
+        pid_result = subprocess.run(["pgrep", "-x", "xsettingsd"], capture_output=True, text=True)
+        if pid_result.returncode == 0:
+            for pid in pid_result.stdout.strip().splitlines():
+                subprocess.run(["kill", "-HUP", pid.strip()], check=False)
+            print("Reloaded xsettingsd.")
+    except Exception as e:
+        print(f"Warning: could not update xsettingsd: {e}")
 
     # gsettings — affects GTK apps and Qt apps using the GNOME platform plugin
     gsettings = shutil.which("gsettings")
@@ -1030,7 +1042,17 @@ def update_gtk(theme: Dict[str, str]) -> None:
                 subprocess.run(cmd, check=False)
             except Exception as e:
                 print(f"Warning: gsettings failed ({' '.join(cmd[3:])}): {e}")
-        print(f"GTK theme set to '{gtk_theme}' ({color_scheme}).")
+
+    # hyprctl setenv — updates GTK_THEME for all apps launched after this point.
+    # Running apps receive the theme via xsettingsd (above).
+    hyprctl = shutil.which("hyprctl")
+    if hyprctl:
+        try:
+            subprocess.run([hyprctl, "setenv", "GTK_THEME", gtk_theme], check=False, capture_output=True)
+        except Exception:
+            pass
+
+    print(f"GTK theme set to '{gtk_theme}' ({color_scheme}).")
 
 
 def update_kde_colors(theme: Dict[str, str]) -> None:
@@ -1131,12 +1153,20 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         + "\n"
         "[General]\n"
         "ColorScheme=SwitchThemeGenerated\n"
-        "Name=SwitchTheme\n"
+        "Name=SwitchTheme Generated\n"
         "shadeSortColumn=true\n"
         "\n"
         "[KDE]\n"
         "contrast=4\n"
         "widgetStyle=breeze\n"
+        "\n"
+        "[WM]\n"
+        f"activeBackground={rgb(blend_colors(bg, fg, 0.10))}\n"
+        f"activeBlend={rgb(fg)}\n"
+        f"activeForeground={rgb(fg)}\n"
+        f"inactiveBackground={rgb(bg)}\n"
+        f"inactiveBlend={rgb(comment)}\n"
+        f"inactiveForeground={rgb(comment)}\n"
     )
 
     kdeglobals_path = Path(KDEGLOBALS_FILE)
@@ -1144,11 +1174,24 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
     kdeglobals_path.write_text(content, encoding="utf-8")
     print("KDE color scheme (kdeglobals) updated.")
 
-    # Signal running KDE/Qt apps to reload colours.
-    # With QT_QPA_PLATFORMTHEME=kde, KDEPlasmaPlatformTheme6 uses KConfig file
-    # watchers (inotify) to detect kdeglobals changes automatically.  We also
-    # send the DBus signal as a best-effort nudge for apps that are listening.
-    if shutil.which("dbus-send"):
+    # Also write a standalone .colors file so plasma-apply-colorscheme can find it.
+    # plasma-apply-colorscheme forces a live reload in all running KDE apps (Dolphin, etc.).
+    colors_dir = Path(KDE_COLOR_SCHEMES_DIR)
+    colors_dir.mkdir(parents=True, exist_ok=True)
+    colors_file = colors_dir / "SwitchThemeGenerated.colors"
+    colors_file.write_text(content, encoding="utf-8")
+
+    # plasma-apply-colorscheme is the most reliable way to reload colours in running
+    # KDE apps (Dolphin, Ark, Gwenview …).  Fall back to the legacy DBus signal.
+    applied = False
+    if shutil.which("plasma-apply-colorscheme"):
+        result = subprocess.run(
+            ["plasma-apply-colorscheme", "SwitchThemeGenerated"],
+            check=False, capture_output=True,
+        )
+        applied = result.returncode == 0
+
+    if not applied and shutil.which("dbus-send"):
         subprocess.run(
             [
                 "dbus-send", "--session", "--type=signal",
