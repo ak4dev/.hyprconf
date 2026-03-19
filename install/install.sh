@@ -1014,6 +1014,10 @@ configure_in_chroot() {
   local ucode_line=""
   [[ -n "$CPU_UCODE" ]] && ucode_line="initrd  /${CPU_UCODE}.img"
 
+  # Pre-compute the LUKS keyfile boot option (CI only — empty string for desktop installs)
+  local luks_key_opt=""
+  [[ "${HYPRCONF_CI:-0}" == "1" ]] && luks_key_opt=" rd.luks.key=/etc/crypto_keyfile.bin"
+
   # Write the chroot setup script.
   # Unquoted EOF delimiter: our outer variables (USERNAME, TIMEZONE, etc.) expand here.
   # Inner heredoc markers (LOADER, ENTRY, ENTRY2) are written verbatim and function
@@ -1068,10 +1072,7 @@ console-mode max
 editor no
 LOADER
 
-# Boot options — CI mode appends rd.luks.key so the keyfile unlocks LUKS at boot
-luks_key_opt=""
-[[ "${HYPRCONF_CI:-0}" == "1" ]] && luks_key_opt=" rd.luks.key=/etc/crypto_keyfile.bin"
-
+# Boot options (luks_key_opt already expanded by outer shell when writing this script)
 cat > /boot/loader/entries/arch.conf << ENTRY
 title   Arch Linux
 linux   /vmlinuz-linux

@@ -38,7 +38,7 @@ _wait_for_ssh() {
                 -o ConnectTimeout=3 \
                 -o BatchMode=yes \
                 -i "${SSH_KEY}" \
-                -p "${SSH_PORT}" user@127.0.0.1 echo ok 2>/dev/null; do
+                -p "${SSH_PORT}" hyprtest@127.0.0.1 echo ok 2>/dev/null; do
         attempts=$((attempts + 1))
         if (( attempts > 40 )); then
             echo "ERROR: VM did not become reachable within 2 minutes." >&2
