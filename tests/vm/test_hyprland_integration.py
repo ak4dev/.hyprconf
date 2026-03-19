@@ -1,9 +1,9 @@
 """
-VM integration tests — require a live Hyprland session inside QEMU/KVM.
+VM integration tests — run against a QEMU/KVM VM via SSH.
 
 All tests in this file are marked @pytest.mark.vm and are SKIPPED unless
 pytest is invoked with --run-vm.  A running QEMU VM with SSH on port 2222
-is expected.
+is expected.  Tests do NOT require a live Hyprland session inside the VM.
 
 Start the VM first:
     bash tests/vm/run_vm.sh
@@ -74,14 +74,6 @@ def vm() -> Generator[VMClient, None, None]:
     yield client
 
 
-@pytest.fixture(scope="session")
-def hyprland_running(vm: VMClient) -> None:
-    """Skip the test if Hyprland is not running in the VM."""
-    result = vm.run("hyprctl version 2>&1", check=False)
-    if result.returncode != 0 or "HYPRLAND_INSTANCE_SIGNATURE not set" in result.stdout:
-        pytest.skip("Hyprland not running in VM")
-
-
 # ---------------------------------------------------------------------------
 # Connectivity
 # ---------------------------------------------------------------------------
@@ -115,11 +107,11 @@ def test_sync_completes_successfully(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.vm
-def test_set_gaps_in_updates_hyprctl(vm: VMClient, hyprland_running: None) -> None:
+def test_set_gaps_in_reflected_by_get(vm: VMClient) -> None:
+    """hyprconf set persists the value so hyprconf get reads it back."""
     vm.run("hyprconf set general gaps_in 12")
-    result = vm.run("hyprctl getoption general:gaps_in -j")
-    data = json.loads(result.stdout)
-    assert data["int"] == 12
+    result = vm.run("hyprconf get general gaps_in 2>&1")
+    assert "12" in result.stdout
 
 
 @pytest.mark.vm
@@ -141,15 +133,10 @@ def test_monitor_list_returns_output(vm: VMClient) -> None:
 
 
 @pytest.mark.vm
-def test_set_monitor_writes_monitors_conf(vm: VMClient, hyprland_running: None) -> None:
-    # List available monitors from hyprctl
-    result = vm.run("hyprctl monitors -j")
-    monitors = json.loads(result.stdout)
-    if not monitors:
-        pytest.skip("No monitors in VM")
-    monitor_name = monitors[0]["name"]
-
-    vm.run(f"hyprconf monitor config set {monitor_name} preferred auto 1")
+def test_set_monitor_writes_monitors_conf(vm: VMClient) -> None:
+    """hyprconf monitor config set writes an entry to monitors.conf."""
+    monitor_name = "VIRTUAL-1"
+    vm.run(f"hyprconf monitor config set {monitor_name} 1920x1080 auto 1")
     conf = vm.read_file("~/.config/hypr/monitors.conf")
     assert monitor_name in conf
 
@@ -159,12 +146,11 @@ def test_set_monitor_writes_monitors_conf(vm: VMClient, hyprland_running: None) 
 # ---------------------------------------------------------------------------
 
 @pytest.mark.vm
-def test_hyprland_reports_no_errors(vm: VMClient) -> None:
-    result = vm.run("hyprctl rollinglog 2>&1", check=False)
-    if result.returncode != 0:
-        pytest.skip("hyprctl not available or Hyprland not running")
-    log = result.stdout
-    assert "[error]" not in log.lower(), f"Hyprland logged errors:\n{log}"
+def test_hyprland_config_has_no_errors(vm: VMClient) -> None:
+    """Hyprland --verify-config passes without errors on the installed config."""
+    result = vm.run("Hyprland --verify-config 2>&1", check=False)
+    assert result.returncode == 0, f"Hyprland config has errors:\n{result.stdout}"
+    assert "config ok" in result.stdout.lower()
 
 
 # ---------------------------------------------------------------------------
