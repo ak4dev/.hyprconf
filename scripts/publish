@@ -153,13 +153,18 @@ if [[ "$SKIP_TESTS" == false ]]; then
 
   if [[ "$_build_image" == true ]]; then
     step "Building VM image (Packer runs install.sh end-to-end)"
+    # Stop any running VM first — it may be using the old image.
+    if _vm_is_running; then
+      info "Stopping stale VM before rebuild..."
+      bash "$VM_RUN_SCRIPT" --stop 2>/dev/null || true
+    fi
     bash "$REPO_ROOT/tests/install/build_image.sh" 2>&1 \
       || die "VM image build failed — fix before publishing."
     ok "VM image built"
   fi
 
   # ── Tier 4: VM lifecycle ────────────────────────────────────────────────────
-  if _vm_is_running; then
+  if _vm_is_running && [[ "$_build_image" == false ]]; then
     info "VM already running — reusing"
   else
     info "Starting test VM (port 2222)..."
