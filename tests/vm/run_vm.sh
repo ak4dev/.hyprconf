@@ -54,9 +54,26 @@ _wait_for_ssh() {
     echo "VM is reachable."
 }
 
+# Ensure the VM's hyprconf repo is on origin/dev so that 'hyprconf sync'
+# (which runs 'git restore .') restores to the current dev codebase, not
+# an older mainline snapshot that lacks recent fixes.
+_sync_vm_to_dev() {
+    echo "Syncing VM repo to origin/dev..."
+    ssh -o StrictHostKeyChecking=no \
+        -o ConnectTimeout=10 \
+        -i "${SSH_KEY}" \
+        -p "${SSH_PORT}" \
+        hyprtest@127.0.0.1 \
+        "cd ~/.hyprconf \
+         && git fetch --quiet origin dev \
+         && git checkout --quiet dev \
+         && git reset --quiet --hard FETCH_HEAD \
+         && echo 'VM repo synced to dev.'"
+}
+
 case "${1:-}" in
     --stop)  _stop; exit 0 ;;
-    --wait)  _wait_for_ssh; exit 0 ;;
+    --wait)  _wait_for_ssh; _sync_vm_to_dev; exit 0 ;;
 esac
 
 if [[ ! -f "${IMAGE}" ]]; then
@@ -94,3 +111,4 @@ qemu-system-x86_64 \
 
 echo "VM started (PID $(cat "${PID_FILE}"))."
 _wait_for_ssh
+_sync_vm_to_dev
