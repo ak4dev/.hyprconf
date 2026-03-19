@@ -51,6 +51,7 @@ COPY_NETCONF=1
 #   HYPRCONF_CI_PART_MODE=full         # full | unallocated
 #   HYPRCONF_CI_COPY_NETCONF=0         # 0 | 1
 #   HYPRCONF_CI_SSH_PUBKEY=            # optional — inject authorized_keys before unmount
+#   HYPRCONF_CI_REPO_TGZ=             # optional — path to repo tar.gz; skips git clone
 HYPRCONF_CI="${HYPRCONF_CI:-0}"
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -1122,12 +1123,30 @@ EOF
 }
 
 run_setup_in_chroot() {
-  log_step "Cloning dotfiles repo into /home/${USERNAME}/.hyprconf ..."
-  arch-chroot /mnt /bin/bash -c "
-    git clone --depth=1 '${REPO_URL}' /home/${USERNAME}/.hyprconf
-    chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.hyprconf
-  "
-  log_ok "Repo cloned."
+  if [[ -n "${HYPRCONF_CI_REPO_TGZ:-}" ]]; then
+    # CI/Packer path: use the bundled repo tar instead of cloning from GitHub.
+    # This avoids a network dependency inside the VM and ensures the exact code
+    # under test is installed. After extraction we initialise a git repo and set
+    # the origin remote so that _sync_vm_to_dev (used by the test suite) works.
+    log_step "Extracting bundled repo into /home/${USERNAME}/.hyprconf ..."
+    cp "${HYPRCONF_CI_REPO_TGZ}" /mnt/tmp/hyprconf-repo.tar.gz
+    arch-chroot /mnt /bin/bash -c "
+      mkdir -p /home/${USERNAME}
+      tar -xzf /tmp/hyprconf-repo.tar.gz -C /home/${USERNAME}/
+      rm -f /tmp/hyprconf-repo.tar.gz
+      git -C /home/${USERNAME}/.hyprconf init --quiet
+      git -C /home/${USERNAME}/.hyprconf remote add origin '${REPO_URL}'
+      chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.hyprconf
+    "
+    log_ok "Repo extracted."
+  else
+    log_step "Cloning dotfiles repo into /home/${USERNAME}/.hyprconf ..."
+    arch-chroot /mnt /bin/bash -c "
+      git clone --depth=1 '${REPO_URL}' /home/${USERNAME}/.hyprconf
+      chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.hyprconf
+    "
+    log_ok "Repo cloned."
+  fi
 
   # Grant passwordless sudo for unattended package installation.
   # File must sort after "wheel" alphabetically so this NOPASSWD rule wins.

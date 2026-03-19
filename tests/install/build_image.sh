@@ -14,9 +14,18 @@ fi
 
 SSH_PUBKEY="$(cat "${SSH_KEY}.pub")"
 
+# Bundle the current repo as a tar so Packer can upload it directly.
+# install.sh will extract this instead of cloning from GitHub, eliminating
+# the QEMU network dependency and testing the exact code under development.
+echo "Bundling repo from HEAD..."
+git -C ../.. archive --format=tar.gz --prefix=".hyprconf/" HEAD \
+  > /tmp/hyprconf-packer-repo.tar.gz
+echo "Repo bundled to /tmp/hyprconf-packer-repo.tar.gz ($(du -sh /tmp/hyprconf-packer-repo.tar.gz | cut -f1))"
+
 packer init arch.pkr.hcl
 packer build -force -var "ssh_pubkey=${SSH_PUBKEY}" arch.pkr.hcl
 mv output-arch/arch-hyprconf.qcow2 ../vm/arch-hyprconf.qcow2
+rm -f /tmp/hyprconf-packer-repo.tar.gz
 
 # Write build metadata alongside the image so scripts/publish can display it.
 _GIT_COMMIT="$(git -C ../.. rev-parse --short HEAD 2>/dev/null || echo unknown)"

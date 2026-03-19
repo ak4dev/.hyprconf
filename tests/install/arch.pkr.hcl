@@ -101,9 +101,20 @@ build {
     destination = "/tmp/install.sh"
   }
 
+  # Upload the current repo as a tar so install.sh doesn't need to clone from
+  # GitHub inside the VM. build_image.sh creates this via 'git archive'.
+  # This eliminates the QEMU network dependency and ensures the exact code
+  # being tested is installed — not whatever happens to be on origin/mainline.
+  provisioner "file" {
+    source      = "/tmp/hyprconf-packer-repo.tar.gz"
+    destination = "/tmp/hyprconf-repo.tar.gz"
+  }
+
   # Run the real installer with HYPRCONF_CI=1 to bypass interactive prompts.
   # HYPRCONF_CI_DISK must match the QEMU disk device (/dev/vda for virtio).
   # HYPRCONF_CI_SSH_PUBKEY is injected into authorized_keys before unmount.
+  # HYPRCONF_CI_REPO_TGZ tells install.sh to extract /tmp/hyprconf-repo.tar.gz
+  # instead of cloning from GitHub.
   provisioner "shell" {
     environment_vars = [
       "HYPRCONF_CI=1",
@@ -115,6 +126,7 @@ build {
       "HYPRCONF_CI_PART_MODE=full",
       "HYPRCONF_CI_COPY_NETCONF=0",
       "HYPRCONF_CI_SSH_PUBKEY=${var.ssh_pubkey}",
+      "HYPRCONF_CI_REPO_TGZ=/tmp/hyprconf-repo.tar.gz",
     ]
     inline = [
       "chmod +x /tmp/install.sh",
