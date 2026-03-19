@@ -6,16 +6,20 @@ is invoked with ``--run-install``.
 
 Prerequisites:
 
-1. Build the image::
+1. Build the image (only needed once, or when re-testing install.sh)::
 
        bash tests/install/build_image.sh
 
-2. Start the install VM (see tests/vm/run_vm.sh for reference; use port 2223)
-   and wait for SSH to be ready.
+2. Start the install VM on port 2223::
+
+       bash tests/install/run_install_vm.sh
 
 3. Run::
 
        pytest tests/install/ --run-install -v
+
+``scripts/publish`` handles steps 1–3 automatically, including an interactive
+prompt to reuse an existing image or rebuild from scratch.
 """
 from __future__ import annotations
 
@@ -41,7 +45,7 @@ from test_hyprland_integration import VMClient  # noqa: E402
 # ---------------------------------------------------------------------------
 
 _INSTALL_VM_HOST = "127.0.0.1"
-_INSTALL_VM_PORT = 2222
+_INSTALL_VM_PORT = 2223
 _INSTALL_VM_USER = "hyprtest"
 
 

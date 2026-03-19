@@ -26,9 +26,18 @@ cd "$REPO_ROOT"
 VM_RUN_SCRIPT="$REPO_ROOT/tests/vm/run_vm.sh"
 VM_PID_FILE="/tmp/hyprconf-vm.pid"
 
+INSTALL_VM_RUN_SCRIPT="$REPO_ROOT/tests/install/run_install_vm.sh"
+INSTALL_VM_PID_FILE="/tmp/hyprconf-install-vm.pid"
+INSTALL_IMAGE="$REPO_ROOT/tests/vm/arch-hyprconf.qcow2"
+INSTALL_META="$REPO_ROOT/tests/vm/arch-hyprconf.meta"
+
 # ── VM lifecycle helpers ───────────────────────────────────────────────────────
 _vm_is_running() {
   [[ -f "$VM_PID_FILE" ]] && kill -0 "$(cat "$VM_PID_FILE")" 2>/dev/null
+}
+
+_install_vm_is_running() {
+  [[ -f "$INSTALL_VM_PID_FILE" ]] && kill -0 "$(cat "$INSTALL_VM_PID_FILE")" 2>/dev/null
 }
 
 # ── Dev-only paths stripped from mainline ─────────────────────────────────────
@@ -74,6 +83,7 @@ die()  { printf '%s  ✘ FATAL: %s%s\n' "$GL" "$1" "$RS" >&2; exit 1; }
 
 # ── Single EXIT handler (accumulates cleanup tasks) ───────────────────────────
 VM_STARTED_BY_US=false
+INSTALL_VM_STARTED_BY_US=false
 WORKTREE_DIR=""
 
 _on_exit() {
@@ -82,7 +92,13 @@ _on_exit() {
     git worktree remove --force "$WORKTREE_DIR" 2>/dev/null || true
     rm -rf "$WORKTREE_DIR"
   fi
-  # Stop the VM if we started it
+  # Stop the install VM if we started it
+  if [[ "$INSTALL_VM_STARTED_BY_US" == true ]]; then
+    printf '\n%s  ▸ Stopping install test VM%s\n' "$AM" "$RS"
+    bash "$INSTALL_VM_RUN_SCRIPT" --stop 2>&1 || true
+    ok "Install VM stopped"
+  fi
+  # Stop the tier-4 VM if we started it
   if [[ "$VM_STARTED_BY_US" == true ]]; then
     printf '\n%s  ▸ Stopping test VM%s\n' "$AM" "$RS"
     bash "$VM_RUN_SCRIPT" --stop 2>&1 || true
@@ -123,6 +139,47 @@ if [[ "$SKIP_TESTS" == false ]]; then
   ok "Tier 4 passed"
 
   info "Tier 5: install validation"
+
+  # ── Install image detection ────────────────────────────────────────────────
+  _build_install_image=false
+  if [[ -f "$INSTALL_IMAGE" ]]; then
+    _built_at="unknown"
+    _built_commit="unknown"
+    if [[ -f "$INSTALL_META" ]]; then
+      _built_at="$(grep '^built_at='    "$INSTALL_META" | cut -d= -f2- || echo unknown)"
+      _built_commit="$(grep '^git_commit=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
+    fi
+    printf '\n%s  ─ Install image found%s\n'          "$DM" "$RS"
+    printf '%s  ─   Built:  %s%s\n'                   "$DM" "$_built_at"    "$RS"
+    printf '%s  ─   Commit: %s%s\n\n'                 "$DM" "$_built_commit" "$RS"
+    printf '  1) Use existing image (skip install.sh test — faster)\n'
+    printf '  2) Rebuild from scratch (tests install.sh — ~20 min)\n\n'
+    read -rp "  Choice [1/2, default 1]: " _img_choice
+    case "${_img_choice:-1}" in
+      2) _build_install_image=true ;;
+      *) info "Reusing existing install image" ;;
+    esac
+  else
+    info "No install image found — building from scratch..."
+    _build_install_image=true
+  fi
+
+  if [[ "$_build_install_image" == true ]]; then
+    step "Building install image (running install.sh end-to-end via Packer)"
+    bash "$REPO_ROOT/tests/install/build_image.sh" 2>&1 \
+      || die "Install image build failed — fix before publishing."
+    ok "Install image built"
+  fi
+
+  # ── Install VM lifecycle ───────────────────────────────────────────────────
+  if _install_vm_is_running; then
+    info "Install VM already running — reusing"
+  else
+    info "Starting install test VM (port 2223)..."
+    bash "$INSTALL_VM_RUN_SCRIPT" 2>&1 || die "Install VM failed to start."
+    INSTALL_VM_STARTED_BY_US=true
+  fi
+
   make test-install 2>&1 || die "Tier 5 (install) failed — fix before publishing."
   ok "Tier 5 passed"
 

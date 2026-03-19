@@ -524,7 +524,8 @@ tests/
 │   └── test_hyprland_integration.py
 └── install/                 # Tier 5 — full Arch install smoke test (opt-in, 9 tests)
     ├── arch.pkr.hcl         # Packer template — builds image using real install.sh
-    ├── build_image.sh       # Convenience: packer build + move image
+    ├── build_image.sh       # Packer build + move image + write .meta (date, commit)
+    ├── run_install_vm.sh    # QEMU launch script (COW overlay, SSH port 2223)
     └── test_full_install.py
 ```
 
@@ -547,9 +548,18 @@ pytest tests/unit/ tests/integration/ tests/tui/ --cov=stow/hypr/.local/lib/hypr
 bash tests/vm/run_vm.sh           # start VM, wait for SSH
 pytest tests/vm/ --run-vm -v
 
-# Tier 5 — full Arch install smoke test (builds image from real install/install.sh)
-bash tests/install/build_image.sh  # ~20 min; requires packer + KVM
+# Tier 5 — full Arch install smoke test
+# Option A: use an existing image (fast — skips install.sh, validates post-install state)
+bash tests/install/build_image.sh   # first time only; ~20 min — tests install.sh end-to-end
+bash tests/install/run_install_vm.sh
 pytest tests/install/ --run-install -v
+
+# Option B: rebuild and test install.sh on every run
+bash tests/install/build_image.sh   # ~20 min; requires packer + KVM
+bash tests/install/run_install_vm.sh
+pytest tests/install/ --run-install -v
+
+# scripts/publish prompts automatically — no need to manage the VM manually
 
 # Convenience via Makefile
 make test            # Tiers 1–3
@@ -558,7 +568,7 @@ make test-install    # Tier 5 (image must be built)
 make build-vm-image  # runs build_image.sh
 ```
 
-**Tier 5 CI mode** — `install/install.sh` supports non-interactive execution via `HYPRCONF_CI=1`. The Packer build sets all required env vars (`HYPRCONF_CI_DISK`, `HYPRCONF_CI_USERNAME`, etc.) so the real installer runs end-to-end without prompts. See comments at the top of `install/install.sh` for the full variable list.
+**Tier 5 install image** — `build_image.sh` runs Packer to build a full Arch+hyprconf image (exercising `install.sh` end-to-end) and writes `tests/vm/arch-hyprconf.meta` with the build date and commit. The VM launches on port 2223 via `run_install_vm.sh` using a **COW overlay**, so the base image is never dirtied by test runs. `scripts/publish` detects the image, shows its metadata, and prompts: _use existing_ (fast validation only) or _rebuild_ (re-runs `install.sh` via Packer, ~20 min).
 
 **Key fixtures** (`tests/conftest.py`):
 - `hypr_dir` — isolated `~/.config/hypr` in a `tmp_path`, monkeypatches all 9 module-level path constants so each test gets a clean slate
@@ -589,10 +599,15 @@ bash scripts/publish
 
 `scripts/publish` handles the full pipeline automatically:
 1. Verifies `dev` branch with a clean working tree
-2. Starts the test VM if not already running (stops it when done)
-3. Runs all 5 test tiers (abort on any failure)
-4. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
-5. Builds a filtered commit on top of `origin/mainline` (dev-only paths excluded) and pushes it
+2. Starts the tier-4 test VM if not already running (stops it when done)
+3. Runs tiers 1–4 (abort on any failure)
+4. **Tier 5 — install image detection**: checks for `tests/vm/arch-hyprconf.qcow2`; if found, displays its build date and commit, then prompts:
+   - **Use existing** — skip `install.sh` re-execution, run post-install validation (~fast)
+   - **Rebuild** — re-run Packer to exercise `install.sh` end-to-end (~20 min)
+   - If no image exists, builds automatically (no prompt)
+5. Starts the tier-5 VM on port 2223 via COW overlay; stops it on exit
+6. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
+7. Builds a filtered commit on top of `origin/mainline` (dev-only paths excluded) and pushes it
 
 Paths excluded from mainline: `tests/` `pyproject.toml` `AGENTS.md` `.github/` `Makefile`
 

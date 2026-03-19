@@ -17,4 +17,14 @@ SSH_PUBKEY="$(cat "${SSH_KEY}.pub")"
 packer init arch.pkr.hcl
 packer build -force -var "ssh_pubkey=${SSH_PUBKEY}" arch.pkr.hcl
 mv output-arch/arch-hyprconf.qcow2 ../vm/arch-hyprconf.qcow2
+
+# Write build metadata alongside the image so scripts/publish can display it.
+_GIT_COMMIT="$(git -C ../.. rev-parse --short HEAD 2>/dev/null || echo unknown)"
+_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+cat > ../vm/arch-hyprconf.meta <<EOF
+built_at=${_BUILT_AT}
+git_commit=${_GIT_COMMIT}
+EOF
+
 echo "Image built and moved to tests/vm/arch-hyprconf.qcow2"
+echo "Metadata: built_at=${_BUILT_AT}, git_commit=${_GIT_COMMIT}"
