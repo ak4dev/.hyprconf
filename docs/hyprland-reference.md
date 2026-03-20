@@ -156,7 +156,7 @@ exec       = program  # Runs at startup AND on every `hyprctl reload`
 ```ini
 exec      = pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf
 exec      = pkill waybar; waybar -c ~/.config/waybar/waybar.jsonc
-exec-once = /usr/lib/polkit-kde-authentication-agent-1
+exec-once = systemctl --user start hyprpolkitagent
 exec-once = hypridle
 exec      = wl-paste --type text --watch cliphist store
 exec      = wl-paste --type image --watch cliphist store

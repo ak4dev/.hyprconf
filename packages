@@ -29,7 +29,7 @@ kwallet
 kwallet-pam
 
 # Polkit authentication agent
-polkit-kde-agent
+hyprpolkitagent
 
 # Media & input
 playerctl

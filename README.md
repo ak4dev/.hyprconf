@@ -384,7 +384,7 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | Hyprland | `hyprland`, `hyprpaper`, `hyprshot`, `hyprlock`, `hypridle`, `xdg-desktop-portal-hyprland` |
 | Audio | `pipewire`, `pipewire-pulse`, `pipewire-alsa`, `wireplumber`, `pavucontrol` |
 | KDE Wallet | `kwallet`, `kwallet-pam` |
-| Polkit | `polkit-kde-agent` |
+| Polkit | `hyprpolkitagent` |
 | Terminal & shell | `kitty`, `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, `fastfetch` |
 | Bar / Launcher | `waybar`, `hyprlauncher` |
 | Notifications | `dunst` |
