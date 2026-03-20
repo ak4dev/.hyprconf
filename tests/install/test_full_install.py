@@ -19,7 +19,8 @@ Prerequisites:
        pytest tests/install/ --run-install -v
 
 ``scripts/publish`` handles steps 1–3 automatically, including an interactive
-prompt to reuse an existing image or rebuild from scratch.
+prompt to reuse an existing image or rebuild from scratch before promoting the
+release to ``stable``.
 """
 from __future__ import annotations
 

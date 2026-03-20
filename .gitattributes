@@ -1,0 +1,6 @@
+tests/ export-ignore
+scripts/ export-ignore
+.github/ export-ignore
+AGENTS.md export-ignore
+Makefile export-ignore
+pyproject.toml export-ignore

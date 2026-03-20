@@ -26,3 +26,6 @@ tests/vm/OVMF_VARS.4m.fd
 tests/vm/OVMF_VARS_install.4m.fd
 tests/vm/arch-hyprconf-install-overlay.qcow2
 tests/install/output-arch/
+
+# Release artefacts
+dist/

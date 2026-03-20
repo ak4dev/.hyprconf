@@ -69,7 +69,7 @@ Prompts for username, password, hostname, timezone (auto-detected), network conf
 
 ### [2] Dotfiles only *(existing Arch system)*
 
-Clones the repo and runs `setup.sh`:
+Clones the repo from the stable release branch using a sparse checkout and runs `setup.sh`:
 
 1. System update + package install from `packages`
 2. Create required directories
@@ -91,6 +91,8 @@ hyprconf sync     # pull, re-stow, re-apply services, reload Hyprland
 hyprconf repair   # fix stow tree, broken symlinks, Python imports, monitors.conf
 hyprsync          # backward-compatible alias for hyprconf sync
 ```
+
+`hyprconf sync` keeps normal user installs on the sparse `stable` checkout. During migration, clean legacy `mainline` clones are re-pointed to `stable` automatically.
 
 ---
 
@@ -117,7 +119,7 @@ hyprsync          # backward-compatible alias for hyprconf sync
 │   └── install.sh            # Self-contained installer (served from CloudFront)
 │
 ├── scripts/
-│   └── publish               # Run tests, deploy, push filtered dev → mainline
+│   └── publish               # Run tests, deploy, promote dev → stable, build release archive
 │
 └── stow/                     # GNU Stow packages — symlinked into $HOME
     ├── hypr/
@@ -587,11 +589,12 @@ make build-vm-image  # runs build_image.sh
 | Branch | Purpose |
 |--------|---------|
 | `dev` | All active development — tests, docs, scripts, configs |
-| `mainline` | Public-facing snapshot — dev-only paths stripped |
+| `stable` | Release-ready source branch with normal shared git history |
+| `mainline` | Temporary compatibility mirror of `stable` during migration |
 
-`mainline` is the default branch and what users clone. It never contains `tests/`, `scripts/`, `AGENTS.md`, `.github/`, `Makefile`, or `pyproject.toml`. All work happens on `dev`; the `scripts/publish` script produces and pushes the filtered mainline snapshot.
+The long-term model is `dev` → `stable` with shared history. User installs no longer depend on a filtered branch; they use a sparse checkout of `stable`, and release archives are exported from the same commit. `mainline` remains only as a migration bridge and mirrors `stable` while older installs are moved over.
 
-### Publishing to mainline
+### Publishing to stable
 
 ```bash
 bash scripts/publish
@@ -607,12 +610,17 @@ bash scripts/publish
    - If no image exists, builds automatically (no prompt)
 5. Starts the tier-5 VM on port 2223 via COW overlay; stops it on exit
 6. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
-7. Builds a filtered commit on top of `origin/mainline` (dev-only paths excluded) and pushes it
+7. Builds a filtered release archive from `HEAD` using `git archive` + `.gitattributes`
+8. Pushes `HEAD` to `origin/stable`
+9. Mirrors the same commit to `origin/mainline` during migration (unless disabled)
+10. Creates and pushes the annotated tag `v<hyprconf.__version__>` unless it already points at `HEAD`
 
-Paths excluded from mainline: `tests/` `scripts/` `pyproject.toml` `AGENTS.md` `.github/` `Makefile`
+Files excluded from the release archive: `tests/` `scripts/` `.github/` `AGENTS.md` `Makefile` `pyproject.toml`
 
 | Flag | Effect |
 |------|--------|
 | `--skip-tests` | Skip the test suite |
 | `--skip-deploy` | Skip the deploy step |
-| `--dry-run` | Build the filtered commit but do not push |
+| `--skip-tag` | Skip annotated release-tag creation |
+| `--skip-compat` | Do not mirror `stable` to `mainline` |
+| `--dry-run` | Build the release archive locally but do not push branches/tags |

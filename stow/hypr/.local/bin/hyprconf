@@ -110,7 +110,7 @@ usage() {
   printf "  hyprconf dev                     Show developer pipeline commands\n"
   printf "  hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]\n"
   printf "  hyprconf dev vm [start|stop|stop-all|build|status]\n"
-  printf "  hyprconf dev publish             Full pipeline: tests → deploy → mainline push\n"
+  printf "  hyprconf dev publish             Full pipeline: tests → deploy → stable promote\n"
   printf "\n${_b}General${_r}\n"
   printf "  hyprconf help                    Show this message\n"
 }
@@ -1298,7 +1298,7 @@ _dev_usage() {
   printf "  hyprconf dev vm build               Build VM image via Packer (~20 min)\n"
   printf "  hyprconf dev vm status              Show VM and image status\n"
   printf "\n${_b}Publish${_r}\n"
-  printf "  hyprconf dev publish                Full pipeline: tests → deploy → mainline push\n"
+  printf "  hyprconf dev publish                Full pipeline: tests → deploy → stable promote\n"
 }
 
 cmd_dev() {
@@ -1351,4 +1351,3 @@ main() {
 }
 
 main "$@"
-

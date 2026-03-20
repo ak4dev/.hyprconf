@@ -16,9 +16,10 @@ SSH_PUBKEY="$(cat "${SSH_KEY}.pub")"
 
 # Bundle the current repo as a tar so Packer can upload it directly.
 # install.sh will extract this instead of cloning from GitHub, eliminating
-# the QEMU network dependency and testing the exact code under development.
+# the QEMU network dependency and testing the same export-ignored payload that
+# stable installs consume.
 echo "Bundling repo from HEAD..."
-git -C ../.. archive --format=tar.gz --prefix=".hyprconf/" HEAD \
+git -C ../.. archive --worktree-attributes --format=tar.gz --prefix=".hyprconf/" HEAD \
   > /tmp/hyprconf-packer-repo.tar.gz
 echo "Repo bundled to /tmp/hyprconf-packer-repo.tar.gz ($(du -sh /tmp/hyprconf-packer-repo.tar.gz | cut -f1))"
 

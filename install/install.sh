@@ -21,8 +21,20 @@ set -euo pipefail
 
 readonly REPO_URL="https://github.com/ak4dev/.hyprconf"
 readonly REPO_DIR="$HOME/.hyprconf"
+readonly REPO_STABLE_BRANCH="stable"
+readonly REPO_COMPAT_BRANCH="mainline"
 readonly LUKS_NAME="cryptroot"
 readonly BTRFS_OPTS="noatime,compress=zstd,space_cache=v2"
+declare -ra REPO_SPARSE_PATHS=(
+  README.md
+  assets
+  docs
+  infra
+  install
+  packages
+  setup.sh
+  stow
+)
 
 # Collected during prompts — must remain mutable (not readonly)
 DISK=""
@@ -68,6 +80,66 @@ log_ok()   { printf '%s  ✔ %s%s%s\n'        "$GR" "$WH" "$1" "$RS"; }
 log_warn() { printf '%s  ! %s%s%s\n'        "$AM" "$WH" "$1" "$RS"; }
 log_info() { printf '%s  · %s%s%s\n'        "$DM" "$WH" "$1" "$RS"; }
 log_die()  { printf '%s  ✘ FATAL: %s%s%s\n' "$GL" "$WH" "$1" "$RS" >&2; exit 1; }
+
+apply_sparse_checkout() {
+  git -C "$REPO_DIR" sparse-checkout init --cone >/dev/null 2>&1 || true
+  git -C "$REPO_DIR" sparse-checkout set "${REPO_SPARSE_PATHS[@]}" >/dev/null
+}
+
+remote_branch_exists() {
+  local branch="$1"
+  git -C "$REPO_DIR" show-ref --verify --quiet "refs/remotes/origin/${branch}"
+}
+
+maybe_migrate_repo_to_stable() {
+  local current_branch upstream
+
+  git -C "$REPO_DIR" fetch --quiet origin \
+    "$REPO_STABLE_BRANCH" "$REPO_COMPAT_BRANCH" 2>/dev/null || true
+
+  current_branch="$(git -C "$REPO_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  upstream="$(git -C "$REPO_DIR" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
+
+  if [[ "$current_branch" == "dev" || "$upstream" == "origin/dev" ]]; then
+    return 0
+  fi
+
+  if [[ "$current_branch" == "$REPO_COMPAT_BRANCH" ]] \
+    && remote_branch_exists "$REPO_STABLE_BRANCH"; then
+    if [[ -n "$(git -C "$REPO_DIR" status --porcelain)" ]]; then
+      log_warn "Local changes detected — leaving branch on ${REPO_COMPAT_BRANCH} for now."
+      return 0
+    fi
+
+    log_step "Migrating repo checkout from ${REPO_COMPAT_BRANCH} to ${REPO_STABLE_BRANCH}..."
+    if git -C "$REPO_DIR" checkout -B "$REPO_STABLE_BRANCH" \
+      "origin/${REPO_STABLE_BRANCH}" >/dev/null 2>&1; then
+      git -C "$REPO_DIR" branch \
+        --set-upstream-to="origin/${REPO_STABLE_BRANCH}" \
+        "$REPO_STABLE_BRANCH" >/dev/null 2>&1 || true
+      log_ok "Now tracking ${REPO_STABLE_BRANCH}."
+    else
+      log_warn "Could not switch to ${REPO_STABLE_BRANCH} — staying on ${REPO_COMPAT_BRANCH}."
+    fi
+  fi
+}
+
+clone_repo_branch() {
+  local branch="$1"
+  git clone --depth=1 --single-branch --branch "$branch" --sparse "$REPO_URL" "$REPO_DIR"
+  apply_sparse_checkout
+}
+
+clone_preferred_repo() {
+  if clone_repo_branch "$REPO_STABLE_BRANCH"; then
+    return 0
+  fi
+
+  rm -rf "$REPO_DIR"
+  log_warn "${REPO_STABLE_BRANCH} is unavailable — falling back to ${REPO_COMPAT_BRANCH}."
+  clone_repo_branch "$REPO_COMPAT_BRANCH" \
+    || log_die "Clone failed. Check your network connection."
+}
 
 # ── Banner ────────────────────────────────────────────────────────────────────
 print_banner() {
@@ -1145,7 +1217,15 @@ run_setup_in_chroot() {
   else
     log_step "Cloning dotfiles repo into /home/${USERNAME}/.hyprconf ..."
     arch-chroot /mnt /bin/bash -c "
-      git clone --depth=1 '${REPO_URL}' /home/${USERNAME}/.hyprconf
+      if git clone --depth=1 --single-branch --branch '${REPO_STABLE_BRANCH}' --sparse '${REPO_URL}' /home/${USERNAME}/.hyprconf; then
+        git -C /home/${USERNAME}/.hyprconf sparse-checkout init --cone >/dev/null 2>&1 || true
+        git -C /home/${USERNAME}/.hyprconf sparse-checkout set README.md assets docs infra install packages setup.sh stow >/dev/null
+      else
+        rm -rf /home/${USERNAME}/.hyprconf
+        git clone --depth=1 --single-branch --branch '${REPO_COMPAT_BRANCH}' --sparse '${REPO_URL}' /home/${USERNAME}/.hyprconf
+        git -C /home/${USERNAME}/.hyprconf sparse-checkout init --cone >/dev/null 2>&1 || true
+        git -C /home/${USERNAME}/.hyprconf sparse-checkout set README.md assets docs infra install packages setup.sh stow >/dev/null
+      fi
       chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.hyprconf
     "
     log_ok "Repo cloned."
@@ -1240,13 +1320,14 @@ ensure_git() {
 
 get_repo() {
   if [[ -d "$REPO_DIR/.git" ]]; then
+    maybe_migrate_repo_to_stable
     log_step "Existing repo found — pulling latest..."
     git -C "$REPO_DIR" pull --ff-only \
       || log_warn "Fast-forward failed — continuing with existing files."
+    apply_sparse_checkout
   else
     log_step "Cloning $REPO_URL → $REPO_DIR ..."
-    git clone --depth=1 "$REPO_URL" "$REPO_DIR" \
-      || log_die "Clone failed. Check your network connection."
+    clone_preferred_repo
   fi
   log_ok "Repository ready."
 }
@@ -1308,13 +1389,14 @@ binary_install() {
 
   # Clone or update repo
   if [[ -d "$REPO_DIR/.git" ]]; then
+    maybe_migrate_repo_to_stable
     log_step "Existing repo found — pulling latest..."
     git -C "$REPO_DIR" pull --ff-only \
       || log_warn "Fast-forward failed — continuing with existing files."
+    apply_sparse_checkout
   else
     log_step "Cloning $REPO_URL → $REPO_DIR ..."
-    git clone --depth=1 "$REPO_URL" "$REPO_DIR" \
-      || log_die "Clone failed. Check your network connection."
+    clone_preferred_repo
   fi
   log_ok "Repository ready."
 

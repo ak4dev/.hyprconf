@@ -15,12 +15,25 @@ log_warn() { printf '%s  ! %s%s%s\n'        "$AM" "$WH" "$1" "$RS"; }
 log_die()  { printf '%s  ✘ FATAL: %s%s%s\n' "$GL" "$WH" "$1" "$RS" >&2; exit 1; }
 
 readonly HYPRCONF_DIR="$HOME/.hyprconf"
+readonly HYPRCONF_REPO_URL="https://github.com/ak4dev/.hyprconf"
+readonly HYPRCONF_STABLE_BRANCH="stable"
+readonly HYPRCONF_COMPAT_BRANCH="mainline"
 readonly STOW_DIR="$HYPRCONF_DIR/stow"
 readonly ZSHRC="$HOME/.zshrc"
 readonly ZSHENV="$HOME/.zshenv"
 # Powerlevel10k must live inside OMZ's custom themes dir so that
 # ZSH_THEME="powerlevel10k/powerlevel10k" resolves without error.
 readonly P10K_DIR="${HOME}/.oh-my-zsh/custom/themes/powerlevel10k"
+declare -ra HYPRCONF_SPARSE_PATHS=(
+    README.md
+    assets
+    docs
+    infra
+    install
+    packages
+    setup.sh
+    stow
+)
 
 # True when setup.sh is invoked by install.sh inside a chroot (no live systemd).
 _in_chroot() { [[ "${HYPRCONF_CHROOT:-0}" == "1" ]]; }
@@ -152,17 +165,71 @@ EOF
     log_ok "Directories ready."
 }
 
+_apply_repo_sparse_checkout() {
+    git -C "$HYPRCONF_DIR" sparse-checkout init --cone >/dev/null 2>&1 || true
+    git -C "$HYPRCONF_DIR" sparse-checkout set "${HYPRCONF_SPARSE_PATHS[@]}" >/dev/null
+}
+
+_clone_repo_branch() {
+    local branch="$1"
+    git clone --depth=1 --single-branch --branch "$branch" --sparse \
+        "$HYPRCONF_REPO_URL" "$HYPRCONF_DIR"
+    _apply_repo_sparse_checkout
+}
+
+_remote_branch_exists() {
+    local branch="$1"
+    git -C "$HYPRCONF_DIR" show-ref --verify --quiet "refs/remotes/origin/${branch}"
+}
+
 clone_or_update_repo() {
     if [ ! -d "$HYPRCONF_DIR/.git" ]; then
         log_step "Cloning hyprconf repo..."
-        git clone https://github.com/ak4dev/.hyprconf "$HYPRCONF_DIR"
+        if _clone_repo_branch "$HYPRCONF_STABLE_BRANCH"; then
+            log_ok "Repository ready (${HYPRCONF_STABLE_BRANCH}, sparse checkout)."
+            return 0
+        fi
+
+        log_warn "${HYPRCONF_STABLE_BRANCH} is unavailable — falling back to ${HYPRCONF_COMPAT_BRANCH}."
+        _clone_repo_branch "$HYPRCONF_COMPAT_BRANCH" \
+            || log_die "Could not clone ${HYPRCONF_REPO_URL}."
         log_ok "Repository ready."
     else
         # Skip pull when no upstream tracking branch is configured (e.g. CI /
         # Packer builds where the repo was seeded from a git archive bundle).
         # The bundle-based _sync_vm_to_dev step keeps the VM repo current.
+        git -C "$HYPRCONF_DIR" fetch --quiet origin \
+            "$HYPRCONF_STABLE_BRANCH" "$HYPRCONF_COMPAT_BRANCH" 2>/dev/null || true
+
+        local current_branch
         local upstream
+        current_branch="$(git -C "$HYPRCONF_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
         upstream="$(git -C "$HYPRCONF_DIR" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
+
+        if [[ "$current_branch" != "dev" && "$upstream" != "origin/dev" ]]; then
+            if [[ "$current_branch" == "$HYPRCONF_COMPAT_BRANCH" ]] \
+                && _remote_branch_exists "$HYPRCONF_STABLE_BRANCH"; then
+                if [[ -z "$(git -C "$HYPRCONF_DIR" status --porcelain)" ]]; then
+                    log_step "Migrating repo checkout from ${HYPRCONF_COMPAT_BRANCH} to ${HYPRCONF_STABLE_BRANCH}..."
+                    if git -C "$HYPRCONF_DIR" checkout -B "$HYPRCONF_STABLE_BRANCH" \
+                        "origin/${HYPRCONF_STABLE_BRANCH}" >/dev/null 2>&1; then
+                        git -C "$HYPRCONF_DIR" branch \
+                            --set-upstream-to="origin/${HYPRCONF_STABLE_BRANCH}" \
+                            "$HYPRCONF_STABLE_BRANCH" >/dev/null 2>&1 || true
+                        current_branch="$HYPRCONF_STABLE_BRANCH"
+                        upstream="origin/${HYPRCONF_STABLE_BRANCH}"
+                        log_ok "Now tracking ${HYPRCONF_STABLE_BRANCH}."
+                    else
+                        log_warn "Could not switch to ${HYPRCONF_STABLE_BRANCH} — staying on ${HYPRCONF_COMPAT_BRANCH}."
+                    fi
+                else
+                    log_warn "Local changes detected — leaving branch on ${HYPRCONF_COMPAT_BRANCH} for now."
+                fi
+            fi
+
+            _apply_repo_sparse_checkout
+        fi
+
         if [[ -n "$upstream" ]]; then
             log_step "Updating hyprconf repo..."
             git -C "$HYPRCONF_DIR" pull --ff-only \
