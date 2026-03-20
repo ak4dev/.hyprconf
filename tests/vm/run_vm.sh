@@ -48,11 +48,11 @@ _wait_for_ssh() {
                 -i "${SSH_KEY}" \
                 -p "${SSH_PORT}" hyprtest@127.0.0.1 echo ok 2>/dev/null; do
         attempts=$((attempts + 1))
-        if (( attempts > 40 )); then
-            echo "ERROR: VM did not become reachable within 2 minutes." >&2
+        if (( attempts > 80 )); then
+            echo "ERROR: VM did not become reachable within 7 minutes." >&2
             exit 1
         fi
-        sleep 3
+        sleep 5
     done
     echo "VM is reachable."
 }
