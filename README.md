@@ -35,6 +35,7 @@
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 44 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, and wallpaper
+- **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
 - **Cloud deploy** — serve your own install endpoint via `hyprconf deploy` (S3 + CloudFront + ACM + Route53)
 
@@ -77,10 +78,11 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 4. `~/.zshrc` (plugins, aliases, fastfetch greeting) + `~/.zprofile` (Hyprland auto-start on TTY1)
 5. Stow all packages into `$HOME`
 6. VS Code theme extensions + Firefox extension payloads
-7. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
-8. `ufw` deny-inbound / allow-outbound; enable + start
-9. Disable `sddm`; enable `NetworkManager`, `bluetooth`, `power-profiles-daemon`
-10. Reload Hyprland
+7. Firefox enterprise policies (`/etc/firefox/policies/policies.json`): telemetry disabled, uBlock Origin installed
+8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
+9. `ufw` deny-inbound / allow-outbound; enable + start
+10. Disable `sddm`; enable `NetworkManager`, `bluetooth`, `power-profiles-daemon`
+11. Reload Hyprland
 
 > **AUR dependency:** `bibata-cursor-theme` must be installed manually: `yay -S bibata-cursor-theme`
 
@@ -164,6 +166,9 @@ hyprsync          # backward-compatible alias for hyprconf sync
     └── theme/                  # Vendor extension payloads (not stowed)
         ├── firefox/extensions/
         └── .vscode-oss/extensions/
+├── infra/
+│   ├── firefox/policies.json   # Enterprise policies (telemetry off, uBlock Origin)
+│   └── ...                     # Deploy / VM infra scripts
 ```
 
 ---

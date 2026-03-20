@@ -679,6 +679,22 @@ EOF
     fi
 }
 
+setup_firefox() {
+    local policies_src="$HYPRCONF_DIR/infra/firefox/policies.json"
+    local policies_dir="/etc/firefox/policies"
+    local policies_dst="$policies_dir/policies.json"
+
+    if [[ ! -f "$policies_src" ]]; then
+        log_warn "Firefox policies source not found ($policies_src) — skipping."
+        return
+    fi
+
+    log_step "Installing Firefox policies (privacy defaults + uBlock Origin)..."
+    sudo mkdir -p "$policies_dir"
+    sudo cp "$policies_src" "$policies_dst"
+    log_ok "Firefox policies installed at $policies_dst."
+}
+
 enable_services() {
     log_step "Configuring firewall (ufw)..."
     if _in_chroot; then
@@ -819,6 +835,7 @@ main() {
         update_zshenv
         configure_zprofile
         seed_hicolor_index
+        setup_firefox
         sync_services
         reload_hyprland
 
@@ -883,6 +900,7 @@ main() {
     purge_broken_symlinks
     stow_all_packages || true
     seed_hicolor_index
+    setup_firefox
     enable_services
     sync_services
     reload_hyprland

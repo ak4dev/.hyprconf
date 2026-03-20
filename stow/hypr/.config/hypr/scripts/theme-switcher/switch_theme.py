@@ -69,9 +69,11 @@ HYPRLOCK_CONFIG_FILE   = os.path.expanduser("~/.config/hypr/hyprlock.conf")
 STATE_FILE             = os.path.expanduser("~/.config/hypr/.current-theme")
 
 FIREFOX_ENFORCED_PREFS = {
+    # --- UI ---
     "browser.tabs.verticalTabs": True,
     "browser.tabs.verticalTabs.showPinnedTabs": True,
     "browser.tabs.drawInTitlebar": True,
+    # --- Core telemetry ---
     "toolkit.telemetry.enabled": False,
     "toolkit.telemetry.unified": False,
     "toolkit.telemetry.archive.enabled": False,
@@ -79,8 +81,10 @@ FIREFOX_ENFORCED_PREFS = {
     "toolkit.telemetry.server": "data:,",
     "datareporting.healthreport.uploadEnabled": False,
     "datareporting.policy.dataSubmissionEnabled": False,
+    # --- Studies / experiments ---
     "app.shield.optoutstudies.enabled": False,
     "app.normandy.enabled": False,
+    # --- Sponsored / discovery content ---
     "browser.discovery.enabled": False,
     "browser.newtabpage.activity-stream.showSponsored": False,
     "browser.newtabpage.activity-stream.showSponsoredTopSites": False,
@@ -89,6 +93,32 @@ FIREFOX_ENFORCED_PREFS = {
     "browser.newtabpage.activity-stream.feeds.telemetry": False,
     "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.addons": False,
     "browser.newtabpage.activity-stream.asrouter.userprefs.cfr.features": False,
+    # --- Crash reporting ---
+    "browser.tabs.crashReporting.sendReport": False,
+    "browser.crashReports.unsubmittedCheck.enabled": False,
+    "browser.crashReports.unsubmittedCheck.autoSubmit2": False,
+    # --- Pocket ---
+    "extensions.pocket.enabled": False,
+    # --- Geolocation ---
+    "geo.enabled": False,
+    # --- Network probing ---
+    "network.captive-portal-detection.enabled": False,
+    "network.connectivity-service.enabled": False,
+    # --- Prefetching / speculative connections ---
+    "network.prefetch-next": False,
+    "network.dns.disablePrefetch": True,
+    "browser.urlbar.speculativeConnect.enabled": False,
+    # --- Hyperlink pings and beacons ---
+    "browser.send_pings": False,
+    "beacon.enabled": False,
+    # --- Safe browsing remote lookups ---
+    "browser.safebrowsing.malware.enabled": False,
+    "browser.safebrowsing.phishing.enabled": False,
+    "browser.safebrowsing.downloads.enabled": False,
+    "browser.safebrowsing.downloads.remote.enabled": False,
+    # --- Tracking protection ---
+    "privacy.trackingprotection.enabled": True,
+    "privacy.trackingprotection.socialtracking.enabled": True,
 }
 
 def is_dark_color(hex_color: str) -> bool:
