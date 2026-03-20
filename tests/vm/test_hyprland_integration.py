@@ -632,3 +632,70 @@ def test_display_unknown_subcommand_exits_nonzero(vm: VMClient) -> None:
     result = vm.run("hyprconf display unknown-sub 2>&1", check=False)
     assert result.returncode != 0
     assert "unknown" in result.stdout.lower() or "unknown" in result.stderr.lower()
+
+
+# ---------------------------------------------------------------------------
+# Branch model — dev → stable release model
+# ---------------------------------------------------------------------------
+
+@pytest.mark.vm
+def test_repo_has_stable_remote_ref(vm: VMClient) -> None:
+    """VM bundle includes origin/stable for branch-migration support.
+
+    run_vm.sh bundles the stable branch alongside dev so that
+    hyprconf sync's mainline→stable migration path can be tested in the VM.
+    If this test fails, rebuild the VM with the updated run_vm.sh.
+    """
+    result = vm.run(
+        "git -C ~/.hyprconf show-ref --verify refs/remotes/origin/stable 2>&1",
+        check=False,
+    )
+    assert result.returncode == 0, (
+        "origin/stable not found in VM repo. "
+        "Re-run: bash tests/vm/run_vm.sh --wait  (updated to bundle stable)"
+    )
+
+
+@pytest.mark.vm
+def test_sync_migrates_mainline_to_stable(vm: VMClient) -> None:
+    """hyprconf sync auto-migrates a legacy mainline checkout to stable.
+
+    Simulates an old-model install (tracking mainline) and verifies that
+    running hyprconf sync transparently switches the repo to the stable branch.
+    """
+    # Skip if origin/stable is not visible from inside the VM.
+    probe = vm.run(
+        "git -C ~/.hyprconf show-ref --verify --quiet refs/remotes/origin/stable 2>&1; echo $?",
+        check=False,
+    )
+    if probe.stdout.strip() != "0":
+        pytest.skip(
+            "origin/stable not in VM bundle — "
+            "re-run: bash tests/vm/run_vm.sh --wait"
+        )
+
+    # Set up: switch VM repo to a local 'mainline' branch tracking origin/dev.
+    # This simulates a user install that was cloned from the old mainline branch.
+    setup = vm.run(
+        "git -C ~/.hyprconf checkout -B mainline HEAD 2>&1 "
+        "&& git -C ~/.hyprconf branch --set-upstream-to=origin/dev mainline 2>&1",
+        check=False,
+    )
+    assert setup.returncode == 0, f"Could not set up mainline branch: {setup.stdout}"
+
+    try:
+        sync = vm.run("hyprconf sync --no-reload 2>&1", check=False)
+        assert sync.returncode == 0, f"hyprconf sync failed: {sync.stdout}"
+
+        branch = vm.run(
+            "git -C ~/.hyprconf rev-parse --abbrev-ref HEAD 2>&1",
+            check=False,
+        )
+        assert branch.stdout.strip() == "stable", (
+            f"Expected repo on 'stable' after migration, "
+            f"got: {branch.stdout.strip()!r}\n"
+            f"sync output:\n{sync.stdout}"
+        )
+    finally:
+        # Restore dev so subsequent tests run against the expected codebase.
+        vm.run("git -C ~/.hyprconf checkout dev 2>&1", check=False)

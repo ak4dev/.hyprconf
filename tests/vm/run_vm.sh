@@ -61,14 +61,35 @@ _wait_for_ssh() {
 # (which runs 'git restore .') restores to the current dev codebase.
 # Uses a git bundle pushed host→VM to avoid any outbound network from the VM
 # (QEMU SLiRP NAT cannot reach external hosts reliably).
+# The bundle also includes origin/stable (when available) so that hyprconf
+# sync's mainline→stable migration path is exercisable in VM tests.
 _sync_vm_to_dev() {
     echo "Syncing VM repo to origin/dev..."
     local repo_root bundle
     repo_root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
     bundle="/tmp/hyprconf-vm-sync.bundle"
 
-    # Bundle current HEAD + the dev ref so 'git clone' checks out dev.
-    git -C "${repo_root}" bundle create "${bundle}" HEAD refs/heads/dev
+    # Temporarily create a local stable branch from origin/stable so it can be
+    # included in the bundle.  This gives the VM's clone a visible origin/stable
+    # remote-tracking branch, enabling the mainline→stable migration test.
+    local _created_stable=false
+    if git -C "${repo_root}" show-ref --quiet refs/remotes/origin/stable 2>/dev/null \
+       && ! git -C "${repo_root}" show-ref --quiet refs/heads/stable 2>/dev/null; then
+        git -C "${repo_root}" branch stable origin/stable --quiet 2>/dev/null \
+            && _created_stable=true
+    fi
+
+    # Bundle dev + stable (if available) so 'git clone' checks out dev.
+    if git -C "${repo_root}" show-ref --quiet refs/heads/stable 2>/dev/null; then
+        git -C "${repo_root}" bundle create "${bundle}" HEAD refs/heads/dev refs/heads/stable
+    else
+        git -C "${repo_root}" bundle create "${bundle}" HEAD refs/heads/dev
+    fi
+
+    # Remove the temp local stable branch (only if we just created it).
+    if [[ "$_created_stable" == true ]]; then
+        git -C "${repo_root}" branch -d stable --quiet 2>/dev/null || true
+    fi
 
     # Push bundle to VM.
     scp -q \

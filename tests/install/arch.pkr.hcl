@@ -103,8 +103,9 @@ build {
 
   # Upload the current repo as a tar so install.sh doesn't need to clone from
   # GitHub inside the VM. build_image.sh creates this via 'git archive'.
-  # This eliminates the QEMU network dependency and ensures the exact code
-  # being tested is installed — not whatever happens to be on origin/mainline.
+  # This eliminates the QEMU network dependency and ensures the exact export-
+  # ignored payload under test is installed — not whatever happens to be on
+  # origin/stable at build time.
   provisioner "file" {
     source      = "/tmp/hyprconf-packer-repo.tar.gz"
     destination = "/tmp/hyprconf-repo.tar.gz"
