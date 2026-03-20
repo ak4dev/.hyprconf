@@ -150,3 +150,26 @@ def test_publish_dry_run_succeeds() -> None:
     assert dist_archives, (
         "No hyprconf-*.tar.gz found in dist/ after --dry-run"
     )
+
+
+def test_publish_script_updates_local_stable_branch() -> None:
+    """scripts/publish must update the local stable branch after pushing to origin.
+
+    Previously, publish only ran ``git push origin HEAD:stable`` which updated
+    the remote ref but left the local ``stable`` branch at its old position,
+    causing ``local stable`` and ``origin/stable`` to diverge after every
+    release.  The fix adds ``git branch -f stable HEAD`` immediately after the
+    push.
+    """
+    text = (REPO_ROOT / "scripts" / "publish").read_text()
+    # The fix must appear: force-move the local stable branch after the push.
+    assert "git branch -f" in text, (
+        "scripts/publish must run 'git branch -f <stable> HEAD' after pushing "
+        "to origin/stable to keep the local branch in sync"
+    )
+    # Specifically it must update the stable branch, not some other branch.
+    import re
+    assert re.search(r'git branch -f[^"]*"?\$\{?STABLE_BRANCH\}?"?\s+HEAD', text), (
+        "scripts/publish must force-move the local stable branch to HEAD "
+        "after 'git push origin HEAD:stable'"
+    )

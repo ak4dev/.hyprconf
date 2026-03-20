@@ -280,6 +280,7 @@ dev_sha="$(git rev-parse HEAD)"
 
 step "Promoting dev to origin/${STABLE_BRANCH}"
 git push origin HEAD:"${STABLE_BRANCH}"
+git branch -f "${STABLE_BRANCH}" HEAD
 ok "origin/${STABLE_BRANCH} updated → ${dev_sha:0:7}"
 
 if [[ "$SKIP_COMPAT" == false ]]; then
