@@ -166,8 +166,8 @@ EOF
 }
 
 _apply_repo_sparse_checkout() {
-    git -C "$HYPRCONF_DIR" sparse-checkout init --cone >/dev/null 2>&1 || true
-    git -C "$HYPRCONF_DIR" sparse-checkout set "${HYPRCONF_SPARSE_PATHS[@]}" >/dev/null 2>&1 || true
+    git -C "$HYPRCONF_DIR" sparse-checkout init --no-cone >/dev/null 2>&1 || true
+    git -C "$HYPRCONF_DIR" sparse-checkout set "${HYPRCONF_SPARSE_PATHS[@]}" >/dev/null
 }
 
 _clone_repo_branch() {

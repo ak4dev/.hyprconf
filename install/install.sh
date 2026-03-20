@@ -82,7 +82,7 @@ log_info() { printf '%s  · %s%s%s\n'        "$DM" "$WH" "$1" "$RS"; }
 log_die()  { printf '%s  ✘ FATAL: %s%s%s\n' "$GL" "$WH" "$1" "$RS" >&2; exit 1; }
 
 apply_sparse_checkout() {
-  git -C "$REPO_DIR" sparse-checkout init --cone >/dev/null 2>&1 || true
+  git -C "$REPO_DIR" sparse-checkout init --no-cone >/dev/null 2>&1 || true
   git -C "$REPO_DIR" sparse-checkout set "${REPO_SPARSE_PATHS[@]}" >/dev/null
 }
 

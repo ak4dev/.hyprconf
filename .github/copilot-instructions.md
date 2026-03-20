@@ -98,6 +98,13 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 - When adding a new theme, add its name (and palette concept for `ai:` themes) to the themes tables in `README.md`.
 - New CLI flags: `--current`, `--next`, `--prev`, `--random`, `--wofi`, `--filter`, `--no-reload`.
 
+## Testing Rules (Non-Negotiable)
+
+- **100% test coverage is required for all new or modified code.** Before committing any change, write tests that exercise every new code path and every modified branch. Run `make test` and verify coverage does not decrease.
+- **Never modify existing tests without explicit user notification and confirmation.** Tests are the safety net for all features. Silently changing a test to make it pass defeats its purpose. If a test needs to change, stop, explain why to the user, and get approval first.
+- When adding a new feature (script, function, CLI command, config path), add corresponding tests in the appropriate `tests/` tier (`unit/`, `integration/`, `vm/`, or `install/`).
+- Test files live under `tests/`. Run the full suite with `make test`.
+
 ## Scripts
 
 - All scripts must use `#!/usr/bin/env bash` and `set -euo pipefail`.
