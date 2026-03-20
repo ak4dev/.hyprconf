@@ -206,27 +206,30 @@ clone_or_update_repo() {
         current_branch="$(git -C "$HYPRCONF_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
         upstream="$(git -C "$HYPRCONF_DIR" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
 
-        if [[ "$current_branch" != "dev" && "$upstream" != "origin/dev" ]]; then
-            if [[ "$current_branch" == "$HYPRCONF_COMPAT_BRANCH" ]] \
-                && _remote_branch_exists "$HYPRCONF_STABLE_BRANCH"; then
-                if [[ -z "$(git -C "$HYPRCONF_DIR" status --porcelain)" ]]; then
-                    log_step "Migrating repo checkout from ${HYPRCONF_COMPAT_BRANCH} to ${HYPRCONF_STABLE_BRANCH}..."
-                    if git -C "$HYPRCONF_DIR" checkout -B "$HYPRCONF_STABLE_BRANCH" \
-                        "origin/${HYPRCONF_STABLE_BRANCH}" >/dev/null 2>&1; then
-                        git -C "$HYPRCONF_DIR" branch \
-                            --set-upstream-to="origin/${HYPRCONF_STABLE_BRANCH}" \
-                            "$HYPRCONF_STABLE_BRANCH" >/dev/null 2>&1 || true
-                        current_branch="$HYPRCONF_STABLE_BRANCH"
-                        upstream="origin/${HYPRCONF_STABLE_BRANCH}"
-                        log_ok "Now tracking ${HYPRCONF_STABLE_BRANCH}."
-                    else
-                        log_warn "Could not switch to ${HYPRCONF_STABLE_BRANCH} — staying on ${HYPRCONF_COMPAT_BRANCH}."
-                    fi
+        # Mainline → stable migration runs unconditionally: it must fire even
+        # when upstream is still set to origin/dev (e.g. legacy installs where
+        # the mainline branch was tracking origin/dev instead of origin/mainline).
+        if [[ "$current_branch" == "$HYPRCONF_COMPAT_BRANCH" ]] \
+            && _remote_branch_exists "$HYPRCONF_STABLE_BRANCH"; then
+            if [[ -z "$(git -C "$HYPRCONF_DIR" status --porcelain)" ]]; then
+                log_step "Migrating repo checkout from ${HYPRCONF_COMPAT_BRANCH} to ${HYPRCONF_STABLE_BRANCH}..."
+                if git -C "$HYPRCONF_DIR" checkout -B "$HYPRCONF_STABLE_BRANCH" \
+                    "origin/${HYPRCONF_STABLE_BRANCH}" >/dev/null 2>&1; then
+                    git -C "$HYPRCONF_DIR" branch \
+                        --set-upstream-to="origin/${HYPRCONF_STABLE_BRANCH}" \
+                        "$HYPRCONF_STABLE_BRANCH" >/dev/null 2>&1 || true
+                    current_branch="$HYPRCONF_STABLE_BRANCH"
+                    upstream="origin/${HYPRCONF_STABLE_BRANCH}"
+                    log_ok "Now tracking ${HYPRCONF_STABLE_BRANCH}."
                 else
-                    log_warn "Local changes detected — leaving branch on ${HYPRCONF_COMPAT_BRANCH} for now."
+                    log_warn "Could not switch to ${HYPRCONF_STABLE_BRANCH} — staying on ${HYPRCONF_COMPAT_BRANCH}."
                 fi
+            else
+                log_warn "Local changes detected — leaving branch on ${HYPRCONF_COMPAT_BRANCH} for now."
             fi
+        fi
 
+        if [[ "$current_branch" != "dev" && "$upstream" != "origin/dev" ]]; then
             _apply_repo_sparse_checkout
         fi
 
