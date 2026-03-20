@@ -167,7 +167,7 @@ EOF
 
 _apply_repo_sparse_checkout() {
     git -C "$HYPRCONF_DIR" sparse-checkout init --cone >/dev/null 2>&1 || true
-    git -C "$HYPRCONF_DIR" sparse-checkout set "${HYPRCONF_SPARSE_PATHS[@]}" >/dev/null
+    git -C "$HYPRCONF_DIR" sparse-checkout set "${HYPRCONF_SPARSE_PATHS[@]}" >/dev/null 2>&1 || true
 }
 
 _clone_repo_branch() {
@@ -209,12 +209,15 @@ clone_or_update_repo() {
         # Mainline → stable migration runs unconditionally: it must fire even
         # when upstream is still set to origin/dev (e.g. legacy installs where
         # the mainline branch was tracking origin/dev instead of origin/mainline).
+        # IMPORTANT: use HEAD (not origin/stable) so we don't change the working
+        # tree — setup.sh is running FROM this directory, and checking out an
+        # older commit would replace it on disk mid-execution.
         if [[ "$current_branch" == "$HYPRCONF_COMPAT_BRANCH" ]] \
             && _remote_branch_exists "$HYPRCONF_STABLE_BRANCH"; then
             if [[ -z "$(git -C "$HYPRCONF_DIR" status --porcelain)" ]]; then
                 log_step "Migrating repo checkout from ${HYPRCONF_COMPAT_BRANCH} to ${HYPRCONF_STABLE_BRANCH}..."
-                if git -C "$HYPRCONF_DIR" checkout -B "$HYPRCONF_STABLE_BRANCH" \
-                    "origin/${HYPRCONF_STABLE_BRANCH}" >/dev/null 2>&1; then
+                if git -C "$HYPRCONF_DIR" checkout -B "$HYPRCONF_STABLE_BRANCH" HEAD \
+                    >/dev/null 2>&1; then
                     git -C "$HYPRCONF_DIR" branch \
                         --set-upstream-to="origin/${HYPRCONF_STABLE_BRANCH}" \
                         "$HYPRCONF_STABLE_BRANCH" >/dev/null 2>&1 || true
