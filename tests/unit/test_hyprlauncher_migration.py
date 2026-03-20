@@ -508,3 +508,87 @@ def test_hyprtoolkit_conf_not_in_stow() -> None:
         "stow/hypr/.config/hypr/hyprtoolkit.conf must not exist — "
         "it is generated at runtime by update_hyprtoolkit() and must not be a stow symlink"
     )
+
+
+# ── seed_hicolor_index ──────────────────────────────────────────────────────
+
+class TestSeedHicolorIndex:
+    """Tests for the seed_hicolor_index() function in setup.sh."""
+
+    SETUP_SH = REPO_ROOT / "setup.sh"
+
+    def test_seed_hicolor_index_function_exists(self) -> None:
+        """setup.sh must define seed_hicolor_index()."""
+        src = self.SETUP_SH.read_text()
+        assert "seed_hicolor_index()" in src
+
+    def _run_seed(self, tmp_path: "Path") -> "subprocess.CompletedProcess[str]":
+        """Extract seed_hicolor_index from setup.sh and run it in isolation."""
+        import subprocess, os, tempfile
+        # Extract just the function body + a stub for log_ok so no full source is needed
+        fn_script = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".sh", delete=False, dir=str(tmp_path)
+        )
+        fn_script.write("#!/usr/bin/env bash\nset -euo pipefail\n")
+        fn_script.write("log_ok() { :; }\n")
+        # awk: print lines from seed_hicolor_index() definition through its closing `}`
+        import subprocess as _sp
+        extract = _sp.run(
+            ["awk", "/^seed_hicolor_index\\(\\)/,/^\\}$/",
+             str(self.SETUP_SH)],
+            capture_output=True, text=True
+        )
+        fn_script.write(extract.stdout)
+        fn_script.write("\nseed_hicolor_index\n")
+        fn_script.flush()
+        env = {**os.environ, "HOME": str(tmp_path)}
+        return subprocess.run(
+            ["bash", fn_script.name], capture_output=True, text=True, env=env
+        )
+
+    def test_seed_hicolor_index_creates_index_theme(self, tmp_path: "Path") -> None:
+        """seed_hicolor_index() creates index.theme when missing."""
+        result = self._run_seed(tmp_path)
+        index = tmp_path / ".local" / "share" / "icons" / "hicolor" / "index.theme"
+        assert index.exists(), f"index.theme not created; stderr={result.stderr[:500]}"
+
+    def test_seed_hicolor_index_theme_has_required_sections(self, tmp_path: "Path") -> None:
+        """The generated index.theme must list all required app-icon directories."""
+        self._run_seed(tmp_path)
+        content = (tmp_path / ".local" / "share" / "icons" / "hicolor" / "index.theme").read_text()
+        for size in ("16x16/apps", "32x32/apps", "48x48/apps", "256x256/apps"):
+            assert size in content, f"{size} missing from generated index.theme"
+        assert "[Icon Theme]" in content
+
+    def test_seed_hicolor_index_idempotent(self, tmp_path: "Path") -> None:
+        """Running seed_hicolor_index() twice must not overwrite an existing index.theme."""
+        self._run_seed(tmp_path)
+        index = tmp_path / ".local" / "share" / "icons" / "hicolor" / "index.theme"
+        first_content = index.read_text()
+        index.write_text(first_content + "\n# sentinel")
+        self._run_seed(tmp_path)
+        assert "# sentinel" in index.read_text(), \
+            "seed_hicolor_index() must not overwrite an existing index.theme"
+
+    def test_seed_hicolor_index_called_in_main_flow(self) -> None:
+        """seed_hicolor_index must be called in the main setup flow."""
+        src = self.SETUP_SH.read_text()
+        # Find the main() function body and check the call is present
+        main_idx = src.index("main()")
+        assert "seed_hicolor_index" in src[main_idx:], \
+            "seed_hicolor_index() not called in main() setup flow"
+
+    def test_seed_hicolor_index_called_in_sync_flow(self) -> None:
+        """seed_hicolor_index must be called in the --sync code path."""
+        src = self.SETUP_SH.read_text()
+        sync_idx = src.index('"--sync"')
+        # Next occurrence of seed_hicolor_index after the --sync block opening
+        assert "seed_hicolor_index" in src[sync_idx:sync_idx + 1500], \
+            "seed_hicolor_index() not called in --sync flow"
+
+    def test_seed_hicolor_index_called_in_repair_flow(self) -> None:
+        """seed_hicolor_index must be called in the --repair / repair_install() path."""
+        src = self.SETUP_SH.read_text()
+        repair_idx = src.index("repair_install()")
+        assert "seed_hicolor_index" in src[repair_idx:repair_idx + 3000], \
+            "seed_hicolor_index() not called in repair_install() flow"

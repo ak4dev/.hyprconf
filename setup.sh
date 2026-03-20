@@ -604,6 +604,81 @@ stow_all_packages() {
     log_ok "All packages stowed."
 }
 
+seed_hicolor_index() {
+    # Steam (and similar apps) install per-game icons into
+    # ~/.local/share/icons/hicolor/ but never create the index.theme descriptor
+    # required by the freedesktop icon-lookup spec.  Without it, icon loaders
+    # (including hyprlauncher/hyprtoolkit) skip the directory entirely, causing
+    # blank icons for Steam games and other third-party apps.
+    local hicolor_dir="$HOME/.local/share/icons/hicolor"
+    local index="$hicolor_dir/index.theme"
+
+    mkdir -p \
+        "$hicolor_dir/16x16/apps" \
+        "$hicolor_dir/24x24/apps" \
+        "$hicolor_dir/32x32/apps" \
+        "$hicolor_dir/48x48/apps" \
+        "$hicolor_dir/64x64/apps" \
+        "$hicolor_dir/96x96/apps" \
+        "$hicolor_dir/128x128/apps" \
+        "$hicolor_dir/256x256/apps"
+
+    if [[ ! -f "$index" ]]; then
+        cat > "$index" << 'EOF'
+[Icon Theme]
+Name=Hicolor
+Comment=Fallback icon theme
+Hidden=true
+Directories=16x16/apps,24x24/apps,32x32/apps,48x48/apps,64x64/apps,96x96/apps,128x128/apps,256x256/apps
+
+[16x16/apps]
+Size=16
+Context=Applications
+Type=Fixed
+
+[24x24/apps]
+Size=24
+Context=Applications
+Type=Fixed
+
+[32x32/apps]
+Size=32
+Context=Applications
+Type=Fixed
+
+[48x48/apps]
+Size=48
+Context=Applications
+Type=Fixed
+
+[64x64/apps]
+Size=64
+Context=Applications
+Type=Fixed
+
+[96x96/apps]
+Size=96
+Context=Applications
+Type=Fixed
+
+[128x128/apps]
+Size=128
+Context=Applications
+Type=Fixed
+
+[256x256/apps]
+Size=256
+Context=Applications
+Type=Fixed
+EOF
+        log_ok "Created ~/.local/share/icons/hicolor/index.theme"
+    fi
+
+    if command -v gtk-update-icon-cache &>/dev/null; then
+        gtk-update-icon-cache --force --ignore-theme-index "$hicolor_dir" 2>/dev/null || true
+    fi
+}
+
 enable_services() {
     log_step "Configuring firewall (ufw)..."
     if _in_chroot; then
@@ -692,10 +767,10 @@ repair_install() {
     update_zshrc
     update_zshenv
     configure_zprofile
+    seed_hicolor_index
     log_step "Verifying Python module imports..."
     if python3 - <<'PY' 2>/dev/null
 import sys, pathlib
-sys.path.insert(0, str(pathlib.Path.home() / ".local" / "lib"))
 import hyprconf.schema, hyprconf.config, hyprconf.hyprctl
 PY
     then
@@ -743,6 +818,7 @@ main() {
         update_zshrc
         update_zshenv
         configure_zprofile
+        seed_hicolor_index
         sync_services
         reload_hyprland
 
@@ -806,6 +882,7 @@ main() {
     configure_zprofile
     purge_broken_symlinks
     stow_all_packages || true
+    seed_hicolor_index
     enable_services
     sync_services
     reload_hyprland
