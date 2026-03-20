@@ -163,3 +163,30 @@ def test_migrate_legacy_no_op_if_new_exists(hypr_dir: Path) -> None:
     cfg.OVERRIDES_FILE.write_text("new content\n")
     assert migrate_legacy() is False
     assert cfg.OVERRIDES_FILE.read_text() == "new content\n"
+
+
+# ---------------------------------------------------------------------------
+# save_pending — legacy marker stripping (covers L116)
+# ---------------------------------------------------------------------------
+
+def test_save_pending_strips_legacy_marker(hypr_dir: Path) -> None:
+    from hyprconf.config import save_pending, read_all_persisted, OVERRIDES_FILE, MANAGED_MARKER
+    OVERRIDES_FILE.write_text("# hyprconf-tui managed\ngeneral:gaps_in = 3\n")
+    ok, n = save_pending({"general": {"border_size": "2"}})
+    assert ok is True
+    text = OVERRIDES_FILE.read_text()
+    assert MANAGED_MARKER in text
+    assert "# hyprconf-tui managed" not in text
+
+
+# ---------------------------------------------------------------------------
+# save_pending — OSError path (covers L137-138)
+# ---------------------------------------------------------------------------
+
+def test_save_pending_returns_false_on_oserror(hypr_dir: Path) -> None:
+    import unittest.mock as _mock
+    from hyprconf.config import save_pending
+    with _mock.patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+        ok, n = save_pending({"general": {"gaps_in": "5"}})
+    assert ok is False
+    assert n == 0

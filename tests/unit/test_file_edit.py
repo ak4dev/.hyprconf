@@ -178,3 +178,109 @@ def test_update_line_is_atomic(tmp_path: Path) -> None:
     update_line(p, 0, "X")
     tmp_files = list(tmp_path.glob(".hyprconf-tmp-*"))
     assert tmp_files == [], "Temp file should be cleaned up after write"
+
+
+# ---------------------------------------------------------------------------
+# _write_lines — exception cleanup (covers L47-52)
+# ---------------------------------------------------------------------------
+
+def test_write_lines_cleans_up_tmp_on_error(tmp_path: Path) -> None:
+    """If an error occurs mid-write, the temp file should be removed."""
+    from hyprconf.file_edit import _write_lines
+    import unittest.mock as _mock
+
+    p = tmp_path / "subdir" / "test.conf"
+    p.parent.mkdir()
+    p.write_text("original\n")
+
+    with _mock.patch("os.replace", side_effect=OSError("disk full")):
+        with pytest.raises(OSError):
+            _write_lines(p, ["new content"])
+
+    # Original file must be untouched
+    assert p.read_text() == "original\n"
+    # No temp files should linger
+    assert list(tmp_path.glob("**/.hyprconf-tmp-*")) == []
+
+
+# ---------------------------------------------------------------------------
+# OSError paths in mutation primitives (covers L99-100, 115-116, 131-132, 147-148)
+# ---------------------------------------------------------------------------
+
+def test_append_block_returns_false_on_oserror(tmp_path: Path) -> None:
+    from hyprconf.file_edit import append_block
+    import unittest.mock as _mock
+
+    p = tmp_path / "test.conf"
+    p.write_text("line\n")
+    with _mock.patch("hyprconf.file_edit._write_lines", side_effect=OSError("nope")):
+        result = append_block(p, "new block")
+    assert result is False
+
+
+def test_delete_lines_returns_false_on_oserror(tmp_path: Path) -> None:
+    from hyprconf.file_edit import delete_lines
+    import unittest.mock as _mock
+
+    p = tmp_path / "test.conf"
+    p.write_text("a\nb\nc\n")
+    with _mock.patch("hyprconf.file_edit._write_lines", side_effect=OSError("nope")):
+        result = delete_lines(p, 0, 1)
+    assert result is False
+
+
+def test_insert_lines_returns_false_on_oserror(tmp_path: Path) -> None:
+    from hyprconf.file_edit import insert_lines
+    import unittest.mock as _mock
+
+    p = tmp_path / "test.conf"
+    p.write_text("a\nb\n")
+    with _mock.patch("hyprconf.file_edit._write_lines", side_effect=OSError("nope")):
+        result = insert_lines(p, 0, ["new"])
+    assert result is False
+
+
+def test_insert_line_returns_false_on_oserror(tmp_path: Path) -> None:
+    from hyprconf.file_edit import insert_line
+    import unittest.mock as _mock
+
+    p = tmp_path / "test.conf"
+    p.write_text("a\nb\n")
+    with _mock.patch("hyprconf.file_edit._write_lines", side_effect=OSError("nope")):
+        result = insert_line(p, 0, "new")
+    assert result is False
+
+
+# ---------------------------------------------------------------------------
+# _write_lines double-exception: os.replace raises AND os.unlink raises
+# (covers L50-51: the inner except OSError: pass inside the outer except)
+# ---------------------------------------------------------------------------
+
+def test_write_lines_double_exception_is_ignored(tmp_path: Path) -> None:
+    """If os.replace AND os.unlink both raise, _write_lines re-raises the replace error."""
+    import os
+    import unittest.mock as _mock
+    from hyprconf.file_edit import _write_lines
+
+    p = tmp_path / "double.conf"
+    p.write_text("original\n")
+
+    orig_replace = os.replace
+    orig_unlink = os.unlink
+
+    def bad_replace(src, dst):
+        raise OSError("replace failed")
+
+    def bad_unlink(path):
+        raise OSError("unlink failed")
+
+    with _mock.patch("os.replace", bad_replace), \
+         _mock.patch("os.unlink", bad_unlink):
+        try:
+            _write_lines(p, ["new content"])
+            assert False, "Expected OSError"
+        except OSError as e:
+            assert "replace failed" in str(e)
+
+    # Original file must be unchanged since replace failed
+    assert p.read_text() == "original\n"

@@ -235,3 +235,62 @@ def test_full_crud_round_trip(hypr_dir: Path) -> None:
     # Delete
     delete_monitor(configs[0].file_path, configs[0].line_idx)
     assert read_monitor_configs(p) == []
+
+
+# ---------------------------------------------------------------------------
+# Default path coverage (covers L79, L114, L136, L147)
+# ---------------------------------------------------------------------------
+
+def test_read_monitor_configs_uses_default_path(hypr_dir: Path) -> None:
+    from hyprconf.monitors import read_monitor_configs, MONITORS_FILE
+    MONITORS_FILE.write_text("monitor = eDP-1, 1920x1080@60, 0x0, 1\n")
+    configs = read_monitor_configs()  # no file arg → MONITORS_FILE
+    assert len(configs) == 1
+    assert configs[0].name == "eDP-1"
+
+
+def test_upsert_monitor_uses_default_path(hypr_dir: Path) -> None:
+    from hyprconf.monitors import upsert_monitor, read_monitor_configs, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1")  # no file arg
+    configs = read_monitor_configs(MONITORS_FILE)
+    assert any(m.name == "HDMI-A-1" for m in configs)
+
+
+def test_delete_monitor_uses_default_file_path(hypr_dir: Path) -> None:
+    from hyprconf.monitors import upsert_monitor, delete_monitor, read_monitor_configs, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("eDP-1", "preferred", "auto", "1", file=MONITORS_FILE)
+    configs = read_monitor_configs(MONITORS_FILE)
+    assert len(configs) == 1
+    mc = configs[0]
+    # delete_monitor uses mc.file_path which is MONITORS_FILE
+    delete_monitor(mc.file_path, mc.line_idx)
+    assert read_monitor_configs(MONITORS_FILE) == []
+
+
+# ---------------------------------------------------------------------------
+# enable_monitor / disable_monitor use default file path (covers L136, L147)
+# ---------------------------------------------------------------------------
+
+def test_enable_monitor_uses_default_path(hypr_dir: Path) -> None:
+    from hyprconf.monitors import enable_monitor, upsert_monitor, read_monitor_configs, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    # Add a disabled monitor
+    upsert_monitor("DP-1", "disable", "0x0", "1", file=MONITORS_FILE)
+    configs = read_monitor_configs(MONITORS_FILE)
+    assert any(m.is_disabled for m in configs)
+    # enable_monitor without file arg should use MONITORS_FILE
+    enable_monitor("DP-1")  # file=None → MONITORS_FILE
+    configs2 = read_monitor_configs(MONITORS_FILE)
+    assert not any(m.is_disabled for m in configs2 if m.name == "DP-1")
+
+
+def test_disable_monitor_uses_default_path(hypr_dir: Path) -> None:
+    from hyprconf.monitors import disable_monitor, upsert_monitor, read_monitor_configs, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-1", "preferred", "0x0", "1", file=MONITORS_FILE)
+    # disable_monitor without file arg
+    disable_monitor("HDMI-1")  # file=None → MONITORS_FILE
+    configs = read_monitor_configs(MONITORS_FILE)
+    assert any(m.is_disabled for m in configs if m.name == "HDMI-1")

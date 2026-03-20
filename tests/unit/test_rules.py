@@ -236,3 +236,78 @@ def test_window_rule_crud_round_trip(hypr_dir: Path) -> None:
 
     delete_rule(entries[0].file_path, entries[0].line_idx)
     assert read_window_rules_with_location(p) == []
+
+
+# ---------------------------------------------------------------------------
+# Source file following (covers L71-77 in rules.py _collect_rules)
+# ---------------------------------------------------------------------------
+
+def test_collect_rules_follows_source_include(hypr_dir: Path) -> None:
+    from hyprconf.rules import read_window_rules_with_location, HYPRLAND_CONF
+    sub = hypr_dir / "extra_rules.conf"
+    sub.write_text("windowrulev2 = float, class:extra\n")
+    HYPRLAND_CONF.write_text(
+        f"source = {sub}\nwindowrulev2 = float, class:main\n"
+    )
+    entries = read_window_rules_with_location(HYPRLAND_CONF)
+    classes = " ".join(e.rule for e in entries)
+    assert "extra" in classes
+    assert "main" in classes
+
+
+# ---------------------------------------------------------------------------
+# add_window_rule default path (covers L112)
+# ---------------------------------------------------------------------------
+
+def test_add_window_rule_uses_default_path(hypr_dir: Path) -> None:
+    from hyprconf.rules import add_window_rule, WINRULES_FILE
+    WINRULES_FILE.write_text("")
+    add_window_rule("float", ["class:default_test"])  # no file arg
+    assert "float" in WINRULES_FILE.read_text()
+
+
+# ---------------------------------------------------------------------------
+# add_workspace_rule default path (covers L128)
+# ---------------------------------------------------------------------------
+
+def test_add_workspace_rule_uses_default_path(hypr_dir: Path) -> None:
+    from hyprconf.rules import add_workspace_rule, WKSPRULES_FILE
+    WKSPRULES_FILE.write_text("")
+    add_workspace_rule("1", "monitor:HDMI-A-1")  # no file arg
+    assert "workspace = 1" in WKSPRULES_FILE.read_text()
+
+
+# ---------------------------------------------------------------------------
+# _collect_rules: source pointing to non-existent file is silently skipped
+# (covers L62: not p.exists() → return early)
+# ---------------------------------------------------------------------------
+
+def test_collect_rules_skips_nonexistent_source(hypr_dir: Path) -> None:
+    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    # Set up hyprland.conf sourcing a non-existent file
+    nonexistent = hypr_dir / "no_such.conf"
+    HYPRLAND_CONF.write_text(f"source = {nonexistent}\n")
+    WINRULES_FILE.write_text("")
+    from hyprconf.rules import read_window_rules_with_location
+    # Should return empty without raising
+    entries = read_window_rules_with_location()
+    assert entries == []
+
+
+# ---------------------------------------------------------------------------
+# _collect_rules: glob source pattern expands matches (covers L73-74)
+# ---------------------------------------------------------------------------
+
+def test_collect_rules_follows_glob_source(hypr_dir: Path) -> None:
+    from hyprconf.rules import HYPRLAND_CONF
+    from hyprconf.rules import read_window_rules_with_location
+    # Create two rule files matched by a glob
+    rules_dir = hypr_dir / "rules.d"
+    rules_dir.mkdir()
+    (rules_dir / "01.conf").write_text("windowrule = float, class:app1\n")
+    (rules_dir / "02.conf").write_text("windowrule = tile, class:app2\n")
+    HYPRLAND_CONF.write_text(f"source = {rules_dir}/*.conf\n")
+    entries = read_window_rules_with_location()
+    dispatchers = {e.rule for e in entries}
+    assert any("app1" in d for d in dispatchers)
+    assert any("app2" in d for d in dispatchers)

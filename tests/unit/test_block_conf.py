@@ -268,3 +268,29 @@ def test_config_block_is_disabled_false(tmp_path: Path) -> None:
     b = read_blocks(p)[0]
     # Verify basic field access works
     assert b.block_type == "general"
+
+
+# ---------------------------------------------------------------------------
+# Unclosed block at EOF (covers L166-167)
+# ---------------------------------------------------------------------------
+
+def test_unclosed_block_included_with_last_line_as_end(tmp_path: Path) -> None:
+    content = "background {\n    path = /tmp/wall.jpg\n    color = 0xff000000\n"
+    p = _conf(tmp_path, content)
+    blocks = read_blocks(p)
+    assert len(blocks) == 1
+    assert blocks[0].block_type == "background"
+    assert blocks[0].end_line == 2  # last line index (0-based)
+
+
+# ---------------------------------------------------------------------------
+# update_block_field — returns False when end_line out of range (covers L207)
+# ---------------------------------------------------------------------------
+
+def test_update_block_field_returns_false_when_end_out_of_range(tmp_path: Path) -> None:
+    from hyprconf.block_conf import update_block_field
+    content = "background {\n    path = /tmp/wall.jpg\n}\n"
+    p = _conf(tmp_path, content)
+    # key not found, and end_line 99 is beyond file length → return False
+    result = update_block_field(p, start_line=0, end_line=99, key="no_such_key", value="val")
+    assert result is False

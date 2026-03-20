@@ -283,3 +283,36 @@ def test_set_setting_updates_existing(hypr_dir: Path) -> None:
     assert len([s for s in settings if s.key.lower() == "splash"]) == 1
     splash = next(s for s in settings if s.key.lower() == "splash")
     assert splash.value == "true"
+
+
+# ---------------------------------------------------------------------------
+# update_wallpaper_block_field (covers L228)
+# ---------------------------------------------------------------------------
+
+def test_update_wallpaper_block_field(hypr_dir: Path) -> None:
+    from hyprconf.hyprpaper import (
+        HYPRPAPER_FILE, add_wallpaper_block, read_wallpaper_blocks,
+        update_wallpaper_block_field,
+    )
+    HYPRPAPER_FILE.write_text("")
+    add_wallpaper_block("eDP-1", "/tmp/wall.png", "cover", file=HYPRPAPER_FILE)
+    blocks = read_wallpaper_blocks(HYPRPAPER_FILE)
+    assert len(blocks) == 1
+    b = blocks[0]
+    ok = update_wallpaper_block_field(HYPRPAPER_FILE, b.start_line, b.end_line, "fit_mode", "fill")
+    assert ok is True
+    assert "fill" in HYPRPAPER_FILE.read_text()
+
+
+# ---------------------------------------------------------------------------
+# set_setting with $variable key (covers L250: key.startswith("$") branch)
+# ---------------------------------------------------------------------------
+
+def test_set_setting_updates_variable_key(hypr_dir: Path) -> None:
+    from hyprconf.hyprpaper import HYPRPAPER_FILE, set_setting, read_settings
+    HYPRPAPER_FILE.write_text("$WALLPAPER = /old/path\n")
+    result = set_setting("$WALLPAPER", "/new/path", file=HYPRPAPER_FILE)
+    assert result is True
+    settings = read_settings(HYPRPAPER_FILE)
+    entry = next(s for s in settings if s.key == "$WALLPAPER")
+    assert entry.value == "/new/path"

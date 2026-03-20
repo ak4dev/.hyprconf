@@ -218,3 +218,62 @@ def test_full_crud_round_trip(hypr_dir: Path) -> None:
     # Delete
     delete_keybind(entries[0].file_path, entries[0].line_idx)
     assert read_keybinds_with_location(p) == []
+
+
+# ---------------------------------------------------------------------------
+# Default path (covers L75 — KEYBINDS_FILE default in read_keybinds_with_location)
+# ---------------------------------------------------------------------------
+
+def test_read_keybinds_with_location_uses_default_path(hypr_dir: Path) -> None:
+    """Calling without a file arg should use KEYBINDS_FILE."""
+    from hyprconf.keybinds import KEYBINDS_FILE, read_keybinds_with_location
+    KEYBINDS_FILE.write_text("bind = SUPER, T, exec, kitty\n")
+    entries = read_keybinds_with_location()  # no file arg → uses KEYBINDS_FILE
+    assert len(entries) == 1
+    assert entries[0].dispatcher == "exec"
+
+
+# ---------------------------------------------------------------------------
+# add_keybind default path (covers L153)
+# ---------------------------------------------------------------------------
+
+def test_add_keybind_uses_default_path(hypr_dir: Path) -> None:
+    from hyprconf.keybinds import KEYBINDS_FILE, add_keybind, read_keybinds_with_location
+    KEYBINDS_FILE.write_text("")
+    add_keybind("bind", "SUPER", "F", "exec", "firefox")  # no file arg
+    entries = read_keybinds_with_location(KEYBINDS_FILE)
+    assert len(entries) == 1
+
+
+# ---------------------------------------------------------------------------
+# Source file following (covers L95-103)
+# ---------------------------------------------------------------------------
+
+def test_read_follows_source_include(hypr_dir: Path) -> None:
+    sub = hypr_dir / "extra_keybinds.conf"
+    sub.write_text("bind = SUPER, E, exec, nemo\n")
+    main_kb = hypr_dir / "keybinds.conf"
+    main_kb.write_text(f"source = {sub}\nbind = SUPER, T, exec, kitty\n")
+    entries = read_keybinds_with_location(main_kb, follow_sources=True)
+    dispatchers = {e.dispatcher for e in entries}
+    assert "exec" in dispatchers
+    assert len(entries) == 2
+
+
+# ---------------------------------------------------------------------------
+# Source following with glob pattern (covers L99-100)
+# ---------------------------------------------------------------------------
+
+def test_read_follows_glob_source(hypr_dir: Path) -> None:
+    """read_keybinds_with_location follows glob patterns in source= lines."""
+    from hyprconf.keybinds import read_keybinds_with_location
+    kb_dir = hypr_dir / "keys.d"
+    kb_dir.mkdir()
+    (kb_dir / "a.conf").write_text("bind = SUPER, A, exec, app1\n")
+    (kb_dir / "b.conf").write_text("bind = SUPER, B, exec, app2\n")
+    main_kb = hypr_dir / "keybinds.conf"
+    main_kb.write_text(f"source = {kb_dir}/*.conf\n")
+    entries = read_keybinds_with_location(main_kb, follow_sources=True)
+    dispatchers = {e.dispatcher for e in entries}
+    assert "exec" in dispatchers
+    assert len(entries) == 2
