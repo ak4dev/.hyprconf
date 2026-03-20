@@ -60,6 +60,7 @@ XSETTINGSD_CONFIG_FILE = os.path.expanduser("~/.config/xsettingsd/xsettingsd.con
 KDEGLOBALS_FILE        = os.path.expanduser("~/.config/kdeglobals")
 KDE_COLOR_SCHEMES_DIR  = os.path.expanduser("~/.local/share/color-schemes")
 QT6CT_CONF_FILE        = os.path.expanduser("~/.config/qt6ct/qt6ct.conf")
+HYPRTOOLKIT_CONF_FILE  = os.path.expanduser("~/.config/hypr/hyprtoolkit.conf")
 QT6CT_COLORS_FILE      = os.path.expanduser("~/.config/qt6ct/colors/hyprconf.conf")
 QT5CT_CONF_FILE        = os.path.expanduser("~/.config/qt5ct/qt5ct.conf")
 QT5CT_COLORS_FILE      = os.path.expanduser("~/.config/qt5ct/colors/hyprconf.conf")
@@ -119,6 +120,81 @@ def launcher_select(initial_filter: str = "") -> Optional[str]:
     except FileNotFoundError:
         print("hyprlauncher not found; falling back to interactive TUI.")
         return interactive_select(initial_filter)
+
+
+def _css_to_argb(hex_color: str, alpha: int = 0xFF) -> str:
+    """Convert a CSS #RRGGBB hex color to hyprtoolkit's 0xAARRGGBB notation."""
+    h = hex_color.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    return f"0x{alpha:02X}{h.upper()}"
+
+
+def _lighten_hex(hex_color: str, amount: int = 16) -> str:
+    """Return a slightly lighter version of a #RRGGBB color (clipped at 0xFF)."""
+    h = hex_color.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    r = min(255, r + amount)
+    g = min(255, g + amount)
+    b = min(255, b + amount)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def update_hyprtoolkit(theme: Dict[str, str]) -> None:
+    """Write ~/.config/hypr/hyprtoolkit.conf from the active theme palette.
+
+    hyprlauncher (and any other hyprtoolkit app) reads this file for its UI
+    colors and icon theme.  Without it the launcher renders with default grey
+    colors and may fail to find a suitable icon theme.
+    """
+    bg      = theme.get("background", "#1e1e2e")
+    fg      = theme.get("foreground", "#cdd6f4")
+    accent  = theme.get("accent", "#89b4fa")
+    comment = theme.get("comment", bg)
+
+    # base / alternate_base: slightly lighter than the background so the
+    # launcher surface stands out from the wallpaper.
+    base     = _lighten_hex(bg, 12)
+    alt_base = _lighten_hex(bg, 24)
+
+    # accent_secondary: prefer a distinct palette color; fall back to comment.
+    acc2 = theme.get("purple", theme.get("blue", theme.get("cyan", comment)))
+
+    # Icon theme: Papirus-Dark for dark backgrounds, Papirus-Light for light.
+    icon_theme = "Papirus-Dark" if is_dark_color(bg) else "Papirus-Light"
+
+    lines = [
+        "# hyprtoolkit configuration — managed by switch_theme.py, do not edit by hand.",
+        "# https://wiki.hypr.land/Hypr-Ecosystem/hyprtoolkit/",
+        "",
+        f"background       = {_css_to_argb(bg)}",
+        f"base             = {_css_to_argb(base)}",
+        f"alternate_base   = {_css_to_argb(alt_base)}",
+        f"text             = {_css_to_argb(fg)}",
+        f"bright_text      = {_css_to_argb(fg)}",
+        f"accent           = {_css_to_argb(accent)}",
+        f"accent_secondary = {_css_to_argb(acc2)}",
+        "",
+        "font_family            = JetBrainsMono Nerd Font",
+        "font_family_monospace  = JetBrainsMono Nerd Font",
+        "font_size              = 12",
+        "h1_size                = 18",
+        "h2_size                = 15",
+        "h3_size                = 13",
+        "small_font_size        = 10",
+        "",
+        "rounding_large  = 10",
+        "rounding_small  = 5",
+        "",
+        f"icon_theme = {icon_theme}",
+        "",
+    ]
+
+    os.makedirs(os.path.dirname(HYPRTOOLKIT_CONF_FILE), exist_ok=True)
+    with open(HYPRTOOLKIT_CONF_FILE, "w") as f:
+        f.write("\n".join(lines))
+
+    print(f"hyprtoolkit theme updated ({icon_theme}).")
 
 
 def update_dunst(theme: Dict[str, str]) -> None:
@@ -1323,6 +1399,7 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
 
     update_waybar(theme)
     update_hyprpaper(theme)
+    update_hyprtoolkit(theme)
     update_dunst(theme)
     update_gtk(theme)
     update_kde_colors(theme)
