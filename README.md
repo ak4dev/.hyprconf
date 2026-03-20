@@ -160,7 +160,7 @@ hyprsync          # backward-compatible alias for hyprconf sync
     │           ├── hyprpaper.py           # hyprpaper read/write
     │           └── __init__.py
     ├── btop/   kitty/   dunst/   fastfetch/   code-oss/
-    ├── waybar/ wofi/    wallpaper/
+    ├── waybar/ wallpaper/
     └── theme/                  # Vendor extension payloads (not stowed)
         ├── firefox/extensions/
         └── .vscode-oss/extensions/
@@ -179,7 +179,7 @@ The `hyprconf` binary lives at `~/.local/bin/hyprconf` (stowed). It is the singl
 hyprconf theme                   Interactive TUI picker
 hyprconf theme <name>            Apply a specific theme
 hyprconf theme random / next / prev / current / list
-hyprconf theme pick              Select via wofi
+hyprconf theme pick              Select via hyprlauncher
 hyprconf theme filter <str>      Filter themes in TUI
 
 # Hyprland options (persistent + live via hyprctl)
@@ -274,7 +274,7 @@ Themes are applied simultaneously to: Hyprland borders · Waybar CSS · Kitty ·
 | `--next` / `-n` | `theme next` | Next alphabetically |
 | `--prev` / `-p` | `theme prev` | Previous |
 | `--random` / `-r` | `theme random` | Random pick |
-| `--wofi` / `-w` | `theme pick` | Wofi picker |
+| `--pick` / `-w` | `theme pick` | Hyperlauncher picker |
 | `--filter STR` / `-f` | `theme filter <str>` | Substring filter |
 | `--no-reload` | | Skip `hyprctl reload` |
 
@@ -381,7 +381,7 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | KDE Wallet | `kwallet`, `kwallet-pam` |
 | Polkit | `polkit-kde-agent` |
 | Terminal & shell | `kitty`, `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, `fastfetch` |
-| Bar / Launcher | `waybar`, `wofi` |
+| Bar / Launcher | `waybar`, `hyprlauncher` |
 | Notifications | `dunst` |
 | Applications | `firefox`, `code`, `dolphin`, `htop`, `btop` |
 | Clipboard | `cliphist`, `wl-clipboard` |
@@ -455,7 +455,7 @@ All bindings live in `stow/hypr/.config/hypr/keybinds.conf`.
 | `Super + L` | Lock screen |
 | `Super + Shift + Escape` | Lock screen (alt) |
 | `Super + Shift + 4` | Screenshot region |
-| `Super + Shift + V` | Clipboard history (cliphist + wofi) |
+| `Super + Shift + V` | Clipboard history (cliphist + hyprlauncher) |
 | `Super + Shift + Backspace` | Toggle native display (eDP-1) |
 | `Super + Shift + B` | Bedroom monitor preset |
 | `Super + Shift + K` | Kitchen monitor preset |

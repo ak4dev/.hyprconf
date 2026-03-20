@@ -27,7 +27,7 @@ THEMES_DIR = os.path.join(SCRIPT_DIR, "themes")
 WAYBAR_CONFIG_FILE = os.path.expanduser("~/.config/waybar/waybar.css")
 HYPRPAPER_CONFIG_FILE = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
 KITTY_CONFIG_FILE = os.path.expanduser("~/.config/kitty/kitty.conf")
-WOFI_STYLE_FILE = os.path.expanduser("~/.config/wofi/style.css")
+WOFI_STYLE_FILE = os.path.expanduser("~/.config/wofi/style.css")  # legacy; kept for migration cleanup only
 CODE_CONFIG_CANDIDATES = [
     os.path.expanduser("~/.config/Code - OSS"),
     os.path.expanduser("~/.config/Code"),
@@ -97,77 +97,28 @@ def is_dark_color(hex_color: str) -> bool:
     return (0.299 * r + 0.587 * g + 0.114 * b) < 128
 
 
-def update_wofi(theme: Dict[str, str]):
-    """Generate or replace Wofi style.css using colors from the theme JSON."""
-    os.makedirs(os.path.dirname(WOFI_STYLE_FILE), exist_ok=True)
-
-    bg = theme.get("background", "#1e1e2e")
-    fg = theme.get("foreground", "#ffffff")
-    accent = theme.get("accent", theme.get("purple", theme.get("cyan", "#89b4fa")))
-    input_bg = theme.get("comment", bg)
-    # For selected items: use bg as text if bg is dark (dark text on colorful accent),
-    # otherwise use fg (dark fg on colorful accent for light themes).
-    selected_text = bg if is_dark_color(bg) else fg
-
-    wofi_css = f"""window {{
-    margin: 0px;
-    border: 1px solid {accent};
-    background-color: {bg};
-    color: {fg};
-}}
-
-#input {{
-    margin: 5px;
-    border: none;
-    color: {fg};
-    background-color: {input_bg};
-}}
-
-#inner-box, #outer-box {{
-    margin: 5px;
-    border: none;
-    background-color: {bg};
-}}
-
-#scroll {{
-    margin: 0px;
-    border: none;
-}}
-
-#text {{
-    margin: 5px;
-    border: none;
-    color: {fg};
-}}
-
-#entry.activatable #text {{
-    color: {fg};
-}}
-
-#entry > * {{
-    color: {fg};
-}}
-
-#entry:selected {{
-    background-color: {accent};
-    color: {selected_text};
-}}
-
-#entry:selected #text {{
-    color: {selected_text};
-    font-weight: bold;
-}}
-
-#img, image {{
-    margin: 5px;
-    margin-right: 8px;
-}}
-"""
-
-    with open(WOFI_STYLE_FILE, "w") as f:
-        f.write(wofi_css.strip() + "\n")
-
-    print("Wofi theme updated using current theme colors.")
+def launcher_select(initial_filter: str = "") -> Optional[str]:
+    """Select a theme via hyprlauncher --dmenu (no terminal window required)."""
+    themes = get_all_themes()
+    if initial_filter:
+        themes = [t for t in themes if initial_filter.lower() in t.lower()]
+    current = read_state()
+    display = [f"★  {t}" if t == current else f"   {t}" for t in themes]
+    try:
+        # Brief pause so any calling launcher (e.g. hyprlauncher itself) has
+        # fully released its window before we open a new dmenu instance.
+        time.sleep(0.15)
+        proc = subprocess.run(
+            ["hyprlauncher", "--dmenu"],
+            input="\n".join(display),
+            capture_output=True,
+            text=True,
+        )
+        result = proc.stdout.strip().lstrip("★").strip()
+        return result if result in themes else None
+    except FileNotFoundError:
+        print("hyprlauncher not found; falling back to interactive TUI.")
+        return interactive_select(initial_filter)
 
 
 def update_dunst(theme: Dict[str, str]) -> None:
@@ -1372,7 +1323,6 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
 
     update_waybar(theme)
     update_hyprpaper(theme)
-    update_wofi(theme)
     update_dunst(theme)
     update_gtk(theme)
     update_kde_colors(theme)
@@ -1626,7 +1576,7 @@ if __name__ == "__main__":
             "  switch_theme.py --prev          Previous theme\n"
             "  switch_theme.py --random        Apply a random theme\n"
             "  switch_theme.py --current       Print currently active theme\n"
-            "  switch_theme.py --wofi          Pick via wofi (no terminal needed)\n"
+            "  switch_theme.py --pick          Pick via hyprlauncher (no terminal needed)\n"
             "  switch_theme.py --list          List all themes with colour table\n"
             "  switch_theme.py --filter ai:    Filter to ai: themes in TUI\n"
         ),
@@ -1641,10 +1591,10 @@ if __name__ == "__main__":
     parser.add_argument("--random",    "-r", action="store_true", help="Apply a randomly chosen theme.")
     parser.add_argument("--next",      "-n", action="store_true", help="Apply the next theme (sorted order).")
     parser.add_argument("--prev",      "-p", action="store_true", help="Apply the previous theme (sorted order).")
-    parser.add_argument("--wofi",      "-w", action="store_true", help="Select theme via wofi --dmenu.")
+    parser.add_argument("--pick",      "-w", action="store_true", help="Select theme via hyprlauncher --dmenu.")
     parser.add_argument("--no-reload",       action="store_true", help="Skip hyprctl reload after applying.")
     parser.add_argument("--filter",    "-f", default="", metavar="STR",
-                        help="Pre-filter themes by substring (used with TUI, --wofi, --random).")
+                        help="Pre-filter themes by substring (used with TUI, --pick, --random).")
 
     args      = parser.parse_args()
     do_reload = not args.no_reload
@@ -1675,8 +1625,8 @@ if __name__ == "__main__":
             if choice:
                 print(f"Previous theme: {choice}")
                 apply_theme(choice, reload=do_reload)
-        elif args.wofi:
-            choice = wofi_select(initial_filter=args.filter)
+        elif args.pick:
+            choice = launcher_select(initial_filter=args.filter)
             if choice:
                 print(f"Applying theme: {choice}")
                 apply_theme(choice, reload=do_reload)

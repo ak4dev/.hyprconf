@@ -36,7 +36,7 @@ usage() {
   printf "  hyprconf theme next / prev       Cycle themes (alphabetical)\n"
   printf "  hyprconf theme current           Show the active theme\n"
   printf "  hyprconf theme list              Pretty colour table of all themes\n"
-  printf "  hyprconf theme pick              Select via wofi launcher\n"
+  printf "  hyprconf theme pick              Select via hyprlauncher\n"
   printf "  hyprconf theme filter <str>      Filter themes in TUI\n"
   printf "\n${_b}Sync / Repair${_r}\n"
   printf "  hyprconf sync                    Pull latest configs and re-stow\n"
@@ -125,7 +125,7 @@ cmd_theme() {
     next)     python3 "$THEME_SCRIPT" --next ;;
     prev)     python3 "$THEME_SCRIPT" --prev ;;
     current)  python3 "$THEME_SCRIPT" --current ;;
-    pick)     python3 "$THEME_SCRIPT" --wofi ;;
+    pick)     python3 "$THEME_SCRIPT" --pick ;;
     filter)   python3 "$THEME_SCRIPT" --filter "${1:-}" ;;
     set)      python3 "$THEME_SCRIPT" "${1:?Usage: hyprconf theme set <name>}" ;;
     *)        python3 "$THEME_SCRIPT" "$sub" ;;

@@ -44,7 +44,7 @@ fastfetch
 
 # Bar, launcher, notifications
 waybar
-wofi
+hyprlauncher
 dunst
 
 # Applications
