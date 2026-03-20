@@ -29,3 +29,4 @@ tests/install/output-arch/
 
 # Release artefacts
 dist/
+.coverage
