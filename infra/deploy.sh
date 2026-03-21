@@ -198,6 +198,72 @@ _select_zone() {
   HYPRCONF_ZONE_ID="${ids[$idx]}"; export HYPRCONF_ZONE_ID
 }
 
+# ── Auto-detect existing infrastructure ───────────────────────────────────────
+# Searches AWS for existing CloudFront / ACM / S3 resources tied to
+# HYPRCONF_DOMAIN and pre-populates the state file so every deploy step is
+# idempotent — critical when a dev uses a new device without a local state file.
+_autodetect_infra() {
+  local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
+  local cert_arn; cert_arn="$(state_get CERT_ARN)"
+  [[ -n "$dist_id" && -n "$cert_arn" ]] && return 0
+
+  log_step "Auto-detecting existing infrastructure for ${HYPRCONF_DOMAIN} ..."
+
+  # ── CloudFront: find distribution by CNAME alias ──────────────────────────
+  if [[ -z "$dist_id" ]]; then
+    dist_id=$(aws cloudfront list-distributions \
+      --query "DistributionList.Items[?Aliases.Items[?@=='${HYPRCONF_DOMAIN}']].Id | [0]" \
+      --output text 2>/dev/null || true)
+    [[ "$dist_id" == "None" || "$dist_id" == "null" ]] && dist_id=""
+
+    if [[ -n "$dist_id" ]]; then
+      local dist_domain
+      dist_domain=$(aws cloudfront get-distribution --id "$dist_id" \
+        --query 'Distribution.DomainName' --output text 2>/dev/null || true)
+      state_set DISTRIBUTION_ID     "$dist_id"
+      state_set DISTRIBUTION_DOMAIN "$dist_domain"
+      log_ok "Detected CloudFront distribution: $dist_id  ($dist_domain)"
+
+      # Extract ACM cert ARN from the distribution's viewer certificate config
+      if [[ -z "$cert_arn" ]]; then
+        cert_arn=$(aws cloudfront get-distribution --id "$dist_id" \
+          --query 'Distribution.DistributionConfig.ViewerCertificate.ACMCertificateArn' \
+          --output text 2>/dev/null || true)
+        [[ "$cert_arn" == "None" || "$cert_arn" == "null" ]] && cert_arn=""
+        if [[ -n "$cert_arn" ]]; then
+          state_set CERT_ARN "$cert_arn"
+          log_ok "Detected ACM certificate: $cert_arn"
+        fi
+      fi
+
+      # Extract S3 bucket from origin domain (bucket.s3.region.amazonaws.com)
+      if [[ -z "${HYPRCONF_BUCKET:-}" ]]; then
+        local origin_domain detected_bucket
+        origin_domain=$(aws cloudfront get-distribution --id "$dist_id" \
+          --query 'Distribution.DistributionConfig.Origins.Items[0].DomainName' \
+          --output text 2>/dev/null || true)
+        detected_bucket=$(printf '%s' "$origin_domain" | sed 's/\.s3\..*//')
+        if [[ -n "$detected_bucket" && "$detected_bucket" != "$origin_domain" ]]; then
+          HYPRCONF_BUCKET="$detected_bucket"; export HYPRCONF_BUCKET
+          log_ok "Detected S3 bucket: $HYPRCONF_BUCKET"
+        fi
+      fi
+    fi
+  fi
+
+  # ── ACM: direct lookup if cert still not found via CloudFront ─────────────
+  if [[ -z "$cert_arn" ]]; then
+    cert_arn=$(aws acm list-certificates --region us-east-1 \
+      --query "CertificateSummaryList[?DomainName=='${HYPRCONF_DOMAIN}' && Status=='ISSUED'].CertificateArn | [0]" \
+      --output text 2>/dev/null || true)
+    [[ "$cert_arn" == "None" || "$cert_arn" == "null" ]] && cert_arn=""
+    if [[ -n "$cert_arn" ]]; then
+      state_set CERT_ARN "$cert_arn"
+      log_ok "Detected ACM certificate: $cert_arn"
+    fi
+  fi
+}
+
 # ── Interactive environment configuration ─────────────────────────────────────
 configure_env() {
   # Load saved config if present (vars already in env take priority)
@@ -433,6 +499,31 @@ deploy_cdn() {
     fi
   fi
 
+  # Belt-and-suspenders: search by CNAME in case _autodetect_infra missed it
+  # (e.g. deploy_cdn called directly without going through main).
+  dist_id=$(aws cloudfront list-distributions \
+    --query "DistributionList.Items[?Aliases.Items[?@=='${HYPRCONF_DOMAIN}']].Id | [0]" \
+    --output text 2>/dev/null || true)
+  [[ "$dist_id" == "None" || "$dist_id" == "null" ]] && dist_id=""
+  if [[ -n "$dist_id" ]]; then
+    local dist_domain_found
+    dist_domain_found=$(aws cloudfront get-distribution --id "$dist_id" \
+      --query 'Distribution.DomainName' --output text 2>/dev/null || true)
+    state_set DISTRIBUTION_ID     "$dist_id"
+    state_set DISTRIBUTION_DOMAIN "$dist_domain_found"
+    log_ok "Detected existing distribution for ${HYPRCONF_DOMAIN}: $dist_id"
+    log_step "Invalidating CloudFront cache (/* — root + install.sh) ..."
+    local inv_id
+    inv_id=$(aws cloudfront create-invalidation \
+      --distribution-id "$dist_id" --paths '/*' \
+      --query 'Invalidation.Id' --output text)
+    log_info "Invalidation $inv_id in progress — waiting for completion ..."
+    aws cloudfront wait invalidation-completed \
+      --distribution-id "$dist_id" --id "$inv_id"
+    log_ok "Cache cleared — updated install.sh is live at https://${HYPRCONF_DOMAIN}"
+    return 0
+  fi
+
   log_step "Creating CloudFront distribution ..."
   local s3_origin="${HYPRCONF_BUCKET}.s3.${AWS_DEFAULT_REGION:-us-east-1}.amazonaws.com"
   local result
@@ -521,6 +612,7 @@ main() {
   print_banner
 
   configure_env
+  _autodetect_infra
   deploy_bucket
   deploy_cert
   deploy_cdn
