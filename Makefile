@@ -1,15 +1,19 @@
-.PHONY: test test-unit test-integration test-tui test-vm test-install build-vm-image
+.PHONY: test test-unit test-integration test-tui test-seq test-vm test-install build-vm-image
 
 test-unit:
-	pytest tests/unit/ -q
+	pytest tests/unit/ -q -n auto
 
 test-integration:
-	pytest tests/integration/ -q
+	pytest tests/integration/ -q -n auto
 
 test-tui:
-	pytest tests/tui/ -q
+	pytest tests/tui/ -q -n auto
 
 test: test-unit test-integration test-tui
+
+# Sequential mode — lower resource use, clearer output (no parallelism)
+test-seq:
+	pytest tests/unit/ tests/integration/ tests/tui/ -q
 
 test-vm: ## Requires running VM (bash tests/vm/run_vm.sh first)
 	bash tests/vm/run_vm.sh --wait

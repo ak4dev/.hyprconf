@@ -17,7 +17,6 @@ log_die()  { printf '%s  ✘ FATAL: %s%s%s\n' "$GL" "$WH" "$1" "$RS" >&2; exit 1
 readonly HYPRCONF_DIR="$HOME/.hyprconf"
 readonly HYPRCONF_REPO_URL="https://github.com/ak4dev/.hyprconf"
 readonly HYPRCONF_STABLE_BRANCH="stable"
-readonly HYPRCONF_COMPAT_BRANCH="mainline"
 readonly STOW_DIR="$HYPRCONF_DIR/stow"
 readonly ZSHRC="$HOME/.zshrc"
 readonly ZSHENV="$HOME/.zshenv"
@@ -229,52 +228,20 @@ _remote_branch_exists() {
 clone_or_update_repo() {
     if [ ! -d "$HYPRCONF_DIR/.git" ]; then
         log_step "Cloning hyprconf repo..."
-        if _clone_repo_branch "$HYPRCONF_STABLE_BRANCH"; then
-            log_ok "Repository ready (${HYPRCONF_STABLE_BRANCH}, sparse checkout)."
-            return 0
-        fi
-
-        log_warn "${HYPRCONF_STABLE_BRANCH} is unavailable — falling back to ${HYPRCONF_COMPAT_BRANCH}."
-        _clone_repo_branch "$HYPRCONF_COMPAT_BRANCH" \
+        _clone_repo_branch "$HYPRCONF_STABLE_BRANCH" \
             || log_die "Could not clone ${HYPRCONF_REPO_URL}."
-        log_ok "Repository ready."
+        log_ok "Repository ready (${HYPRCONF_STABLE_BRANCH}, sparse checkout)."
     else
         # Skip pull when no upstream tracking branch is configured (e.g. CI /
         # Packer builds where the repo was seeded from a git archive bundle).
         # The bundle-based _sync_vm_to_dev step keeps the VM repo current.
         git -C "$HYPRCONF_DIR" fetch --quiet origin \
-            "$HYPRCONF_STABLE_BRANCH" "$HYPRCONF_COMPAT_BRANCH" 2>/dev/null || true
+            "$HYPRCONF_STABLE_BRANCH" 2>/dev/null || true
 
         local current_branch
         local upstream
         current_branch="$(git -C "$HYPRCONF_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
         upstream="$(git -C "$HYPRCONF_DIR" rev-parse --abbrev-ref '@{upstream}' 2>/dev/null || true)"
-
-        # Mainline → stable migration runs unconditionally: it must fire even
-        # when upstream is still set to origin/dev (e.g. legacy installs where
-        # the mainline branch was tracking origin/dev instead of origin/mainline).
-        # IMPORTANT: use HEAD (not origin/stable) so we don't change the working
-        # tree — setup.sh is running FROM this directory, and checking out an
-        # older commit would replace it on disk mid-execution.
-        if [[ "$current_branch" == "$HYPRCONF_COMPAT_BRANCH" ]] \
-            && _remote_branch_exists "$HYPRCONF_STABLE_BRANCH"; then
-            if [[ -z "$(git -C "$HYPRCONF_DIR" status --porcelain)" ]]; then
-                log_step "Migrating repo checkout from ${HYPRCONF_COMPAT_BRANCH} to ${HYPRCONF_STABLE_BRANCH}..."
-                if git -C "$HYPRCONF_DIR" checkout -B "$HYPRCONF_STABLE_BRANCH" HEAD \
-                    >/dev/null 2>&1; then
-                    git -C "$HYPRCONF_DIR" branch \
-                        --set-upstream-to="origin/${HYPRCONF_STABLE_BRANCH}" \
-                        "$HYPRCONF_STABLE_BRANCH" >/dev/null 2>&1 || true
-                    current_branch="$HYPRCONF_STABLE_BRANCH"
-                    upstream="origin/${HYPRCONF_STABLE_BRANCH}"
-                    log_ok "Now tracking ${HYPRCONF_STABLE_BRANCH}."
-                else
-                    log_warn "Could not switch to ${HYPRCONF_STABLE_BRANCH} — staying on ${HYPRCONF_COMPAT_BRANCH}."
-                fi
-            else
-                log_warn "Local changes detected — leaving branch on ${HYPRCONF_COMPAT_BRANCH} for now."
-            fi
-        fi
 
         if [[ "$current_branch" != "dev" && "$upstream" != "origin/dev" ]]; then
             _apply_repo_sparse_checkout

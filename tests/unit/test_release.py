@@ -4,7 +4,7 @@ Unit tests for the dev → stable release model.
 Validates the static invariants that the release pipeline depends on:
   - .gitattributes has the correct export-ignore entries
   - hyprconf.__version__ is a valid semver string
-  - setup.sh declares the correct branch constants (stable / mainline)
+  - setup.sh declares the correct branch constant (stable)
 """
 from __future__ import annotations
 
@@ -75,34 +75,12 @@ def test_setup_sh_stable_branch_constant() -> None:
     )
 
 
-def test_setup_sh_compat_branch_constant() -> None:
-    """setup.sh declares HYPRCONF_COMPAT_BRANCH=\"mainline\" (migration bridge)."""
+def test_setup_sh_clone_tries_stable() -> None:
+    """setup.sh clones the stable branch in clone_or_update_repo."""
     text = (REPO_ROOT / "setup.sh").read_text(encoding="utf-8")
-    assert 'HYPRCONF_COMPAT_BRANCH="mainline"' in text, (
-        'setup.sh must define HYPRCONF_COMPAT_BRANCH="mainline"'
+    assert '_clone_repo_branch "$HYPRCONF_STABLE_BRANCH"' in text, (
+        "clone_or_update_repo must clone HYPRCONF_STABLE_BRANCH"
     )
-
-
-def test_setup_sh_clone_tries_stable_first() -> None:
-    """setup.sh tries HYPRCONF_STABLE_BRANCH first in clone_or_update_repo."""
-    text = (REPO_ROOT / "setup.sh").read_text(encoding="utf-8")
-    stable_pos = text.find("_clone_repo_branch \"$HYPRCONF_STABLE_BRANCH\"")
-    compat_pos = text.find("_clone_repo_branch \"$HYPRCONF_COMPAT_BRANCH\"")
-    assert stable_pos != -1, "clone_or_update_repo must try stable branch"
-    assert compat_pos != -1, "clone_or_update_repo must have compat branch fallback"
-    assert stable_pos < compat_pos, (
-        "setup.sh must try stable before mainline in clone_or_update_repo"
-    )
-
-
-def test_setup_sh_migrates_mainline_to_stable() -> None:
-    """setup.sh migration block checks mainline → stable transition."""
-    text = (REPO_ROOT / "setup.sh").read_text(encoding="utf-8")
-    assert "$HYPRCONF_COMPAT_BRANCH" in text
-    assert "$HYPRCONF_STABLE_BRANCH" in text
-    # The migration block must check current_branch == compat AND stable exists
-    assert 'current_branch" == "$HYPRCONF_COMPAT_BRANCH"' in text or \
-           '"$current_branch" == "$HYPRCONF_COMPAT_BRANCH"' in text
 
 
 # ---------------------------------------------------------------------------
@@ -139,9 +117,3 @@ def test_publish_script_has_dry_run_flag() -> None:
     """scripts/publish supports --dry-run (skip branch/tag pushes)."""
     text = (REPO_ROOT / "scripts" / "publish").read_text(encoding="utf-8")
     assert "--dry-run" in text
-
-
-def test_publish_script_has_skip_compat_flag() -> None:
-    """scripts/publish supports --skip-compat (opt out of mainline mirror)."""
-    text = (REPO_ROOT / "scripts" / "publish").read_text(encoding="utf-8")
-    assert "--skip-compat" in text

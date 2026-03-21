@@ -22,7 +22,7 @@
 |------|------|---------------|
 | `tests/unit/test_release.py` | 1 | `.gitattributes` export-ignore rules, semver version, `setup.sh` branch constants, `scripts/publish` structural checks |
 | `tests/integration/test_publish_pipeline.py` | 2 | `git archive` archive correctness (excluded + included paths, prefix), `scripts/publish --dry-run` end-to-end |
-| `tests/vm/test_hyprland_integration.py` (+2) | 4 | `test_repo_has_stable_remote_ref`, `test_sync_migrates_mainline_to_stable` |
+| `tests/vm/test_hyprland_integration.py` (+1) | 4 | `test_repo_has_stable_remote_ref` |
 
 ## How to Run
 
@@ -45,7 +45,7 @@ bash scripts/publish
 - SSH: `ssh -i ~/.ssh/hyprconf_vm_key -p 2222 hyprtest@127.0.0.1`
 - QEMU PID: check with `pgrep qemu`
 - Run VM: `bash tests/vm/run_vm.sh`
-- **`run_vm.sh --wait` auto-syncs the VM repo to `origin/dev`** AND now also bundles `origin/stable` so the mainline→stable migration test works.
+- **`run_vm.sh --wait` auto-syncs the VM repo to `origin/dev`** AND bundles `origin/stable` so VM tests can verify the remote ref is present.
 
 ### Manual patches applied to running VM (not baked into image)
 
@@ -58,9 +58,8 @@ bash scripts/publish
 
 - `dev` — all active development (tests, scripts, configs, CI)
 - `stable` — release-ready source branch with normal shared history from `dev`
-- `mainline` — temporary compatibility mirror of `stable` during migration
-- `scripts/publish` runs all 5 tiers, deploys hyprconf.sh, builds a filtered release archive via `git archive`, promotes `dev` to `origin/stable`, and optionally mirrors `origin/mainline`
-- `run_vm.sh` bundles both `dev` and `stable` so VM tests can exercise the mainline→stable migration path
+- `scripts/publish` runs all 5 tiers, deploys hyprconf.sh, builds a filtered release archive via `git archive`, promotes `dev` to `origin/stable`
+- `run_vm.sh` bundles both `dev` and `stable` so VM tests can verify origin/stable is present
 
 ## Fixes across sessions (key commits)
 

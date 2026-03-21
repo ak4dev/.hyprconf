@@ -231,8 +231,7 @@ class TestSyncPath:
     def test_sync_always_uses_additive_stow_by_default(self) -> None:
         """Sync must use additive-only stow by default, regardless of branch.
 
-        This prevents user-modified dotfiles from being overwritten on any branch —
-        including legacy mainline/dev installs that have not yet migrated to stable.
+        This prevents user-modified dotfiles from being overwritten on any branch.
         """
         src = _setup_text()
         sync_idx = src.index('"--sync"')

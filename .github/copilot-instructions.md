@@ -105,6 +105,12 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 - When adding a new feature (script, function, CLI command, config path), add corresponding tests in the appropriate `tests/` tier (`unit/`, `integration/`, `vm/`, or `install/`).
 - Test files live under `tests/`. Run the full suite with `make test`.
 
+## Workflow Rules (Non-Negotiable)
+
+- **Run `make test` after every change, before committing.** Do not commit code that fails tests. If tests fail, fix the failure before proceeding.
+- **All regular work is pushed to `dev` only.** Never push directly to `stable` or any other branch unless the user explicitly asks.
+- **Never run `scripts/publish` unless the user explicitly says to publish.** Publishing promotes `dev` to `stable` and creates a release tag — it is a deliberate, user-directed action, not a side-effect of regular development. When in doubt, commit and push to `dev`, then wait.
+
 ## Scripts
 
 - All scripts must use `#!/usr/bin/env bash` and `set -euo pipefail`.

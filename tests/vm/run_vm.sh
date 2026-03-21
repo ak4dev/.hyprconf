@@ -61,8 +61,7 @@ _wait_for_ssh() {
 # (which runs 'git restore .') restores to the current dev codebase.
 # Uses a git bundle pushed host→VM to avoid any outbound network from the VM
 # (QEMU SLiRP NAT cannot reach external hosts reliably).
-# The bundle also includes origin/stable (when available) so that hyprconf
-# sync's mainline→stable migration path is exercisable in VM tests.
+# The bundle also includes origin/stable so VM tests can verify the remote ref.
 _sync_vm_to_dev() {
     echo "Syncing VM repo to origin/dev..."
     local repo_root bundle
@@ -70,8 +69,7 @@ _sync_vm_to_dev() {
     bundle="/tmp/hyprconf-vm-sync.bundle"
 
     # Temporarily create a local stable branch from origin/stable so it can be
-    # included in the bundle.  This gives the VM's clone a visible origin/stable
-    # remote-tracking branch, enabling the mainline→stable migration test.
+    # included in the bundle, giving the VM clone a visible origin/stable ref.
     local _created_stable=false
     if git -C "${repo_root}" show-ref --quiet refs/remotes/origin/stable 2>/dev/null \
        && ! git -C "${repo_root}" show-ref --quiet refs/heads/stable 2>/dev/null; then

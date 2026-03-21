@@ -101,8 +101,6 @@ hyprsync               # backward-compatible alias for hyprconf sync
 
 `~/.config/hypr/conf.d/99-hyprconf-local.conf` — the file written by `hyprconf set` and the TUI — is **machine-local and never managed by stow or git**. It survives all sync modes. If a previous install left it as a stow symlink, the first sync after this update migrates it automatically to a regular file.
 
-During migration, clean legacy `mainline` clones are re-pointed to `stable` automatically.
-
 ---
 
 ## Repository Layout
@@ -645,9 +643,8 @@ make build-vm-image  # runs build_image.sh
 |--------|---------|
 | `dev` | All active development — tests, docs, scripts, configs |
 | `stable` | Release-ready source branch with normal shared git history |
-| `mainline` | Temporary compatibility mirror of `stable` during migration |
 
-The long-term model is `dev` → `stable` with shared history. User installs no longer depend on a filtered branch; they use a sparse checkout of `stable`, and release archives are exported from the same commit. `mainline` remains only as a migration bridge and mirrors `stable` while older installs are moved over.
+The model is `dev` → `stable` with shared history. User installs use a sparse checkout of `stable`; release archives are exported from the same commit via `git archive`.
 
 ### Publishing to stable
 
@@ -658,7 +655,7 @@ bash scripts/publish
 `scripts/publish` handles the full pipeline automatically:
 1. Verifies `dev` branch with a clean working tree
 2. Starts the tier-4 test VM if not already running (stops it when done)
-3. Runs tiers 1–4 (abort on any failure)
+3. Runs all 5 test tiers (aborts on any failure)
 4. **Tier 5 — install image detection**: checks for `tests/vm/arch-hyprconf.qcow2`; if found, displays its build date and commit, then prompts:
    - **Use existing** — skip `install.sh` re-execution, run post-install validation (~fast)
    - **Rebuild** — re-run Packer to exercise `install.sh` end-to-end (~20 min)
@@ -667,15 +664,12 @@ bash scripts/publish
 6. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
 7. Builds a filtered release archive from `HEAD` using `git archive` + `.gitattributes`
 8. Pushes `HEAD` to `origin/stable`
-9. Mirrors the same commit to `origin/mainline` during migration (unless disabled)
-10. Creates and pushes the annotated tag `v<hyprconf.__version__>` unless it already points at `HEAD`
+9. Creates and pushes the annotated tag `v<hyprconf.__version__>` unless it already points at `HEAD`
 
 Files excluded from the release archive: `tests/` `scripts/` `.github/` `AGENTS.md` `Makefile` `pyproject.toml`
 
 | Flag | Effect |
 |------|--------|
-| `--skip-tests` | Skip the test suite |
 | `--skip-deploy` | Skip the deploy step |
 | `--skip-tag` | Skip annotated release-tag creation |
-| `--skip-compat` | Do not mirror `stable` to `mainline` |
 | `--dry-run` | Build the release archive locally but do not push branches/tags |
