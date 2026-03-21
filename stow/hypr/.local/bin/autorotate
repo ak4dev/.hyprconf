@@ -25,6 +25,29 @@ _transform_for() {
     esac
 }
 
+# Read the current scale for a display so we preserve fractional scaling
+# when reapplying the monitor keyword with a new transform.
+_current_scale() {
+    local name="$1"
+    hyprctl monitors -j 2>/dev/null \
+        | python3 -c "
+import sys, json
+monitors = json.load(sys.stdin)
+m = next((m for m in monitors if m['name'] == sys.argv[1]), None)
+print(m['scale'] if m else 'auto')
+" "$name" 2>/dev/null || echo "auto"
+}
+
+# Apply a transform while preserving the display's current scale.
+# hyprctl keyword monitor requires the full spec: NAME,RES,POS,SCALE[,EXTRAS]
+_apply_transform() {
+    local disp="$1" transform="$2"
+    local scale
+    scale="$(_current_scale "$disp")"
+    [[ -z "$scale" ]] && scale="auto"
+    hyprctl keyword monitor "$disp,preferred,auto,$scale,transform,$transform" 2>/dev/null || true
+}
+
 # Wait until hyprctl is reachable (exec-once may fire before the socket is ready).
 retries=10
 until hyprctl monitors &>/dev/null || (( retries-- == 0 )); do
@@ -39,9 +62,9 @@ while true; do
     while IFS= read -r line; do
         if [[ "$line" == *"Accelerometer orientation changed:"* ]]; then
             orientation="${line##*: }"
-            orientation="${orientation#"${orientation%%[! ]}"}"  # ltrim spaces
+            orientation="${orientation#"${orientation%%[! ]*}"}"  # ltrim spaces
             transform="$(_transform_for "$orientation")"
-            hyprctl keyword monitor "$display,transform,$transform" 2>/dev/null || true
+            _apply_transform "$display" "$transform"
         fi
     done < <(monitor-sensor 2>/dev/null)
     sleep 2  # back-off before reconnecting
