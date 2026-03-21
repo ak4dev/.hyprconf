@@ -200,7 +200,9 @@ else
 fi
 
 step "Checking VM image"
-_build_image=false
+if [[ "$SKIP_TESTS" == true ]]; then
+  warn "Skipping VM/install tiers (--skip-tests)"
+else
 if [[ -f "$INSTALL_IMAGE" ]]; then
   _built_at="unknown"
   _built_commit="unknown"
@@ -284,6 +286,8 @@ fi
 info "Tier 5: install validation"
 make test-install 2>&1 || die "Tier 5 (install) failed — fix before publishing."
 ok "Tier 5 passed"
+
+fi  # end: if [[ "$SKIP_TESTS" != true ]]
 
 ok "All tests passed"
 
