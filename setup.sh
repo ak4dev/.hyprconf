@@ -152,6 +152,11 @@ create_directories() {
     mkdir -p "$HOME/.config/hypr/conf.d"
 
     local hypr_local="$HOME/.config/hypr/conf.d/99-hyprconf-local.conf"
+    # A broken symlink (pointing to a now-deleted stow file) is not a regular
+    # file, so `! -f` would be true and the redirect below would follow the
+    # symlink and recreate the file inside the stow tree.  Remove it first so
+    # we always create a real machine-local file.
+    [[ -L "$hypr_local" && ! -e "$hypr_local" ]] && rm "$hypr_local"
     if [[ ! -f "$hypr_local" ]]; then
         cat >"$hypr_local" <<'EOF'
 # 99-hyprconf-local.conf — local Hyprland overrides
