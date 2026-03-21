@@ -208,3 +208,78 @@ fi
     # bottom-up → transform 2; must include full spec
     assert "eDP-1,preferred,auto" in recorded
     assert ",transform,2" in recorded
+
+
+# ---------------------------------------------------------------------------
+# Touch device transform — applied alongside monitor transform
+# ---------------------------------------------------------------------------
+
+def test_apply_transform_also_sets_touchdevice_transform(tmp_path: Path) -> None:
+    """input:touchdevice:transform must be updated whenever the monitor rotates."""
+    monitor_json = json.dumps([{"name": "eDP-1", "scale": 1.0}])
+    calls = tmp_path / "calls.txt"
+    _fake_hyprctl(tmp_path, monitor_json, calls)
+    env = {"PATH": str(tmp_path) + ":" + os.environ.get("PATH", "")}
+
+    _run_function("_apply_transform eDP-1 2", env)
+
+    recorded = calls.read_text()
+    assert "input:touchdevice:transform 2" in recorded, (
+        "Touch device transform not updated — touch grid will be misaligned after rotation"
+    )
+
+
+@pytest.mark.parametrize("orientation,expected_transform", [
+    ("normal",    "0"),
+    ("bottom-up", "2"),
+    ("left-up",   "1"),
+    ("right-up",  "3"),
+])
+def test_touchdevice_transform_matches_monitor_transform(
+    tmp_path: Path, orientation: str, expected_transform: str
+) -> None:
+    """Touch transform must equal monitor transform for every orientation."""
+    monitor_json = json.dumps([{"name": "eDP-1", "scale": 1.0}])
+    calls = tmp_path / "calls.txt"
+    _fake_hyprctl(tmp_path, monitor_json, calls)
+    env = {"PATH": str(tmp_path) + ":" + os.environ.get("PATH", "")}
+
+    transform, _ = _run_function(f"_transform_for '{orientation}'", env)
+    _run_function(f"_apply_transform eDP-1 {expected_transform}", env)
+
+    recorded = calls.read_text()
+    assert f"input:touchdevice:transform {expected_transform}" in recorded
+
+
+def test_e2e_orientation_change_also_updates_touchdevice(tmp_path: Path) -> None:
+    """End-to-end: orientation event must update both monitor and touch transforms."""
+    monitor_json = json.dumps([{"name": "eDP-1", "scale": 1.0}])
+    calls = tmp_path / "calls.txt"
+
+    fake_hc = tmp_path / "hyprctl"
+    fake_hc.write_text(f"""#!/usr/bin/env bash
+if [[ "$1" == "monitors" ]]; then
+    echo '{monitor_json}'
+elif [[ "$1" == "keyword" ]]; then
+    echo "$2 $3" >> "{calls}"
+fi
+""")
+    fake_hc.chmod(0o755)
+
+    fake_ms = tmp_path / "monitor-sensor"
+    fake_ms.write_text(
+        "#!/usr/bin/env bash\necho '    Accelerometer orientation changed: left-up'\n"
+    )
+    fake_ms.chmod(0o755)
+
+    env = {**os.environ, "PATH": str(tmp_path) + ":" + os.environ.get("PATH", "")}
+    subprocess.run(["timeout", "6", "bash", str(SCRIPT)], env=env, capture_output=True)
+
+    recorded = calls.read_text()
+    # left-up → transform 1
+    assert "eDP-1,preferred,auto" in recorded and ",transform,1" in recorded, (
+        "Monitor transform not applied for left-up"
+    )
+    assert "input:touchdevice:transform 1" in recorded, (
+        "Touch device transform not applied — touch input will be misaligned"
+    )

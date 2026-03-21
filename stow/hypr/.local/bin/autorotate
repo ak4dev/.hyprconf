@@ -40,12 +40,14 @@ print(m['scale'] if m else 'auto')
 
 # Apply a transform while preserving the display's current scale.
 # hyprctl keyword monitor requires the full spec: NAME,RES,POS,SCALE[,EXTRAS]
+# Also updates the touch input transform so touch coordinates follow the rotation.
 _apply_transform() {
     local disp="$1" transform="$2"
     local scale
     scale="$(_current_scale "$disp")"
     [[ -z "$scale" ]] && scale="auto"
     hyprctl keyword monitor "$disp,preferred,auto,$scale,transform,$transform" 2>/dev/null || true
+    hyprctl keyword input:touchdevice:transform "$transform" 2>/dev/null || true
 }
 
 # Wait until hyprctl is reachable (exec-once may fire before the socket is ready).
