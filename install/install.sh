@@ -61,7 +61,6 @@ COPY_NETCONF=1
 #   HYPRCONF_CI_HOSTNAME=hyprconf-test
 #   HYPRCONF_CI_TIMEZONE=UTC
 #   HYPRCONF_CI_PART_MODE=full         # full | unallocated
-#   HYPRCONF_CI_COPY_NETCONF=0         # 0 | 1
 #   HYPRCONF_CI_SSH_PUBKEY=            # optional — inject authorized_keys before unmount
 #   HYPRCONF_CI_REPO_TGZ=             # optional — path to repo tar.gz; skips git clone
 HYPRCONF_CI="${HYPRCONF_CI:-0}"
@@ -488,14 +487,7 @@ gather_user_input() {
   read -r USER_HOSTNAME
   [[ -z "$USER_HOSTNAME" ]] && USER_HOSTNAME="arch"
 
-  printf '%s  Copy network config from ISO (keeps WiFi for first boot)? [Y/n]: %s' "$AM" "$RS"
-  local net_ans
-  read -r net_ans
-  if [[ -z "$net_ans" || "${net_ans,,}" == "y" || "${net_ans,,}" == "yes" ]]; then
-    COPY_NETCONF=1
-  else
-    COPY_NETCONF=0
-  fi
+  COPY_NETCONF=1
 
   log_ok "Username: $USERNAME  Hostname: $USER_HOSTNAME"
 }
