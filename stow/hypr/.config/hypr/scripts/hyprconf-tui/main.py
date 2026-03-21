@@ -2507,15 +2507,15 @@ class HyprconfApp(App):
         else:
             self.notify("Save failed — check file permissions.", severity="error")
 
-    def action_quit(self) -> None:
-        """Auto-save any pending changes to disk before exiting."""
+    def on_unmount(self) -> None:
+        """Auto-save any pending changes when the app exits (q, Ctrl+C, or any other exit)."""
         if self._pending:
-            ok, n = save_pending(self._pending)
-            if not ok:
-                self.notify("Save failed — check file permissions.", severity="error")
+            save_pending(self._pending)
+
+    def action_quit(self) -> None:
         self.exit()
 
-
+    def action_refresh(self) -> None:
         self._load_section(self._current_section)
         self.notify(f"Refreshed: {self._current_section}")
 

@@ -260,14 +260,12 @@ async def test_hardware_section_loads(patched_tui_env: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Auto-save on quit
+# Auto-save on exit (on_unmount fires regardless of exit mechanism: q or Ctrl+C)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.asyncio
 async def test_pending_changes_saved_on_quit(patched_tui_env: Path) -> None:
-    """Pending TUI changes must be written to disk when the user quits."""
-    import main as tui_main
-
+    """Pending TUI changes must be written to disk when the user quits with q."""
     HyprconfApp = _get_app_class()
     app = HyprconfApp()
 
@@ -277,21 +275,19 @@ async def test_pending_changes_saved_on_quit(patched_tui_env: Path) -> None:
         saved.append(dict(pending))
         return True, sum(len(v) for v in pending.values())
 
-    async with app.run_test(size=(120, 40)) as pilot:
-        # Manually inject a pending change (bypasses hyprctl)
-        app._pending = {"general": {"border_size": "3"}}
-        with patch("main.save_pending", side_effect=_fake_save):
+    # Patch OUTSIDE run_test so it's active during on_unmount (fires in run_test cleanup)
+    with patch("main.save_pending", side_effect=_fake_save):
+        async with app.run_test(size=(120, 40)) as pilot:
+            app._pending = {"general": {"border_size": "3"}}
             await pilot.press("q")
 
-    assert saved, "action_quit must call save_pending when there are pending changes"
+    assert saved, "on_unmount must call save_pending when there are pending changes"
     assert saved[0].get("general", {}).get("border_size") == "3"
 
 
 @pytest.mark.asyncio
 async def test_no_save_called_on_quit_when_nothing_pending(patched_tui_env: Path) -> None:
-    """action_quit must not call save_pending when there are no pending changes."""
-    import main as tui_main
-
+    """on_unmount must not call save_pending when there are no pending changes."""
     HyprconfApp = _get_app_class()
     app = HyprconfApp()
 
@@ -301,10 +297,46 @@ async def test_no_save_called_on_quit_when_nothing_pending(patched_tui_env: Path
         saved.append(dict(pending))
         return True, 0
 
-    async with app.run_test(size=(120, 40)) as pilot:
-        app._pending = {}
-        with patch("main.save_pending", side_effect=_fake_save):
+    with patch("main.save_pending", side_effect=_fake_save):
+        async with app.run_test(size=(120, 40)) as pilot:
+            app._pending = {}
             await pilot.press("q")
 
-    assert not saved, "action_quit must not call save_pending when nothing is pending"
+    assert not saved, "on_unmount must not call save_pending when nothing is pending"
+
+
+@pytest.mark.asyncio
+async def test_pending_changes_saved_on_ctrlc(patched_tui_env: Path) -> None:
+    """Pending TUI changes must be written to disk on Ctrl+C (on_unmount path)."""
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+
+    saved: list[dict] = []
+
+    def _fake_save(pending):
+        saved.append(dict(pending))
+        return True, sum(len(v) for v in pending.values())
+
+    with patch("main.save_pending", side_effect=_fake_save):
+        async with app.run_test(size=(120, 40)) as pilot:
+            app._pending = {"decoration": {"rounding": "8"}}
+            # Simulate Ctrl+C exit path (app.exit() directly, not via action_quit)
+            app.exit()
+
+    assert saved, "on_unmount must call save_pending even when app.exit() is called directly"
+    assert saved[0].get("decoration", {}).get("rounding") == "8"
+
+
+@pytest.mark.asyncio
+async def test_action_refresh_reloads_section(patched_tui_env: Path) -> None:
+    """Pressing r must reload the current section without error."""
+    from textual.widgets import DataTable
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        await pilot.press("r")
+        await pilot.pause()
+        table = app.query_one("#option-table", DataTable)
+        assert table.row_count > 0
 
