@@ -26,8 +26,8 @@ if [[ "$direction" == "+" ]]; then
 else
     new_in=$(( gaps_in  - STEP ))
     new_out=$(( gaps_out - STEP ))
-    (( new_in  < 0 )) && new_in=0
-    (( new_out < 0 )) && new_out=0
+    new_in=$(( new_in  < 0 ? 0 : new_in  ))
+    new_out=$(( new_out < 0 ? 0 : new_out ))
 fi
 
 hyprctl keyword general:gaps_in  "$new_in"

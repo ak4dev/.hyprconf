@@ -638,6 +638,8 @@ detect_gpu_and_link_monitor_config() {
         log_step "Enabling power-profiles-daemon..."
         if _in_chroot; then
             sudo systemctl enable power-profiles-daemon
+        elif systemctl is-active --quiet power-profiles-daemon 2>/dev/null; then
+            log_ok "power-profiles-daemon already active — skipping."
         else
             sudo systemctl enable --now power-profiles-daemon
         fi
