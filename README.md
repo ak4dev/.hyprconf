@@ -33,9 +33,9 @@
 - **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
-- **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); both re-evaluated on every `hyprconf sync`
+- **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`); touch-only devices (no physical keyboard) also get a floating `touch-panel` overlay for OSK and launcher access; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
-- **Full-desktop theme switcher** — 44 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, and wallpaper
+- **Full-desktop theme switcher** — 44 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, and wallpaper; hyperlauncher restarted automatically so the new theme takes effect immediately
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
 - **Cloud deploy** — serve your own install endpoint via `hyprconf deploy` (S3 + CloudFront + ACM + Route53)
@@ -278,7 +278,9 @@ hyprconf theme dracula  # apply directly
 hyprconf theme random   # random pick
 ```
 
-Themes are applied simultaneously to: Hyprland borders · Waybar CSS · Kitty · Wofi · Dunst · hyprlock · VS Code / Code OSS · Firefox · GTK 3 & 4 · Qt/KDE apps (`kdeglobals`) · wallpaper.
+Themes are applied simultaneously to: Hyprland borders · Waybar CSS · Kitty · Wofi · Dunst · hyprlock · VS Code / Code OSS · Firefox · GTK 3 & 4 · Qt/KDE apps (`kdeglobals`) · Dolphin · wvkbd · touch-panel · wallpaper.
+
+> **Firefox note:** `userChrome.css` and `user.js` are always updated. If Firefox is running when a theme is applied, `extensions.json` is left untouched (Firefox owns that file while open) and a desktop notification prompts you to restart Firefox for the full theme to activate.
 
 ### Theme Flags
 
@@ -389,6 +391,16 @@ Installs **`wvkbd`** (AUR, requires `yay`) — a minimal wlroots on-screen keybo
 | Auto-show | Appears when a text input is focused (`text-input-v3` protocol) |
 | Manual toggle | `Super + Shift + O` |
 | Theme integration | `hyprconf theme` writes `~/.config/wvkbd/colors` and restarts the daemon |
+
+#### Touch-only panel
+
+On devices where **no physical keyboard** is detected (`ID_INPUT_KEYBOARD=1` with a non-empty `PHYS` field), `setup.sh` installs **`gtk-layer-shell`** and adds `exec-once = touch-panel` to `conf.d/60-hardware.conf`.
+
+`touch-panel` is a minimal GTK3 + layer-shell floating overlay anchored to the bottom-right:
+
+- **Normal state** — small circular FAB (☰)
+- **Expanded** — compact pill with ⌨ OSK toggle and ⊞ launcher buttons
+- Colours sourced from `~/.config/touch-panel/colors` (written by `hyprconf theme`); reloaded live on `SIGUSR1`
 
 ### Accelerometer / Auto-Rotation
 

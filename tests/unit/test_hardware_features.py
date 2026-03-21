@@ -293,3 +293,173 @@ def test_usb_wacom_tablet_does_not_trigger_touchscreen():
         ),
     }
     assert _run_touchscreen_detection(files) is False
+
+
+# ---------------------------------------------------------------------------
+# _has_physical_keyboard() — setup.sh helper
+# ---------------------------------------------------------------------------
+
+SETUP_SH = Path(__file__).parent.parent.parent / "setup.sh"
+
+
+def _run_keyboard_detection(files: dict) -> bool:
+    """Run _has_physical_keyboard() with a mocked /sys/class/input tree."""
+    source = SETUP_SH.read_text()
+    # Extract just the _has_physical_keyboard function
+    start = source.find("_has_physical_keyboard()")
+    assert start != -1, "_has_physical_keyboard() not found in setup.sh"
+    # Extract until the closing brace
+    end = source.find("\n}", start)
+    func = source[source.rfind("\n", 0, start) + 1: end + 2]
+
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as tmp:
+        # Build fake sysfs tree
+        for path, content in files.items():
+            full = os.path.join(tmp, path.lstrip("/"))
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            Path(full).write_text(content)
+
+        # Rewrite all /sys/class/input refs to use tmp dir
+        func_patched = func.replace(
+            "/sys/class/input/*/device/uevent",
+            f"{tmp}/sys/class/input/*/device/uevent",
+        )
+        script = f"""
+set -euo pipefail
+{func_patched}
+_has_physical_keyboard && echo YES || echo NO
+"""
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True, text=True,
+        )
+        return result.stdout.strip() == "YES"
+
+
+def test_physical_keyboard_detected_with_keyboard_and_phys():
+    files = {
+        "/sys/class/input/event1/device/uevent": (
+            "NAME=\"AT Translated Set 2 keyboard\"\n"
+            "ID_INPUT=1\nID_INPUT_KEYBOARD=1\n"
+            "PHYS=\"isa0060/serio0/input0\"\n"
+        )
+    }
+    assert _run_keyboard_detection(files) is True
+
+
+def test_physical_keyboard_not_detected_when_phys_empty():
+    """Power button / virtual keyboard: ID_INPUT_KEYBOARD=1 but PHYS is empty."""
+    files = {
+        "/sys/class/input/event2/device/uevent": (
+            "NAME=\"Power Button\"\n"
+            "ID_INPUT=1\nID_INPUT_KEYBOARD=1\n"
+            "PHYS=\n"
+        )
+    }
+    assert _run_keyboard_detection(files) is False
+
+
+def test_physical_keyboard_not_detected_when_phys_missing():
+    """No PHYS line at all — should not count as a physical keyboard."""
+    files = {
+        "/sys/class/input/event3/device/uevent": (
+            "NAME=\"Virtual Keyboard\"\n"
+            "ID_INPUT=1\nID_INPUT_KEYBOARD=1\n"
+        )
+    }
+    assert _run_keyboard_detection(files) is False
+
+
+def test_physical_keyboard_not_detected_when_absent():
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            "NAME=\"ELAN Touchscreen\"\n"
+            "ID_INPUT=1\nID_INPUT_TOUCHSCREEN=1\n"
+        )
+    }
+    assert _run_keyboard_detection(files) is False
+
+
+def test_keyboard_detected_among_multiple_devices():
+    """Physical keyboard should be found even with other devices present."""
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            "NAME=\"ELAN Touchscreen\"\nID_INPUT_TOUCHSCREEN=1\n"
+        ),
+        "/sys/class/input/event1/device/uevent": (
+            "NAME=\"AT Translated Set 2 keyboard\"\n"
+            "ID_INPUT_KEYBOARD=1\nPHYS=\"isa0060/serio0/input0\"\n"
+        ),
+    }
+    assert _run_keyboard_detection(files) is True
+
+
+# ---------------------------------------------------------------------------
+# update_touch_panel() — switch_theme.py
+# ---------------------------------------------------------------------------
+
+def test_update_touch_panel_writes_colors_file(tmp_path, monkeypatch):
+    colors_file = tmp_path / ".config" / "touch-panel" / "colors"
+    monkeypatch.setattr(st, "TOUCH_PANEL_COLORS_FILE", str(colors_file))
+    st.update_touch_panel(DARK_THEME)
+    assert colors_file.exists()
+    content = colors_file.read_text()
+    assert '#1e1e2e' in content
+    assert '#cdd6f4' in content
+    assert '#89b4fa' in content
+
+
+def test_update_touch_panel_creates_config_dir(tmp_path, monkeypatch):
+    colors_file = tmp_path / ".config" / "touch-panel" / "colors"
+    monkeypatch.setattr(st, "TOUCH_PANEL_COLORS_FILE", str(colors_file))
+    st.update_touch_panel(DARK_THEME)
+    assert (tmp_path / ".config" / "touch-panel").is_dir()
+
+
+def test_update_touch_panel_skips_when_no_background(tmp_path, monkeypatch):
+    colors_file = tmp_path / ".config" / "touch-panel" / "colors"
+    monkeypatch.setattr(st, "TOUCH_PANEL_COLORS_FILE", str(colors_file))
+    st.update_touch_panel({})
+    assert not colors_file.exists()
+
+
+def test_update_touch_panel_signals_running_panel(tmp_path, monkeypatch):
+    colors_file = tmp_path / ".config" / "touch-panel" / "colors"
+    monkeypatch.setattr(st, "TOUCH_PANEL_COLORS_FILE", str(colors_file))
+    fake_pid = "12345"
+    kill_calls = []
+
+    def fake_run(cmd, **_kwargs):
+        m = MagicMock()
+        if cmd[0] == "pgrep":
+            m.returncode = 0
+            m.stdout = fake_pid + "\n"
+        else:
+            m.returncode = 0
+        return m
+
+    monkeypatch.setattr(st.subprocess, "run", fake_run)
+    monkeypatch.setattr(st.os, "kill", lambda pid, sig: kill_calls.append((pid, sig)))
+
+    import signal
+    st.update_touch_panel(DARK_THEME)
+    assert (12345, signal.SIGUSR1) in kill_calls
+
+
+def test_update_touch_panel_no_signal_when_not_running(tmp_path, monkeypatch):
+    colors_file = tmp_path / ".config" / "touch-panel" / "colors"
+    monkeypatch.setattr(st, "TOUCH_PANEL_COLORS_FILE", str(colors_file))
+    kill_calls = []
+
+    def fake_run(cmd, **_kwargs):
+        m = MagicMock()
+        m.returncode = 1
+        m.stdout = ""
+        return m
+
+    monkeypatch.setattr(st.subprocess, "run", fake_run)
+    monkeypatch.setattr(st.os, "kill", lambda pid, sig: kill_calls.append((pid, sig)))
+
+    st.update_touch_panel(DARK_THEME)
+    assert kill_calls == []

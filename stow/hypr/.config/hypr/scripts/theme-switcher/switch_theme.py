@@ -3,6 +3,7 @@ import json
 import os
 import random
 import re
+import signal
 import shutil
 import subprocess
 import sys
@@ -68,6 +69,8 @@ QT5CT_CONF_FILE        = os.path.expanduser("~/.config/qt5ct/qt5ct.conf")
 QT5CT_COLORS_FILE      = os.path.expanduser("~/.config/qt5ct/colors/hyprconf.conf")
 THEME_COLORS_CONF      = os.path.expanduser("~/.config/hypr/theme-colors.conf")
 HYPRLOCK_CONFIG_FILE   = os.path.expanduser("~/.config/hypr/hyprlock.conf")
+DOLPHIN_RC_FILE        = os.path.expanduser("~/.config/dolphinrc")
+TOUCH_PANEL_COLORS_FILE = os.path.expanduser("~/.config/touch-panel/colors")
 STATE_FILE             = os.path.expanduser("~/.config/hypr/.current-theme")
 
 FIREFOX_ENFORCED_PREFS = {
@@ -230,6 +233,10 @@ def update_hyprtoolkit(theme: Dict[str, str]) -> None:
         f.write("\n".join(lines))
 
     print(f"hyprtoolkit theme updated ({icon_theme}).")
+
+    # hyprlauncher reads hyprtoolkit.conf only at startup. If it is currently
+    # running, kill it so the next launch picks up the new theme immediately.
+    _kill_process_if_running("hyprlauncher")
 
 
 def update_dunst(theme: Dict[str, str]) -> None:
@@ -516,6 +523,50 @@ def reload_hyprland() -> None:
         print("Hyprland reloaded.")
     except subprocess.CalledProcessError as e:
         print(f"Failed to reload Hyprland: {e}")
+
+
+def _kill_process_if_running(process_name: str) -> bool:
+    """Send SIGTERM to any running process whose name matches exactly.
+
+    Uses pgrep to find PIDs and os.kill to terminate — no pkill/killall.
+    Returns True if at least one process was signalled.
+    """
+    result = subprocess.run(
+        ["pgrep", "-x", process_name], capture_output=True, text=True
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return False
+    for pid_str in result.stdout.strip().splitlines():
+        try:
+            os.kill(int(pid_str), signal.SIGTERM)
+        except (ProcessLookupError, ValueError):
+            pass
+    print(f"Sent SIGTERM to running {process_name}; theme applies on next launch.")
+    return True
+
+def _proc_name_pids(name: str) -> list:
+    """Return list of PIDs whose /proc/<pid>/comm matches `name` exactly.
+    Uses /proc directly — no subprocess, no hanging.
+    """
+    pids = []
+    try:
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                if (entry / "comm").read_text().strip() == name:
+                    pids.append(int(entry.name))
+            except (PermissionError, FileNotFoundError, OSError):
+                continue
+    except (PermissionError, FileNotFoundError, OSError):
+        pass
+    return pids
+
+
+def _is_process_running(name: str) -> bool:
+    """Return True if any process with the given exact name is running."""
+    return bool(_proc_name_pids(name))
+
 
 def load_theme(theme_name: str) -> Dict[str, str]:
     """Load a theme JSON file into a dictionary."""
@@ -1014,6 +1065,11 @@ def update_firefox(theme: Dict[str, Any]) -> None:
         print("Firefox profile not found; skipping Firefox theme.")
         return
 
+    # Check if Firefox is running. If so, extensions.json is owned by the
+    # running process and any changes will be overwritten on exit.
+    # user.js and userChrome.css are safe to write; they take effect on restart.
+    firefox_running = _is_process_running("firefox") or _is_process_running("firefox-bin")
+
     prefs: Dict[str, Any] = parse_user_js(FIREFOX_BASE_PREFS_FILE)
     prefs.update(FIREFOX_ENFORCED_PREFS)
 
@@ -1027,16 +1083,17 @@ def update_firefox(theme: Dict[str, Any]) -> None:
     if firefox_cfg:
         prefs.update(firefox_cfg.get("prefs", {}))
         ensure_firefox_theme_payload(profile_path, firefox_cfg)
-        candidate_id = resolve_firefox_theme_id(profile_path, firefox_cfg)
-        if candidate_id and set_firefox_theme_activation(profile_path, candidate_id):
-            active_theme_id = candidate_id
-        elif firefox_cfg.get("theme_name") or firefox_cfg.get("theme_id"):
-            print(
-                "Firefox theme payload not found or not installed — "
-                "falling back to built-in compact theme."
-            )
+        if not firefox_running:
+            candidate_id = resolve_firefox_theme_id(profile_path, firefox_cfg)
+            if candidate_id and set_firefox_theme_activation(profile_path, candidate_id):
+                active_theme_id = candidate_id
+            elif firefox_cfg.get("theme_name") or firefox_cfg.get("theme_id"):
+                print(
+                    "Firefox theme payload not found or not installed — "
+                    "falling back to built-in compact theme."
+                )
 
-    if not active_theme_id:
+    if not active_theme_id and not firefox_running:
         # Use built-in compact dark/light — always present, no install needed.
         builtin_id = get_firefox_builtin_theme_id(theme)
         if set_firefox_theme_activation(profile_path, builtin_id):
@@ -1047,8 +1104,21 @@ def update_firefox(theme: Dict[str, Any]) -> None:
 
     write_firefox_userchrome(profile_path, theme)
     write_firefox_userjs(profile_path, prefs)
-    label = active_theme_id or "(no theme activated)"
-    print(f"Firefox updated: theme={label}, userChrome.css written at {profile_path}.")
+
+    if firefox_running:
+        print("Firefox is running — userChrome.css and user.js updated.")
+        try:
+            subprocess.run(
+                ["notify-send", "--app-name=hyprconf",
+                 "Firefox restart needed",
+                 "Restart Firefox for theme changes to take full effect."],
+                check=False, capture_output=True, timeout=2,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+    else:
+        label = active_theme_id or "(no theme activated)"
+        print(f"Firefox updated: theme={label}, userChrome.css written at {profile_path}.")
 
 
 def _resolve_gtk_theme(theme: Dict[str, str]) -> str:
@@ -1338,6 +1408,19 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         )
     print("Qt/KDE theme updated.")
 
+    # Write ColorScheme=SwitchThemeGenerated to dolphinrc so Dolphin uses the
+    # new palette without requiring a manual Settings → Configure step.
+    # kwriteconfig6 is the canonical tool; fall back to kwriteconfig5.
+    for kwrite in ("kwriteconfig6", "kwriteconfig5"):
+        if shutil.which(kwrite):
+            subprocess.run(
+                [kwrite, "--file", "dolphinrc",
+                 "--group", "General",
+                 "--key", "ColorScheme", "SwitchThemeGenerated"],
+                check=False, capture_output=True,
+            )
+            break
+
 
 def update_qt_platform_theme(theme: Dict[str, str]) -> None:
     """Configure qt6ct (and qt5ct if installed) with a QPalette derived from the theme.
@@ -1481,6 +1564,43 @@ def update_wvkbd(theme: Dict[str, str]) -> None:
         print(f"Warning: could not restart wvkbd: {e}")
 
 
+def update_touch_panel(theme: Dict[str, str]) -> None:
+    """Write ~/.config/touch-panel/colors and signal the panel to reload.
+
+    The touch-panel script reloads colors on SIGUSR1 without restarting, so
+    the panel remains open and the theme change is instant.
+    """
+    bg     = theme.get("background", "")
+    fg     = theme.get("foreground", "")
+    accent = theme.get("accent", "")
+
+    if not bg:
+        return
+
+    try:
+        config_dir = Path(TOUCH_PANEL_COLORS_FILE).parent
+        config_dir.mkdir(parents=True, exist_ok=True)
+        Path(TOUCH_PANEL_COLORS_FILE).write_text(
+            f'bg="{bg}"\nfg="{fg}"\naccent="{accent}"\n',
+            encoding="utf-8",
+        )
+        print("touch-panel colors written.")
+    except OSError as exc:
+        print(f"Warning: could not write touch-panel colors: {exc}")
+        return
+
+    result = subprocess.run(
+        ["pgrep", "-x", "touch-panel"], capture_output=True, text=True
+    )
+    if result.returncode == 0:
+        for pid_str in result.stdout.strip().splitlines():
+            try:
+                os.kill(int(pid_str), signal.SIGUSR1)
+            except (ProcessLookupError, ValueError):
+                pass
+        print("touch-panel signalled to reload colors.")
+
+
 def apply_theme(theme_name: str, reload: bool = True) -> None:
     """Apply the selected theme to all relevant config files."""
     print(f"Switching to theme: {theme_name}")
@@ -1542,6 +1662,8 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
     update_hyprlock_colors(theme)
     if shutil.which("wvkbd-mobintl"):
         update_wvkbd(theme)
+    if shutil.which("touch-panel"):
+        update_touch_panel(theme)
     if reload:
         reload_hyprland()
     write_state(theme_name)
