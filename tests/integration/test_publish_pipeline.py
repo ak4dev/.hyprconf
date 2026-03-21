@@ -119,7 +119,7 @@ def test_publish_dry_run_succeeds() -> None:
 
     Flags used:
       --dry-run       build archive locally, skip branch/tag pushes
-      --skip-tests    skip the full test suite (already running it)
+      --skip-tests    skip the full test suite (already running it here)
       --skip-deploy   skip the hyprconf.sh deploy step
       --skip-tag      skip annotated tag creation
     """

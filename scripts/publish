@@ -11,6 +11,8 @@ set -euo pipefail
 #   --minor         Bump the minor version (2.0.6 → 2.1.0)
 #   --major         Bump the major version (2.0.6 → 3.0.0)
 #   --skip-bump     Skip automatic version bump (version must be pre-bumped manually)
+#   --skip-tests    Skip the test suite (only for nested test-harness calls — tests
+#                   must still pass before any real publish)
 #   --skip-deploy   Skip the hyprconf deploy step
 #   --skip-tag      Skip annotated release-tag creation
 #   --dry-run       Build the release archive locally but do not push branches/tags
@@ -51,6 +53,7 @@ _install_vm_is_running() {
 SKIP_DEPLOY=false
 SKIP_TAG=false
 SKIP_BUMP=false
+SKIP_TESTS=false
 DRY_RUN=false
 BUMP_TYPE="patch"
 
@@ -60,6 +63,7 @@ for arg in "$@"; do
     --minor)       BUMP_TYPE="minor"   ;;
     --major)       BUMP_TYPE="major"   ;;
     --skip-bump)   SKIP_BUMP=true      ;;
+    --skip-tests)  SKIP_TESTS=true     ;;
     --skip-deploy) SKIP_DEPLOY=true    ;;
     --skip-tag)    SKIP_TAG=true       ;;
     --dry-run)     DRY_RUN=true        ;;
@@ -188,8 +192,12 @@ info "Release tag: ${release_tag}"
 step "Running test suite"
 
 info "Tiers 1-3: unit / integration / tui"
-make test 2>&1 || die "Tiers 1-3 failed — fix before publishing."
-ok "Tiers 1-3 passed"
+if [[ "$SKIP_TESTS" == true ]]; then
+  warn "Skipping tests (--skip-tests) — ensure suite passed before this call"
+else
+  make test 2>&1 || die "Tiers 1-3 failed — fix before publishing."
+  ok "Tiers 1-3 passed"
+fi
 
 step "Checking VM image"
 _build_image=false
