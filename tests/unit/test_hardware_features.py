@@ -231,6 +231,8 @@ def _run_touchscreen_detection(uevent_files: dict) -> bool:
     for content in uevent_files.values():
         if "ID_INPUT_TOUCHSCREEN=1" in content:
             return True
+        if "ID_INPUT_TOUCH=1" in content:
+            return True
         if ('NAME="Wacom' in content and 'Finger' in content
                 and 'PHYS="i2c-' in content):
             return True
@@ -242,6 +244,17 @@ def test_touchscreen_detected_via_standard_udev_tag():
         "/sys/class/input/event0/device/uevent": (
             "NAME=\"ELAN Touchscreen\"\nPHYS=\"i2c-ELAN0001:00\"\n"
             "ID_INPUT=1\nID_INPUT_TOUCHSCREEN=1\n"
+        )
+    }
+    assert _run_touchscreen_detection(files) is True
+
+
+def test_touchscreen_detected_via_id_input_touch():
+    """Devices like ASUS ROG Ally use ID_INPUT_TOUCH=1 instead of ID_INPUT_TOUCHSCREEN=1."""
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            "NAME=\"ILITEK ILITEK-TP\"\nPHYS=\"usb-0000:c4:00.3-3/input0\"\n"
+            "ID_INPUT=1\nID_INPUT_TOUCH=1\n"
         )
     }
     assert _run_touchscreen_detection(files) is True
@@ -596,41 +609,30 @@ def _run_write_hardware_conf(
     tmp_path: Path,
     *,
     has_touch: bool = False,
-    touch_names: list[str] | None = None,
     has_accel: bool = False,
 ) -> str:
     """
     Run write_hardware_conf() (extracted from setup.sh) with stubbed helpers.
     Returns the text of the generated 60-hardware.conf.
     """
-    touch_names = touch_names or []
     source = SETUP_SH.read_text()
 
-    # Extract write_hardware_conf and its inner helper _get_touch_device_names
-    def _extract_func(source: str, name: str) -> str:
-        start = source.find(f"{name}()")
+    def _extract_func(src: str, name: str) -> str:
+        start = src.find(f"{name}()")
         assert start != -1, f"{name}() not found in setup.sh"
-        end = source.find("\n}", start)
-        return source[source.rfind("\n", 0, start) + 1: end + 2]
+        end = src.find("\n}", start)
+        return src[src.rfind("\n", 0, start) + 1: end + 2]
 
     write_func = _extract_func(source, "write_hardware_conf")
-    get_names_func = _extract_func(source, "_get_touch_device_names")
 
     conf_dir = tmp_path / ".config" / "hypr" / "conf.d"
     conf_dir.mkdir(parents=True)
 
-    if touch_names:
-        names_printf = " ".join(f'"{n}"' for n in touch_names)
-        get_names_stub = f'_get_touch_device_names() {{ printf "%s\\n" {names_printf}; }}'
-    else:
-        get_names_stub = "_get_touch_device_names() { return 0; }"
-
     script = f"""
 set -euo pipefail
 HOME="{tmp_path}"
-_has_touchscreen()       {{ {'return 0' if has_touch else 'return 1'}; }}
-_has_accelerometer()     {{ {'return 0' if has_accel  else 'return 1'}; }}
-{get_names_stub}
+_has_touchscreen()   {{ {'return 0' if has_touch else 'return 1'}; }}
+_has_accelerometer() {{ {'return 0' if has_accel  else 'return 1'}; }}
 log_ok() {{ :; }}
 {write_func}
 write_hardware_conf
@@ -640,54 +642,30 @@ write_hardware_conf
     return (conf_dir / "60-hardware.conf").read_text()
 
 
-def test_write_hardware_conf_no_device_block_without_touchscreen(tmp_path):
+def test_write_hardware_conf_no_touchdevice_block_without_touchscreen(tmp_path):
     conf = _run_write_hardware_conf(tmp_path, has_touch=False)
-    assert "device {" not in conf
+    assert "touchdevice" not in conf
 
 
-def test_write_hardware_conf_device_block_present_with_touchscreen(tmp_path):
-    conf = _run_write_hardware_conf(
-        tmp_path, has_touch=True, touch_names=["wacom-hid-5288-finger"]
-    )
-    assert "device {" in conf
+def test_write_hardware_conf_emits_touchdevice_block_with_touchscreen(tmp_path):
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True)
+    assert "touchdevice" in conf
 
 
-def test_write_hardware_conf_device_block_has_correct_name(tmp_path):
-    conf = _run_write_hardware_conf(
-        tmp_path, has_touch=True, touch_names=["wacom-hid-5288-finger"]
-    )
-    assert "name         = wacom-hid-5288-finger" in conf
+def test_write_hardware_conf_touchdevice_output_is_edp1(tmp_path):
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True)
+    assert "output    = eDP-1" in conf
 
 
-def test_write_hardware_conf_device_block_has_touch_output(tmp_path):
-    conf = _run_write_hardware_conf(
-        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
-    )
-    assert "touch_output = eDP-1" in conf
+def test_write_hardware_conf_touchdevice_transform_is_zero(tmp_path):
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True)
+    assert "transform = 0" in conf
 
 
-def test_write_hardware_conf_device_block_has_transform_zero(tmp_path):
-    conf = _run_write_hardware_conf(
-        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
-    )
-    assert "transform    = 0" in conf
-
-
-def test_write_hardware_conf_multiple_touch_devices_emit_multiple_blocks(tmp_path):
-    conf = _run_write_hardware_conf(
-        tmp_path,
-        has_touch=True,
-        touch_names=["elan-touchscreen", "wacom-hid-5288-finger"],
-    )
-    assert conf.count("device {") == 2
-    assert "name         = elan-touchscreen" in conf
-    assert "name         = wacom-hid-5288-finger" in conf
-
-
-def test_write_hardware_conf_no_device_block_when_no_touch_names(tmp_path):
-    """Touchscreen detected but name list empty — no device blocks emitted."""
-    conf = _run_write_hardware_conf(tmp_path, has_touch=True, touch_names=[])
-    assert "device {" not in conf
+def test_write_hardware_conf_no_legacy_touch_output_key(tmp_path):
+    """The old 'touch_output' key must never appear — it is not a valid Hyprland option."""
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True)
+    assert "touch_output" not in conf
 
 
 # touch-panel-launcher + touch-panel-watch emission
@@ -695,17 +673,13 @@ def test_write_hardware_conf_no_device_block_when_no_touch_names(tmp_path):
 
 def test_write_hardware_conf_emits_launcher_when_touch_detected(tmp_path):
     """touch-panel-launcher must be in exec-once when touchscreen is present."""
-    conf = _run_write_hardware_conf(
-        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
-    )
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True)
     assert "exec-once = touch-panel-launcher" in conf
 
 
 def test_write_hardware_conf_emits_watch_when_touch_detected(tmp_path):
     """touch-panel-watch must be in exec-once when touchscreen is present."""
-    conf = _run_write_hardware_conf(
-        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
-    )
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True)
     assert "exec-once = touch-panel-watch" in conf
 
 
@@ -723,9 +697,7 @@ def test_write_hardware_conf_no_watch_without_touchscreen(tmp_path):
 
 def test_write_hardware_conf_no_legacy_touch_panel_exec(tmp_path):
     """The old 'exec-once = touch-panel' line must never be emitted."""
-    conf = _run_write_hardware_conf(
-        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
-    )
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True)
     # 'touch-panel-launcher' and 'touch-panel-watch' contain 'touch-panel' as a
     # substring, so filter those out and ensure bare 'touch-panel' is absent.
     lines = [ln.strip() for ln in conf.splitlines()]

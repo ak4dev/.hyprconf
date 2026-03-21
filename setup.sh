@@ -571,6 +571,10 @@ _has_touchscreen() {
     # Standard udev-tagged touchscreens (ELAN HID, etc.)
     grep -rql "^ID_INPUT_TOUCHSCREEN=1" /sys/class/input/*/device/uevent 2>/dev/null \
         && return 0
+    # Generic touch devices tagged ID_INPUT_TOUCH=1 (e.g. ASUS ROG Ally, some
+    # AMD-based handhelds) that don't use ID_INPUT_TOUCHSCREEN.
+    grep -rql "^ID_INPUT_TOUCH=1" /sys/class/input/*/device/uevent 2>/dev/null \
+        && return 0
     # Wacom I2C pen+touch digitizers (e.g. ThinkPad X13 Yoga): the touch component is
     # exposed as NAME="Wacom HID * Finger" on an i2c bus, but udev never sets
     # ID_INPUT_TOUCHSCREEN=1 because the wacom driver bypasses the generic HID rules.
@@ -682,22 +686,17 @@ write_hardware_conf() {
             printf '\n# On-screen keyboard (touchscreen detected)\n'
             printf 'exec-once = wvkbd-launcher\n'
             printf 'bind = $mainMod SHIFT, O, exec, wvkbd-toggle\n'
-            # Bind each touch node to the built-in display so that touch
-            # coordinates are always mapped relative to eDP-1 rather than the
-            # full compositor space.  Without this, multi-monitor setups and
-            # convertible laptops (e.g. ThinkPad X13 Yoga) can present "flipped"
-            # or offset touch input because the Wacom digitizer origin differs
-            # from the display origin.  transform=0 matches the default eDP-1
+            # Bind all touch input to eDP-1 so coordinates are always relative
+            # to the built-in display, not the full compositor space.  Without
+            # this, multi-monitor setups map touch across all monitors, causing
+            # offset/flipped input.  transform=0 matches the default eDP-1
             # orientation; override in 99-hyprconf-local.conf if needed.
-            local touch_name
-            while IFS='' read -r touch_name; do
-                [[ -z "$touch_name" ]] && continue
-                printf '\ndevice {\n'
-                printf '    name         = %s\n' "$touch_name"
-                printf '    touch_output = eDP-1\n'
-                printf '    transform    = 0\n'
-                printf '}\n'
-            done < <(_get_touch_device_names)
+            printf '\ninput {\n'
+            printf '    touchdevice {\n'
+            printf '        output    = eDP-1\n'
+            printf '        transform = 0\n'
+            printf '    }\n'
+            printf '}\n'
             # touch-panel-launcher checks keyboard presence at session start and
             # starts touch-panel only if no physical keyboard is found.
             # touch-panel-watch monitors for keyboard removal during the session
