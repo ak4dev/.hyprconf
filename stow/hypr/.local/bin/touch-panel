@@ -32,7 +32,7 @@ window, .background {{
     background-color: transparent;
 }}
 .tp-box {{
-    background-color: {bg}ee;
+    background-color: {bg_alpha};
     border-radius: 32px;
     padding: {pad}px;
 }}
@@ -53,6 +53,17 @@ window, .background {{
     color: {bg};
 }}
 """
+
+
+def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+    """Convert #rrggbb → rgba(r,g,b,alpha) for GTK3 CSS compatibility.
+    GTK3 does not support 8-digit hex colors (#rrggbbaa).
+    """
+    h = hex_color.lstrip("#")
+    if len(h) == 6:
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"rgba({r}, {g}, {b}, {alpha})"
+    return hex_color
 
 
 def _load_colors() -> dict:
@@ -135,6 +146,7 @@ class TouchPanel(Gtk.Window):
         c   = self._colors
         css = _CSS.format(
             bg=c["bg"], fg=c["fg"], accent=c["accent"],
+            bg_alpha=_hex_to_rgba(c["bg"], 0.93),
             sz=BTN_SIZE, pad=PADDING,
         )
         self._provider.load_from_data(css.encode())

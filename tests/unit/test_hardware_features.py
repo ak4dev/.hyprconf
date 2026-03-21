@@ -780,3 +780,42 @@ def test_launcher_starts_panel_when_no_keyboard(tmp_path):
     assert result.returncode == 0
     assert "EXEC_TOUCH_PANEL" in result.stdout
 
+
+
+# _hex_to_rgba — touch-panel CSS helper
+# ---------------------------------------------------------------------------
+
+TOUCH_PANEL = Path(__file__).parents[2] / "stow" / "hypr" / ".local" / "bin" / "touch-panel"
+
+
+def _run_hex_to_rgba(hex_color: str, alpha: float) -> str:
+    """Extract and run _hex_to_rgba from touch-panel without importing gi."""
+    source = TOUCH_PANEL.read_text()
+    # Extract just the _hex_to_rgba function
+    start = source.index("def _hex_to_rgba(")
+    end   = source.index("\ndef ", start + 1)
+    func  = source[start:end]
+    script = f"{func}\nprint(_hex_to_rgba({hex_color!r}, {alpha}))"
+    result = subprocess.run(["python3", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def test_hex_to_rgba_produces_rgba_not_hex():
+    assert _run_hex_to_rgba("#1e1e2e", 0.93).startswith("rgba(")
+
+
+def test_hex_to_rgba_correct_channels():
+    out = _run_hex_to_rgba("#1e1e2e", 0.93)
+    assert "30, 30, 46" in out  # 0x1e=30, 0x1e=30, 0x2e=46
+
+
+def test_hex_to_rgba_alpha_preserved():
+    out = _run_hex_to_rgba("#ffffff", 0.5)
+    assert "0.5" in out
+
+
+def test_hex_to_rgba_fallback_invalid():
+    """Non-standard input is returned unchanged rather than crashing."""
+    out = _run_hex_to_rgba("transparent", 0.9)
+    assert out == "transparent"
