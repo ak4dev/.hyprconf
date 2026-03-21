@@ -463,3 +463,230 @@ def test_update_touch_panel_no_signal_when_not_running(tmp_path, monkeypatch):
 
     st.update_touch_panel(DARK_THEME)
     assert kill_calls == []
+
+
+# ---------------------------------------------------------------------------
+# _get_touch_device_names() — setup.sh helper
+# ---------------------------------------------------------------------------
+
+
+def _run_touch_device_names(files: dict) -> list[str]:
+    """Run _get_touch_device_names() with a mocked /sys/class/input tree."""
+    source = SETUP_SH.read_text()
+    start = source.find("_get_touch_device_names()")
+    assert start != -1, "_get_touch_device_names() not found in setup.sh"
+    end = source.find("\n}", start)
+    func = source[source.rfind("\n", 0, start) + 1: end + 2]
+
+    import tempfile
+    import os
+    with tempfile.TemporaryDirectory() as tmp:
+        for path, content in files.items():
+            full = os.path.join(tmp, path.lstrip("/"))
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            Path(full).write_text(content)
+
+        func_patched = func.replace(
+            "/sys/class/input/*/device/uevent",
+            f"{tmp}/sys/class/input/*/device/uevent",
+        )
+        script = f"""
+set -euo pipefail
+{func_patched}
+_get_touch_device_names
+"""
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True, text=True,
+        )
+        return [line for line in result.stdout.splitlines() if line]
+
+
+def test_get_touch_device_names_standard_touchscreen():
+    """ELAN HID touchscreen: name normalised to lowercase-hyphenated."""
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            'NAME="ELAN Touchscreen"\nPHYS="i2c-ELAN0001:00"\n'
+            "ID_INPUT_TOUCHSCREEN=1\n"
+        )
+    }
+    assert _run_touch_device_names(files) == ["elan-touchscreen"]
+
+
+def test_get_touch_device_names_wacom_i2c_finger():
+    """ThinkPad X13 Yoga Wacom Finger node normalised correctly."""
+    files = {
+        "/sys/class/input/event9/device/uevent": (
+            'NAME="Wacom HID 5288 Finger"\n'
+            'PHYS="i2c-WACF2200:00"\n'
+            "ABS=260800000000003\n"
+        )
+    }
+    assert _run_touch_device_names(files) == ["wacom-hid-5288-finger"]
+
+
+def test_get_touch_device_names_ignores_pen_node():
+    """Pen event node must not appear — only the Finger node qualifies."""
+    files = {
+        "/sys/class/input/event8/device/uevent": (
+            'NAME="Wacom HID 5288 Pen"\n'
+            'PHYS="i2c-WACF2200:00"\n'
+        )
+    }
+    assert _run_touch_device_names(files) == []
+
+
+def test_get_touch_device_names_ignores_usb_wacom_tablet():
+    """External USB Wacom Finger node must not appear (PHYS is usb-, not i2c-)."""
+    files = {
+        "/sys/class/input/event3/device/uevent": (
+            'NAME="Wacom Intuos Pro M Finger"\n'
+            'PHYS="usb-0000:00:14.0-3/input1"\n'
+        )
+    }
+    assert _run_touch_device_names(files) == []
+
+
+def test_get_touch_device_names_deduplicates_same_device():
+    """Multiple event nodes with the same normalised name collapse to one entry."""
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            'NAME="ELAN Touchscreen"\nID_INPUT_TOUCHSCREEN=1\n'
+        ),
+        "/sys/class/input/event1/device/uevent": (
+            'NAME="ELAN Touchscreen"\nID_INPUT_TOUCHSCREEN=1\n'
+        ),
+    }
+    names = _run_touch_device_names(files)
+    assert names.count("elan-touchscreen") == 1
+
+
+def test_get_touch_device_names_multiple_devices():
+    """Two distinct touchscreen devices each appear once."""
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            'NAME="ELAN Touchscreen"\nID_INPUT_TOUCHSCREEN=1\n'
+        ),
+        "/sys/class/input/event1/device/uevent": (
+            'NAME="Wacom HID 48D3 Finger"\n'
+            'PHYS="i2c-WACF2200:00"\n'
+        ),
+    }
+    names = _run_touch_device_names(files)
+    assert "elan-touchscreen" in names
+    assert "wacom-hid-48d3-finger" in names
+    assert len(names) == 2
+
+
+def test_get_touch_device_names_empty_when_no_touch():
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            'NAME="AT Translated Set 2 keyboard"\n'
+            "ID_INPUT_KEYBOARD=1\nPHYS=\"isa0060\"\n"
+        )
+    }
+    assert _run_touch_device_names(files) == []
+
+
+# ---------------------------------------------------------------------------
+# write_hardware_conf() — device block generation
+# ---------------------------------------------------------------------------
+
+def _run_write_hardware_conf(
+    tmp_path: Path,
+    *,
+    has_touch: bool = False,
+    touch_names: list[str] | None = None,
+    has_accel: bool = False,
+    has_kbd: bool = True,
+) -> str:
+    """
+    Run write_hardware_conf() (extracted from setup.sh) with stubbed helpers.
+    Returns the text of the generated 60-hardware.conf.
+    """
+    touch_names = touch_names or []
+    source = SETUP_SH.read_text()
+
+    # Extract write_hardware_conf and its inner helper _get_touch_device_names
+    def _extract_func(source: str, name: str) -> str:
+        start = source.find(f"{name}()")
+        assert start != -1, f"{name}() not found in setup.sh"
+        end = source.find("\n}", start)
+        return source[source.rfind("\n", 0, start) + 1: end + 2]
+
+    write_func = _extract_func(source, "write_hardware_conf")
+    get_names_func = _extract_func(source, "_get_touch_device_names")
+
+    conf_dir = tmp_path / ".config" / "hypr" / "conf.d"
+    conf_dir.mkdir(parents=True)
+
+    if touch_names:
+        names_printf = " ".join(f'"{n}"' for n in touch_names)
+        get_names_stub = f'_get_touch_device_names() {{ printf "%s\\n" {names_printf}; }}'
+    else:
+        get_names_stub = "_get_touch_device_names() { return 0; }"
+
+    script = f"""
+set -euo pipefail
+HOME="{tmp_path}"
+_has_touchscreen()       {{ {'return 0' if has_touch else 'return 1'}; }}
+_has_accelerometer()     {{ {'return 0' if has_accel  else 'return 1'}; }}
+_has_physical_keyboard() {{ {'return 0' if has_kbd    else 'return 1'}; }}
+{get_names_stub}
+log_ok() {{ :; }}
+{write_func}
+write_hardware_conf
+"""
+    result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert result.returncode == 0, f"write_hardware_conf failed:\n{result.stderr}"
+    return (conf_dir / "60-hardware.conf").read_text()
+
+
+def test_write_hardware_conf_no_device_block_without_touchscreen(tmp_path):
+    conf = _run_write_hardware_conf(tmp_path, has_touch=False)
+    assert "device {" not in conf
+
+
+def test_write_hardware_conf_device_block_present_with_touchscreen(tmp_path):
+    conf = _run_write_hardware_conf(
+        tmp_path, has_touch=True, touch_names=["wacom-hid-5288-finger"]
+    )
+    assert "device {" in conf
+
+
+def test_write_hardware_conf_device_block_has_correct_name(tmp_path):
+    conf = _run_write_hardware_conf(
+        tmp_path, has_touch=True, touch_names=["wacom-hid-5288-finger"]
+    )
+    assert "name         = wacom-hid-5288-finger" in conf
+
+
+def test_write_hardware_conf_device_block_has_touch_output(tmp_path):
+    conf = _run_write_hardware_conf(
+        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
+    )
+    assert "touch_output = eDP-1" in conf
+
+
+def test_write_hardware_conf_device_block_has_transform_zero(tmp_path):
+    conf = _run_write_hardware_conf(
+        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
+    )
+    assert "transform    = 0" in conf
+
+
+def test_write_hardware_conf_multiple_touch_devices_emit_multiple_blocks(tmp_path):
+    conf = _run_write_hardware_conf(
+        tmp_path,
+        has_touch=True,
+        touch_names=["elan-touchscreen", "wacom-hid-5288-finger"],
+    )
+    assert conf.count("device {") == 2
+    assert "name         = elan-touchscreen" in conf
+    assert "name         = wacom-hid-5288-finger" in conf
+
+
+def test_write_hardware_conf_no_device_block_when_no_touch_names(tmp_path):
+    """Touchscreen detected but name list empty — no device blocks emitted."""
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True, touch_names=[])
+    assert "device {" not in conf

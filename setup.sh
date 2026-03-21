@@ -602,6 +602,28 @@ _has_physical_keyboard() {
     return 1
 }
 
+# Return the Hyprland-normalised name of every touchscreen input node found in
+# sysfs.  Hyprland lowercases device names and replaces spaces with hyphens.
+# Results are sorted and deduplicated so that multi-node devices (e.g. a Wacom
+# digitizer that exposes separate pen and finger event nodes) emit one entry.
+_get_touch_device_names() {
+    local f name
+    for f in /sys/class/input/*/device/uevent; do
+        if grep -q "^ID_INPUT_TOUCHSCREEN=1" "$f" 2>/dev/null; then
+            name=$(grep '^NAME=' "$f" 2>/dev/null | cut -d'"' -f2 || true)
+        elif grep -q '^NAME="Wacom.*Finger' "$f" 2>/dev/null \
+                && grep -q '^PHYS="i2c-' "$f" 2>/dev/null; then
+            name=$(grep '^NAME=' "$f" 2>/dev/null | cut -d'"' -f2 || true)
+        else
+            continue
+        fi
+        [[ -n "$name" ]] && printf '%s\n' "$name"
+    done \
+        | tr '[:upper:]' '[:lower:]' \
+        | tr ' ' '-' \
+        | sort -u
+}
+
 detect_gpu_and_link_monitor_config() {
     log_step "Detecting device type for monitor config..."
 
@@ -661,6 +683,22 @@ write_hardware_conf() {
             printf '\n# On-screen keyboard (touchscreen detected)\n'
             printf 'exec-once = wvkbd-launcher\n'
             printf 'bind = $mainMod SHIFT, O, exec, wvkbd-toggle\n'
+            # Bind each touch node to the built-in display so that touch
+            # coordinates are always mapped relative to eDP-1 rather than the
+            # full compositor space.  Without this, multi-monitor setups and
+            # convertible laptops (e.g. ThinkPad X13 Yoga) can present "flipped"
+            # or offset touch input because the Wacom digitizer origin differs
+            # from the display origin.  transform=0 matches the default eDP-1
+            # orientation; override in 99-hyprconf-local.conf if needed.
+            local touch_name
+            while IFS='' read -r touch_name; do
+                [[ -z "$touch_name" ]] && continue
+                printf '\ndevice {\n'
+                printf '    name         = %s\n' "$touch_name"
+                printf '    touch_output = eDP-1\n'
+                printf '    transform    = 0\n'
+                printf '}\n'
+            done < <(_get_touch_device_names)
         fi
 
         if $has_touch && ! $has_kbd; then
