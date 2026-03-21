@@ -214,3 +214,6 @@ def test_schema_has_hardware_section():
     importlib.reload(schema)
     assert "hardware" in schema.SECTION_ORDER
     assert schema.SECTION_LABELS.get("hardware") == "Hardware"
+    # "hardware" is a display-only daemon-control section — intentionally absent
+    # from OPTION_SCHEMA (which holds persistent config options only).
+    assert "hardware" not in schema.OPTION_SCHEMA

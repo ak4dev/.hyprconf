@@ -83,7 +83,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
 9. Hardware feature detection: touchscreen → installs `wvkbd` (AUR) + writes `conf.d/60-hardware.conf`; accelerometer → installs + enables `iio-sensor-proxy`
 10. `ufw` deny-inbound / allow-outbound; enable + start
-10. Disable `sddm`; enable `NetworkManager`, `bluetooth`, `power-profiles-daemon`
+11. Disable `sddm`; enable `NetworkManager`, `bluetooth`, `power-profiles-daemon`
 11. Reload Hyprland
 
 > **AUR dependency:** `bibata-cursor-theme` must be installed manually: `yay -S bibata-cursor-theme`
@@ -246,6 +246,11 @@ hyprconf teardown
 # Schema (for AI/tooling)
 hyprconf schema dump / validate / list-sections / keys <section>
 hyprconf autodetect              Detect + migrate existing config
+
+# Hardware
+hyprconf hardware status         Show detected hardware and daemon status
+hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)
+hyprconf hardware rotate <on|off>      Control auto-rotation (autorotate)
 
 hyprconf help
 ```
@@ -548,7 +553,7 @@ hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python an
 ```
 tests/
 ├── conftest.py              # shared fixtures (isolated config dirs, mock hyprctl)
-├── unit/                    # Tier 1 — pure Python, no Hyprland (246 tests)
+├── unit/                    # Tier 1 — pure Python, no Hyprland (611 tests)
 │   ├── test_config.py
 │   ├── test_schema.py
 │   ├── test_file_edit.py

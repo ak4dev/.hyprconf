@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Optional
 
 from .block_conf import ConfigBlock, read_blocks, update_block_field, delete_block, add_block
-from .file_edit  import read_lines, update_line, delete_line, append_block, delete_lines
+from .file_edit  import read_lines, update_line, delete_line, append_block
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Path
@@ -246,9 +246,5 @@ def set_setting(key: str, value: str, file: Optional[Path] = None) -> bool:
     f = file or HYPRPAPER_FILE
     for entry in read_settings(f):
         if entry.key.lower() == key.lower():
-            if key.startswith("$"):
-                line = f"{key} = {value}"
-            else:
-                line = f"{key} = {value}"
-            return update_line(f, entry.line_idx, line)
+            return update_line(f, entry.line_idx, f"{key} = {value}")
     return append_block(f, f"{key} = {value}")

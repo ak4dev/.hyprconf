@@ -575,6 +575,12 @@ hyprconf schema keys general         # keys in a section
 
 # First-run detection: locate and non-destructively migrate existing config
 hyprconf autodetect
+
+# Hardware auto-detection (touchscreen / accelerometer)
+# Detected at install/sync time; written to ~/.config/hypr/conf.d/60-hardware.conf
+hyprconf hardware status             # show detected hardware + daemon state
+hyprconf hardware osk [on|off|toggle]   # start/stop/toggle wvkbd on-screen keyboard
+hyprconf hardware rotate <on|off>    # start/stop autorotate daemon
 ```
 
 Persistence key format: `section:subsection:key = value` (matching `hyprctl keyword` syntax).

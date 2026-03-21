@@ -25,8 +25,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .config import OVERRIDES_FILE, upsert_option, MANAGED_MARKER
-from .schema import OPTION_SCHEMA, get_option_meta
+from .config import OVERRIDES_FILE
+from .schema import get_option_meta
 
 # ── Candidate config paths ─────────────────────────────────────────────────────
 

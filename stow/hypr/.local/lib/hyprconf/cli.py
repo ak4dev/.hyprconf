@@ -735,7 +735,6 @@ def cmd_lock(args: list[str]) -> int:
         add_hyprlock_block,
         delete_hyprlock_block,
         update_hyprlock_field,
-        HYPRLOCK_FILE,
         BLOCK_TYPES,
     )
 
@@ -814,10 +813,8 @@ def cmd_idle(args: list[str]) -> int:
     from hyprconf.hypridle import (
         read_hypridle_blocks,
         add_hypridle_block,
-        add_listener,
         delete_hypridle_block,
         update_hypridle_field,
-        HYPRIDLE_FILE,
         BLOCK_TYPES,
     )
 
@@ -898,16 +895,12 @@ def cmd_paper(args: list[str]) -> int:
         read_wallpaper_blocks,
         read_wallpaper_lines,
         read_preloads,
-        read_settings,
         add_preload,
         delete_preload,
         set_wallpaper_line,
-        add_wallpaper_block,
         delete_wallpaper_block,
         delete_wallpaper_line,
-        update_wallpaper_block_field,
         set_setting,
-        HYPRPAPER_FILE,
     )
 
     sub = args[0] if args else ""

@@ -275,8 +275,8 @@ def test_schema_to_dict_sections_structure() -> None:
 def test_schema_to_dict_json_serialisable() -> None:
     import json
     d = schema_to_dict()
-    # Should not raise
-    json.dumps(d)
+    result = json.dumps(d)
+    assert isinstance(result, str) and len(result) > 0
 
 
 # ---------------------------------------------------------------------------

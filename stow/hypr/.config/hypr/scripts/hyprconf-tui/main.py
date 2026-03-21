@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import glob as _glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1843,34 +1845,6 @@ class HyprconfApp(App):
                 table.add_row("  " + wp.name, str(wp))
                 self._row_keys.append(f"__wp__{wp}")
 
-    def _fill_file(self, table: DataTable, section: str) -> None:
-        """Fallback raw-line renderer (kept for any unlisted file sections)."""
-        file_map = {
-            "hyprlock":  HYPRLOCK_CONF,
-            "hypridle":  HYPRIDLE_CONF,
-            "hyprpaper": HYPRPAPER_CONF,
-        }
-        path = file_map.get(section)
-        if path is None:
-            table.add_column("INFO")
-            table.add_row("Unknown file section")
-            return
-
-        table.add_column("LINE", width=5)
-        table.add_column("CONTENT", width=110)
-
-        if not path.exists():
-            table.add_row("—", f"(file not found: {path})")
-            return
-
-        lines = _read_file_lines(path)
-        q = self._search_query
-        for i, ln in enumerate(lines):
-            if q and q not in ln.lower():
-                continue
-            table.add_row(str(i + 1), ln)
-            self._row_keys.append(f"__line__{path}::{i}")
-
     def _fill_themes(self, table: DataTable) -> None:
         table.add_column("THEME",  width=34)
         table.add_column("STATUS", width=10)
@@ -1893,7 +1867,6 @@ class HyprconfApp(App):
         table.add_column("ACTION",     width=28)
 
         def _has_touchscreen() -> bool:
-            import glob as _glob
             for f in _glob.iglob("/sys/class/input/*/device/uevent"):
                 try:
                     with open(f) as fh:
@@ -1904,7 +1877,6 @@ class HyprconfApp(App):
             return False
 
         def _has_accelerometer() -> bool:
-            import glob as _glob
             return bool(_glob.glob("/sys/bus/iio/devices/*/in_accel_x_raw"))
 
         def _proc_running(name: str) -> bool:
@@ -1915,7 +1887,6 @@ class HyprconfApp(App):
                 return False
 
         def _installed(name: str) -> bool:
-            import shutil
             return shutil.which(name) is not None
 
         ts_det   = _has_touchscreen()
@@ -2110,7 +2081,7 @@ class HyprconfApp(App):
                     self._set_wallpaper(Path(rk[6:]))
             return
 
-                # ── Monitors ─────────────────────────────────────────────────────────
+        # ── Monitors ─────────────────────────────────────────────────────────
         if section == "monitors":
             if 0 <= row_idx < len(self._row_keys) and self._row_keys[row_idx]:
                 monitor_name = self._row_keys[row_idx]
@@ -2158,14 +2129,11 @@ class HyprconfApp(App):
             if 0 <= row_idx < len(self._row_keys):
                 rk = self._row_keys[row_idx]
                 if rk == "hw_osk_toggle":
-                    running = subprocess.run(
-                        ["pgrep", "-x", "wvkbd-mobintl"], capture_output=True
-                    ).returncode == 0
-                    if running:
-                        pid_r = subprocess.run(
-                            ["pgrep", "-x", "wvkbd-mobintl"],
-                            capture_output=True, text=True,
-                        )
+                    pid_r = subprocess.run(
+                        ["pgrep", "-x", "wvkbd-mobintl"],
+                        capture_output=True, text=True,
+                    )
+                    if pid_r.returncode == 0:
                         for pid in pid_r.stdout.split():
                             try:
                                 subprocess.run(["kill", pid], check=True)
@@ -2173,8 +2141,7 @@ class HyprconfApp(App):
                                 pass
                         self.notify("OSK stopped")
                     else:
-                        import shutil as _shutil
-                        launcher = _shutil.which("wvkbd-launcher")
+                        launcher = shutil.which("wvkbd-launcher")
                         if launcher:
                             subprocess.Popen([launcher])
                             self.notify("OSK started")
@@ -2182,14 +2149,11 @@ class HyprconfApp(App):
                             self.notify("wvkbd-launcher not found", severity="error")
                     self._load_section("hardware")
                 elif rk == "hw_rotate_toggle":
-                    running = subprocess.run(
-                        ["pgrep", "-x", "autorotate"], capture_output=True
-                    ).returncode == 0
-                    if running:
-                        pid_r = subprocess.run(
-                            ["pgrep", "-x", "autorotate"],
-                            capture_output=True, text=True,
-                        )
+                    pid_r = subprocess.run(
+                        ["pgrep", "-x", "autorotate"],
+                        capture_output=True, text=True,
+                    )
+                    if pid_r.returncode == 0:
                         for pid in pid_r.stdout.split():
                             try:
                                 subprocess.run(["kill", pid], check=True)
@@ -2197,8 +2161,7 @@ class HyprconfApp(App):
                                 pass
                         self.notify("Auto-rotation stopped")
                     else:
-                        import shutil as _shutil
-                        rotbin = _shutil.which("autorotate")
+                        rotbin = shutil.which("autorotate")
                         if rotbin:
                             subprocess.Popen([rotbin])
                             self.notify("Auto-rotation started")

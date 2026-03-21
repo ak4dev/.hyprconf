@@ -300,8 +300,8 @@ def update_dunst(theme: Dict[str, str]) -> None:
         f.writelines(result)
     print("Dunst theme updated.")
 
-    if subprocess.run(["pgrep", "dunst"], capture_output=True).returncode == 0:
-        proc = subprocess.run(["pgrep", "dunst"], capture_output=True, text=True)
+    proc = subprocess.run(["pgrep", "dunst"], capture_output=True, text=True)
+    if proc.returncode == 0:
         for pid in proc.stdout.split():
             try:
                 os.kill(int(pid), 15)  # SIGTERM
@@ -509,7 +509,7 @@ def notify_theme_change(theme_name: str, theme: Dict[str, str]) -> None:
         pass
 
 
-def reload_hyprland():
+def reload_hyprland() -> None:
     """Reload Hyprland via hyprctl."""
     try:
         subprocess.run(["hyprctl", "reload"], check=True)
@@ -1171,8 +1171,8 @@ def update_gtk(theme: Dict[str, str]) -> None:
     # Restart blueman-applet if running so it picks up the new GTK theme.
     # GTK3 apps inherit GTK_THEME at launch; the applet must be restarted to
     # see the updated value — identical to how dunst is handled above.
-    if subprocess.run(["pgrep", "-x", "blueman-applet"], capture_output=True).returncode == 0:
-        proc = subprocess.run(["pgrep", "-x", "blueman-applet"], capture_output=True, text=True)
+    proc = subprocess.run(["pgrep", "-x", "blueman-applet"], capture_output=True, text=True)
+    if proc.returncode == 0:
         for pid in proc.stdout.split():
             try:
                 os.kill(int(pid), 15)  # SIGTERM

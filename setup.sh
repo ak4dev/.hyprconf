@@ -425,12 +425,6 @@ configure_zprofile() {
     log_ok "Hyprland auto-start configured in ~/.zprofile"
 }
 
-setup_user_dirs() {
-    log_step "Initialising XDG user directories..."
-    xdg-user-dirs-update
-    log_ok "XDG user directories ready."
-}
-
 force_stow_package() {
     local package="$1"
     local stow_dir="$2"

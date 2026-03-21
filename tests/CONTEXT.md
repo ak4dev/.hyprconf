@@ -6,15 +6,15 @@
 
 | Tier | Suite | Result |
 |------|-------|--------|
-| 1 | Unit (`tests/unit/`) | 242 passed |
-| 2 | Integration (`tests/integration/`) | 20 passed |
-| 3 | TUI (`tests/tui/`) | 8 passed |
+| 1 | Unit (`tests/unit/`) | 611 passed |
+| 2 | Integration (`tests/integration/`) | 27 passed |
+| 3 | TUI (`tests/tui/`) | 9 passed |
 | 4 | VM (`tests/vm/`) | 44 passed (requires running VM) |
 | 5 | Install (`tests/install/`) | 9 passed (requires Packer image + VM) |
 
 \* `test_publish_dry_run_succeeds` skips when working tree is not clean or not on `dev` branch; it passes on a clean `dev` checkout.
 
-**Total tiers 1–3: 270 passed (previously 254 — +16 for new release-model tests).**
+**Total tiers 1–3: 647 passed (previously 270 — +377 for hardware features and expanded coverage).**
 
 ## New Test Files (Release Model Migration)
 

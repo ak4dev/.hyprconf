@@ -17,9 +17,9 @@ readonly TUI_SCRIPT="$HOME/.config/hypr/scripts/hyprconf-tui/main.py"
 readonly CLI_LIB="$HOME/.local/lib/hyprconf"
 
 if [[ -t 1 ]]; then
-  _b=$'\e[1m'; _c=$'\e[36m'; _y=$'\e[33m'; _r=$'\e[0m'
+  _b=$'\e[1m'; _c=$'\e[36m'; _g=$'\e[32m'; _y=$'\e[33m'; _r=$'\e[0m'
 else
-  _b=''; _c=''; _y=''; _r=''
+  _b=''; _c=''; _g=''; _y=''; _r=''
 fi
 
 die() {
@@ -1231,10 +1231,12 @@ cmd_hardware() {
       _hw_rotate_running \
         && printf "  autorotate       ${_g}running${_r}\n" \
         || printf "  autorotate       stopped\n"
-      command -v iio-sensor-proxy &>/dev/null \
-        || systemctl --quiet is-active iio-sensor-proxy.service 2>/dev/null \
-        && printf "  iio-sensor-proxy ${_g}active${_r}\n" \
-        || printf "  iio-sensor-proxy stopped\n"
+      if command -v iio-sensor-proxy &>/dev/null \
+          || systemctl --quiet is-active iio-sensor-proxy.service 2>/dev/null; then
+        printf "  iio-sensor-proxy ${_g}active${_r}\n"
+      else
+        printf "  iio-sensor-proxy stopped\n"
+      fi
       ;;
 
     osk)
@@ -1302,7 +1304,9 @@ cmd_hardware() {
   esac
 }
 
-
+# ════════════════════════════════════════════════════════════════════════════
+# Developer
+# ════════════════════════════════════════════════════════════════════════════
 
 readonly DEV_REPO="${HOME}/.hyprconf"
 
