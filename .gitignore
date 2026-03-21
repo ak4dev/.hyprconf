@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 
+# Test artefacts (fake binary dirs created by unit tests)
+tests/unit/_fake_bins_*/
+
 # Backup files
 *.bak
 *.backup.*
