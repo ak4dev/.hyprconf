@@ -2,9 +2,13 @@
 Tests for Firefox-related logic in switch_theme.py and infra/firefox/policies.json.
 
 Covers:
-- FIREFOX_ENFORCED_PREFS contains all required telemetry/privacy keys
+- FIREFOX_ENFORCED_PREFS contains all required telemetry/privacy/userChrome keys
 - format_firefox_pref formats bool, string, and int values correctly
 - write_firefox_userjs merges new prefs, updates existing ones, preserves others
+- get_firefox_builtin_theme_id returns correct compact theme for dark/light themes
+- write_firefox_userchrome generates valid CSS with palette colors
+- set_firefox_theme_activation returns bool (True=found, False=not found)
+- update_firefox runs for all themes (no firefox key → falls back to compact theme)
 - infra/firefox/policies.json is valid JSON with required enterprise policy fields
 """
 from __future__ import annotations
@@ -85,6 +89,8 @@ REQUIRED_PRIVACY_KEYS = [
 REQUIRED_UI_KEYS = [
     "browser.tabs.verticalTabs",
     "browser.tabs.verticalTabs.showPinnedTabs",
+    "toolkit.legacyUserProfileCustomizations.stylesheets",
+    "browser.compactmode.show",
 ]
 
 
@@ -259,3 +265,201 @@ def test_policies_json_tracking_protection_enabled() -> None:
     assert etp.get("Value") is True
     assert etp.get("Cryptomining") is True
     assert etp.get("Fingerprinting") is True
+
+
+# ---------------------------------------------------------------------------
+# get_firefox_builtin_theme_id
+# ---------------------------------------------------------------------------
+
+_DARK_THEME  = {"background": "#1e1e2e", "foreground": "#cdd6f4", "accent": "#cba6f7"}
+_LIGHT_THEME = {"background": "#eff1f5", "foreground": "#4c4f69", "accent": "#8839ef"}
+
+
+def test_builtin_theme_id_dark() -> None:
+    tid = _st.get_firefox_builtin_theme_id(_DARK_THEME)
+    assert tid == _st.FIREFOX_COMPACT_DARK_ID
+
+
+def test_builtin_theme_id_light() -> None:
+    tid = _st.get_firefox_builtin_theme_id(_LIGHT_THEME)
+    assert tid == _st.FIREFOX_COMPACT_LIGHT_ID
+
+
+def test_builtin_theme_id_no_background_defaults_dark() -> None:
+    tid = _st.get_firefox_builtin_theme_id({})
+    assert tid == _st.FIREFOX_COMPACT_DARK_ID
+
+
+# ---------------------------------------------------------------------------
+# write_firefox_userchrome
+# ---------------------------------------------------------------------------
+
+def test_write_userchrome_creates_chrome_dir(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _st.write_firefox_userchrome(profile, _DARK_THEME)
+    assert (profile / "chrome" / "userChrome.css").exists()
+
+
+def test_write_userchrome_contains_palette_colors(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _st.write_firefox_userchrome(profile, _DARK_THEME)
+    css = (profile / "chrome" / "userChrome.css").read_text()
+    assert _DARK_THEME["background"] in css
+    assert _DARK_THEME["foreground"] in css
+    assert _DARK_THEME["accent"] in css
+
+
+def test_write_userchrome_light_theme(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _st.write_firefox_userchrome(profile, _LIGHT_THEME)
+    css = (profile / "chrome" / "userChrome.css").read_text()
+    assert _LIGHT_THEME["background"] in css
+    assert _LIGHT_THEME["foreground"] in css
+
+
+def test_write_userchrome_uses_comment_for_fields(tmp_path: Path) -> None:
+    theme = {**_DARK_THEME, "comment": "#313244"}
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _st.write_firefox_userchrome(profile, theme)
+    css = (profile / "chrome" / "userChrome.css").read_text()
+    assert "#313244" in css
+
+
+def test_write_userchrome_overwritten_on_second_call(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _st.write_firefox_userchrome(profile, _DARK_THEME)
+    _st.write_firefox_userchrome(profile, _LIGHT_THEME)
+    css = (profile / "chrome" / "userChrome.css").read_text()
+    assert _LIGHT_THEME["background"] in css
+    assert _DARK_THEME["background"] not in css
+
+
+def test_write_userchrome_contains_lwt_variables(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _st.write_firefox_userchrome(profile, _DARK_THEME)
+    css = (profile / "chrome" / "userChrome.css").read_text()
+    assert "--lwt-accent-color" in css
+    assert "--toolbar-bgcolor" in css
+    assert "--tab-selected-bgcolor" in css
+
+
+# ---------------------------------------------------------------------------
+# set_firefox_theme_activation return value
+# ---------------------------------------------------------------------------
+
+def _make_extensions_json(tmp_path: Path, themes: list) -> Path:
+    data = {"addons": themes}
+    p = tmp_path / "extensions.json"
+    p.write_text(json.dumps(data), encoding="utf-8")
+    return p
+
+
+def test_set_activation_returns_true_when_found(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _make_extensions_json(profile, [
+        {"id": "firefox-compact-dark@mozilla.org", "type": "theme",
+         "location": "app-builtin", "active": False, "userDisabled": True},
+    ])
+    result = _st.set_firefox_theme_activation(profile, "firefox-compact-dark@mozilla.org")
+    assert result is True
+
+
+def test_set_activation_returns_false_when_not_found(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _make_extensions_json(profile, [
+        {"id": "some-other-theme@example.com", "type": "theme",
+         "location": "app-builtin", "active": True, "userDisabled": False},
+    ])
+    result = _st.set_firefox_theme_activation(profile, "firefox-compact-dark@mozilla.org")
+    assert result is False
+
+
+def test_set_activation_returns_false_no_extensions_json(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    result = _st.set_firefox_theme_activation(profile, "firefox-compact-dark@mozilla.org")
+    assert result is False
+
+
+# ---------------------------------------------------------------------------
+# update_firefox — runs for all themes (no firefox key → fallback)
+# ---------------------------------------------------------------------------
+
+def _make_profile(tmp_path: Path, theme_id: str = "firefox-compact-dark@mozilla.org") -> Path:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    _make_extensions_json(profile, [
+        {"id": theme_id, "type": "theme",
+         "location": "app-builtin", "active": False, "userDisabled": True},
+    ])
+    return profile
+
+
+def test_update_firefox_runs_without_firefox_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """update_firefox must run for themes that have no 'firefox' key."""
+    profile = _make_profile(tmp_path)
+    monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: profile)
+    monkeypatch.setattr(_st, "FIREFOX_BASE_PREFS_FILE", str(tmp_path / "user.js"))
+
+    _st.update_firefox(_DARK_THEME)
+
+    assert (profile / "chrome" / "userChrome.css").exists()
+    assert (profile / "user.js").exists()
+
+
+def test_update_firefox_writes_userchrome_with_palette(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile = _make_profile(tmp_path)
+    monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: profile)
+    monkeypatch.setattr(_st, "FIREFOX_BASE_PREFS_FILE", str(tmp_path / "user.js"))
+
+    _st.update_firefox(_DARK_THEME)
+
+    css = (profile / "chrome" / "userChrome.css").read_text()
+    assert _DARK_THEME["background"] in css
+
+
+def test_update_firefox_sets_dark_pref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile = _make_profile(tmp_path)
+    monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: profile)
+    monkeypatch.setattr(_st, "FIREFOX_BASE_PREFS_FILE", str(tmp_path / "user.js"))
+
+    _st.update_firefox(_DARK_THEME)
+
+    content = (profile / "user.js").read_text()
+    assert 'user_pref("ui.systemUsesDarkTheme", 1)' in content
+
+
+def test_update_firefox_sets_light_pref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile = _make_profile(tmp_path, theme_id="firefox-compact-light@mozilla.org")
+    monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: profile)
+    monkeypatch.setattr(_st, "FIREFOX_BASE_PREFS_FILE", str(tmp_path / "user.js"))
+
+    _st.update_firefox(_LIGHT_THEME)
+
+    content = (profile / "user.js").read_text()
+    assert 'user_pref("ui.systemUsesDarkTheme", 0)' in content
+
+
+def test_update_firefox_skips_when_no_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: None)
+    # Must not raise
+    _st.update_firefox(_DARK_THEME)
+
+
+def test_update_firefox_enables_userchrome_pref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    profile = _make_profile(tmp_path)
+    monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: profile)
+    monkeypatch.setattr(_st, "FIREFOX_BASE_PREFS_FILE", str(tmp_path / "user.js"))
+
+    _st.update_firefox(_DARK_THEME)
+
+    content = (profile / "user.js").read_text()
+    assert "toolkit.legacyUserProfileCustomizations.stylesheets" in content
