@@ -13,7 +13,7 @@
 #        automatic setup on first login.
 #    [2] Dotfiles only  (existing Arch installation)
 #        Clones the repo and hands off to setup.sh — original behaviour.
-#    [3] hyprconf binary only  (any existing Hyprland system)
+#    [3] hyprconf only  (any existing Hyprland system)
 #        Installs the hyprconf CLI/TUI into ~/.local/bin and ~/.local/lib
 #        without touching any Hyprland config files.
 
@@ -1383,7 +1383,7 @@ _link() {
 }
 
 binary_install() {
-  log_step "Installing hyprconf binary..."
+  log_step "Installing hyprconf..."
 
   _ensure_git_any
 
@@ -1400,7 +1400,7 @@ binary_install() {
   fi
   log_ok "Repository ready."
 
-  # Symlink binary and library — do not touch ~/.config/hypr
+  # Symlink script and library — do not touch ~/.config/hypr
   _link "$REPO_DIR/stow/hypr/.local/bin/hyprconf" \
         "$HOME/.local/bin/hyprconf"
   _link "$REPO_DIR/stow/hypr/.local/lib/hyprconf" \
@@ -1457,11 +1457,11 @@ main() {
 
   if (( _existing )); then
     _options+=(
-      "hyprconf binary only      (update existing install) ← recommended"
+      "hyprconf only             (update existing install) ← recommended"
     )
   else
     _options+=(
-      "hyprconf binary only      (any existing Hyprland system)"
+      "hyprconf only             (any existing Hyprland system)"
     )
   fi
 

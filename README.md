@@ -12,7 +12,7 @@
 
 # .hyprconf
 
-**hyprconf** is a Hyprland configuration suite for Arch Linux — combining a standalone CLI/TUI binary with the maintainer's fully-managed personal dotfiles. The binary is independently usable by any Hyprland user (AUR-compatible); the dotfiles are the daily-driven reference implementation built on top of it.
+**hyprconf** is a Hyprland configuration suite for Arch Linux — combining a standalone CLI/TUI tool with the maintainer's fully-managed personal dotfiles. The tool is independently usable by any Hyprland user (AUR-compatible); the dotfiles are the daily-driven reference implementation built on top of it.
 
 ---
 
@@ -20,8 +20,8 @@
 
 | Component | Description |
 |---|---|
-| **`hyprconf` binary** | AUR-compatible CLI + TUI for configuring Hyprland — get/set options, manage keybinds, rules, monitors, themes, lock/idle/wallpaper daemons, and more. Installable standalone. |
-| **Dotfiles** | The maintainer's Arch Linux + Hyprland configuration, managed via GNU Stow. Bootstrapped from a single command; demonstrates and depends on the `hyprconf` binary. |
+| **`hyprconf`** | AUR-compatible CLI + TUI for configuring Hyprland — get/set options, manage keybinds, rules, monitors, themes, lock/idle/wallpaper daemons, and more. Installable standalone. |
+| **Dotfiles** | The maintainer's Arch Linux + Hyprland configuration, managed via GNU Stow. Bootstrapped from a single command; demonstrates and depends on `hyprconf`. |
 
 ---
 
@@ -175,7 +175,7 @@ hyprsync          # backward-compatible alias for hyprconf sync
 
 ## hyprconf CLI
 
-The `hyprconf` binary lives at `~/.local/bin/hyprconf` (stowed). It is the single entry point for all configuration tasks.
+The `hyprconf` script lives at `~/.local/bin/hyprconf` (stowed). It is the single entry point for all configuration tasks.
 
 ### Command Reference
 
