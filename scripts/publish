@@ -203,6 +203,7 @@ step "Checking VM image"
 if [[ "$SKIP_TESTS" == true ]]; then
   warn "Skipping VM/install tiers (--skip-tests)"
 else
+_build_image=false
 if [[ -f "$INSTALL_IMAGE" ]]; then
   _built_at="unknown"
   _built_commit="unknown"
