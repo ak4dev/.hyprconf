@@ -637,11 +637,9 @@ write_hardware_conf() {
 setup_hardware_features() {
     log_step "Checking for hardware features..."
 
-    local any=false
-
     if _has_touchscreen; then
         log_ok "Touchscreen detected."
-        _install_wvkbd && any=true
+        _install_wvkbd || true
         mkdir -p "$HOME/.config/wvkbd"
     else
         log_ok "No touchscreen detected — skipping OSK setup."
@@ -649,7 +647,6 @@ setup_hardware_features() {
 
     if _has_accelerometer; then
         log_ok "Accelerometer detected."
-        any=true
         log_step "Installing iio-sensor-proxy..."
         sudo pacman -S --noconfirm --needed iio-sensor-proxy \
             && log_ok "iio-sensor-proxy installed." \
@@ -666,10 +663,9 @@ setup_hardware_features() {
     fi
 
     write_hardware_conf
-    $any || true
 }
 
-
+stow_all_packages() {
     log_step "Stowing all config packages..."
 
     local _stow_failures=()

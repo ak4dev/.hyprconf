@@ -106,6 +106,10 @@ usage() {
   printf "  hyprconf schema keys <section>   List keys in a section\n"
   printf "\n${_b}Auto-detect${_r}\n"
   printf "  hyprconf autodetect              Detect and migrate existing Hyprland config\n"
+  printf "\n${_b}Hardware${_r}\n"
+  printf "  hyprconf hardware status         Show detected hardware and daemon status\n"
+  printf "  hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)\n"
+  printf "  hyprconf hardware rotate [on|off]      Control auto-rotation (autorotate)\n"
   printf "\n${_b}Developer${_r}\n"
   printf "  hyprconf dev                     Show developer pipeline commands\n"
   printf "  hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]\n"
@@ -1182,8 +1186,123 @@ cmd_paper() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
-#  hyprconf dev  — developer pipeline commands
+#  hyprconf hardware — touchscreen OSK and auto-rotation control
 # ════════════════════════════════════════════════════════════════════════════
+
+_hw_has_touchscreen() {
+  grep -rql "^ID_INPUT_TOUCHSCREEN=1" /sys/class/input/*/device/uevent 2>/dev/null
+}
+
+_hw_has_accelerometer() {
+  compgen -G "/sys/bus/iio/devices/*/in_accel_x_raw" > /dev/null 2>&1
+}
+
+_hw_osk_running() {
+  pgrep -x wvkbd-mobintl > /dev/null 2>&1
+}
+
+_hw_rotate_running() {
+  pgrep -x autorotate > /dev/null 2>&1
+}
+
+cmd_hardware() {
+  local sub="${1:-status}"
+  shift || true
+
+  case "$sub" in
+    status)
+      printf "${_b}Hardware detection${_r}\n"
+      _hw_has_touchscreen  \
+        && printf "  Touchscreen      ${_g}detected${_r}\n" \
+        || printf "  Touchscreen      ${_y}not detected${_r}\n"
+      _hw_has_accelerometer \
+        && printf "  Accelerometer    ${_g}detected${_r}\n" \
+        || printf "  Accelerometer    ${_y}not detected${_r}\n"
+      printf "\n${_b}Daemons${_r}\n"
+      command -v wvkbd-mobintl &>/dev/null \
+        && printf "  wvkbd-mobintl    installed\n" \
+        || printf "  wvkbd-mobintl    ${_y}not installed${_r}\n"
+      _hw_osk_running \
+        && printf "  wvkbd (OSK)      ${_g}running${_r}\n" \
+        || printf "  wvkbd (OSK)      stopped\n"
+      command -v autorotate &>/dev/null \
+        && printf "  autorotate       installed\n" \
+        || printf "  autorotate       ${_y}not installed${_r}\n"
+      _hw_rotate_running \
+        && printf "  autorotate       ${_g}running${_r}\n" \
+        || printf "  autorotate       stopped\n"
+      command -v iio-sensor-proxy &>/dev/null \
+        || systemctl --quiet is-active iio-sensor-proxy.service 2>/dev/null \
+        && printf "  iio-sensor-proxy ${_g}active${_r}\n" \
+        || printf "  iio-sensor-proxy stopped\n"
+      ;;
+
+    osk)
+      local action="${1:-toggle}"
+      case "$action" in
+        on)
+          if _hw_osk_running; then
+            printf "OSK already running.\n"
+          else
+            wvkbd-launcher &
+            printf "${_g}OSK started.${_r}\n"
+          fi
+          ;;
+        off)
+          local _osk_pid; _osk_pid="$(pgrep -x wvkbd-mobintl 2>/dev/null || true)"
+          if [[ -n "$_osk_pid" ]]; then
+            kill "$_osk_pid"
+            printf "${_g}OSK stopped.${_r}\n"
+          else
+            printf "OSK is not running.\n"
+          fi
+          ;;
+        toggle)
+          wvkbd-toggle
+          ;;
+        *)
+          printf "${_y}Usage: hyprconf hardware osk [on|off|toggle]${_r}\n" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+
+    rotate)
+      local action="${1:-}"
+      case "$action" in
+        on)
+          if _hw_rotate_running; then
+            printf "autorotate already running.\n"
+          else
+            autorotate &
+            printf "${_g}Auto-rotation started.${_r}\n"
+          fi
+          ;;
+        off)
+          local _rot_pid; _rot_pid="$(pgrep -x autorotate 2>/dev/null || true)"
+          if [[ -n "$_rot_pid" ]]; then
+            kill "$_rot_pid"
+            printf "${_g}Auto-rotation stopped.${_r}\n"
+          else
+            printf "autorotate is not running.\n"
+          fi
+          ;;
+        *)
+          printf "${_y}Usage: hyprconf hardware rotate [on|off]${_r}\n" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+
+    *)
+      printf "${_y}Unknown hardware subcommand: %s${_r}\n\n" "$sub" >&2
+      printf "Usage: hyprconf hardware [status|osk|rotate]\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+
 
 readonly DEV_REPO="${HOME}/.hyprconf"
 
@@ -1340,6 +1459,7 @@ main() {
     lock)             cmd_lock "$@" ;;
     idle)             cmd_idle "$@" ;;
     paper)            cmd_paper "$@" ;;
+    hardware)         cmd_hardware "$@" ;;
     dev)              cmd_dev "$@" ;;
     help|-h|--help)   usage ;;
     *)

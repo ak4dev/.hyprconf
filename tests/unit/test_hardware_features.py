@@ -199,3 +199,18 @@ def test_apply_theme_skips_update_wvkbd_when_wvkbd_absent(monkeypatch):
         st.apply_theme("dummy-theme", reload=False)
 
     assert "update_wvkbd" not in calls
+
+
+# ---------------------------------------------------------------------------
+# schema — hardware section registered
+# ---------------------------------------------------------------------------
+
+def test_schema_has_hardware_section():
+    import importlib, sys
+    LIB_DIR = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "lib"
+    if str(LIB_DIR) not in sys.path:
+        sys.path.insert(0, str(LIB_DIR))
+    import hyprconf.schema as schema
+    importlib.reload(schema)
+    assert "hardware" in schema.SECTION_ORDER
+    assert schema.SECTION_LABELS.get("hardware") == "Hardware"

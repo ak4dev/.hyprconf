@@ -8,5 +8,9 @@ pid="$(pgrep -x wvkbd-mobintl 2>/dev/null || true)"
 if [[ -n "$pid" ]]; then
     kill -USR1 "$pid"
 else
+    if ! command -v wvkbd-launcher &>/dev/null; then
+        echo "wvkbd-toggle: wvkbd-launcher not found on PATH" >&2
+        exit 1
+    fi
     wvkbd-launcher &
 fi

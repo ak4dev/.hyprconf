@@ -348,6 +348,7 @@ SECTION_ORDER: list[str] = [
     "window_rules", "workspace_rules",
     "hyprlock", "hypridle", "hyprpaper",
     "theme",
+    "hardware",
 ]
 
 # ── Section display labels ────────────────────────────────────────────────────
@@ -379,6 +380,7 @@ SECTION_LABELS: dict[str, str] = {
     "hypridle":         "hypridle",
     "hyprpaper":        "hyprpaper",
     "theme":            "Theme",
+    "hardware":         "Hardware",
 }
 
 # ── Helper functions ──────────────────────────────────────────────────────────

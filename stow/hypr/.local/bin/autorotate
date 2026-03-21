@@ -33,11 +33,16 @@ done
 
 display="$(_find_edp)"
 
-monitor-sensor 2>/dev/null | while IFS= read -r line; do
-    if [[ "$line" == *"Accelerometer orientation changed:"* ]]; then
-        orientation="${line##*: }"
-        orientation="${orientation#"${orientation%%[![:space:]]*}"}"  # ltrim
-        transform="$(_transform_for "$orientation")"
-        hyprctl keyword monitor "$display,transform,$transform" 2>/dev/null || true
-    fi
+# Restart monitor-sensor on exit so a crashed iio-sensor-proxy doesn't
+# permanently disable auto-rotation.
+while true; do
+    while IFS= read -r line; do
+        if [[ "$line" == *"Accelerometer orientation changed:"* ]]; then
+            orientation="${line##*: }"
+            orientation="${orientation#"${orientation%%[! ]}"}"  # ltrim spaces
+            transform="$(_transform_for "$orientation")"
+            hyprctl keyword monitor "$display,transform,$transform" 2>/dev/null || true
+        fi
+    done < <(monitor-sensor 2>/dev/null)
+    sleep 2  # back-off before reconnecting
 done

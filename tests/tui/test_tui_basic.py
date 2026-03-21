@@ -232,3 +232,28 @@ async def test_slider_bar_home_end(patched_tui_env: Path) -> None:
         assert slider.value == 0
         slider.action_to_max()
         assert slider.value == 100
+
+
+
+# ---------------------------------------------------------------------------
+# Hardware section: loads without error
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_hardware_section_loads(patched_tui_env: Path) -> None:
+    from textual.widgets import DataTable
+    from unittest.mock import patch as _patch
+    import subprocess as _sp
+
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+
+    # Patch sysfs and pgrep calls so the test is hermetic
+    with _patch("glob.iglob", return_value=iter([])), \
+         _patch("subprocess.run", return_value=MagicMock(returncode=1, stdout="")) :
+        async with app.run_test(size=(120, 40)) as pilot:
+            import main as tui_main
+            app._load_section("hardware")
+            await pilot.pause()
+            table = app.query_one("#option-table", DataTable)
+            assert table.row_count >= 4  # detection rows + daemon rows

@@ -1630,6 +1630,8 @@ class HyprconfApp(App):
             self._fill_paper(table)
         elif section == "theme":
             self._fill_themes(table)
+        elif section == "hardware":
+            self._fill_hardware(table)
         elif section in OPTION_SCHEMA:
             self._fill_options(table, section)
         else:
@@ -1885,6 +1887,65 @@ class HyprconfApp(App):
             table.add_row(name, status, str(THEME_DIR / f"{name}.json"))
             self._row_keys.append(name)
 
+    def _fill_hardware(self, table: DataTable) -> None:
+        table.add_column("COMPONENT",  width=24)
+        table.add_column("STATUS",     width=16)
+        table.add_column("ACTION",     width=28)
+
+        def _has_touchscreen() -> bool:
+            import glob as _glob
+            for f in _glob.iglob("/sys/class/input/*/device/uevent"):
+                try:
+                    with open(f) as fh:
+                        if "ID_INPUT_TOUCHSCREEN=1" in fh.read():
+                            return True
+                except OSError:
+                    pass
+            return False
+
+        def _has_accelerometer() -> bool:
+            import glob as _glob
+            return bool(_glob.glob("/sys/bus/iio/devices/*/in_accel_x_raw"))
+
+        def _proc_running(name: str) -> bool:
+            try:
+                r = subprocess.run(["pgrep", "-x", name], capture_output=True)
+                return r.returncode == 0
+            except FileNotFoundError:
+                return False
+
+        def _installed(name: str) -> bool:
+            import shutil
+            return shutil.which(name) is not None
+
+        ts_det   = _has_touchscreen()
+        acc_det  = _has_accelerometer()
+        osk_inst = _installed("wvkbd-mobintl")
+        osk_run  = _proc_running("wvkbd-mobintl")
+        rot_inst = _installed("autorotate")
+        rot_run  = _proc_running("autorotate")
+
+        table.add_row("Touchscreen",
+                      "✓ detected"   if ts_det   else "not detected", "")
+        self._row_keys.append("")
+        table.add_row("Accelerometer",
+                      "✓ detected"   if acc_det  else "not detected", "")
+        self._row_keys.append("")
+        table.add_row("─" * 22, "─" * 14, "─" * 26)
+        self._row_keys.append("")
+
+        osk_status = "running" if osk_run else ("installed" if osk_inst else "not installed")
+        table.add_row("OSK (wvkbd)",
+                      osk_status,
+                      "Enter → toggle" if osk_inst else "")
+        self._row_keys.append("hw_osk_toggle" if osk_inst else "")
+
+        rot_status = "running" if rot_run else ("installed" if rot_inst else "not installed")
+        table.add_row("Auto-rotation",
+                      rot_status,
+                      "Enter → toggle" if rot_inst else "")
+        self._row_keys.append("hw_rotate_toggle" if rot_inst else "")
+
     def _refresh_monitors(self) -> None:
         if self._current_section == "monitors":
             table = self.query_one("#option-table", DataTable)
@@ -2090,6 +2151,60 @@ class HyprconfApp(App):
                     self._refresh_monitors()
 
                 self.push_screen(MonitorEditScreen(mon_data, file_extras), handle_monitor)
+            return
+
+        # ── Hardware ─────────────────────────────────────────────────────────
+        if section == "hardware":
+            if 0 <= row_idx < len(self._row_keys):
+                rk = self._row_keys[row_idx]
+                if rk == "hw_osk_toggle":
+                    running = subprocess.run(
+                        ["pgrep", "-x", "wvkbd-mobintl"], capture_output=True
+                    ).returncode == 0
+                    if running:
+                        pid_r = subprocess.run(
+                            ["pgrep", "-x", "wvkbd-mobintl"],
+                            capture_output=True, text=True,
+                        )
+                        for pid in pid_r.stdout.split():
+                            try:
+                                subprocess.run(["kill", pid], check=True)
+                            except subprocess.CalledProcessError:
+                                pass
+                        self.notify("OSK stopped")
+                    else:
+                        import shutil as _shutil
+                        launcher = _shutil.which("wvkbd-launcher")
+                        if launcher:
+                            subprocess.Popen([launcher])
+                            self.notify("OSK started")
+                        else:
+                            self.notify("wvkbd-launcher not found", severity="error")
+                    self._load_section("hardware")
+                elif rk == "hw_rotate_toggle":
+                    running = subprocess.run(
+                        ["pgrep", "-x", "autorotate"], capture_output=True
+                    ).returncode == 0
+                    if running:
+                        pid_r = subprocess.run(
+                            ["pgrep", "-x", "autorotate"],
+                            capture_output=True, text=True,
+                        )
+                        for pid in pid_r.stdout.split():
+                            try:
+                                subprocess.run(["kill", pid], check=True)
+                            except subprocess.CalledProcessError:
+                                pass
+                        self.notify("Auto-rotation stopped")
+                    else:
+                        import shutil as _shutil
+                        rotbin = _shutil.which("autorotate")
+                        if rotbin:
+                            subprocess.Popen([rotbin])
+                            self.notify("Auto-rotation started")
+                        else:
+                            self.notify("autorotate not found", severity="error")
+                    self._load_section("hardware")
             return
 
         # ── Theme picker ─────────────────────────────────────────────────────
