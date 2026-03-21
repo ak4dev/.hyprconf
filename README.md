@@ -375,7 +375,9 @@ Runs at every `setup.sh` invocation and `hyprconf sync`. Results are written to
 
 ### Touchscreen
 
-Detection: `/sys/class/input/*/device/uevent` → `ID_INPUT_TOUCHSCREEN=1`
+Detection (checked in order):
+1. `/sys/class/input/*/device/uevent` → `ID_INPUT_TOUCHSCREEN=1` — standard HID touchscreens (ELAN, etc.)
+2. Same path → `NAME="Wacom * Finger"` + `PHYS="i2c-*"` — Wacom I2C pen+touch digitizers (ThinkPad Yoga, Surface-style devices) whose driver bypasses the generic udev HID rules and never sets `ID_INPUT_TOUCHSCREEN=1`
 
 Installs **`wvkbd`** (AUR, requires `yay`) — a minimal wlroots on-screen keyboard.
 

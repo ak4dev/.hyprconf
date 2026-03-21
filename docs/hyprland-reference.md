@@ -577,7 +577,8 @@ hyprconf schema keys general         # keys in a section
 hyprconf autodetect
 
 # Hardware auto-detection (touchscreen / accelerometer)
-# Detected at install/sync time; written to ~/.config/hypr/conf.d/60-hardware.conf
+# Touchscreen: checks ID_INPUT_TOUCHSCREEN=1 (standard HID) OR
+#              NAME="Wacom * Finger" + PHYS="i2c-*" (Wacom I2C, e.g. ThinkPad X13 Yoga)
 hyprconf hardware status             # show detected hardware + daemon state
 hyprconf hardware osk [on|off|toggle]   # start/stop/toggle wvkbd on-screen keyboard
 hyprconf hardware rotate <on|off>    # start/stop autorotate daemon
