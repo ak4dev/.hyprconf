@@ -34,7 +34,15 @@ def read_lines(path: Path) -> list[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _write_lines(path: Path, lines: list[str]) -> None:
-    """Write *lines* to *path* atomically (temp-file + rename)."""
+    """Write *lines* to *path* atomically (temp-file + rename).
+
+    Resolves symlinks first so that ``os.replace`` updates the symlink
+    *target* rather than replacing the symlink itself.  Without this,
+    stow-managed paths (e.g. ``monitors.conf → laptopMonitors.conf``) would
+    be converted to real files, which ``detect_gpu_and_link_monitor_config``
+    then deletes on the next sync — silently discarding all edits.
+    """
+    path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".hyprconf-tmp-")
     try:

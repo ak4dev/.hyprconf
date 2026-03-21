@@ -203,6 +203,35 @@ def test_write_lines_cleans_up_tmp_on_error(tmp_path: Path) -> None:
     assert list(tmp_path.glob("**/.hyprconf-tmp-*")) == []
 
 
+def test_write_lines_follows_symlink(tmp_path: Path) -> None:
+    """_write_lines must write to the symlink TARGET, not replace the symlink.
+
+    Regression: os.replace(tmp, symlink_path) was replacing the symlink
+    itself with a real file.  On the next sync, detect_gpu_and_link_monitor_config
+    would rm -f that real file and recreate the symlink to the unchanged
+    original target — silently discarding the user's edits.
+    """
+    from hyprconf.file_edit import _write_lines
+
+    target = tmp_path / "laptopMonitors.conf"
+    target.write_text("monitor=eDP-1,preferred,auto,auto\n")
+
+    link = tmp_path / "monitors.conf"
+    link.symlink_to(target)
+
+    _write_lines(link, ["monitor=eDP-1,preferred,auto,auto,transform,1"])
+
+    # The symlink must still be a symlink pointing to the same target
+    assert link.is_symlink()
+    assert link.resolve() == target.resolve()
+
+    # The TARGET (stow file) must have the new content
+    assert "transform,1" in target.read_text()
+
+    # The symlink must also read back the new content
+    assert "transform,1" in link.read_text()
+
+
 # ---------------------------------------------------------------------------
 # OSError paths in mutation primitives (covers L99-100, 115-116, 131-132, 147-148)
 # ---------------------------------------------------------------------------
