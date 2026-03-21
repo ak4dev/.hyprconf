@@ -91,15 +91,13 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 ### Sync / Repair
 
 ```bash
-hyprconf sync          # pull, re-apply services, reload Hyprland (config-safe on stable)
+hyprconf sync          # pull, re-apply services, reload Hyprland (always config-safe)
 hyprconf sync --full   # as above + full dotfile restow (resets configs to repo defaults)
 hyprconf repair        # fix stow tree, broken symlinks, Python imports, monitors.conf
 hyprsync               # backward-compatible alias for hyprconf sync
 ```
 
-`hyprconf sync` on the **stable** branch is config-safe — it updates the `hyprconf` binary, Python library, and scripts while leaving your personal dotfiles untouched. Configs you have directly modified survive the update unchanged. Use `hyprconf sync --full` to explicitly reset everything to repo defaults.
-
-On the **dev** branch, `hyprconf sync` performs a full restow on every run (original behaviour).
+`hyprconf sync` is **always config-safe**, regardless of branch — it uses additive-only stow, which creates symlinks for new files but never replaces existing symlinks or real files you have modified. Use `hyprconf sync --full` to explicitly reset all dotfiles to repo defaults.
 
 `~/.config/hypr/conf.d/99-hyprconf-local.conf` — the file written by `hyprconf set` and the TUI — is **machine-local and never managed by stow or git**. It survives all sync modes. If a previous install left it as a stow symlink, the first sync after this update migrates it automatically to a regular file.
 

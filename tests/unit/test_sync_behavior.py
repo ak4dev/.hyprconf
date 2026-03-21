@@ -228,14 +228,18 @@ class TestStowAllPackagesMode:
 # ---------------------------------------------------------------------------
 
 class TestSyncPath:
-    def test_stable_branch_uses_additive_stow(self) -> None:
+    def test_sync_always_uses_additive_stow_by_default(self) -> None:
+        """Sync must use additive-only stow by default, regardless of branch.
+
+        This prevents user-modified dotfiles from being overwritten on any branch —
+        including legacy mainline/dev installs that have not yet migrated to stable.
+        """
         src = _setup_text()
         sync_idx = src.index('"--sync"')
         sync_block = src[sync_idx:sync_idx + 3000]
-        assert "_on_stable_branch" in sync_block, \
-            "_on_stable_branch must be consulted in --sync path"
-        assert '"stow"' in sync_block or "stow_mode" in sync_block, \
-            "--sync path must set stow_mode for stable branch"
+        assert '"stow"' in sync_block or "_stow_mode=\"stow\"" in sync_block \
+            or "_stow_mode='stow'" in sync_block, \
+            "--sync path must default to additive stow mode"
 
     def test_full_flag_forces_restow(self) -> None:
         src = _setup_text()

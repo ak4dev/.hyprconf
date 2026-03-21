@@ -981,12 +981,13 @@ main() {
         purge_broken_symlinks
         sync_vscode_theme_extensions
 
-        # On stable branch, use additive-only stow to preserve user-modified
-        # dotfiles.  Pass --full to force a complete restow (e.g. to reset defaults).
-        local _stow_mode="restow"
-        if [[ "$_sync_full" == "false" ]] && _on_stable_branch; then
-            _stow_mode="stow"
-        fi
+        # Sync always uses additive-only stow: new symlinks are created for any
+        # files added to the packages, but existing symlinks and real files are
+        # never replaced.  This preserves user-modified dotfiles regardless of
+        # which branch the repo is on.  Pass --full to force a complete restow
+        # (resets all dotfiles to repo defaults).
+        local _stow_mode="stow"
+        [[ "$_sync_full" == "true" ]] && _stow_mode="restow"
         stow_all_packages "$_stow_mode" || true
 
         update_zshrc
