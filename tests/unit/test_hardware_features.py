@@ -791,3 +791,87 @@ def test_hex_to_rgba_fallback_invalid():
     """Non-standard input is returned unchanged rather than crashing."""
     out = _run_hex_to_rgba("transparent", 0.9)
     assert out == "transparent"
+
+
+# ---------------------------------------------------------------------------
+# reapply_current_theme
+# ---------------------------------------------------------------------------
+
+def _run_reapply_current_theme(
+    tmp_path: Path,
+    *,
+    state_content: str | None = None,   # None → no state file
+    script_present: bool = True,
+    python_exit_code: int = 0,
+) -> tuple[int, str, str]:
+    """
+    Run reapply_current_theme() from setup.sh with a mocked home dir.
+    Returns (returncode, stdout, stderr).
+    """
+    source = SETUP_SH.read_text()
+
+    start = source.find("reapply_current_theme()")
+    assert start != -1, "reapply_current_theme() not found in setup.sh"
+    end = source.find("\n}", start)
+    func = source[source.rfind("\n", 0, start) + 1: end + 2]
+
+    # Set up fake home
+    config_hypr = tmp_path / ".config" / "hypr"
+    config_hypr.mkdir(parents=True)
+
+    theme_dir = config_hypr / "scripts" / "theme-switcher"
+    theme_dir.mkdir(parents=True)
+
+    script_path = theme_dir / "switch_theme.py"
+    if script_present:
+        script_path.write_text(f"import sys; sys.exit({python_exit_code})\n")
+
+    if state_content is not None:
+        (config_hypr / ".current-theme").write_text(state_content)
+
+    # Stub python3 to capture the args it was called with
+    fake_python = tmp_path / "fake_python3"
+    fake_python.write_text(
+        f"#!/usr/bin/env bash\necho \"called: $@\"\nexit {python_exit_code}\n"
+    )
+    fake_python.chmod(0o755)
+
+    bash_script = f"""
+set -euo pipefail
+HOME="{tmp_path}"
+log_step() {{ echo "STEP: $1"; }}
+log_ok()   {{ echo "OK: $1"; }}
+log_warn() {{ echo "WARN: $1"; }}
+{func.replace("python3", str(fake_python))}
+reapply_current_theme
+"""
+    result = subprocess.run(["bash", "-c", bash_script], capture_output=True, text=True)
+    return result.returncode, result.stdout, result.stderr
+
+
+def test_reapply_current_theme_uses_state_file_when_present(tmp_path):
+    rc, out, _ = _run_reapply_current_theme(tmp_path, state_content="catppuccin-frappe\n")
+    assert rc == 0
+    assert "catppuccin-frappe" in out
+    assert "--no-reload" in out
+
+
+def test_reapply_current_theme_defaults_to_catppuccin_mocha_when_no_state(tmp_path):
+    rc, out, _ = _run_reapply_current_theme(tmp_path, state_content=None)
+    assert rc == 0
+    assert "catppuccin-mocha" in out
+    assert "--no-reload" in out
+
+
+def test_reapply_current_theme_warns_and_returns_when_script_missing(tmp_path):
+    rc, out, _ = _run_reapply_current_theme(tmp_path, script_present=False)
+    assert rc == 0
+    assert "WARN" in out
+
+
+def test_reapply_current_theme_warns_on_script_failure(tmp_path):
+    rc, out, _ = _run_reapply_current_theme(
+        tmp_path, state_content="catppuccin-mocha\n", python_exit_code=1
+    )
+    assert rc == 0           # reapply_current_theme itself must not fail
+    assert "WARN" in out

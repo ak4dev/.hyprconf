@@ -754,6 +754,25 @@ setup_hardware_features() {
     write_hardware_conf
 }
 
+# Re-apply the persisted theme so KDE (Dolphin), GTK (Bluetooth manager), and
+# all other themed subsystems are consistent after install or sync.
+# Falls back to catppuccin-mocha on a fresh install with no persisted state.
+reapply_current_theme() {
+    local state_file="$HOME/.config/hypr/.current-theme"
+    local script="$HOME/.config/hypr/scripts/theme-switcher/switch_theme.py"
+
+    [[ -f "$script" ]] || { log_warn "Theme switcher not found — skipping theme apply."; return 0; }
+
+    local theme_name=""
+    [[ -f "$state_file" ]] && theme_name="$(tr -d '[:space:]' < "$state_file")"
+    [[ -z "$theme_name" ]] && theme_name="catppuccin-mocha"
+
+    log_step "Applying theme: $theme_name"
+    python3 "$script" "$theme_name" --no-reload \
+        && log_ok "Theme applied: $theme_name" \
+        || log_warn "Theme apply failed — run 'hyprconf theme' manually."
+}
+
 stow_all_packages() {
     local stow_mode="${1:-restow}"
     log_step "Stowing all config packages (mode: $stow_mode)..."
@@ -1032,6 +1051,7 @@ main() {
         seed_hicolor_index
         setup_firefox
         setup_hardware_features
+        reapply_current_theme
         sync_services
         reload_hyprland
 
@@ -1098,6 +1118,7 @@ main() {
     seed_hicolor_index
     setup_firefox
     setup_hardware_features
+    reapply_current_theme
     enable_services
     sync_services
     reload_hyprland
