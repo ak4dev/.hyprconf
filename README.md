@@ -91,12 +91,19 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 ### Sync / Repair
 
 ```bash
-hyprconf sync     # pull, re-stow, re-apply services, reload Hyprland
-hyprconf repair   # fix stow tree, broken symlinks, Python imports, monitors.conf
-hyprsync          # backward-compatible alias for hyprconf sync
+hyprconf sync          # pull, re-apply services, reload Hyprland (config-safe on stable)
+hyprconf sync --full   # as above + full dotfile restow (resets configs to repo defaults)
+hyprconf repair        # fix stow tree, broken symlinks, Python imports, monitors.conf
+hyprsync               # backward-compatible alias for hyprconf sync
 ```
 
-`hyprconf sync` keeps normal user installs on the sparse `stable` checkout. During migration, clean legacy `mainline` clones are re-pointed to `stable` automatically.
+`hyprconf sync` on the **stable** branch is config-safe — it updates the `hyprconf` binary, Python library, and scripts while leaving your personal dotfiles untouched. Configs you have directly modified survive the update unchanged. Use `hyprconf sync --full` to explicitly reset everything to repo defaults.
+
+On the **dev** branch, `hyprconf sync` performs a full restow on every run (original behaviour).
+
+`~/.config/hypr/conf.d/99-hyprconf-local.conf` — the file written by `hyprconf set` and the TUI — is **machine-local and never managed by stow or git**. It survives all sync modes. If a previous install left it as a stow symlink, the first sync after this update migrates it automatically to a regular file.
+
+During migration, clean legacy `mainline` clones are re-pointed to `stable` automatically.
 
 ---
 
@@ -555,7 +562,7 @@ hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python an
 ```
 tests/
 ├── conftest.py              # shared fixtures (isolated config dirs, mock hyprctl)
-├── unit/                    # Tier 1 — pure Python, no Hyprland (611 tests)
+├── unit/                    # Tier 1 — pure Python, no Hyprland (639 tests)
 │   ├── test_config.py
 │   ├── test_schema.py
 │   ├── test_file_edit.py

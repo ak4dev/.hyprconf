@@ -165,6 +165,45 @@ EOF
     log_ok "Directories ready."
 }
 
+_on_stable_branch() {
+    local branch
+    branch=$(git -C "$HYPRCONF_DIR" branch --show-current 2>/dev/null || echo "")
+    [[ "$branch" == "$HYPRCONF_STABLE_BRANCH" ]]
+}
+
+# Ensure 99-hyprconf-local.conf is a real machine-local file, not a stow-managed
+# symlink.  Must run BEFORE clone_or_update_repo so user settings are preserved
+# even if git pull would delete the (now-untracked) stow copy of the file.
+migrate_user_conf() {
+    local stow_file="$STOW_DIR/hypr/.config/hypr/conf.d/99-hyprconf-local.conf"
+    local live_file="$HOME/.config/hypr/conf.d/99-hyprconf-local.conf"
+
+    if [[ -L "$live_file" ]]; then
+        local target
+        target=$(realpath "$live_file" 2>/dev/null || true)
+        if [[ -n "$target" && "$target" == "$HYPRCONF_DIR"/* ]]; then
+            # Working stow-managed symlink — preserve content as a real file.
+            local content
+            content=$(cat "$live_file" 2>/dev/null || true)
+            rm "$live_file"
+            if [[ -n "$content" ]]; then
+                printf '%s\n' "$content" > "$live_file"
+            fi
+            log_ok "Migrated 99-hyprconf-local.conf to machine-local file."
+        elif [[ -z "$target" ]]; then
+            # Broken symlink — remove it; create_directories will recreate it fresh.
+            rm "$live_file"
+            log_ok "Removed stale 99-hyprconf-local.conf symlink."
+        fi
+    fi
+
+    # Remove the stow copy if it still exists (e.g. after an older install that
+    # tracked this file), so future stow runs do not try to manage it.
+    if [[ -f "$stow_file" ]]; then
+        rm "$stow_file"
+    fi
+}
+
 _apply_repo_sparse_checkout() {
     git -C "$HYPRCONF_DIR" sparse-checkout init --no-cone >/dev/null 2>&1 || true
     git -C "$HYPRCONF_DIR" sparse-checkout set "${HYPRCONF_SPARSE_PATHS[@]}" >/dev/null
@@ -429,6 +468,8 @@ force_stow_package() {
     local package="$1"
     local stow_dir="$2"
     local target_dir="$3"
+    # "restow" (default, full replace) or "stow" (additive-only, preserves user files)
+    local stow_mode="${4:-restow}"
 
     log_step "Stowing $package..."
 
@@ -444,7 +485,13 @@ force_stow_package() {
         fi
     done
 
-    if ! stow -d "$stow_dir" -t "$target_dir" --no-folding --restow "$package" 2>/dev/null; then
+    if ! stow -d "$stow_dir" -t "$target_dir" --no-folding --"$stow_mode" "$package" 2>/dev/null; then
+        if [[ "$stow_mode" == "stow" ]]; then
+            # Additive-only mode: conflicts mean user has real files — preserve them.
+            log_warn "Skipping conflicts in $package (user files preserved). Run 'hyprconf sync --full' to reset to defaults."
+            return 0
+        fi
+
         log_warn "Conflict in $package — backing up and retrying..."
 
         stow -d "$stow_dir" -t "$target_dir" --no-folding -D "$package" || true
@@ -672,12 +719,13 @@ setup_hardware_features() {
 }
 
 stow_all_packages() {
-    log_step "Stowing all config packages..."
+    local stow_mode="${1:-restow}"
+    log_step "Stowing all config packages (mode: $stow_mode)..."
 
     local _stow_failures=()
     while IFS= read -r -d '' pkg; do
         local pkg_name; pkg_name=$(basename "$pkg")
-        force_stow_package "$pkg_name" "$STOW_DIR" "$HOME" || _stow_failures+=("$pkg_name")
+        force_stow_package "$pkg_name" "$STOW_DIR" "$HOME" "$stow_mode" || _stow_failures+=("$pkg_name")
     done < <(find "$STOW_DIR" -mindepth 1 -maxdepth 1 -type d -print0)
 
     # Safety net: stow -D runs before the retry, so a failed hypr stow leaves
@@ -919,13 +967,28 @@ main() {
     fi
 
     if [[ "${1:-}" == "--sync" ]]; then
+        local _sync_full=false
+        [[ "${2:-}" == "--full" ]] && _sync_full=true
+
         print_header "sync"
         log_step "Syncing configs..."
+
+        # Migrate 99-hyprconf-local.conf BEFORE git pull so user settings survive
+        # a pull that removes the now-untracked stow copy of the file.
+        migrate_user_conf
         clone_or_update_repo
         create_directories
         purge_broken_symlinks
         sync_vscode_theme_extensions
-        stow_all_packages || true
+
+        # On stable branch, use additive-only stow to preserve user-modified
+        # dotfiles.  Pass --full to force a complete restow (e.g. to reset defaults).
+        local _stow_mode="restow"
+        if [[ "$_sync_full" == "false" ]] && _on_stable_branch; then
+            _stow_mode="stow"
+        fi
+        stow_all_packages "$_stow_mode" || true
+
         update_zshrc
         update_zshenv
         configure_zprofile

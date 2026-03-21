@@ -137,7 +137,7 @@ cmd_theme() {
 }
 
 cmd_sync() {
-  "$SETUP_SCRIPT" --sync
+  "$SETUP_SCRIPT" --sync "$@"
 }
 
 cmd_repair() {

@@ -6,7 +6,7 @@
 
 | Tier | Suite | Result |
 |------|-------|--------|
-| 1 | Unit (`tests/unit/`) | 611 passed |
+| 1 | Unit (`tests/unit/`) | 639 passed |
 | 2 | Integration (`tests/integration/`) | 27 passed |
 | 3 | TUI (`tests/tui/`) | 9 passed |
 | 4 | VM (`tests/vm/`) | 44 passed (requires running VM) |
