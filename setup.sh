@@ -548,8 +548,20 @@ _is_desktop() {
 }
 
 _has_touchscreen() {
-    # Check the kernel input subsystem for a registered touchscreen device.
-    grep -rql "^ID_INPUT_TOUCHSCREEN=1" /sys/class/input/*/device/uevent 2>/dev/null
+    # Standard udev-tagged touchscreens (ELAN HID, etc.)
+    grep -rql "^ID_INPUT_TOUCHSCREEN=1" /sys/class/input/*/device/uevent 2>/dev/null \
+        && return 0
+    # Wacom I2C pen+touch digitizers (e.g. ThinkPad X13 Yoga): the touch component is
+    # exposed as NAME="Wacom HID * Finger" on an i2c bus, but udev never sets
+    # ID_INPUT_TOUCHSCREEN=1 because the wacom driver bypasses the generic HID rules.
+    # Requiring PHYS="i2c-" prevents false-positives from external USB Wacom tablets.
+    local f
+    for f in /sys/class/input/*/device/uevent; do
+        grep -q '^NAME="Wacom.*Finger' "$f" 2>/dev/null \
+            && grep -q '^PHYS="i2c-' "$f" 2>/dev/null \
+            && return 0
+    done
+    return 1
 }
 
 _has_accelerometer() {

@@ -217,3 +217,79 @@ def test_schema_has_hardware_section():
     # "hardware" is a display-only daemon-control section — intentionally absent
     # from OPTION_SCHEMA (which holds persistent config options only).
     assert "hardware" not in schema.OPTION_SCHEMA
+
+
+# ---------------------------------------------------------------------------
+# Touchscreen detection — standard + Wacom I2C Finger path
+# ---------------------------------------------------------------------------
+
+def _run_touchscreen_detection(uevent_files: dict) -> bool:
+    """
+    Reimplementation of the shared _has_touchscreen() logic for unit testing.
+    uevent_files: {path_str: content_str}
+    """
+    for content in uevent_files.values():
+        if "ID_INPUT_TOUCHSCREEN=1" in content:
+            return True
+        if ('NAME="Wacom' in content and 'Finger' in content
+                and 'PHYS="i2c-' in content):
+            return True
+    return False
+
+
+def test_touchscreen_detected_via_standard_udev_tag():
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            "NAME=\"ELAN Touchscreen\"\nPHYS=\"i2c-ELAN0001:00\"\n"
+            "ID_INPUT=1\nID_INPUT_TOUCHSCREEN=1\n"
+        )
+    }
+    assert _run_touchscreen_detection(files) is True
+
+
+def test_touchscreen_not_detected_when_absent():
+    files = {
+        "/sys/class/input/event0/device/uevent": (
+            "NAME=\"AT Translated Set 2 keyboard\"\n"
+            "ID_INPUT=1\nID_INPUT_KEY=1\n"
+        )
+    }
+    assert _run_touchscreen_detection(files) is False
+
+
+def test_touchscreen_detected_via_wacom_i2c_finger():
+    """ThinkPad X13 Yoga Gen 3: Wacom I2C HID touch layer — no ID_INPUT_TOUCHSCREEN."""
+    files = {
+        "/sys/class/input/event8/device/uevent": (
+            "PRODUCT=18/56a/5288/100\nNAME=\"Wacom HID 5288 Pen\"\n"
+            "PHYS=\"i2c-WACF2200:00\"\n"
+        ),
+        "/sys/class/input/event9/device/uevent": (
+            "PRODUCT=18/56a/5288/100\nNAME=\"Wacom HID 5288 Finger\"\n"
+            "PHYS=\"i2c-WACF2200:00\"\n"
+            "ABS=260800000000003\n"
+        ),
+    }
+    assert _run_touchscreen_detection(files) is True
+
+
+def test_wacom_pen_alone_does_not_trigger_touchscreen():
+    """Pen-only node must not count as a touchscreen."""
+    files = {
+        "/sys/class/input/event8/device/uevent": (
+            "PRODUCT=18/56a/5288/100\nNAME=\"Wacom HID 5288 Pen\"\n"
+            "PHYS=\"i2c-WACF2200:00\"\n"
+        ),
+    }
+    assert _run_touchscreen_detection(files) is False
+
+
+def test_usb_wacom_tablet_does_not_trigger_touchscreen():
+    """External USB Wacom tablet with a Finger node must not trigger detection."""
+    files = {
+        "/sys/class/input/event3/device/uevent": (
+            "NAME=\"Wacom Intuos Pro M Finger\"\n"
+            "PHYS=\"usb-0000:00:14.0-3/input1\"\n"
+        ),
+    }
+    assert _run_touchscreen_detection(files) is False

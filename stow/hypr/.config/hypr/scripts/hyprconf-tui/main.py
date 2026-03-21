@@ -1870,8 +1870,17 @@ class HyprconfApp(App):
             for f in _glob.iglob("/sys/class/input/*/device/uevent"):
                 try:
                     with open(f) as fh:
-                        if "ID_INPUT_TOUCHSCREEN=1" in fh.read():
-                            return True
+                        content = fh.read()
+                    # Standard udev-tagged touchscreens (ELAN HID, etc.)
+                    if "ID_INPUT_TOUCHSCREEN=1" in content:
+                        return True
+                    # Wacom I2C pen+touch digitizers (e.g. ThinkPad X13 Yoga):
+                    # touch component is named "Wacom HID * Finger" on i2c bus
+                    # but udev never sets ID_INPUT_TOUCHSCREEN=1 for wacom devices.
+                    # Requiring i2c- bus avoids false-positives from USB Wacom tablets.
+                    if ('NAME="Wacom' in content and 'Finger' in content
+                            and 'PHYS="i2c-' in content):
+                        return True
                 except OSError:
                     pass
             return False
