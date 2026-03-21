@@ -25,14 +25,14 @@ readonly ZSHENV="$HOME/.zshenv"
 # ZSH_THEME="powerlevel10k/powerlevel10k" resolves without error.
 readonly P10K_DIR="${HOME}/.oh-my-zsh/custom/themes/powerlevel10k"
 declare -ra HYPRCONF_SPARSE_PATHS=(
-    README.md
-    assets
-    docs
-    infra
-    install
-    packages
-    setup.sh
-    stow
+    /README.md
+    /assets
+    /docs
+    /infra
+    /install
+    /packages
+    /setup.sh
+    /stow
 )
 
 # True when setup.sh is invoked by install.sh inside a chroot (no live systemd).

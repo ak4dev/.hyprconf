@@ -26,14 +26,14 @@ readonly REPO_COMPAT_BRANCH="mainline"
 readonly LUKS_NAME="cryptroot"
 readonly BTRFS_OPTS="noatime,compress=zstd,space_cache=v2"
 declare -ra REPO_SPARSE_PATHS=(
-  README.md
-  assets
-  docs
-  infra
-  install
-  packages
-  setup.sh
-  stow
+  /README.md
+  /assets
+  /docs
+  /infra
+  /install
+  /packages
+  /setup.sh
+  /stow
 )
 
 # Collected during prompts — must remain mutable (not readonly)

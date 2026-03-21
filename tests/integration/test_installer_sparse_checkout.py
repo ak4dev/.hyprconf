@@ -88,9 +88,9 @@ def _extract_bash_array(text: str, name: str) -> list[str]:
 
 
 def test_repo_sparse_paths_contains_file_entries() -> None:
-    """REPO_SPARSE_PATHS must include bare file names that require --no-cone."""
+    """REPO_SPARSE_PATHS must include file-level entries (with or without leading slash)."""
     text = INSTALL_SH.read_text()
-    paths = set(_extract_bash_array(text, "REPO_SPARSE_PATHS"))
+    paths = {p.lstrip("/") for p in _extract_bash_array(text, "REPO_SPARSE_PATHS")}
     missing = EXPECTED_FILE_ENTRIES - paths
     assert not missing, (
         f"REPO_SPARSE_PATHS is missing expected file entries: {missing}"
@@ -98,9 +98,9 @@ def test_repo_sparse_paths_contains_file_entries() -> None:
 
 
 def test_hyprconf_sparse_paths_contains_file_entries() -> None:
-    """HYPRCONF_SPARSE_PATHS must include bare file names that require --no-cone."""
+    """HYPRCONF_SPARSE_PATHS must include file-level entries (with or without leading slash)."""
     text = SETUP_SH.read_text()
-    paths = set(_extract_bash_array(text, "HYPRCONF_SPARSE_PATHS"))
+    paths = {p.lstrip("/") for p in _extract_bash_array(text, "HYPRCONF_SPARSE_PATHS")}
     missing = EXPECTED_FILE_ENTRIES - paths
     assert not missing, (
         f"HYPRCONF_SPARSE_PATHS is missing expected file entries: {missing}"
