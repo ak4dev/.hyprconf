@@ -263,7 +263,17 @@ if [[ "$SKIP_TAG" == false ]]; then
     warn "Dry-run — would create annotated tag ${release_tag}"
   else
     step "Creating annotated tag ${release_tag}"
-    git tag -a "$release_tag" -m "chore: [release] ${release_tag}"
+    prev_tag="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+    if [[ -n "$prev_tag" ]]; then
+      changelog="$(git log --pretty=format:'- %s' "${prev_tag}..HEAD")"
+      tag_body="Commits since ${prev_tag}:
+${changelog}"
+    else
+      tag_body="Initial release."
+    fi
+    git tag -a "$release_tag" -m "release: [${release_tag}] Promote dev to stable
+
+${tag_body}"
     ok "Created tag ${release_tag}"
   fi
 else
