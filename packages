@@ -96,6 +96,14 @@ openssh
 # Power management
 power-profiles-daemon
 
+# Hardware: on-screen keyboard (auto-installed at setup time if a touchscreen is detected)
+# wvkbd is AUR-only; setup.sh installs it via yay when a touchscreen is found.
+# To install manually: yay -S wvkbd
+# wvkbd
+
+# Hardware: accelerometer / auto-rotation (auto-installed if an accelerometer is detected)
+iio-sensor-proxy
+
 # Firewall
 ufw
 

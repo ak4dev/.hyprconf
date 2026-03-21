@@ -33,6 +33,7 @@
 - **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
+- **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); both re-evaluated on every `hyprconf sync`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 44 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, and wallpaper
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
@@ -80,7 +81,8 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 6. VS Code theme extensions + Firefox extension payloads
 7. Firefox enterprise policies (`/etc/firefox/policies/policies.json`): telemetry disabled, uBlock Origin installed
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
-9. `ufw` deny-inbound / allow-outbound; enable + start
+9. Hardware feature detection: touchscreen → installs `wvkbd` (AUR) + writes `conf.d/60-hardware.conf`; accelerometer → installs + enables `iio-sensor-proxy`
+10. `ufw` deny-inbound / allow-outbound; enable + start
 10. Disable `sddm`; enable `NetworkManager`, `bluetooth`, `power-profiles-daemon`
 11. Reload Hyprland
 
@@ -358,6 +360,40 @@ Hot-swap presets activate at runtime via keybind or `hyprconf monitor set <prese
 |---|---|
 | `Super + Shift + B` | `pcMonitors.bedroom` |
 | `Super + Shift + K` | `pcMonitors.kitchen` |
+
+---
+
+## Hardware Auto-Detection
+
+Runs at every `setup.sh` invocation and `hyprconf sync`. Results are written to
+`~/.config/hypr/conf.d/60-hardware.conf` (machine-local, not stowed).
+
+### Touchscreen
+
+Detection: `/sys/class/input/*/device/uevent` → `ID_INPUT_TOUCHSCREEN=1`
+
+Installs **`wvkbd`** (AUR, requires `yay`) — a minimal wlroots on-screen keyboard.
+
+| Behaviour | Detail |
+|---|---|
+| Auto-show | Appears when a text input is focused (`text-input-v3` protocol) |
+| Manual toggle | `Super + Shift + O` |
+| Theme integration | `hyprconf theme` writes `~/.config/wvkbd/colors` and restarts the daemon |
+
+### Accelerometer / Auto-Rotation
+
+Detection: `/sys/bus/iio/devices/*/in_accel_x_raw`
+
+Installs **`iio-sensor-proxy`** (official repos) and enables `iio-sensor-proxy.service`.
+The `autorotate` daemon watches `monitor-sensor` events and applies the matching
+Hyprland transform to the built-in display (`eDP-*`):
+
+| Sensor orientation | Hyprland transform |
+|---|---|
+| normal | 0 (0°) |
+| left-up | 1 (90°) |
+| bottom-up | 2 (180°) |
+| right-up | 3 (270°) |
 
 ---
 

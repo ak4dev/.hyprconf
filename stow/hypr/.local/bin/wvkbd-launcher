@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# wvkbd-launcher — start wvkbd with theme-aware colors.
+# Reads ~/.config/wvkbd/colors for bg/fg/accent hex values written by the
+# theme-switcher, then starts wvkbd-mobintl in hidden mode (auto-shows when
+# a text input is focused via the text-input-v3 / input-method-v2 protocols).
+set -euo pipefail
+
+COLORS_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/wvkbd/colors"
+
+bg=""
+fg=""
+accent=""
+
+if [[ -f "$COLORS_FILE" ]]; then
+    # shellcheck source=/dev/null
+    source "$COLORS_FILE"
+fi
+
+# Kill any existing instance so this is safe to call on theme change.
+existing_pid="$(pgrep -x wvkbd-mobintl 2>/dev/null || true)"
+if [[ -n "$existing_pid" ]]; then
+    kill "$existing_pid" 2>/dev/null || true
+    sleep 0.2
+fi
+
+# Build argument list. Color flags are passed only when wvkbd supports them
+# (detected via --help) and values are available.
+args=(--hidden)
+
+if [[ -n "$bg" && -n "$fg" ]] \
+        && wvkbd-mobintl --help 2>&1 | grep -q -- "--bg"; then
+    args+=(--bg "$bg" --fg "$fg")
+    [[ -n "$accent" ]] && args+=(--press "$accent")
+fi
+
+exec wvkbd-mobintl "${args[@]}"

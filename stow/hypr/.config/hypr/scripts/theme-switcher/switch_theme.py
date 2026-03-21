@@ -1440,6 +1440,47 @@ def update_qt_platform_theme(theme: Dict[str, str]) -> None:
             print(f"Warning: could not update {conf_path}: {e}")
 
 
+def update_wvkbd(theme: Dict[str, str]) -> None:
+    """Write ~/.config/wvkbd/colors and restart wvkbd-launcher if running."""
+    wvkbd_config_dir = Path.home() / ".config" / "wvkbd"
+    colors_file = wvkbd_config_dir / "colors"
+
+    bg     = theme.get("background", "")
+    fg     = theme.get("foreground", "")
+    accent = theme.get("accent", "")
+
+    if not bg:
+        return
+
+    try:
+        wvkbd_config_dir.mkdir(parents=True, exist_ok=True)
+        lines = [
+            f'bg="{bg}"\n',
+            f'fg="{fg}"\n',
+            f'accent="{accent}"\n',
+        ]
+        colors_file.write_text("".join(lines), encoding="utf-8")
+        print("wvkbd colors written.")
+    except Exception as e:
+        print(f"Warning: could not write wvkbd colors: {e}")
+        return
+
+    # Restart the launcher only if wvkbd is currently running — the new
+    # launcher process will pick up the updated colors file.
+    try:
+        result = subprocess.run(
+            ["pgrep", "-x", "wvkbd-mobintl"],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            launcher = shutil.which("wvkbd-launcher")
+            if launcher:
+                subprocess.Popen([launcher])
+                print("wvkbd restarted with new theme.")
+    except Exception as e:
+        print(f"Warning: could not restart wvkbd: {e}")
+
+
 def apply_theme(theme_name: str, reload: bool = True) -> None:
     """Apply the selected theme to all relevant config files."""
     print(f"Switching to theme: {theme_name}")
@@ -1499,6 +1540,8 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
     update_firefox(theme)
     update_hyprland_borders(theme)
     update_hyprlock_colors(theme)
+    if shutil.which("wvkbd-mobintl"):
+        update_wvkbd(theme)
     if reload:
         reload_hyprland()
     write_state(theme_name)

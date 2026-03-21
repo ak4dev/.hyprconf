@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# wvkbd-toggle — toggle wvkbd visibility via SIGUSR1.
+# If wvkbd is not running, start it via wvkbd-launcher.
+set -euo pipefail
+
+pid="$(pgrep -x wvkbd-mobintl 2>/dev/null || true)"
+
+if [[ -n "$pid" ]]; then
+    kill -USR1 "$pid"
+else
+    wvkbd-launcher &
+fi

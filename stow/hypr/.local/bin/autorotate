@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# autorotate — watch iio-sensor-proxy orientation and apply Hyprland transform.
+# Requires: iio-sensor-proxy (monitor-sensor), hyprctl
+set -euo pipefail
+
+# Find the first built-in display (eDP-*). Fall back to eDP-1 if hyprctl is
+# unavailable (e.g. launched before Hyprland initialises — retry loop handles it).
+_find_edp() {
+    hyprctl monitors -j 2>/dev/null \
+        | python3 -c "
+import sys, json
+monitors = json.load(sys.stdin)
+edp = [m['name'] for m in monitors if m['name'].startswith('eDP')]
+print(edp[0] if edp else 'eDP-1')
+" 2>/dev/null || echo "eDP-1"
+}
+
+_transform_for() {
+    case "$1" in
+        normal)     echo 0 ;;
+        bottom-up)  echo 2 ;;
+        left-up)    echo 1 ;;
+        right-up)   echo 3 ;;
+        *)          echo 0 ;;
+    esac
+}
+
+# Wait until hyprctl is reachable (exec-once may fire before the socket is ready).
+retries=10
+until hyprctl monitors &>/dev/null || (( retries-- == 0 )); do
+    sleep 1
+done
+
+display="$(_find_edp)"
+
+monitor-sensor 2>/dev/null | while IFS= read -r line; do
+    if [[ "$line" == *"Accelerometer orientation changed:"* ]]; then
+        orientation="${line##*: }"
+        orientation="${orientation#"${orientation%%[![:space:]]*}"}"  # ltrim
+        transform="$(_transform_for "$orientation")"
+        hyprctl keyword monitor "$display,transform,$transform" 2>/dev/null || true
+    fi
+done
