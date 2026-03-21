@@ -482,6 +482,7 @@ All bindings live in `stow/hypr/.config/hypr/keybinds.conf`.
 | `Super + J` | Toggle split direction |
 | `Super + ← ↑ ↓ →` | Move focus |
 | `Super + Shift + ← ↑ ↓ →` | Resize window |
+| `Super + Shift + =` / `Super + Shift + -` | Increase / decrease window gaps |
 | `Super + Shift + A / D` | Swap window left / right |
 | `Super + Shift + W / S` | Swap window up / down |
 | `Super + LMB drag` | Move window |
