@@ -7,6 +7,10 @@ set -euo pipefail
 #   bash scripts/publish [options]
 #
 # Options:
+#   --patch         Bump the patch version (default: 2.0.6 → 2.0.7)
+#   --minor         Bump the minor version (2.0.6 → 2.1.0)
+#   --major         Bump the major version (2.0.6 → 3.0.0)
+#   --skip-bump     Skip automatic version bump (version must be pre-bumped manually)
 #   --skip-tests    Skip the full test suite (tiers 1-5); also skips VM lifecycle
 #   --skip-deploy   Skip the hyprconf deploy step
 #   --skip-tag      Skip annotated release-tag creation
@@ -15,13 +19,14 @@ set -euo pipefail
 #
 # What this script does:
 #   1. Verifies dev branch with clean working tree
-#   2. Starts the test VM if not already running, stops it when done
-#   3. Runs all 5 test tiers (unit / integration / tui / vm / install)
-#   4. Deploys to hyprconf.sh via: hyprconf deploy hyprconf.sh
-#   5. Builds a filtered release archive from HEAD via git archive + export-ignore
-#   6. Promotes dev HEAD to origin/stable
-#   7. Mirrors the same commit to origin/mainline during migration (optional)
-#   8. Creates / pushes an annotated version tag from hyprconf.__version__
+#   2. Bumps the patch/minor/major version in __init__.py and commits it
+#   3. Starts the test VM if not already running, stops it when done
+#   4. Runs all 5 test tiers (unit / integration / tui / vm / install)
+#   5. Deploys to hyprconf.sh via: hyprconf deploy hyprconf.sh
+#   6. Builds a filtered release archive from HEAD via git archive + export-ignore
+#   7. Promotes dev HEAD to origin/stable
+#   8. Mirrors the same commit to origin/mainline during migration (optional)
+#   9. Creates / pushes an annotated version tag from hyprconf.__version__
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -51,15 +56,21 @@ SKIP_TESTS=false
 SKIP_DEPLOY=false
 SKIP_TAG=false
 SKIP_COMPAT=false
+SKIP_BUMP=false
 DRY_RUN=false
+BUMP_TYPE="patch"
 
 for arg in "$@"; do
   case "$arg" in
-    --skip-tests)  SKIP_TESTS=true  ;;
-    --skip-deploy) SKIP_DEPLOY=true ;;
-    --skip-tag)    SKIP_TAG=true    ;;
-    --skip-compat) SKIP_COMPAT=true ;;
-    --dry-run)     DRY_RUN=true     ;;
+    --patch)       BUMP_TYPE="patch"   ;;
+    --minor)       BUMP_TYPE="minor"   ;;
+    --major)       BUMP_TYPE="major"   ;;
+    --skip-bump)   SKIP_BUMP=true      ;;
+    --skip-tests)  SKIP_TESTS=true     ;;
+    --skip-deploy) SKIP_DEPLOY=true    ;;
+    --skip-tag)    SKIP_TAG=true       ;;
+    --skip-compat) SKIP_COMPAT=true    ;;
+    --dry-run)     DRY_RUN=true        ;;
     --help|-h)
       sed -n '3,/^REPO_ROOT/p' "${BASH_SOURCE[0]}" | grep '^#' | sed 's/^# \?//'
       exit 0
@@ -111,6 +122,31 @@ print(match.group(1))
 PY
 }
 
+_bump_version() {
+  python3 - "$1" <<'PY'
+import sys, re
+from pathlib import Path
+
+bump = sys.argv[1]
+path = Path("stow/hypr/.local/lib/hyprconf/__init__.py")
+text = path.read_text(encoding="utf-8")
+m = re.search(r'__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"', text)
+if not m:
+    raise SystemExit("Could not parse semver from __init__.py")
+major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
+if bump == "major":
+    major += 1; minor = 0; patch = 0
+elif bump == "minor":
+    minor += 1; patch = 0
+else:
+    patch += 1
+new_version = f"{major}.{minor}.{patch}"
+new_text = re.sub(r'(__version__\s*=\s*)"[^"]+"', f'\\1"{new_version}"', text)
+path.write_text(new_text, encoding="utf-8")
+print(new_version)
+PY
+}
+
 _build_release_archive() {
   local release_tag="$1"
   local archive_path="$DIST_DIR/hyprconf-${release_tag}.tar.gz"
@@ -133,13 +169,29 @@ current_branch="$(git rev-parse --abbrev-ref HEAD)"
 
 [[ -z "$(git status --porcelain)" ]] || die "Uncommitted changes on dev — commit or stash first."
 
-version="$(_read_version)"
-release_tag="v${version}"
+ok "On dev, working tree clean"
+
+if [[ "$SKIP_BUMP" == false ]]; then
+  step "Bumping ${BUMP_TYPE} version"
+  version="$(_bump_version "$BUMP_TYPE")"
+  release_tag="v${version}"
+  if [[ "$DRY_RUN" == true ]]; then
+    warn "Dry-run — would commit version bump to ${release_tag}"
+    git checkout -- "$VERSION_FILE"
+  else
+    git add "$VERSION_FILE"
+    git commit -m "release: [${release_tag}] bump version"
+    ok "Bumped to ${version}"
+  fi
+else
+  version="$(_read_version)"
+  release_tag="v${version}"
+  warn "Skipping version bump (--skip-bump) — using existing ${release_tag}"
+fi
 
 [[ -n "$version" ]] || die "Resolved empty version from $VERSION_FILE."
 
-ok "On dev, working tree clean"
-info "Release tag candidate: ${release_tag}"
+info "Release tag: ${release_tag}"
 
 if [[ "$SKIP_TESTS" == false ]]; then
   step "Running test suite"
