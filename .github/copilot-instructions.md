@@ -110,6 +110,7 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 - **Run `make test` after every change, before committing.** Do not commit code that fails tests. If tests fail, fix the failure before proceeding.
 - **All regular work is pushed to `dev` only.** Never push directly to `stable` or any other branch unless the user explicitly asks.
 - **Never run `scripts/publish` unless the user explicitly says to publish.** Publishing promotes `dev` to `stable` and creates a release tag — it is a deliberate, user-directed action, not a side-effect of regular development. When in doubt, commit and push to `dev`, then wait.
+- **Hardware detection and generated config changes must be sync-patchable.** Any change to hardware detection logic (touchscreen, keyboard, accelerometer, GPU) or to files generated at setup/sync time (e.g. `60-hardware.conf`) must land exclusively in code paths that `hyprconf sync` already calls — specifically `setup_hardware_features()`, `write_hardware_conf()`, and `stow_all_packages()`. This guarantees existing installs are fully patched by running `hyprconf sync` with no manual intervention. Never gate such logic behind install-only paths.
 
 ## Scripts
 

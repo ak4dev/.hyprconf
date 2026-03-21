@@ -75,8 +75,8 @@ python-coverage
 # Theme / GTK sync (theme switcher)
 xsettingsd
 
-# Touch-only panel (required for touch devices without a physical keyboard)
-# gtk-layer-shell is installed automatically by setup.sh when touch-only is detected
+# gtk-layer-shell — required by touch-panel; installed automatically by setup.sh
+# on any device with a touchscreen (regardless of keyboard presence)
 gtk-layer-shell
 
 # Fonts

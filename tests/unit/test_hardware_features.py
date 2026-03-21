@@ -598,7 +598,6 @@ def _run_write_hardware_conf(
     has_touch: bool = False,
     touch_names: list[str] | None = None,
     has_accel: bool = False,
-    has_kbd: bool = True,
 ) -> str:
     """
     Run write_hardware_conf() (extracted from setup.sh) with stubbed helpers.
@@ -631,7 +630,6 @@ set -euo pipefail
 HOME="{tmp_path}"
 _has_touchscreen()       {{ {'return 0' if has_touch else 'return 1'}; }}
 _has_accelerometer()     {{ {'return 0' if has_accel  else 'return 1'}; }}
-_has_physical_keyboard() {{ {'return 0' if has_kbd    else 'return 1'}; }}
 {get_names_stub}
 log_ok() {{ :; }}
 {write_func}
@@ -690,3 +688,95 @@ def test_write_hardware_conf_no_device_block_when_no_touch_names(tmp_path):
     """Touchscreen detected but name list empty — no device blocks emitted."""
     conf = _run_write_hardware_conf(tmp_path, has_touch=True, touch_names=[])
     assert "device {" not in conf
+
+
+# touch-panel-launcher + touch-panel-watch emission
+# ---------------------------------------------------------------------------
+
+def test_write_hardware_conf_emits_launcher_when_touch_detected(tmp_path):
+    """touch-panel-launcher must be in exec-once when touchscreen is present."""
+    conf = _run_write_hardware_conf(
+        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
+    )
+    assert "exec-once = touch-panel-launcher" in conf
+
+
+def test_write_hardware_conf_emits_watch_when_touch_detected(tmp_path):
+    """touch-panel-watch must be in exec-once when touchscreen is present."""
+    conf = _run_write_hardware_conf(
+        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
+    )
+    assert "exec-once = touch-panel-watch" in conf
+
+
+def test_write_hardware_conf_no_launcher_without_touchscreen(tmp_path):
+    """touch-panel-launcher must NOT appear when there is no touchscreen."""
+    conf = _run_write_hardware_conf(tmp_path, has_touch=False)
+    assert "touch-panel-launcher" not in conf
+
+
+def test_write_hardware_conf_no_watch_without_touchscreen(tmp_path):
+    """touch-panel-watch must NOT appear when there is no touchscreen."""
+    conf = _run_write_hardware_conf(tmp_path, has_touch=False)
+    assert "touch-panel-watch" not in conf
+
+
+def test_write_hardware_conf_no_legacy_touch_panel_exec(tmp_path):
+    """The old 'exec-once = touch-panel' line must never be emitted."""
+    conf = _run_write_hardware_conf(
+        tmp_path, has_touch=True, touch_names=["elan-touchscreen"]
+    )
+    # 'touch-panel-launcher' and 'touch-panel-watch' contain 'touch-panel' as a
+    # substring, so filter those out and ensure bare 'touch-panel' is absent.
+    lines = [ln.strip() for ln in conf.splitlines()]
+    assert "exec-once = touch-panel" not in lines
+
+
+# touch-panel-launcher script behaviour
+# ---------------------------------------------------------------------------
+
+LAUNCHER = Path(__file__).parents[2] / "stow" / "hypr" / ".local" / "bin" / "touch-panel-launcher"
+
+
+def _run_launcher(tmp_path: Path, *, has_kbd: bool) -> subprocess.CompletedProcess:
+    """
+    Run touch-panel-launcher with fake sysfs uevent files under tmp_path.
+    If has_kbd=True, creates a uevent with ID_INPUT_KEYBOARD=1 and PHYS=usb-0000:00:14.0-2.
+    The '/sys/class/input' path in the script is patched to tmp_path/sys/class/input.
+    'exec touch-panel' is replaced with 'echo EXEC_TOUCH_PANEL' to observe execution.
+    """
+    fake_sys = tmp_path / "sys" / "class" / "input"
+    if has_kbd:
+        uevent_dir = fake_sys / "event0" / "device"
+        uevent_dir.mkdir(parents=True)
+        (uevent_dir / "uevent").write_text(
+            "ID_INPUT_KEYBOARD=1\nPHYS=usb-0000:00:14.0-2\n"
+        )
+    else:
+        # Create an input device that is NOT a keyboard (mouse)
+        uevent_dir = fake_sys / "event0" / "device"
+        uevent_dir.mkdir(parents=True)
+        (uevent_dir / "uevent").write_text("ID_INPUT_MOUSE=1\n")
+
+    source = LAUNCHER.read_text()
+    patched = (
+        source
+        .replace("/sys/class/input", str(fake_sys))
+        .replace("exec touch-panel", "echo EXEC_TOUCH_PANEL")
+    )
+    return subprocess.run(["bash", "-c", patched], capture_output=True, text=True)
+
+
+def test_launcher_exits_silently_when_keyboard_present(tmp_path):
+    """With a keyboard attached, the launcher should exit 0 and emit nothing."""
+    result = _run_launcher(tmp_path, has_kbd=True)
+    assert result.returncode == 0
+    assert "EXEC_TOUCH_PANEL" not in result.stdout
+
+
+def test_launcher_starts_panel_when_no_keyboard(tmp_path):
+    """Without a keyboard, the launcher should exec touch-panel."""
+    result = _run_launcher(tmp_path, has_kbd=False)
+    assert result.returncode == 0
+    assert "EXEC_TOUCH_PANEL" in result.stdout
+

@@ -33,7 +33,7 @@
 - **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
-- **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`); touch-only devices (no physical keyboard) also get a floating `touch-panel` overlay for OSK and launcher access; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
+- **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 44 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Wofi, Dunst, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, and wallpaper; hyperlauncher restarted automatically so the new theme takes effect immediately
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
@@ -392,9 +392,14 @@ Installs **`wvkbd`** (AUR, requires `yay`) — a minimal wlroots on-screen keybo
 | Manual toggle | `Super + Shift + O` |
 | Theme integration | `hyprconf theme` writes `~/.config/wvkbd/colors` and restarts the daemon |
 
-#### Touch-only panel
+#### Touch panel (runtime keyboard detection)
 
-On devices where **no physical keyboard** is detected (`ID_INPUT_KEYBOARD=1` with a non-empty `PHYS` field), `setup.sh` installs **`gtk-layer-shell`** and adds `exec-once = touch-panel` to `conf.d/60-hardware.conf`.
+On any device with a touchscreen, `setup.sh` installs **`gtk-layer-shell`** and adds two entries to `conf.d/60-hardware.conf`:
+
+- **`touch-panel-launcher`** — runs at Hyprland session start; checks for a physical keyboard (`ID_INPUT_KEYBOARD=1` + non-empty `PHYS` in sysfs); starts `touch-panel` only if none is found.
+- **`touch-panel-watch`** — background daemon using `udevadm monitor`; watches for input device removals during the session; starts `touch-panel` when the last physical keyboard is unplugged.
+
+This means the panel appears correctly whether a keyboard was present at install time or unplugged mid-session.
 
 `touch-panel` is a minimal GTK3 + layer-shell floating overlay anchored to the bottom-right:
 
