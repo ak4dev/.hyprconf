@@ -257,3 +257,54 @@ async def test_hardware_section_loads(patched_tui_env: Path) -> None:
             await pilot.pause()
             table = app.query_one("#option-table", DataTable)
             assert table.row_count >= 4  # detection rows + daemon rows
+
+
+# ---------------------------------------------------------------------------
+# Auto-save on quit
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_pending_changes_saved_on_quit(patched_tui_env: Path) -> None:
+    """Pending TUI changes must be written to disk when the user quits."""
+    import main as tui_main
+
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+
+    saved: list[dict] = []
+
+    def _fake_save(pending):
+        saved.append(dict(pending))
+        return True, sum(len(v) for v in pending.values())
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        # Manually inject a pending change (bypasses hyprctl)
+        app._pending = {"general": {"border_size": "3"}}
+        with patch("main.save_pending", side_effect=_fake_save):
+            await pilot.press("q")
+
+    assert saved, "action_quit must call save_pending when there are pending changes"
+    assert saved[0].get("general", {}).get("border_size") == "3"
+
+
+@pytest.mark.asyncio
+async def test_no_save_called_on_quit_when_nothing_pending(patched_tui_env: Path) -> None:
+    """action_quit must not call save_pending when there are no pending changes."""
+    import main as tui_main
+
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+
+    saved: list[dict] = []
+
+    def _fake_save(pending):
+        saved.append(dict(pending))
+        return True, 0
+
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._pending = {}
+        with patch("main.save_pending", side_effect=_fake_save):
+            await pilot.press("q")
+
+    assert not saved, "action_quit must not call save_pending when nothing is pending"
+
