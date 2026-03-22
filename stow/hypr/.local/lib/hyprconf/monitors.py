@@ -152,3 +152,109 @@ def disable_monitor(name: str, file: Optional[Path] = None) -> bool:
             return update_line(file, mc.line_idx, new_line)
     # Not found — append a disable line
     return append_block(file, f"monitor = {name}, disable")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Field-level get / set  (used by CLI configure interface)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_EXTRAS_FIELDS = frozenset(
+    {"vrr", "bitdepth", "cm", "sdrbrightness", "sdrsaturation", "transform", "mirror"}
+)
+
+_MONITOR_FIELDS = ("res", "pos", "scale") + tuple(sorted(_EXTRAS_FIELDS))
+
+
+def _parse_extras_dict(extras: str) -> dict[str, str]:
+    """Parse ``'vrr, 2, bitdepth, 10'`` → ``{'vrr': '2', 'bitdepth': '10'}``."""
+    tokens = [t.strip() for t in extras.split(",") if t.strip()]
+    result: dict[str, str] = {}
+    i = 0
+    while i + 1 < len(tokens):
+        result[tokens[i].lower()] = tokens[i + 1]
+        i += 2
+    return result
+
+
+def _build_extras(d: dict[str, str]) -> str:
+    """Rebuild an extras string from a dict, preserving the canonical field order."""
+    pairs: list[str] = []
+    for key in sorted(_EXTRAS_FIELDS):  # stable output order
+        if key in d:
+            pairs.append(f"{key}, {d[key]}")
+    return ", ".join(pairs)
+
+
+def get_monitor_fields(name: Optional[str] = None,
+                       file: Optional[Path] = None) -> str:
+    """Return a formatted table of configured monitors (or a single monitor).
+
+    Output is a human-readable string suitable for terminal display.
+    """
+    configs = read_monitor_configs(file)
+    if name:
+        configs = [c for c in configs if c.name == name]
+        if not configs:
+            return f"  Monitor '{name}' not found in monitors.conf."
+
+    if not configs:
+        return "  No monitor configs found."
+
+    lines: list[str] = []
+    for mc in configs:
+        ex = _parse_extras_dict(mc.extras)
+        lines.append(f"\n  {mc.name}")
+        lines.append(f"    {'res':<16} {mc.resolution}")
+        lines.append(f"    {'pos':<16} {mc.position}")
+        lines.append(f"    {'scale':<16} {mc.scale}")
+        for f in sorted(_EXTRAS_FIELDS):
+            val = ex.get(f, "")
+            if val or name:  # always show all fields when querying one monitor
+                lines.append(f"    {f:<16} {val or '(unset)'}")
+    return "\n".join(lines)
+
+
+def update_monitor_field(name: str, field: str, value: str,
+                         file: Optional[Path] = None) -> bool:
+    """Update a single field of an existing monitor config.
+
+    Handles the three basic positional fields (res, pos, scale) directly and
+    routes all other fields through the extras string.  If the monitor is not
+    yet in monitors.conf, a new entry is created with sensible defaults for
+    the fields that are not being set.
+
+    Returns True on success.
+    """
+    field = field.lower()
+    if field not in _MONITOR_FIELDS:
+        raise ValueError(
+            f"Unknown monitor field '{field}'. Valid: {', '.join(sorted(_MONITOR_FIELDS))}"
+        )
+
+    configs = read_monitor_configs(file)
+    mc = next((c for c in configs if c.name == name), None)
+
+    if mc is None:
+        # No existing entry — create a minimal one first
+        res   = value if field == "res"   else "preferred"
+        pos   = value if field == "pos"   else "auto"
+        scale = value if field == "scale" else "1"
+        extras = ""
+        if field in _EXTRAS_FIELDS:
+            extras = f"{field}, {value}"
+        return upsert_monitor(name, res, pos, scale, extras, file=file)
+
+    # Update in-place
+    res, pos, scale = mc.resolution, mc.position, mc.scale
+    ex = _parse_extras_dict(mc.extras)
+
+    if field == "res":
+        res = value
+    elif field == "pos":
+        pos = value
+    elif field == "scale":
+        scale = value
+    else:
+        ex[field] = value
+
+    return upsert_monitor(name, res, pos, scale, _build_extras(ex), file=file)

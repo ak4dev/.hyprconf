@@ -340,3 +340,34 @@ async def test_action_refresh_reloads_section(patched_tui_env: Path) -> None:
         table = app.query_one("#option-table", DataTable)
         assert table.row_count > 0
 
+
+
+@pytest.mark.asyncio
+async def test_on_unmount_logs_stderr_on_save_failure(
+    patched_tui_env: Path, capsys
+) -> None:
+    """on_unmount must print a warning to stderr when save_pending returns False."""
+    import sys
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+
+    stderr_msgs: list[str] = []
+    real_print = print
+
+    def _capture_print(*args, file=None, **kwargs):
+        if file is sys.stderr:
+            stderr_msgs.append(" ".join(str(a) for a in args))
+        else:
+            real_print(*args, file=file, **kwargs)
+
+    def _failing_save(pending):
+        return False, 0
+
+    with patch("main.save_pending", side_effect=_failing_save), \
+         patch("builtins.print", side_effect=_capture_print):
+        async with app.run_test(size=(120, 40)) as pilot:
+            app._pending = {"general": {"border_size": "5"}}
+            await pilot.press("q")
+
+    assert any("auto-save" in msg.lower() or "WARNING" in msg for msg in stderr_msgs), \
+        "on_unmount must print a warning to stderr when save_pending fails"

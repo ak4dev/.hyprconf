@@ -334,6 +334,12 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
 # ── Section display order (sidebar) ──────────────────────────────────────────
 # Empty string = visual separator
 SECTION_ORDER: list[str] = [
+    "monitors", "keybinds",
+    "window_rules", "workspace_rules",
+    "hyprlock", "hypridle", "hyprpaper",
+    "theme",
+    "hardware",
+    "",
     "general", "general.snap",
     "decoration", "decoration.blur", "decoration.shadow",
     "animations",
@@ -343,12 +349,6 @@ SECTION_ORDER: list[str] = [
     "misc", "binds", "cursor",
     "render", "opengl", "xwayland",
     "dwindle", "master",
-    "",
-    "monitors", "keybinds",
-    "window_rules", "workspace_rules",
-    "hyprlock", "hypridle", "hyprpaper",
-    "theme",
-    "hardware",
 ]
 
 # ── Section display labels ────────────────────────────────────────────────────

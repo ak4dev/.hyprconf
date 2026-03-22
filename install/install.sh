@@ -1428,6 +1428,15 @@ binary_install() {
   _link "$REPO_DIR/stow/hypr/.local/lib/hyprconf" \
         "$HOME/.local/lib/hyprconf"
 
+  # Symlink scripts that the binary depends on at runtime
+  local _scripts_src="$REPO_DIR/stow/hypr/.config/hypr/scripts"
+  local _scripts_dst="$HOME/.config/hypr/scripts"
+  mkdir -p "$_scripts_dst"
+  for _item in "hyprconf-tui" "theme-switcher" "switch_monitor.sh" "toggle-native-display"; do
+    [[ -e "$_scripts_src/$_item" ]] && \
+      _link "$_scripts_src/$_item" "$_scripts_dst/$_item"
+  done
+
   log_ok "hyprconf installed → ~/.local/bin/hyprconf"
 
   # PATH hint

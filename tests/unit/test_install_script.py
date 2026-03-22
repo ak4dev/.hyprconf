@@ -196,3 +196,52 @@ class TestPickTimezone:
         """Plain-text read fallback remains as a last resort."""
         func = _extract_function("_pick_timezone")
         assert "Europe/London" in func or "read -r TIMEZONE" in func
+
+
+# ---------------------------------------------------------------------------
+# binary_install: scripts are symlinked alongside the binary
+# ---------------------------------------------------------------------------
+
+class TestBinaryInstallScripts:
+    def test_hyprconf_tui_is_linked(self) -> None:
+        """binary_install must link hyprconf-tui script directory."""
+        func = _extract_function("binary_install")
+        assert "hyprconf-tui" in func, (
+            "binary_install must link the hyprconf-tui script directory"
+        )
+
+    def test_theme_switcher_is_linked(self) -> None:
+        """binary_install must link theme-switcher directory."""
+        func = _extract_function("binary_install")
+        assert "theme-switcher" in func, (
+            "binary_install must link the theme-switcher script directory"
+        )
+
+    def test_switch_monitor_sh_is_linked(self) -> None:
+        """binary_install must link switch_monitor.sh."""
+        func = _extract_function("binary_install")
+        assert "switch_monitor.sh" in func, (
+            "binary_install must link switch_monitor.sh"
+        )
+
+    def test_toggle_native_display_is_linked(self) -> None:
+        """binary_install must link toggle-native-display."""
+        func = _extract_function("binary_install")
+        assert "toggle-native-display" in func, (
+            "binary_install must link toggle-native-display"
+        )
+
+    def test_scripts_destination_dir_created(self) -> None:
+        """binary_install must create the scripts destination directory."""
+        func = _extract_function("binary_install")
+        assert ".config/hypr/scripts" in func, (
+            "binary_install must ensure ~/.config/hypr/scripts/ exists"
+        )
+
+    def test_no_sync_reference_in_tui_error(self) -> None:
+        """cmd_tui error message must NOT tell users to run 'hyprconf sync'."""
+        func = _extract_function("cmd_tui")
+        assert "hyprconf sync" not in func, (
+            "cmd_tui error message should not reference 'hyprconf sync' "
+            "since binary-install users have no dotfiles to sync"
+        )

@@ -324,6 +324,13 @@ def cmd_schema(args: list[str]) -> int:
             label = SECTION_LABELS.get(s, s)
             keys  = len(OPTION_SCHEMA[s])
             print(f"  {s:<24}  {label:<18}  ({keys} keys)")
+        # Special sections managed outside OPTION_SCHEMA
+        for s, label, note in (
+            ("monitors", "Monitors",  "use: hyprconf get monitors"),
+            ("theme",    "Theme",     "use: hyprconf theme"),
+            ("hardware", "Hardware",  "use: hyprconf hardware"),
+        ):
+            print(f"  {s:<24}  {label:<18}  ({note})")
         return 0
 
     if sub == "keys":
@@ -669,10 +676,40 @@ def cmd_rule(args: list[str]) -> int:
 # ════════════════════════════════════════════════════════════════════════════
 
 def cmd_monitor(args: list[str]) -> int:
-    """hyprconf monitor list|set|delete"""
-    from hyprconf.monitors import read_monitor_configs, upsert_monitor, delete_monitor
+    """hyprconf monitor list|set|delete|field"""
+    from hyprconf.monitors import (
+        read_monitor_configs, upsert_monitor, delete_monitor,
+        get_monitor_fields, update_monitor_field, _MONITOR_FIELDS,
+    )
 
     sub = args[0] if args else ""
+
+    if sub == "field":
+        action = args[1] if len(args) > 1 else ""
+        if action == "show" or not action:
+            name = args[2] if len(args) > 2 else None
+            print(get_monitor_fields(name))
+            return 0
+        if action == "set":
+            if len(args) < 5:
+                print(
+                    f"{_Y}Usage: hyprconf monitor field set <name> <field> <value>\n"
+                    f"  Fields: {', '.join(sorted(_MONITOR_FIELDS))}{_R}",
+                    file=sys.stderr,
+                )
+                return 1
+            name  = args[2]
+            field = args[3]
+            value = args[4]
+            try:
+                update_monitor_field(name, field, value)
+            except ValueError as exc:
+                print(f"{_Y}{exc}{_R}", file=sys.stderr)
+                return 1
+            print(f"  {_B}Set:{_R}  {name}  {field} = {value}")
+            return 0
+        print(f"{_Y}Usage: hyprconf monitor field show [<name>] | set <name> <field> <value>{_R}", file=sys.stderr)
+        return 1
 
     if sub == "list" or not sub:
         configs = read_monitor_configs()
@@ -720,7 +757,7 @@ def cmd_monitor(args: list[str]) -> int:
         print(f"  {_B}Deleted:{_R}  {name}")
         return 0
 
-    print(f"{_Y}Usage: hyprconf monitor list|set|delete{_R}", file=sys.stderr)
+    print(f"{_Y}Usage: hyprconf monitor list|set|delete|field{_R}", file=sys.stderr)
     return 1
 
 
