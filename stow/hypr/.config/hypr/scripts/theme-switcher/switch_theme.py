@@ -51,9 +51,11 @@ VSCODE_BASE_SETTINGS_CANDIDATES = [
 ]
 CODE_CLI = shutil.which("code-oss") or shutil.which("code")
 DUNST_CONFIG_FILE = os.path.expanduser("~/.config/dunst/dunstrc")
-FIREFOX_PROFILES_INI = os.path.expanduser("~/.mozilla/firefox/profiles.ini")
-FIREFOX_DIR = os.path.dirname(FIREFOX_PROFILES_INI)
-FIREFOX_BASE_PREFS_FILE = os.path.expanduser("~/.mozilla/firefox/user.js")
+FIREFOX_PROFILES_INI     = os.path.expanduser("~/.mozilla/firefox/profiles.ini")
+FIREFOX_PROFILES_INI_XDG = os.path.expanduser("~/.config/mozilla/firefox/profiles.ini")
+FIREFOX_DIR              = os.path.dirname(FIREFOX_PROFILES_INI)
+FIREFOX_BASE_PREFS_FILE     = os.path.expanduser("~/.mozilla/firefox/user.js")
+FIREFOX_BASE_PREFS_FILE_XDG = os.path.expanduser("~/.config/mozilla/firefox/user.js")
 FIREFOX_THEME_PAYLOAD_DIR = REPO_ROOT / "theme" / "firefox" / "extensions"
 FIREFOX_COMPACT_DARK_ID   = "firefox-compact-dark@mozilla.org"
 FIREFOX_COMPACT_LIGHT_ID  = "firefox-compact-light@mozilla.org"
@@ -836,25 +838,36 @@ def update_vscode(theme: Dict[str, Any]) -> None:
         print("VS Code settings updated.")
 
 
-def _profile_path_from_entry(path_value: str, is_relative: Optional[str] = "1") -> Path:
+def _profile_path_from_entry(
+    path_value: str,
+    is_relative: Optional[str] = "1",
+    base_dir: str = FIREFOX_DIR,
+) -> Path:
     if path_value.startswith("/") or (is_relative and is_relative == "0"):
         return Path(path_value).expanduser()
-    return Path(FIREFOX_DIR, path_value)
+    return Path(base_dir, path_value)
 
 
 def get_default_firefox_profile() -> Optional[Path]:
-    if not os.path.exists(FIREFOX_PROFILES_INI):
+    # Try legacy path first, then XDG path (modern Arch Linux Firefox)
+    ini_path: Optional[str] = None
+    for _candidate in [FIREFOX_PROFILES_INI, FIREFOX_PROFILES_INI_XDG]:
+        if os.path.exists(_candidate):
+            ini_path = _candidate
+            break
+    if ini_path is None:
         return None
 
+    firefox_dir = os.path.dirname(ini_path)
     parser = configparser.RawConfigParser()
-    parser.read(FIREFOX_PROFILES_INI)
+    parser.read(ini_path)
 
     # Prefer install-specific Default entries (common on Arch builds)
     for section in parser.sections():
         if section.lower().startswith("install") and parser.has_option(section, "Default"):
             rel_path = parser.get(section, "Default")
             if rel_path:
-                candidate = _profile_path_from_entry(rel_path, "1")
+                candidate = _profile_path_from_entry(rel_path, "1", base_dir=firefox_dir)
                 if candidate.is_dir():
                     return candidate
 
@@ -865,7 +878,7 @@ def get_default_firefox_profile() -> Optional[Path]:
             if not rel_path:
                 continue
             is_relative = parser.get(section, "IsRelative", fallback="1")
-            candidate = _profile_path_from_entry(rel_path, is_relative)
+            candidate = _profile_path_from_entry(rel_path, is_relative, base_dir=firefox_dir)
             if candidate.is_dir():
                 return candidate
 
@@ -874,7 +887,7 @@ def get_default_firefox_profile() -> Optional[Path]:
         if parser.has_option(section, "Path"):
             rel_path = parser.get(section, "Path")
             is_relative = parser.get(section, "IsRelative", fallback="1")
-            candidate = _profile_path_from_entry(rel_path, is_relative)
+            candidate = _profile_path_from_entry(rel_path, is_relative, base_dir=firefox_dir)
             if candidate.is_dir():
                 return candidate
 
@@ -1076,7 +1089,13 @@ def update_firefox(theme: Dict[str, Any]) -> None:
     # user.js and userChrome.css are safe to write; they take effect on restart.
     firefox_running = _is_process_running("firefox") or _is_process_running("firefox-bin")
 
-    prefs: Dict[str, Any] = parse_user_js(FIREFOX_BASE_PREFS_FILE)
+    prefs: Dict[str, Any] = parse_user_js(
+        next(
+            (p for p in [FIREFOX_BASE_PREFS_FILE, FIREFOX_BASE_PREFS_FILE_XDG]
+             if os.path.exists(p)),
+            FIREFOX_BASE_PREFS_FILE,  # graceful default; parse_user_js handles missing
+        )
+    )
     prefs.update(FIREFOX_ENFORCED_PREFS)
 
     # Mirror the theme's dark/light preference to Firefox content pages.

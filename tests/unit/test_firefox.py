@@ -477,6 +477,7 @@ def _write_profiles_ini(ini_path: Path, content: str) -> None:
 def _patch_firefox_paths(monkeypatch: pytest.MonkeyPatch, firefox_dir: Path) -> Path:
     ini_path = firefox_dir / "profiles.ini"
     monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI", str(ini_path))
+    monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI_XDG", str(firefox_dir / "xdg_profiles.ini"))
     monkeypatch.setattr(_st, "FIREFOX_DIR", str(firefox_dir))
     return ini_path
 
@@ -622,4 +623,58 @@ def test_get_default_firefox_profile_absolute_path(
     ))
     result = _st.get_default_firefox_profile()
     assert result == abs_profile
+
+
+# ---------------------------------------------------------------------------
+# get_default_firefox_profile — XDG path discovery
+# ---------------------------------------------------------------------------
+
+def test_get_default_firefox_profile_xdg_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When only the XDG profiles.ini exists, the profile is still found."""
+    xdg_dir = tmp_path / "xdg_firefox"
+    profile_dir = xdg_dir / "abc.default-release"
+    profile_dir.mkdir(parents=True)
+    xdg_ini = xdg_dir / "profiles.ini"
+    _write_profiles_ini(xdg_ini, (
+        "[Install1234ABCD]\n"
+        "Default=abc.default-release\n"
+        "Locked=1\n"
+    ))
+    # Legacy path does NOT exist; only the XDG path does
+    monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI", str(tmp_path / "does_not_exist" / "profiles.ini"))
+    monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI_XDG", str(xdg_ini))
+    result = _st.get_default_firefox_profile()
+    assert result == profile_dir
+
+
+def test_get_default_firefox_profile_legacy_preferred_when_both_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When both legacy and XDG profiles.ini exist, the legacy path wins."""
+    legacy_dir = tmp_path / "legacy_firefox"
+    legacy_profile = legacy_dir / "legacy.default"
+    legacy_profile.mkdir(parents=True)
+    legacy_ini = legacy_dir / "profiles.ini"
+    _write_profiles_ini(legacy_ini, (
+        "[Install0000AAAA]\n"
+        "Default=legacy.default\n"
+        "Locked=1\n"
+    ))
+
+    xdg_dir = tmp_path / "xdg_firefox"
+    xdg_profile = xdg_dir / "xdg.default-release"
+    xdg_profile.mkdir(parents=True)
+    xdg_ini = xdg_dir / "profiles.ini"
+    _write_profiles_ini(xdg_ini, (
+        "[Install1111BBBB]\n"
+        "Default=xdg.default-release\n"
+        "Locked=1\n"
+    ))
+
+    monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI", str(legacy_ini))
+    monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI_XDG", str(xdg_ini))
+    result = _st.get_default_firefox_profile()
+    assert result == legacy_profile
 
