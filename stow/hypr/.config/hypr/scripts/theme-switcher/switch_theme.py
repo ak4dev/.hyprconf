@@ -1630,8 +1630,11 @@ def update_touch_panel(theme: Dict[str, str]) -> None:
         print(f"Warning: could not write touch-panel colors: {exc}")
         return
 
+    # touch-panel is a Python script; the kernel exec's python3 so the process
+    # comm is "python3", not "touch-panel".  Use -f to match against the full
+    # command line instead.  The $ anchor avoids matching "touch-panel-launcher".
     result = subprocess.run(
-        ["pgrep", "-x", "touch-panel"], capture_output=True, text=True
+        ["pgrep", "-f", "touch-panel$"], capture_output=True, text=True
     )
     if result.returncode == 0:
         for pid_str in result.stdout.strip().splitlines():
