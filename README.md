@@ -459,7 +459,7 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | System monitoring | `upower`, `lm_sensors` |
 | Python | `python`, `python-textual` |
 | File manager support | `gvfs` |
-| Icons & themes | `papirus-icon-theme`, `adw-gtk3` |
+| Icons & themes | `papirus-icon-theme`, `adw-gtk3` (AUR) |
 | GTK sync | `xsettingsd` |
 | Fonts | `ttf-jetbrains-mono-nerd` |
 | Power management | `power-profiles-daemon` |
