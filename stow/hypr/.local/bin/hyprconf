@@ -110,6 +110,10 @@ usage() {
   printf "  hyprconf hardware status         Show detected hardware and daemon status\n"
   printf "  hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)\n"
   printf "  hyprconf hardware rotate [on|off]      Control auto-rotation (autorotate)\n"
+  printf "\n${_b}Addons${_r}\n"
+  printf "  hyprconf addon                   List available addons and their status\n"
+  printf "  hyprconf addon <name>            Install a named addon\n"
+  printf "  Available: dev  (full test-suite deps + GitHub Copilot CLI)\n"
   printf "\n${_b}Developer${_r}\n"
   printf "  hyprconf dev                     Show developer pipeline commands\n"
   printf "  hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]\n"
@@ -1453,6 +1457,159 @@ cmd_dev() {
   esac
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+#  Addon system — optional package sets
+#
+#  To register a new addon:
+#    1. Add its name to _ADDON_NAMES
+#    2. Add a matching case branch to each of the five _addon_* functions below
+# ════════════════════════════════════════════════════════════════════════════
+
+readonly -a _ADDON_NAMES=(dev)
+
+_addon_description() {
+  case "$1" in
+    dev) printf "Developer tools: full test-suite deps (pytest-xdist, QEMU/KVM, Packer) + GitHub Copilot CLI" ;;
+    *)   printf "" ;;
+  esac
+}
+
+# Space-separated pacman packages for the addon (empty string = none).
+_addon_packages() {
+  case "$1" in
+    dev) printf "python-pytest-xdist qemu-full edk2-ovmf" ;;
+    *)   printf "" ;;
+  esac
+}
+
+# Space-separated AUR packages for the addon (installed via yay; empty = none).
+_addon_aur_packages() {
+  case "$1" in
+    dev) printf "packer" ;;
+    *)   printf "" ;;
+  esac
+}
+
+# Arbitrary steps run after all packages are installed.
+_addon_post_install() {
+  case "$1" in
+    dev)
+      # Persist KVM kernel modules so they load automatically on boot.
+      local kvm_mod
+      if grep -q "AMD" /proc/cpuinfo 2>/dev/null; then
+        kvm_mod="kvm_amd"
+      else
+        kvm_mod="kvm_intel"
+      fi
+      local kvm_conf="/etc/modules-load.d/kvm.conf"
+      if [[ ! -f "$kvm_conf" ]] || ! grep -q "^${kvm_mod}$" "$kvm_conf" 2>/dev/null; then
+        log_step "Enabling KVM module (${kvm_mod}) in ${kvm_conf}..."
+        printf '%s\n' "$kvm_mod" | sudo tee -a "$kvm_conf" > /dev/null \
+          && log_ok "KVM module ${kvm_mod} registered for auto-load." \
+          || log_warn "Could not write ${kvm_conf} — load manually: sudo modprobe ${kvm_mod}"
+      else
+        log_ok "KVM module ${kvm_mod} already registered."
+      fi
+      sudo modprobe "$kvm_mod" 2>/dev/null \
+        && log_ok "KVM module ${kvm_mod} loaded." \
+        || log_warn "modprobe ${kvm_mod} failed — reboot may be required."
+
+      log_step "Installing GitHub Copilot CLI..."
+      curl -fsSL https://gh.io/copilot-install | bash \
+        && log_ok "GitHub Copilot CLI installed." \
+        || log_warn "Copilot install failed — run manually: curl -fsSL https://gh.io/copilot-install | bash"
+      ;;
+  esac
+}
+
+# Returns 0 if the addon appears fully installed; non-zero otherwise.
+_addon_is_installed() {
+  case "$1" in
+    dev)
+      pacman -Qi python-pytest-xdist &>/dev/null \
+        && pacman -Qi qemu-full &>/dev/null \
+        && pacman -Qi edk2-ovmf &>/dev/null
+      ;;
+    *) return 1 ;;
+  esac
+}
+
+_addon_usage() {
+  printf "${_b}${_c}hyprconf addon${_r} — optional package sets\n\n"
+  printf "${_b}Usage${_r}\n"
+  printf "  hyprconf addon               List available addons and their status\n"
+  printf "  hyprconf addon <name>        Install a named addon\n"
+  printf "\n${_b}Available addons${_r}\n"
+  local name
+  for name in "${_ADDON_NAMES[@]}"; do
+    printf "  %-16s %s\n" "$name" "$(_addon_description "$name")"
+  done
+}
+
+_addon_list() {
+  printf "${_b}Available addons${_r}\n\n"
+  local name status_str
+  for name in "${_ADDON_NAMES[@]}"; do
+    if _addon_is_installed "$name" 2>/dev/null; then
+      status_str="${_g}installed${_r}"
+    else
+      status_str="${_y}not installed${_r}"
+    fi
+    printf "  ${_b}%-14s${_r}  %b\n" "$name" "$status_str"
+    printf "                   %s\n" "$(_addon_description "$name")"
+  done
+}
+
+_addon_install() {
+  local name="$1"
+  local pkgs; pkgs="$(_addon_packages "$name")"
+  local aur_pkgs; aur_pkgs="$(_addon_aur_packages "$name")"
+
+  if [[ -n "$pkgs" ]]; then
+    log_step "Installing ${name} addon packages: ${pkgs}..."
+    # shellcheck disable=SC2086
+    sudo pacman -S --noconfirm --needed $pkgs \
+      && log_ok "Packages installed." \
+      || log_warn "One or more pacman packages failed to install — check output above."
+  fi
+
+  if [[ -n "$aur_pkgs" ]]; then
+    if command -v yay &>/dev/null; then
+      log_step "Installing ${name} AUR packages: ${aur_pkgs}..."
+      # shellcheck disable=SC2086
+      yay -S --noconfirm --needed $aur_pkgs \
+        && log_ok "AUR packages installed." \
+        || log_warn "One or more AUR packages failed to install — check output above."
+    else
+      log_warn "yay not found — skipping AUR packages: ${aur_pkgs}"
+      log_warn "Install yay first, then re-run: hyprconf addon ${name}"
+    fi
+  fi
+
+  _addon_post_install "$name"
+  log_ok "Addon '${name}' installation complete."
+}
+
+cmd_addon() {
+  local name="${1:-}"
+  shift || true
+  case "$name" in
+    help|-h|--help|"") _addon_list ;;
+    *)
+      local valid=false n
+      for n in "${_ADDON_NAMES[@]}"; do
+        [[ "$n" == "$name" ]] && valid=true && break
+      done
+      if ! $valid; then
+        printf "${_y}Unknown addon: %s${_r}\n\n" "$name" >&2
+        _addon_usage >&2
+        exit 1
+      fi
+      _addon_install "$name" "$@"
+      ;;
+  esac
+}
+
 main() {
   local cmd="${1:-help}"
   shift || true
@@ -1477,6 +1634,7 @@ main() {
     idle)             cmd_idle "$@" ;;
     paper)            cmd_paper "$@" ;;
     hardware)         cmd_hardware "$@" ;;
+    addon)            cmd_addon "$@" ;;
     dev)              cmd_dev "$@" ;;
     help|-h|--help)   usage ;;
     *)

@@ -736,10 +736,10 @@ setup_hardware_features() {
 
     if _has_nvidia; then
         log_ok "Nvidia GPU detected."
-        log_step "Installing Nvidia packages (nvidia-dkms, nvidia-utils, egl-wayland)..."
-        sudo pacman -S --noconfirm --needed nvidia-dkms nvidia-utils egl-wayland \
+        log_step "Installing Nvidia packages (nvidia-open, nvidia-utils, egl-wayland)..."
+        sudo pacman -S --noconfirm --needed nvidia-open nvidia-utils egl-wayland \
             && log_ok "Nvidia packages installed." \
-            || log_warn "Nvidia package install failed — Hyprland may not start. Install manually: sudo pacman -S nvidia-dkms nvidia-utils egl-wayland"
+            || log_warn "Nvidia package install failed — Hyprland may not start. Install manually: sudo pacman -S nvidia-open nvidia-utils egl-wayland"
         # Add Nvidia modules for early KMS so the display controller is ready
         # before the compositor starts.  Skip if already present to stay idempotent.
         local mkinitcpio=/etc/mkinitcpio.conf
