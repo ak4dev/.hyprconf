@@ -463,3 +463,163 @@ def test_update_firefox_enables_userchrome_pref(tmp_path: Path, monkeypatch: pyt
 
     content = (profile / "user.js").read_text()
     assert "toolkit.legacyUserProfileCustomizations.stylesheets" in content
+
+
+# ---------------------------------------------------------------------------
+# get_default_firefox_profile — profile path validation
+# ---------------------------------------------------------------------------
+
+def _write_profiles_ini(ini_path: Path, content: str) -> None:
+    ini_path.parent.mkdir(parents=True, exist_ok=True)
+    ini_path.write_text(content, encoding="utf-8")
+
+
+def _patch_firefox_paths(monkeypatch: pytest.MonkeyPatch, firefox_dir: Path) -> Path:
+    ini_path = firefox_dir / "profiles.ini"
+    monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI", str(ini_path))
+    monkeypatch.setattr(_st, "FIREFOX_DIR", str(firefox_dir))
+    return ini_path
+
+
+def test_get_default_firefox_profile_install_section_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[Install...] section pointing to an existing dir is returned."""
+    firefox_dir = tmp_path / "firefox"
+    profile_dir = firefox_dir / "profiles" / "abc123.default"
+    profile_dir.mkdir(parents=True)
+    ini = _patch_firefox_paths(monkeypatch, firefox_dir)
+    _write_profiles_ini(ini, (
+        "[Install1234ABCD]\n"
+        "Default=profiles/abc123.default\n"
+        "Locked=1\n"
+    ))
+    result = _st.get_default_firefox_profile()
+    assert result == profile_dir
+
+
+def test_get_default_firefox_profile_install_section_missing_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """[Install...] section pointing to a non-existent dir falls through to Default=1."""
+    real_dir = tmp_path / "firefox" / "profiles" / "real.default"
+    real_dir.mkdir(parents=True)
+    ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
+    _write_profiles_ini(ini, (
+        "[Install1234ABCD]\n"
+        "Default=profiles/ghost.empty\n"
+        "\n"
+        "[Profile0]\n"
+        "Name=default\n"
+        "IsRelative=1\n"
+        "Path=profiles/real.default\n"
+        "Default=1\n"
+    ))
+    result = _st.get_default_firefox_profile()
+    assert result == real_dir
+
+
+def test_get_default_firefox_profile_default_section_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile with Default=1 pointing to an existing dir is returned."""
+    profile_dir = tmp_path / "firefox" / "profiles" / "main.default"
+    profile_dir.mkdir(parents=True)
+    ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
+    _write_profiles_ini(ini, (
+        "[Profile0]\n"
+        "Name=default\n"
+        "IsRelative=1\n"
+        "Path=profiles/main.default\n"
+        "Default=1\n"
+    ))
+    result = _st.get_default_firefox_profile()
+    assert result == profile_dir
+
+
+def test_get_default_firefox_profile_default_section_missing_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Default=1 pointing to non-existent dir falls through to first-profile fallback."""
+    fallback_dir = tmp_path / "firefox" / "profiles" / "fallback.esr"
+    fallback_dir.mkdir(parents=True)
+    ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
+    _write_profiles_ini(ini, (
+        "[Profile0]\n"
+        "Name=default\n"
+        "IsRelative=1\n"
+        "Path=profiles/ghost.default\n"
+        "Default=1\n"
+        "\n"
+        "[Profile1]\n"
+        "Name=esr\n"
+        "IsRelative=1\n"
+        "Path=profiles/fallback.esr\n"
+    ))
+    result = _st.get_default_firefox_profile()
+    assert result == fallback_dir
+
+
+def test_get_default_firefox_profile_fallback_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When no Install/Default=1 section, first profile with an existing dir is returned."""
+    profile_dir = tmp_path / "firefox" / "profiles" / "only.profile"
+    profile_dir.mkdir(parents=True)
+    ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
+    _write_profiles_ini(ini, (
+        "[Profile0]\n"
+        "Name=only\n"
+        "IsRelative=1\n"
+        "Path=profiles/only.profile\n"
+    ))
+    result = _st.get_default_firefox_profile()
+    assert result == profile_dir
+
+
+def test_get_default_firefox_profile_no_valid_dirs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """All profile paths non-existent → returns None."""
+    ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
+    _write_profiles_ini(ini, (
+        "[Install1234ABCD]\n"
+        "Default=profiles/ghost1\n"
+        "\n"
+        "[Profile0]\n"
+        "Name=default\n"
+        "IsRelative=1\n"
+        "Path=profiles/ghost2\n"
+        "Default=1\n"
+    ))
+    result = _st.get_default_firefox_profile()
+    assert result is None
+
+
+def test_get_default_firefox_profile_no_profiles_ini(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing profiles.ini → returns None."""
+    _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
+    # profiles.ini is deliberately not written
+    result = _st.get_default_firefox_profile()
+    assert result is None
+
+
+def test_get_default_firefox_profile_absolute_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """IsRelative=0 with an absolute path is resolved and returned when it exists."""
+    abs_profile = tmp_path / "external" / "profile.abs"
+    abs_profile.mkdir(parents=True)
+    ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
+    _write_profiles_ini(ini, (
+        f"[Profile0]\n"
+        f"Name=abs\n"
+        f"IsRelative=0\n"
+        f"Path={abs_profile}\n"
+        f"Default=1\n"
+    ))
+    result = _st.get_default_firefox_profile()
+    assert result == abs_profile
+

@@ -854,7 +854,9 @@ def get_default_firefox_profile() -> Optional[Path]:
         if section.lower().startswith("install") and parser.has_option(section, "Default"):
             rel_path = parser.get(section, "Default")
             if rel_path:
-                return _profile_path_from_entry(rel_path, "1")
+                candidate = _profile_path_from_entry(rel_path, "1")
+                if candidate.is_dir():
+                    return candidate
 
     # Fall back to profile sections that declare Default=1
     for section in parser.sections():
@@ -863,14 +865,18 @@ def get_default_firefox_profile() -> Optional[Path]:
             if not rel_path:
                 continue
             is_relative = parser.get(section, "IsRelative", fallback="1")
-            return _profile_path_from_entry(rel_path, is_relative)
+            candidate = _profile_path_from_entry(rel_path, is_relative)
+            if candidate.is_dir():
+                return candidate
 
-    # As a last resort, use the first profile entry with a Path
+    # As a last resort, use the first profile entry with a Path that exists
     for section in parser.sections():
         if parser.has_option(section, "Path"):
             rel_path = parser.get(section, "Path")
             is_relative = parser.get(section, "IsRelative", fallback="1")
-            return _profile_path_from_entry(rel_path, is_relative)
+            candidate = _profile_path_from_entry(rel_path, is_relative)
+            if candidate.is_dir():
+                return candidate
 
     return None
 
