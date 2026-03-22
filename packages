@@ -74,9 +74,13 @@ python-coverage
 
 # Theme / GTK sync (theme switcher)
 xsettingsd
+# breeze-gtk provides the Breeze-Dark/Breeze GTK theme directories that
+# _resolve_gtk_theme() uses as a fallback when adw-gtk3 (AUR) is absent.
+# Without this package, blueman and other GTK apps render with no theme.
+breeze-gtk
 # adw-gtk3 provides the preferred dark/light GTK3 theme for non-GNOME apps
-# (blueman, file-chooser dialogs, etc.); _resolve_gtk_theme() falls back to
-# Breeze-Dark/Breeze only when this package is absent.
+# (blueman, file-chooser dialogs, etc.); _resolve_gtk_theme() prefers it over
+# Breeze-Dark/Breeze when installed.
 # AUR only; install manually: yay -S adw-gtk3
 # adw-gtk3
 
@@ -87,8 +91,18 @@ gtk-layer-shell
 # Fonts
 ttf-jetbrains-mono-nerd
 
-# Icons & themes (KDEPlasmaPlatformTheme6 is pulled in as a dolphin dependency;
-# qt5ct/qt6ct are not needed with QT_QPA_PLATFORMTHEME=kde)
+# Qt/KDE theming — required for QT_QPA_PLATFORMTHEME=kde (set in hyprland.conf)
+# plasma-integration → KDEPlasmaPlatformTheme6.so (NOT a dolphin dep; must be listed here)
+# breeze             → breeze6.so Qt widget style (kdeglobals sets widgetStyle=breeze)
+# kde-cli-tools      → kwriteconfig6, used by switch_theme.py to update dolphinrc
+# qt6-wayland        → Qt6 Wayland backend (QT_QPA_PLATFORM=wayland in hyprland.conf)
+# qt5ct/qt6ct are NOT needed with QT_QPA_PLATFORMTHEME=kde
+plasma-integration
+breeze
+kde-cli-tools
+qt6-wayland
+
+# Icons & themes
 papirus-icon-theme
 # bibata-cursor-theme  -- AUR only; install manually: yay -S bibata-cursor-theme
 
