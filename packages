@@ -90,6 +90,7 @@ gtk-layer-shell
 
 # Fonts
 ttf-jetbrains-mono-nerd
+noto-fonts-emoji
 
 # Qt/KDE theming — required for QT_QPA_PLATFORMTHEME=kde (set in hyprland.conf)
 # plasma-integration → KDEPlasmaPlatformTheme6.so (NOT a dolphin dep; must be listed here)

@@ -189,6 +189,13 @@ fi
 
 info "Release tag: ${release_tag}"
 
+if [[ "$SKIP_DEPLOY" == false ]]; then
+  deploy_cfg="$HOME/.config/hyprconf/deployments/hyprconf.sh/infra.env"
+  if [[ ! -f "$deploy_cfg" ]]; then
+    die "No deployment configured for hyprconf.sh — set one up first: hyprconf deploy new"
+  fi
+fi
+
 step "Running test suite"
 
 info "Tiers 1-3: unit / integration / tui"

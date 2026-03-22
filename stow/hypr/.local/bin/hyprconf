@@ -1545,7 +1545,7 @@ _addon_description() {
 # Space-separated pacman packages for the addon (empty string = none).
 _addon_packages() {
   case "$1" in
-    dev) printf "python-pytest-xdist qemu-full edk2-ovmf" ;;
+    dev) printf "python-pytest-xdist qemu-full edk2-ovmf aws-cli" ;;
     *)   printf "" ;;
   esac
 }

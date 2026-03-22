@@ -1151,6 +1151,7 @@ def update_gtk(theme: Dict[str, str]) -> None:
     """Apply the theme to GTK 3/4 settings, xsettingsd, and gsettings."""
     is_dark      = is_dark_color(theme.get("background", "#1e1e2e"))
     gtk_theme    = _resolve_gtk_theme(theme)
+    icon_theme   = "Papirus-Dark" if is_dark else "Papirus-Light"
     color_scheme = "prefer-dark" if is_dark else "prefer-light"
     dark_val     = "true" if is_dark else "false"
 
@@ -1159,6 +1160,10 @@ def update_gtk(theme: Dict[str, str]) -> None:
             content = f.read()
         content = re.sub(
             r"^(gtk-theme-name\s*=).*$", f"gtk-theme-name={gtk_theme}",
+            content, flags=re.MULTILINE,
+        )
+        content = re.sub(
+            r"^(gtk-icon-theme-name\s*=).*$", f"gtk-icon-theme-name={icon_theme}",
             content, flags=re.MULTILINE,
         )
         content = re.sub(
@@ -1176,6 +1181,7 @@ def update_gtk(theme: Dict[str, str]) -> None:
                 with open(ini_path, "w") as f:
                     f.write("[Settings]\n")
                     f.write(f"gtk-theme-name={gtk_theme}\n")
+                    f.write(f"gtk-icon-theme-name={icon_theme}\n")
                     f.write(f"gtk-application-prefer-dark-theme={dark_val}\n")
             except Exception as e:
                 print(f"Warning: could not create {ini_path}: {e}")
@@ -1199,15 +1205,20 @@ def update_gtk(theme: Dict[str, str]) -> None:
                 if line.startswith("Net/ThemeName"):
                     new_lines.append(f'Net/ThemeName "{gtk_theme}"\n')
                     patched = True
+                elif line.startswith("Net/IconThemeName"):
+                    new_lines.append(f'Net/IconThemeName "{icon_theme}"\n')
                 else:
                     new_lines.append(line)
             if not patched:
                 new_lines.append(f'Net/ThemeName "{gtk_theme}"\n')
+            if not any(l.startswith("Net/IconThemeName") for l in lines):
+                new_lines.append(f'Net/IconThemeName "{icon_theme}"\n')
             with open(XSETTINGSD_CONFIG_FILE, "w") as f:
                 f.writelines(new_lines)
         else:
             with open(XSETTINGSD_CONFIG_FILE, "w") as f:
                 f.write(f'Net/ThemeName "{gtk_theme}"\n')
+                f.write(f'Net/IconThemeName "{icon_theme}"\n')
         pid_result = subprocess.run(["pgrep", "-x", "xsettingsd"], capture_output=True, text=True)
         if pid_result.returncode == 0:
             for pid in pid_result.stdout.strip().splitlines():
@@ -1221,6 +1232,7 @@ def update_gtk(theme: Dict[str, str]) -> None:
     if gsettings:
         cmds = [
             [gsettings, "set", "org.gnome.desktop.interface", "gtk-theme", gtk_theme],
+            [gsettings, "set", "org.gnome.desktop.interface", "icon-theme", icon_theme],
             [gsettings, "set", "org.gnome.desktop.interface", "color-scheme", color_scheme],
         ]
         for cmd in cmds:
@@ -1235,6 +1247,7 @@ def update_gtk(theme: Dict[str, str]) -> None:
     if hyprctl:
         try:
             subprocess.run([hyprctl, "setenv", "GTK_THEME", gtk_theme], check=False, capture_output=True)
+            subprocess.run([hyprctl, "setenv", "GTK_ICON_THEME", icon_theme], check=False, capture_output=True)
         except Exception:
             pass
 
@@ -1246,7 +1259,8 @@ def update_gtk(theme: Dict[str, str]) -> None:
     if systemctl:
         try:
             subprocess.run(
-                [systemctl, "--user", "set-environment", f"GTK_THEME={gtk_theme}"],
+                [systemctl, "--user", "set-environment", f"GTK_THEME={gtk_theme}",
+                 f"GTK_ICON_THEME={icon_theme}"],
                 check=False, capture_output=True,
             )
         except Exception:
@@ -1280,7 +1294,7 @@ def update_gtk(theme: Dict[str, str]) -> None:
                     pass
 
         time.sleep(0.3)
-        bt_env = dict(os.environ, GTK_THEME=gtk_theme)
+        bt_env = dict(os.environ, GTK_THEME=gtk_theme, GTK_ICON_THEME=icon_theme)
         subprocess.Popen(
             ["blueman-applet"],
             env=bt_env,
