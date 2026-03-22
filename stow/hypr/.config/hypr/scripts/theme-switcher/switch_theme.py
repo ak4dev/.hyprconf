@@ -1238,12 +1238,30 @@ def update_gtk(theme: Dict[str, str]) -> None:
         except Exception:
             pass
 
-    # Restart blueman-applet if running so it picks up the new GTK theme.
-    # GTK3 apps read GTK_THEME at launch; hyprctl setenv only updates Hyprland's
-    # internal env store — not the running script's os.environ — so we must pass
-    # GTK_THEME explicitly in the subprocess env to guarantee the new process uses
-    # the correct theme rather than inheriting a stale or absent value.
-    # A brief sleep after SIGTERM prevents a race where both old and new processes
+    # systemctl --user set-environment — persists GTK_THEME in the systemd user manager
+    # so that D-Bus-activated user services (e.g. blueman-manager, which is a SEPARATE
+    # process launched on demand via D-Bus, not a child of blueman-applet) also inherit
+    # the correct theme.  hyprctl setenv does not affect the systemd user environment.
+    systemctl = shutil.which("systemctl")
+    if systemctl:
+        try:
+            subprocess.run(
+                [systemctl, "--user", "set-environment", f"GTK_THEME={gtk_theme}"],
+                check=False, capture_output=True,
+            )
+        except Exception:
+            pass
+
+    # Restart blueman-applet (and kill any running blueman-manager) so both processes
+    # pick up the new GTK theme on next launch.
+    #
+    # GTK3 apps read GTK_THEME at launch only; we must therefore:
+    #  1. Kill blueman-applet → relaunch with explicit GTK_THEME in env.
+    #  2. Kill blueman-manager — it is D-Bus-activated as a SEPARATE systemd user service
+    #     (blueman-manager.service / org.blueman.Manager).  The manager window will re-
+    #     activate on the user's next click and inherit GTK_THEME from the systemd env
+    #     set above.
+    # A brief sleep after SIGTERM prevents a race where both old and new applet processes
     # coexist and the old one reclaims the tray slot.
     proc = subprocess.run(["pgrep", "-x", "blueman-applet"], capture_output=True, text=True)
     if proc.returncode == 0:
@@ -1252,6 +1270,15 @@ def update_gtk(theme: Dict[str, str]) -> None:
                 os.kill(int(pid), 15)  # SIGTERM
             except (ProcessLookupError, ValueError):
                 pass
+
+        mgr_proc = subprocess.run(["pgrep", "-x", "blueman-manager"], capture_output=True, text=True)
+        if mgr_proc.returncode == 0:
+            for pid in mgr_proc.stdout.split():
+                try:
+                    os.kill(int(pid), 15)  # SIGTERM
+                except (ProcessLookupError, ValueError):
+                    pass
+
         time.sleep(0.3)
         bt_env = dict(os.environ, GTK_THEME=gtk_theme)
         subprocess.Popen(
@@ -1407,12 +1434,16 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         applied = result.returncode == 0
 
     if not applied and shutil.which("dbus-send"):
+        # notifyChange(uint id, uint flags): id=1 is PaletteChanged — the signal that
+        # tells running KDE/Qt apps (Dolphin, etc.) to reload their QPalette from the
+        # updated kdeglobals.  id=0 (StyleChanged) does NOT trigger a palette refresh,
+        # so alternate row colours in Dolphin stay stale until the app is restarted.
         subprocess.run(
             [
                 "dbus-send", "--session", "--type=signal",
                 "/KGlobalSettings",
                 "org.kde.KGlobalSettings.notifyChange",
-                "int32:0", "int32:0",
+                "int32:1", "int32:0",
             ],
             check=False, capture_output=True,
         )
@@ -1452,7 +1483,7 @@ def update_qt_platform_theme(theme: Dict[str, str]) -> None:
     midlight = blend_colors(bg, fg, 0.16)
     dark_bg  = blend_colors(bg, "#000000", 0.22)
     mid_bg   = blend_colors(bg, fg, 0.08)
-    alt_bg   = blend_colors(bg, fg, 0.05)
+    alt_bg   = blend_colors(bg, fg, 0.10)   # alternate row — matches kdeglobals alt_bg
     shadow   = blend_colors(bg, "#000000", 0.45)
     tooltip  = blend_colors(bg, fg, 0.08)
     sel_fg   = bg if dark else fg

@@ -4,6 +4,10 @@
   - Dolphin ColorScheme write in update_kde_colors()
   - Firefox running-state guard in update_firefox()
   - update_touch_panel() (see also test_hardware_features.py)
+  - Dolphin alternate-row contrast (Dracula dark stripes)
+  - Blueman GTK_THEME env passthrough + systemd user env + manager kill
+  - D-Bus PaletteChanged signal type in KDE fallback
+  - QPalette alternate colour consistency (qt5ct/qt6ct)
 """
 from __future__ import annotations
 
@@ -486,6 +490,187 @@ def test_blueman_relaunch_sleeps_after_sigterm(monkeypatch, tmp_path):
     assert sleep_calls, "time.sleep() must be called between kill and relaunch"
     assert any(s >= 0.1 for s in sleep_calls), (
         f"Sleep must be at least 0.1 s to allow the old process to exit; got {sleep_calls}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# update_gtk() — systemctl set-environment and blueman-manager kill
+# ---------------------------------------------------------------------------
+
+def _run_update_gtk_full(monkeypatch):
+    """
+    Run update_gtk() with both blueman-applet and blueman-manager appearing to
+    run.  Returns (run_calls, popen_calls, kill_calls) where:
+      - run_calls  = list of argv lists passed to subprocess.run
+      - popen_calls = list of argv lists passed to subprocess.Popen
+      - kill_calls  = list of (pid, sig) tuples passed to os.kill
+    """
+    run_calls: list[list[str]] = []
+    popen_calls: list[list[str]] = []
+    kill_calls: list[tuple[int, int]] = []
+
+    def fake_run(cmd, **_kw):
+        run_calls.append(list(cmd))
+        m = MagicMock()
+        if cmd[0] == "pgrep":
+            m.returncode = 0
+            m.stdout = "5678\n"
+        else:
+            m.returncode = 0
+            m.stdout = ""
+        return m
+
+    def fake_popen(cmd, **kw):
+        popen_calls.append(list(cmd))
+        return MagicMock()
+
+    def fake_kill(pid, sig):
+        kill_calls.append((pid, sig))
+
+    monkeypatch.setattr(st.subprocess, "run",   fake_run)
+    monkeypatch.setattr(st.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(st.os, "kill",          fake_kill)
+    monkeypatch.setattr(st.time, "sleep", lambda _: None)
+    monkeypatch.setattr(st.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    import builtins
+    def fake_open(path, *a, **kw):
+        from io import StringIO
+        return StringIO("[Settings]\ngtk-theme-name=old\n")
+
+    monkeypatch.setattr(builtins, "open", fake_open)
+
+    st.update_gtk(DRACULA_THEME)
+    return run_calls, popen_calls, kill_calls
+
+
+def test_update_gtk_calls_systemctl_set_environment(monkeypatch, tmp_path):
+    """update_gtk() must call 'systemctl --user set-environment GTK_THEME=...'
+    so that D-Bus-activated user services (e.g. blueman-manager) inherit the
+    new GTK theme.  hyprctl setenv only updates Hyprland's internal env store."""
+    run_calls, _, _ = _run_update_gtk_full(monkeypatch)
+
+    systemctl_calls = [c for c in run_calls if "systemctl" in c[0]]
+    assert systemctl_calls, "systemctl must be called in update_gtk()"
+
+    set_env_calls = [c for c in systemctl_calls if "--user" in c and "set-environment" in c]
+    assert set_env_calls, "systemctl --user set-environment must be called"
+
+    # The GTK_THEME value must be the resolved theme name (non-empty)
+    for c in set_env_calls:
+        gtk_args = [a for a in c if a.startswith("GTK_THEME=")]
+        if gtk_args:
+            assert gtk_args[0] != "GTK_THEME=", "GTK_THEME value must be non-empty"
+            break
+    else:
+        pytest.fail("No GTK_THEME= argument found in systemctl set-environment call")
+
+
+def test_update_gtk_kills_blueman_manager_when_running(monkeypatch, tmp_path):
+    """Running blueman-manager must be killed when the theme changes.
+    blueman-manager is a separate D-Bus-activated process; killing it forces
+    re-activation with the updated GTK_THEME from the systemd user environment."""
+    run_calls, _, kill_calls = _run_update_gtk_full(monkeypatch)
+
+    manager_pgrep = [c for c in run_calls if c[0] == "pgrep" and "blueman-manager" in c]
+    assert manager_pgrep, "pgrep for blueman-manager must be issued in update_gtk()"
+
+    assert kill_calls, "At least one kill() call must be made when both processes appear running"
+
+
+# ---------------------------------------------------------------------------
+# update_kde_colors() — D-Bus PaletteChanged signal type
+# ---------------------------------------------------------------------------
+
+def test_kde_dbus_fallback_sends_palette_changed(monkeypatch, tmp_path):
+    """The D-Bus fallback in update_kde_colors() must send notifyChange type 1
+    (PaletteChanged), NOT type 0 (StyleChanged).  Type 0 does not trigger a
+    QPalette reload in running KDE apps (Dolphin, etc.), leaving alternate rows
+    stale with their pre-switch colour."""
+    run_calls: list[list[str]] = []
+
+    def fake_run(cmd, **_kw):
+        run_calls.append(list(cmd))
+        m = MagicMock()
+        if "plasma-apply-colorscheme" in str(cmd):
+            m.returncode = 1  # simulate failure → triggers D-Bus fallback
+        else:
+            m.returncode = 0
+        return m
+
+    monkeypatch.setattr(st.subprocess, "run", fake_run)
+    monkeypatch.setattr(Path, "write_text", lambda *a, **kw: None)
+    monkeypatch.setattr(Path, "mkdir", lambda *a, **kw: None)
+    monkeypatch.setattr(st.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    st.update_kde_colors(DRACULA_THEME)
+
+    dbus_calls = [c for c in run_calls if "dbus-send" in " ".join(c)]
+    assert dbus_calls, "dbus-send fallback must be invoked when plasma-apply-colorscheme fails"
+
+    for c in dbus_calls:
+        if "notifyChange" in " ".join(c):
+            # The first int32 argument must be 1 (PaletteChanged); the second is flags=0
+            assert "int32:1" in c, (
+                f"D-Bus notifyChange must use int32:1 (PaletteChanged) not int32:0; got: {c}"
+            )
+            break
+    else:
+        pytest.fail("No dbus-send notifyChange call found")
+
+
+# ---------------------------------------------------------------------------
+# update_qt_platform_theme() — alternate colour ratio consistency
+# ---------------------------------------------------------------------------
+
+def test_qt_platform_theme_alt_bg_matches_kdeglobals_ratio(monkeypatch, tmp_path):
+    """The AlternateBase colour in the qt5ct/qt6ct colour scheme must use the
+    same 10% blend ratio as [Colors:View] BackgroundAlternate in kdeglobals.
+    A lower ratio (e.g. 5%) produces near-invisible striping in Qt apps using
+    the qt5ct/qt6ct platform theme."""
+    written_qt: list[str] = []
+
+    original_write = Path.write_text
+
+    def capture_write(self, content, encoding="utf-8", errors=None):
+        # Only capture qt colour scheme files
+        if "qt" in str(self).lower() or "color_scheme" in str(self).lower():
+            written_qt.append(content)
+
+    monkeypatch.setattr(Path, "write_text", capture_write)
+    monkeypatch.setattr(Path, "mkdir", lambda *a, **kw: None)
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    def fake_read(self, *a, **kw):
+        return ""
+
+    monkeypatch.setattr(Path, "read_text", fake_read)
+
+    st.update_qt_platform_theme(DRACULA_THEME)
+
+    if not written_qt:
+        pytest.skip("No qt colour scheme file was written (qt5ct/qt6ct not configured)")
+
+    content = written_qt[0]
+    assert "active_colors=" in content
+
+    # Parse AlternateBase from the active_colors list (index 16, 0-based)
+    line = next(l for l in content.splitlines() if l.startswith("active_colors="))
+    colors = [c.strip() for c in line.split("=", 1)[1].split(",")]
+    assert len(colors) >= 17, f"Expected at least 17 palette roles, got {len(colors)}"
+
+    alt_base_hex = colors[16]  # QPalette::AlternateBase is role index 16
+    bg_hex = DRACULA_THEME["background"]
+    fg_hex = DRACULA_THEME["foreground"]
+
+    expected_10pct = st.blend_colors(bg_hex, fg_hex, 0.10)
+    expected_5pct  = st.blend_colors(bg_hex, fg_hex, 0.05)
+
+    # Must match 10% blend, not 5%
+    assert alt_base_hex == expected_10pct, (
+        f"AlternateBase in qt colour scheme is {alt_base_hex!r} (matches 5% blend "
+        f"{expected_5pct!r}); expected 10% blend {expected_10pct!r} to be consistent "
+        "with kdeglobals BackgroundAlternate"
     )
 
 
