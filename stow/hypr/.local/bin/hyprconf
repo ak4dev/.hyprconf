@@ -1503,21 +1503,21 @@ _addon_post_install() {
       fi
       local kvm_conf="/etc/modules-load.d/kvm.conf"
       if [[ ! -f "$kvm_conf" ]] || ! grep -q "^${kvm_mod}$" "$kvm_conf" 2>/dev/null; then
-        log_step "Enabling KVM module (${kvm_mod}) in ${kvm_conf}..."
+        printf "${_b}→${_r} Enabling KVM module (%s) in %s...\n" "$kvm_mod" "$kvm_conf"
         printf '%s\n' "$kvm_mod" | sudo tee -a "$kvm_conf" > /dev/null \
-          && log_ok "KVM module ${kvm_mod} registered for auto-load." \
-          || log_warn "Could not write ${kvm_conf} — load manually: sudo modprobe ${kvm_mod}"
+          && printf "${_g}✓${_r} KVM module %s registered for auto-load.\n" "$kvm_mod" \
+          || printf "${_y}⚠${_r} Could not write %s — load manually: sudo modprobe %s\n" "$kvm_conf" "$kvm_mod"
       else
-        log_ok "KVM module ${kvm_mod} already registered."
+        printf "${_g}✓${_r} KVM module %s already registered.\n" "$kvm_mod"
       fi
       sudo modprobe "$kvm_mod" 2>/dev/null \
-        && log_ok "KVM module ${kvm_mod} loaded." \
-        || log_warn "modprobe ${kvm_mod} failed — reboot may be required."
+        && printf "${_g}✓${_r} KVM module %s loaded.\n" "$kvm_mod" \
+        || printf "${_y}⚠${_r} modprobe %s failed — reboot may be required.\n" "$kvm_mod"
 
-      log_step "Installing GitHub Copilot CLI..."
+      printf "${_b}→${_r} Installing GitHub Copilot CLI...\n"
       curl -fsSL https://gh.io/copilot-install | bash \
-        && log_ok "GitHub Copilot CLI installed." \
-        || log_warn "Copilot install failed — run manually: curl -fsSL https://gh.io/copilot-install | bash"
+        && printf "${_g}✓${_r} GitHub Copilot CLI installed.\n" \
+        || printf "${_y}⚠${_r} Copilot install failed — run manually: curl -fsSL https://gh.io/copilot-install | bash\n"
       ;;
   esac
 }
@@ -1566,28 +1566,28 @@ _addon_install() {
   local aur_pkgs; aur_pkgs="$(_addon_aur_packages "$name")"
 
   if [[ -n "$pkgs" ]]; then
-    log_step "Installing ${name} addon packages: ${pkgs}..."
+    printf "${_b}→${_r} Installing %s addon packages: %s...\n" "$name" "$pkgs"
     # shellcheck disable=SC2086
     sudo pacman -S --noconfirm --needed $pkgs \
-      && log_ok "Packages installed." \
-      || log_warn "One or more pacman packages failed to install — check output above."
+      && printf "${_g}✓${_r} Packages installed.\n" \
+      || printf "${_y}⚠${_r} One or more pacman packages failed to install — check output above.\n"
   fi
 
   if [[ -n "$aur_pkgs" ]]; then
     if command -v yay &>/dev/null; then
-      log_step "Installing ${name} AUR packages: ${aur_pkgs}..."
+      printf "${_b}→${_r} Installing %s AUR packages: %s...\n" "$name" "$aur_pkgs"
       # shellcheck disable=SC2086
       yay -S --noconfirm --needed $aur_pkgs \
-        && log_ok "AUR packages installed." \
-        || log_warn "One or more AUR packages failed to install — check output above."
+        && printf "${_g}✓${_r} AUR packages installed.\n" \
+        || printf "${_y}⚠${_r} One or more AUR packages failed to install — check output above.\n"
     else
-      log_warn "yay not found — skipping AUR packages: ${aur_pkgs}"
-      log_warn "Install yay first, then re-run: hyprconf addon ${name}"
+      printf "${_y}⚠${_r} yay not found — skipping AUR packages: %s\n" "$aur_pkgs"
+      printf "${_y}⚠${_r} Install yay first, then re-run: hyprconf addon %s\n" "$name"
     fi
   fi
 
   _addon_post_install "$name"
-  log_ok "Addon '${name}' installation complete."
+  printf "${_g}✓${_r} Addon '%s' installation complete.\n" "$name"
 }
 
 cmd_addon() {
