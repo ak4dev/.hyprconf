@@ -143,6 +143,34 @@ Wiki: <https://wiki.hyprland.org/Configuring/Environment-variables/>
 
 ---
 
+## Nvidia GPU
+
+`setup.sh` / `hyprconf sync` auto-detects an Nvidia GPU and writes these env vars
+into `~/.config/hypr/conf.d/60-hardware.conf`:
+
+```ini
+env = LIBVA_DRIVER_NAME,nvidia
+env = __GLX_VENDOR_LIBRARY_NAME,nvidia
+```
+
+Required packages (auto-installed on detection): `nvidia-dkms`, `nvidia-utils`, `egl-wayland`.
+
+Early-KMS modules are also added to `/etc/mkinitcpio.conf` automatically:
+
+```
+MODULES=(... nvidia nvidia_modeset nvidia_uvm nvidia_drm ...)
+```
+
+For VA-API hardware video acceleration, optionally install `libva-nvidia-driver` and add:
+
+```ini
+env = NVD_BACKEND,direct
+```
+
+Wiki: <https://wiki.hyprland.org/Nvidia/>
+
+---
+
 ## Autostart
 
 ```ini

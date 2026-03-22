@@ -610,6 +610,7 @@ def _run_write_hardware_conf(
     *,
     has_touch: bool = False,
     has_accel: bool = False,
+    has_nvidia: bool = False,
 ) -> str:
     """
     Run write_hardware_conf() (extracted from setup.sh) with stubbed helpers.
@@ -631,8 +632,9 @@ def _run_write_hardware_conf(
     script = f"""
 set -euo pipefail
 HOME="{tmp_path}"
-_has_touchscreen()   {{ {'return 0' if has_touch else 'return 1'}; }}
+_has_touchscreen()   {{ {'return 0' if has_touch  else 'return 1'}; }}
 _has_accelerometer() {{ {'return 0' if has_accel  else 'return 1'}; }}
+_has_nvidia()        {{ {'return 0' if has_nvidia else 'return 1'}; }}
 log_ok() {{ :; }}
 {write_func}
 write_hardware_conf
@@ -702,6 +704,41 @@ def test_write_hardware_conf_no_legacy_touch_panel_exec(tmp_path):
     # substring, so filter those out and ensure bare 'touch-panel' is absent.
     lines = [ln.strip() for ln in conf.splitlines()]
     assert "exec-once = touch-panel" not in lines
+
+
+# ---------------------------------------------------------------------------
+# write_hardware_conf() — Nvidia GPU env var generation
+# ---------------------------------------------------------------------------
+
+def test_write_hardware_conf_emits_libva_driver_when_nvidia(tmp_path):
+    """LIBVA_DRIVER_NAME=nvidia must be set when Nvidia GPU is detected."""
+    conf = _run_write_hardware_conf(tmp_path, has_nvidia=True)
+    assert "env = LIBVA_DRIVER_NAME,nvidia" in conf
+
+
+def test_write_hardware_conf_emits_glx_vendor_when_nvidia(tmp_path):
+    """__GLX_VENDOR_LIBRARY_NAME=nvidia must be set when Nvidia GPU is detected."""
+    conf = _run_write_hardware_conf(tmp_path, has_nvidia=True)
+    assert "env = __GLX_VENDOR_LIBRARY_NAME,nvidia" in conf
+
+
+def test_write_hardware_conf_no_libva_driver_without_nvidia(tmp_path):
+    """LIBVA_DRIVER_NAME must NOT appear when no Nvidia GPU is present."""
+    conf = _run_write_hardware_conf(tmp_path, has_nvidia=False)
+    assert "LIBVA_DRIVER_NAME" not in conf
+
+
+def test_write_hardware_conf_no_glx_vendor_without_nvidia(tmp_path):
+    """__GLX_VENDOR_LIBRARY_NAME must NOT appear when no Nvidia GPU is present."""
+    conf = _run_write_hardware_conf(tmp_path, has_nvidia=False)
+    assert "__GLX_VENDOR_LIBRARY_NAME" not in conf
+
+
+def test_write_hardware_conf_nvidia_with_touch(tmp_path):
+    """Nvidia env vars and touchdevice block must both appear when both present."""
+    conf = _run_write_hardware_conf(tmp_path, has_nvidia=True, has_touch=True)
+    assert "env = LIBVA_DRIVER_NAME,nvidia" in conf
+    assert "touchdevice" in conf
 
 
 # touch-panel-launcher script behaviour
