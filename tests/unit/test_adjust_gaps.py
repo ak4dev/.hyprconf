@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -15,16 +17,15 @@ SCRIPT = (
 
 def _run(direction: str, gaps_in: int, gaps_out: int) -> tuple[int, list[str]]:
     """Run adjust-gaps with a fake hyprctl in PATH; return (rc, keyword_calls)."""
-    fake_dir = Path(__file__).parent / "_fake_bins_adjust_gaps"
-    fake_dir.mkdir(exist_ok=True)
-    fake_hyprctl = fake_dir / "hyprctl"
+    fake_dir = Path(tempfile.mkdtemp())
+    try:
+        fake_hyprctl = fake_dir / "hyprctl"
 
-    # getoption returns the current value; keyword calls are recorded to a file
-    calls_file = fake_dir / "calls.txt"
-    calls_file.unlink(missing_ok=True)
+        # getoption returns the current value; keyword calls are recorded to a file
+        calls_file = fake_dir / "calls.txt"
 
-    fake_hyprctl.write_text(
-        f"""#!/usr/bin/env bash
+        fake_hyprctl.write_text(
+            f"""#!/usr/bin/env bash
 if [[ "$1" == "getoption" ]]; then
     case "$2" in
         general:gaps_in)  echo "int: {gaps_in}" ;;
@@ -34,24 +35,26 @@ elif [[ "$1" == "keyword" ]]; then
     echo "$2 $3" >> "{calls_file}"
 fi
 """
-    )
-    fake_hyprctl.chmod(0o755)
+        )
+        fake_hyprctl.chmod(0o755)
 
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_dir}:{env['PATH']}"
+        env = os.environ.copy()
+        env["PATH"] = f"{fake_dir}:{env['PATH']}"
 
-    result = subprocess.run(
-        ["bash", str(SCRIPT), direction],
-        env=env,
-        capture_output=True,
-        text=True,
-    )
+        result = subprocess.run(
+            ["bash", str(SCRIPT), direction],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
 
-    calls: list[str] = []
-    if calls_file.exists():
-        calls = [line.strip() for line in calls_file.read_text().splitlines() if line.strip()]
+        calls: list[str] = []
+        if calls_file.exists():
+            calls = [line.strip() for line in calls_file.read_text().splitlines() if line.strip()]
 
-    return result.returncode, calls
+        return result.returncode, calls
+    finally:
+        shutil.rmtree(fake_dir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
