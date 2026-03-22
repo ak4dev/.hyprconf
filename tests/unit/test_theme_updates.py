@@ -281,6 +281,215 @@ def test_firefox_sends_notify_when_running(tmp_path, monkeypatch, capsys):
 
 
 # ---------------------------------------------------------------------------
+# update_kde_colors() — alternating-row contrast (Dolphin dark-theme stripes)
+# ---------------------------------------------------------------------------
+
+DRACULA_THEME = {
+    "background": "#282a36",
+    "foreground": "#f8f8f2",
+    "accent":     "#8be9fd",
+    "comment":    "#6272a4",
+    "red":        "#ff5555",
+    "green":      "#50fa7b",
+    "yellow":     "#f1fa8c",
+    "cyan":       "#8be9fd",
+}
+
+
+def _capture_kdeglobals(monkeypatch, tmp_path, theme: dict) -> str:
+    """Run update_kde_colors() and return the text written to kdeglobals."""
+    written: list[str] = []
+
+    def fake_write_text(self, content, encoding="utf-8"):
+        written.append(content)
+
+    monkeypatch.setattr(Path, "write_text", fake_write_text)
+    monkeypatch.setattr(Path, "mkdir", lambda *a, **kw: None)
+    monkeypatch.setattr(st.shutil, "which", lambda name: None)  # no external tools
+    monkeypatch.setattr(st.subprocess, "run", lambda *a, **kw: MagicMock(returncode=0))
+
+    st.update_kde_colors(theme)
+    # The first write_text call is kdeglobals, the second is the .colors file
+    assert written, "update_kde_colors() must write at least one file"
+    return written[0]
+
+
+def _parse_rgb_key(section_text: str, key: str) -> tuple[int, int, int]:
+    """Extract R,G,B integers for 'key=R,G,B' from a kdeglobals section block."""
+    import re
+    m = re.search(rf"^{re.escape(key)}=(\d+),(\d+),(\d+)", section_text, re.MULTILINE)
+    assert m, f"Key '{key}' not found in section text"
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
+
+
+def _luminance(r: int, g: int, b: int) -> float:
+    """Approximate perceived brightness (0–255 scale)."""
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def test_kde_view_alternate_is_lighter_than_normal_for_dark_theme(monkeypatch, tmp_path):
+    """[Colors:View] BackgroundAlternate must be noticeably lighter than BackgroundNormal
+    for dark themes so that KDE's contrast enforcement does not override it with a
+    completely different computed shade."""
+    content = _capture_kdeglobals(monkeypatch, tmp_path, DRACULA_THEME)
+
+    # Extract the [Colors:View] block
+    assert "[Colors:View]" in content
+    view_start = content.index("[Colors:View]")
+    view_end = content.find("\n[", view_start + 1)
+    view_block = content[view_start:view_end]
+
+    normal_rgb = _parse_rgb_key(view_block, "BackgroundNormal")
+    alt_rgb    = _parse_rgb_key(view_block, "BackgroundAlternate")
+
+    lum_normal = _luminance(*normal_rgb)
+    lum_alt    = _luminance(*alt_rgb)
+
+    # Alternate must be perceptibly lighter: at least 10 luma units difference
+    assert lum_alt > lum_normal, (
+        f"BackgroundAlternate ({alt_rgb}) must be lighter than "
+        f"BackgroundNormal ({normal_rgb}) in [Colors:View]"
+    )
+    assert (lum_alt - lum_normal) >= 10, (
+        f"Contrast too low ({lum_alt - lum_normal:.1f} luma units) — "
+        "KDE will override with its own derived shade, causing clearly-light rows"
+    )
+
+
+def test_kde_button_alternate_is_lighter_than_button_normal(monkeypatch, tmp_path):
+    """[Colors:Button] BackgroundAlternate must be lighter than BackgroundNormal.
+    Previously alt_bg (5% blend from bg) was darker than btn_bg (10% blend),
+    inverting the visual striping in button-style surfaces."""
+    content = _capture_kdeglobals(monkeypatch, tmp_path, DRACULA_THEME)
+
+    assert "[Colors:Button]" in content
+    btn_start = content.index("[Colors:Button]")
+    btn_end   = content.find("\n[", btn_start + 1)
+    btn_block = content[btn_start:btn_end]
+
+    normal_rgb = _parse_rgb_key(btn_block, "BackgroundNormal")
+    alt_rgb    = _parse_rgb_key(btn_block, "BackgroundAlternate")
+
+    lum_normal = _luminance(*normal_rgb)
+    lum_alt    = _luminance(*alt_rgb)
+
+    assert lum_alt > lum_normal, (
+        f"[Colors:Button] BackgroundAlternate ({alt_rgb}) must be lighter than "
+        f"BackgroundNormal ({normal_rgb}); previously the order was inverted"
+    )
+
+
+def test_kde_view_alternate_consistent_with_window_alternate(monkeypatch, tmp_path):
+    """[Colors:View] and [Colors:Window] BackgroundAlternate must use the same
+    alt_bg value so window chrome and file-list rows stripe consistently."""
+    content = _capture_kdeglobals(monkeypatch, tmp_path, DRACULA_THEME)
+
+    view_start  = content.index("[Colors:View]")
+    view_end    = content.find("\n[", view_start + 1)
+    view_block  = content[view_start:view_end]
+
+    win_start   = content.index("[Colors:Window]")
+    win_end     = content.find("\n[", win_start + 1)
+    win_block   = content[win_start:win_end]
+
+    view_alt = _parse_rgb_key(view_block, "BackgroundAlternate")
+    win_alt  = _parse_rgb_key(win_block,  "BackgroundAlternate")
+
+    assert view_alt == win_alt, (
+        f"[Colors:View] alternate {view_alt} != [Colors:Window] alternate {win_alt}; "
+        "both should use the same alt_bg"
+    )
+
+
+# ---------------------------------------------------------------------------
+# update_gtk() — blueman GTK_THEME env and relaunch delay
+# ---------------------------------------------------------------------------
+
+def _run_update_gtk_with_blueman(monkeypatch, gtk_theme_override: str | None = None):
+    """
+    Run update_gtk() with blueman-applet appearing to be running.
+    Returns (popen_calls, sleep_calls) where each entry in popen_calls is the
+    kwargs dict passed to subprocess.Popen.
+    """
+    popen_calls: list[dict] = []
+    sleep_calls: list[float] = []
+
+    def fake_pgrep(cmd, **_kw):
+        m = MagicMock()
+        if cmd[0] == "pgrep":
+            m.returncode = 0
+            m.stdout = "4321\n"
+        else:
+            m.returncode = 1
+            m.stdout = ""
+        return m
+
+    monkeypatch.setattr(st.subprocess, "run", fake_pgrep)
+    monkeypatch.setattr(st.os, "kill", lambda pid, sig: None)
+    monkeypatch.setattr(st.time, "sleep", lambda secs: sleep_calls.append(secs))
+
+    def fake_popen(cmd, **kw):
+        popen_calls.append({"cmd": cmd, **kw})
+        return MagicMock()
+
+    monkeypatch.setattr(st.subprocess, "Popen", fake_popen)
+
+    # Stub out every file / external tool used by update_gtk()
+    monkeypatch.setattr(st.shutil, "which", lambda name: f"/usr/bin/{name}")
+
+    def fake_run_noop(cmd, **_kw):
+        return MagicMock(returncode=0)
+
+    monkeypatch.setattr(st.subprocess, "run", fake_pgrep)
+
+    import builtins
+    original_open = builtins.open
+
+    def fake_open(path, *a, **kw):
+        from io import StringIO
+        return StringIO("[Settings]\ngtk-theme-name=old-theme\ngtk-application-prefer-dark-theme=0\n")
+
+    monkeypatch.setattr(builtins, "open", fake_open)
+
+    theme = dict(DRACULA_THEME)
+    if gtk_theme_override:
+        theme["gtk_theme"] = gtk_theme_override
+
+    monkeypatch.setattr(st.subprocess, "run", fake_pgrep)
+    monkeypatch.setattr(st.subprocess, "Popen", fake_popen)
+
+    st.update_gtk(theme)
+    return popen_calls, sleep_calls
+
+
+def test_blueman_relaunch_passes_gtk_theme_in_env(monkeypatch, tmp_path):
+    """The relaunched blueman-applet must receive GTK_THEME in its explicit env.
+    Previously subprocess.Popen had no env= argument, so it inherited the script's
+    stale os.environ — hyprctl setenv does not update os.environ."""
+    popen_calls, _ = _run_update_gtk_with_blueman(monkeypatch)
+
+    blueman_launches = [c for c in popen_calls if c["cmd"] == ["blueman-applet"]]
+    assert blueman_launches, "blueman-applet should have been relaunched"
+
+    launch = blueman_launches[0]
+    assert "env" in launch, "subprocess.Popen must receive an explicit env= dict"
+    assert "GTK_THEME" in launch["env"], "env must contain GTK_THEME"
+    # GTK_THEME must be a non-empty string (the resolved theme name)
+    assert launch["env"]["GTK_THEME"], "GTK_THEME must not be empty"
+
+
+def test_blueman_relaunch_sleeps_after_sigterm(monkeypatch, tmp_path):
+    """A brief sleep must occur between SIGTERM and relaunch to prevent the race
+    condition where both old and new processes coexist and the old one wins."""
+    _, sleep_calls = _run_update_gtk_with_blueman(monkeypatch)
+
+    assert sleep_calls, "time.sleep() must be called between kill and relaunch"
+    assert any(s >= 0.1 for s in sleep_calls), (
+        f"Sleep must be at least 0.1 s to allow the old process to exit; got {sleep_calls}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Helper: unittest mock_open compatible with write_text
 # ---------------------------------------------------------------------------
 

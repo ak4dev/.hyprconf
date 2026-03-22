@@ -74,6 +74,10 @@ python-coverage
 
 # Theme / GTK sync (theme switcher)
 xsettingsd
+# adw-gtk3 provides the preferred dark/light GTK3 theme for non-GNOME apps
+# (blueman, file-chooser dialogs, etc.); _resolve_gtk_theme() falls back to
+# Breeze-Dark/Breeze only when this package is absent.
+adw-gtk3
 
 # gtk-layer-shell — required by touch-panel; installed automatically by setup.sh
 # on any device with a touchscreen (regardless of keyboard presence)

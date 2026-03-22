@@ -1239,8 +1239,12 @@ def update_gtk(theme: Dict[str, str]) -> None:
             pass
 
     # Restart blueman-applet if running so it picks up the new GTK theme.
-    # GTK3 apps inherit GTK_THEME at launch; the applet must be restarted to
-    # see the updated value — identical to how dunst is handled above.
+    # GTK3 apps read GTK_THEME at launch; hyprctl setenv only updates Hyprland's
+    # internal env store — not the running script's os.environ — so we must pass
+    # GTK_THEME explicitly in the subprocess env to guarantee the new process uses
+    # the correct theme rather than inheriting a stale or absent value.
+    # A brief sleep after SIGTERM prevents a race where both old and new processes
+    # coexist and the old one reclaims the tray slot.
     proc = subprocess.run(["pgrep", "-x", "blueman-applet"], capture_output=True, text=True)
     if proc.returncode == 0:
         for pid in proc.stdout.split():
@@ -1248,8 +1252,11 @@ def update_gtk(theme: Dict[str, str]) -> None:
                 os.kill(int(pid), 15)  # SIGTERM
             except (ProcessLookupError, ValueError):
                 pass
+        time.sleep(0.3)
+        bt_env = dict(os.environ, GTK_THEME=gtk_theme)
         subprocess.Popen(
             ["blueman-applet"],
+            env=bt_env,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -1277,7 +1284,10 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
     cyan    = theme.get("cyan",       "#89dceb")
 
     btn_bg  = blend_colors(bg, fg, 0.10)   # slightly raised surface for buttons
-    alt_bg  = blend_colors(bg, fg, 0.05)   # alternate row background
+    # 10% blend gives ~1.25:1 contrast against the base — perceptible to the eye
+    # without triggering KDE's contrast-enforcement (contrast=4) which would
+    # overshoot a 5% blend to a clearly-light shade in dark themes like Dracula.
+    alt_bg  = blend_colors(bg, fg, 0.10)   # alternate row background
     sel_fg  = bg if is_dark_color(bg) else fg  # legible text on accent selection
 
     def rgb(h: str) -> str:
@@ -1325,7 +1335,7 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         "IntensityEffect=0\n"
         "\n"
         "[Colors:Button]\n"
-        + color_section(btn_bg, alt_bg, fg)
+        + color_section(btn_bg, blend_colors(bg, fg, 0.15), fg)
         + "\n"
         "[Colors:Complementary]\n"
         + color_section(blend_colors(bg, fg, 0.08), blend_colors(bg, fg, 0.12), fg)
@@ -1348,13 +1358,13 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         f"ForegroundVisited={rgb(sel_fg)}\n"
         "\n"
         "[Colors:Tooltip]\n"
-        + color_section(btn_bg, alt_bg, fg)
+        + color_section(btn_bg, blend_colors(bg, fg, 0.15), fg)
         + "\n"
         "[Colors:View]\n"
         + color_section(bg, alt_bg, fg)
         + "\n"
         "[Colors:Window]\n"
-        + color_section(bg, blend_colors(bg, fg, 0.05), fg)
+        + color_section(bg, alt_bg, fg)
         + "\n"
         "[General]\n"
         "ColorScheme=SwitchThemeGenerated\n"
