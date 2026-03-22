@@ -185,8 +185,9 @@ run_timeout() {
 }
 
 arrow_select() {
-  # Prints selected 0-based index to stdout. Display goes to /dev/tty directly
-  # so this works correctly inside $() command substitutions.
+  # Prints selected 0-based index to stdout. Display and raw keyboard input
+  # both go through /dev/tty directly so this works inside $() substitutions
+  # and when stdin is redirected.
   # Optional: first two args may be -d <N> to set the initial cursor position.
   local default_cur=0
   if [[ "${1:-}" == "-d" ]]; then
@@ -198,24 +199,33 @@ arrow_select() {
   local -a items=("$@")
   local n=${#items[@]}
   (( n > 0 )) || return 1
-  # Need stdin to be a TTY and /dev/tty to be openable.
-  [[ -t 0 ]] || return 1
-  { exec 9>/dev/tty; } 2>/dev/null || return 1
 
-  local cur="$default_cur" key rest
+  # Open /dev/tty for display (fd 9) and for raw keyboard input (fd 8).
+  { exec 9>/dev/tty; }  2>/dev/null || return 1
+  { exec 8</dev/tty; }  2>/dev/null || { exec 9>&-; return 1; }
+  trap 'printf "\e[?25h" >&9 2>/dev/null; exec 9>&- 8>&-' RETURN
+
+  local cur="$default_cur"
   (( cur < 0 )) && cur=0
   (( cur >= n )) && cur=$(( n - 1 ))
 
   printf '\n%s  %s%s\n' "$WH" "$prompt" "$RS" >&9
-  printf '%s  (use ↑/↓ and Enter)%s\n\n' "$DM" "$RS" >&9
+  printf '%s  (↑/↓ or j/k, Enter to confirm)%s\n\n' "$DM" "$RS" >&9
 
-  printf '\e[?25l' >&9
-  trap 'printf "\e[?25h" >&9; exec 9>&-' RETURN
+  printf '\e[?25l' >&9   # hide cursor
 
+  local first=1 key rest
   while true; do
+    if (( first )); then
+      first=0
+    else
+      # Move cursor back to the top of the list before redrawing.
+      printf '\e[%dA' "$n" >&9
+    fi
+
     local i
     for (( i=0; i<n; i++ )); do
-      printf '\033[2K\r' >&9
+      printf '\e[2K\r' >&9
       if (( i == cur )); then
         printf '%s  > %s%s\n' "$AM" "${items[i]}" "$RS" >&9
       else
@@ -223,30 +233,27 @@ arrow_select() {
       fi
     done
 
-    IFS= read -rsn1 key || return 1
+    IFS= read -rsn1 -u8 key || return 1
     case "$key" in
       $'\x1b')
-        IFS= read -rsn2 rest || true
+        # Read the remainder of the escape sequence with a short timeout so a
+        # bare ESC keypress does not block indefinitely.
+        IFS= read -rsn2 -t0.15 -u8 rest || rest=""
         case "$rest" in
-          "[A") cur=$(( cur - 1 )) ;;
-          "[B") cur=$(( cur + 1 )) ;;
+          "[A") (( cur > 0 ))     && cur=$(( cur - 1 )) ;;
+          "[B") (( cur < n - 1 )) && cur=$(( cur + 1 )) ;;
         esac
         ;;
       "")
         printf '\e[?25h' >&9
-        exec 9>&-
+        exec 9>&- 8>&-
         trap - RETURN
         printf '%s\n' "$cur"
         return 0
         ;;
-      k) cur=$(( cur - 1 )) ;;
-      j) cur=$(( cur + 1 )) ;;
+      k) (( cur > 0 ))     && cur=$(( cur - 1 )) ;;
+      j) (( cur < n - 1 )) && cur=$(( cur + 1 )) ;;
     esac
-
-    (( cur < 0 )) && cur=0
-    (( cur >= n )) && cur=$(( n - 1 ))
-
-    printf '\033[%dA' "$n" >&9
   done
 }
 
@@ -511,7 +518,23 @@ detect_timezone() {
   log_ok "Timezone: $TIMEZONE"
 }
 
+_ensure_fzf() {
+  # Install fzf on the live environment if not already present.
+  # Silently no-ops when fzf is already on PATH or when pacman is unavailable
+  # (e.g. running unit tests outside an Arch ISO).
+  command -v fzf &>/dev/null && return 0
+  command -v pacman &>/dev/null || return 1
+  log_step "Installing fzf for interactive selectors..."
+  pacman -Sy --noconfirm --needed fzf &>/dev/null && return 0 || true
+  log_warn "Could not install fzf — falling back to built-in selector"
+  return 1
+}
+
 _pick_timezone() {
+  # Ensure fzf is available on the live environment before building the list —
+  # it provides a far better UX than arrow_select for hundreds of timezones.
+  _ensure_fzf || true
+
   # Build a sorted list of valid timezones from /usr/share/zoneinfo.
   local -a zones=()
   if [[ -d /usr/share/zoneinfo ]]; then
@@ -524,13 +547,14 @@ _pick_timezone() {
   fi
 
   # Try fzf first (most comfortable), then arrow_select, then plain read.
-  if (( ${#zones[@]} > 0 )) && command -v fzf &>/dev/null && [[ -t 0 && -t 1 ]]; then
+  if (( ${#zones[@]} > 0 )) && command -v fzf &>/dev/null; then
     local picked
     picked=$(printf '%s\n' "${zones[@]}" | fzf \
       --prompt='  Timezone > ' \
       --height=15 \
       --reverse \
-      --header='Type to filter  (e.g. Europe, America, Asia)') || true
+      --no-mouse \
+      --header='Type to filter  (e.g. Europe, America, Asia)' </dev/tty >/dev/tty) || true
     if [[ -n "$picked" && -f "/usr/share/zoneinfo/$picked" ]]; then
       TIMEZONE="$picked"
       return 0
@@ -538,15 +562,13 @@ _pick_timezone() {
     log_warn "No timezone selected via fzf — falling back."
   fi
 
-  if (( ${#zones[@]} > 0 )) && [[ -t 0 ]]; then
+  if (( ${#zones[@]} > 0 )); then
     # Grouped arrow picker: let user pick a region then a city.
     local -a regions=()
     mapfile -t regions < <(printf '%s\n' "${zones[@]}" | cut -d/ -f1 | sort -u)
 
-    if [[ -t 0 && -t 1 ]]; then
-      local ridx
-      ridx="$(arrow_select 'Select region' "${regions[@]}")" || ridx=""
-    fi
+    local ridx
+    ridx="$(arrow_select 'Select region' "${regions[@]}")" || ridx=""
 
     if [[ -n "${ridx:-}" ]]; then
       local region="${regions[$ridx]}"
@@ -792,6 +814,9 @@ partition_unallocated() {
       fi
     fi
 
+    local esp_size_bytes
+    esp_size_bytes="$(lsblk -bno SIZE "$selected_esp" 2>/dev/null | head -1 || echo 0)"
+
     local free_bytes
     free_bytes="$(esp_free_bytes "$selected_esp" || true)"
     if [[ -n "${free_bytes:-}" ]]; then
@@ -799,23 +824,28 @@ partition_unallocated() {
       if (( free_bytes < 150 * 1024 * 1024 )); then
         log_warn "Low free space on ESP ($(human_bytes "$free_bytes")). Bootloader/kernel updates may fail."
       elif (( free_bytes < 300 * 1024 * 1024 )); then
-        log_warn "ESP free space is a bit tight ($(human_bytes "$free_bytes")). Consider creating a new ESP."
+        log_warn "ESP free space is a bit tight ($(human_bytes "$free_bytes"))."
       fi
-    else
-      log_warn "Could not determine free space on $selected_esp (mount failed). Consider creating a new ESP."
     fi
 
-    printf '\n%s  How should we handle EFI?%s\n\n' "$WH" "$RS"
-    printf '%s  [1]%s Use existing ESP (%s)\n' "$WH" "$RS" "$selected_esp"
-    printf '%s  [2]%s Create a new %dMiB ESP in the selected unallocated space\n\n' "$WH" "$RS" "$efi_mib"
-    printf '%s  Choice [1/2] (default 1): %s' "$AM" "$RS"
-    local efi_choice
-    read -r efi_choice
-    if [[ "${efi_choice:-1}" == "2" ]]; then
+    # Automatically create a new ESP when the existing one is under 1 GiB —
+    # that is too small for a kernel + initramfs + systemd-boot over time.
+    if (( esp_size_bytes < 1024 * 1024 * 1024 )); then
+      log_warn "Existing ESP is $(human_bytes "$esp_size_bytes") (< 1 GiB) — a new ESP will be created automatically."
       create_new_efi=1
     else
-      create_new_efi=0
-      EFI_PART="$selected_esp"
+      printf '\n%s  How should we handle EFI?%s\n\n' "$WH" "$RS"
+      printf '%s  [1]%s Use existing ESP (%s, %s)\n' "$WH" "$RS" "$selected_esp" "$(human_bytes "$esp_size_bytes")"
+      printf '%s  [2]%s Create a new %dMiB ESP in the selected unallocated space\n\n' "$WH" "$RS" "$efi_mib"
+      printf '%s  Choice [1/2] (default 1): %s' "$AM" "$RS"
+      local efi_choice
+      read -r efi_choice
+      if [[ "${efi_choice:-1}" == "2" ]]; then
+        create_new_efi=1
+      else
+        create_new_efi=0
+        EFI_PART="$selected_esp"
+      fi
     fi
   else
     log_info "No ESP detected on this disk — a new ESP will be created in free space."
@@ -1397,6 +1427,15 @@ binary_install() {
         "$HOME/.local/bin/hyprconf"
   _link "$REPO_DIR/stow/hypr/.local/lib/hyprconf" \
         "$HOME/.local/lib/hyprconf"
+
+  # Symlink scripts that the binary depends on at runtime
+  local _scripts_src="$REPO_DIR/stow/hypr/.config/hypr/scripts"
+  local _scripts_dst="$HOME/.config/hypr/scripts"
+  mkdir -p "$_scripts_dst"
+  for _item in "hyprconf-tui" "theme-switcher" "switch_monitor.sh" "toggle-native-display"; do
+    [[ -e "$_scripts_src/$_item" ]] && \
+      _link "$_scripts_src/$_item" "$_scripts_dst/$_item"
+  done
 
   log_ok "hyprconf installed → ~/.local/bin/hyprconf"
 

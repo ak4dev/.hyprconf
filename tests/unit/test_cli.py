@@ -1265,3 +1265,96 @@ def test_autodetect_prints_unknown_lines(hypr_dir, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert "could not be parsed" in out
     assert "unknown_option" in out
+
+
+# ===========================================================================
+# cmd_monitor field subcommand
+# ===========================================================================
+
+def test_monitor_field_show_empty(hypr_dir, capsys):
+    from hyprconf.monitors import MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    rc = cli.cmd_monitor(["field", "show"])
+    assert rc == 0
+
+
+def test_monitor_field_show_all(hypr_dir, capsys):
+    from hyprconf.monitors import MONITORS_FILE
+    MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n")
+    rc = cli.cmd_monitor(["field", "show"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "HDMI-A-1" in out
+
+
+def test_monitor_field_show_single(hypr_dir, capsys):
+    from hyprconf.monitors import MONITORS_FILE
+    MONITORS_FILE.write_text(
+        "monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n"
+        "monitor = DP-1, 3840x2160@120, 1920x0, 1.5\n"
+    )
+    rc = cli.cmd_monitor(["field", "show", "DP-1"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "DP-1" in out
+    assert "3840x2160@120" in out
+
+
+def test_monitor_field_set_scale(hypr_dir, capsys):
+    from hyprconf.monitors import MONITORS_FILE, read_monitor_configs
+    MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n")
+    rc = cli.cmd_monitor(["field", "set", "HDMI-A-1", "scale", "2.0"])
+    assert rc == 0
+    mc = next(c for c in read_monitor_configs(MONITORS_FILE) if c.name == "HDMI-A-1")
+    assert mc.scale == "2.0"
+
+
+def test_monitor_field_set_extras(hypr_dir, capsys):
+    from hyprconf.monitors import MONITORS_FILE, read_monitor_configs
+    MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n")
+    rc = cli.cmd_monitor(["field", "set", "HDMI-A-1", "vrr", "1"])
+    assert rc == 0
+    mc = next(c for c in read_monitor_configs(MONITORS_FILE) if c.name == "HDMI-A-1")
+    assert "vrr" in mc.extras
+
+
+def test_monitor_field_set_invalid_field(hypr_dir, capsys):
+    from hyprconf.monitors import MONITORS_FILE
+    MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n")
+    rc = cli.cmd_monitor(["field", "set", "HDMI-A-1", "bogusfield", "99"])
+    assert rc == 1
+
+
+def test_monitor_field_set_too_few_args(hypr_dir, capsys):
+    rc = cli.cmd_monitor(["field", "set", "HDMI-A-1", "scale"])
+    assert rc == 1
+
+
+def test_monitor_field_unknown_action(hypr_dir, capsys):
+    rc = cli.cmd_monitor(["field", "bad"])
+    assert rc == 1
+
+
+# ===========================================================================
+# cmd_schema list-sections includes special sections
+# ===========================================================================
+
+def test_schema_list_sections_includes_monitors(hypr_dir, capsys):
+    rc = cli.cmd_schema(["list-sections"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "monitors" in out
+
+
+def test_schema_list_sections_includes_theme(hypr_dir, capsys):
+    rc = cli.cmd_schema(["list-sections"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "theme" in out
+
+
+def test_schema_list_sections_includes_hardware(hypr_dir, capsys):
+    rc = cli.cmd_schema(["list-sections"])
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "hardware" in out

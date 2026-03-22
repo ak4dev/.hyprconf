@@ -289,3 +289,24 @@ def test_section_order_is_list() -> None:
 
 def test_section_order_not_empty() -> None:
     assert len(SECTION_ORDER) > 0
+
+
+def test_section_order_monitors_is_first_entry() -> None:
+    """Monitors should be the very first (non-separator) item in SECTION_ORDER."""
+    non_empty = [s for s in SECTION_ORDER if s]
+    assert non_empty[0] == "monitors"
+
+
+def test_section_order_management_sections_before_separator() -> None:
+    """Management sections (monitors, keybinds, …) must all appear before the '' separator."""
+    separator_idx = SECTION_ORDER.index("")
+    before_sep = SECTION_ORDER[:separator_idx]
+    for section in ("monitors", "keybinds", "window_rules", "workspace_rules",
+                    "hyprlock", "hypridle", "hyprpaper", "theme", "hardware"):
+        assert section in before_sep, f"'{section}' should be before the separator"
+
+
+def test_section_order_general_after_separator() -> None:
+    separator_idx = SECTION_ORDER.index("")
+    after_sep = SECTION_ORDER[separator_idx + 1:]
+    assert "general" in after_sep

@@ -294,3 +294,110 @@ def test_disable_monitor_uses_default_path(hypr_dir: Path) -> None:
     disable_monitor("HDMI-1")  # file=None → MONITORS_FILE
     configs = read_monitor_configs(MONITORS_FILE)
     assert any(m.is_disabled for m in configs if m.name == "HDMI-1")
+
+
+# ---------------------------------------------------------------------------
+# get_monitor_fields
+# ---------------------------------------------------------------------------
+
+def test_get_monitor_fields_all(hypr_dir: Path) -> None:
+    from hyprconf.monitors import get_monitor_fields, upsert_monitor, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1.0",
+                   extras="vrr, 1", file=MONITORS_FILE)
+    upsert_monitor("DP-1", "3840x2160@120", "1920x0", "1.5", file=MONITORS_FILE)
+    result = get_monitor_fields(file=MONITORS_FILE)
+    assert "HDMI-A-1" in result
+    assert "DP-1" in result
+    assert "1920x1080@60" in result
+
+
+def test_get_monitor_fields_single(hypr_dir: Path) -> None:
+    from hyprconf.monitors import get_monitor_fields, upsert_monitor, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1.0",
+                   extras="vrr, 2, bitdepth, 10", file=MONITORS_FILE)
+    result = get_monitor_fields("HDMI-A-1", file=MONITORS_FILE)
+    assert "HDMI-A-1" in result
+    assert "1920x1080@60" in result
+    assert "vrr" in result
+    assert "bitdepth" in result
+
+
+def test_get_monitor_fields_not_found(hypr_dir: Path) -> None:
+    from hyprconf.monitors import get_monitor_fields, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    result = get_monitor_fields("nonexistent", file=MONITORS_FILE)
+    assert "not found" in result.lower()
+
+
+def test_get_monitor_fields_empty(hypr_dir: Path) -> None:
+    from hyprconf.monitors import get_monitor_fields, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    result = get_monitor_fields(file=MONITORS_FILE)
+    assert "No monitor" in result
+
+
+# ---------------------------------------------------------------------------
+# update_monitor_field
+# ---------------------------------------------------------------------------
+
+def test_update_monitor_field_extras(hypr_dir: Path) -> None:
+    from hyprconf.monitors import update_monitor_field, read_monitor_configs, upsert_monitor, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1.0", file=MONITORS_FILE)
+    update_monitor_field("HDMI-A-1", "vrr", "2", file=MONITORS_FILE)
+    configs = read_monitor_configs(MONITORS_FILE)
+    mc = next(c for c in configs if c.name == "HDMI-A-1")
+    assert "vrr" in mc.extras
+    assert "2" in mc.extras
+
+
+def test_update_monitor_field_scale(hypr_dir: Path) -> None:
+    from hyprconf.monitors import update_monitor_field, read_monitor_configs, upsert_monitor, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1.0", file=MONITORS_FILE)
+    update_monitor_field("HDMI-A-1", "scale", "1.5", file=MONITORS_FILE)
+    configs = read_monitor_configs(MONITORS_FILE)
+    mc = next(c for c in configs if c.name == "HDMI-A-1")
+    assert mc.scale == "1.5"
+
+
+def test_update_monitor_field_res(hypr_dir: Path) -> None:
+    from hyprconf.monitors import update_monitor_field, read_monitor_configs, upsert_monitor, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1.0", file=MONITORS_FILE)
+    update_monitor_field("HDMI-A-1", "res", "2560x1440@144", file=MONITORS_FILE)
+    configs = read_monitor_configs(MONITORS_FILE)
+    mc = next(c for c in configs if c.name == "HDMI-A-1")
+    assert mc.resolution == "2560x1440@144"
+
+
+def test_update_monitor_field_preserves_other_extras(hypr_dir: Path) -> None:
+    from hyprconf.monitors import update_monitor_field, read_monitor_configs, upsert_monitor, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1.0",
+                   extras="vrr, 1, bitdepth, 10", file=MONITORS_FILE)
+    update_monitor_field("HDMI-A-1", "vrr", "2", file=MONITORS_FILE)
+    configs = read_monitor_configs(MONITORS_FILE)
+    mc = next(c for c in configs if c.name == "HDMI-A-1")
+    assert "bitdepth" in mc.extras
+    assert "vrr" in mc.extras
+
+
+def test_update_monitor_field_unknown_raises(hypr_dir: Path) -> None:
+    from hyprconf.monitors import update_monitor_field, upsert_monitor, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    upsert_monitor("HDMI-A-1", "1920x1080@60", "0x0", "1.0", file=MONITORS_FILE)
+    with pytest.raises(ValueError, match="Unknown monitor field"):
+        update_monitor_field("HDMI-A-1", "invalid_field", "x", file=MONITORS_FILE)
+
+
+def test_update_monitor_field_creates_new_entry(hypr_dir: Path) -> None:
+    from hyprconf.monitors import update_monitor_field, read_monitor_configs, MONITORS_FILE
+    MONITORS_FILE.write_text("")
+    update_monitor_field("DP-1", "scale", "2.0", file=MONITORS_FILE)
+    configs = read_monitor_configs(MONITORS_FILE)
+    mc = next((c for c in configs if c.name == "DP-1"), None)
+    assert mc is not None
+    assert mc.scale == "2.0"

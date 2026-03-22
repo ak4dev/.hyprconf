@@ -923,11 +923,18 @@ cmd_get() {
 
   [[ -n "$section" ]] || {
     printf "${_b}Available sections:${_r}\n"
+    printf '  monitors\n'
     printf '  general  general.snap  decoration  decoration.blur  decoration.shadow\n'
     printf '  animations  input  input.touchpad  gestures  group  group.groupbar\n'
     printf '  misc  binds  cursor  render  opengl  xwayland  dwindle  master\n'
     return 0
   }
+
+  # Special section: monitors
+  if [[ "$section" == "monitors" ]]; then
+    python3 "$CLI_LIB/cli.py" monitor field show ${key:+"$key"}
+    return $?
+  fi
 
   local keys
   keys="$(_section_keys "$section")"
@@ -978,6 +985,18 @@ cmd_set_keyword() {
     die "Usage: hyprconf set <section> <key> <value>\nExample: hyprconf set general gaps_in 8"
   }
 
+  # Special section: monitors — key=<name>  value=<field> <fieldvalue>
+  if [[ "$section" == "monitors" ]]; then
+    local mon_name="$key"
+    local -a fv_parts=()
+    read -r -a fv_parts <<<"$value"
+    if (( ${#fv_parts[@]} < 2 )); then
+      die "Usage: hyprconf set monitors <name> <field> <value>\nExample: hyprconf set monitors HDMI-A-1 vrr 1"
+    fi
+    python3 "$CLI_LIB/cli.py" monitor field set "$mon_name" "${fv_parts[0]}" "${fv_parts[*]:1}"
+    return $?
+  fi
+
   local meta; meta="$(_option_meta "$section" "$key")"
   [[ -n "$meta" ]] || die "Unknown option '$key' in section '$section'  (try: hyprconf get $section)"
 
@@ -1019,6 +1038,7 @@ cmd_set_keyword() {
 # ════════════════════════════════════════════════════════════════════════════
 
 _repl_sections=(
+  monitors
   general general.snap
   decoration decoration.blur decoration.shadow
   animations
@@ -1034,8 +1054,12 @@ _repl_help_root() {
   printf '\n%s  Available sections:%s\n' "$_b" "$_r"
   local s
   for s in "${_repl_sections[@]}"; do
-    local first_key; first_key="$(  _section_keys "$s" | awk '{print $1}')"
-    printf '  %-22s  %s\n' "$s" "${first_key:+<${first_key}> ...}"
+    if [[ "$s" == "monitors" ]]; then
+      printf '  %-22s  %s\n' "monitors" "<name> <field> <value>"
+    else
+      local first_key; first_key="$(  _section_keys "$s" | awk '{print $1}')"
+      printf '  %-22s  %s\n' "$s" "${first_key:+<${first_key}> ...}"
+    fi
   done
   printf '\n'
   printf '  %-22s  %s\n' "?" "Show this help"
@@ -1043,8 +1067,34 @@ _repl_help_root() {
   printf '\n'
 }
 
+_repl_help_monitors() {
+  printf '\n%s  monitors — per-monitor configuration%s\n' "$_b" "$_r"
+  printf '  %-20s  %-8s  %s\n' "FIELD" "TYPE" "DESCRIPTION"
+  printf '  %-20s  %-8s  %s\n' "$(printf '%0.s─' {1..20})" "$(printf '%0.s─' {1..8})" "$(printf '%0.s─' {1..30})"
+  printf '  %-20s  %-8s  %s\n' "res"           "string" "Resolution@Hz  (e.g. 1920x1080@60 or preferred)"
+  printf '  %-20s  %-8s  %s\n' "pos"           "string" "Position  (e.g. 0x0 or auto-right)"
+  printf '  %-20s  %-8s  %s\n' "scale"         "float"  "Scale factor  (e.g. 1.5)"
+  printf '  %-20s  %-8s  %s\n' "vrr"           "0|1|2"  "Adaptive sync  (0=off 1=on 2=fullscreen)"
+  printf '  %-20s  %-8s  %s\n' "bitdepth"      "8|10"   "Bit depth"
+  printf '  %-20s  %-8s  %s\n' "cm"            "string" "Colour management  (srgb wide hdr10 …)"
+  printf '  %-20s  %-8s  %s\n' "sdrbrightness" "float"  "SDR brightness multiplier in HDR mode"
+  printf '  %-20s  %-8s  %s\n' "sdrsaturation" "float"  "SDR saturation multiplier in HDR mode"
+  printf '  %-20s  %-8s  %s\n' "transform"     "0-7"    "Display rotation / transform"
+  printf '  %-20s  %-8s  %s\n' "mirror"        "string" "Mirror another monitor by name"
+  printf '\n'
+  printf '  %-40s  %s\n' "show"                   "List all configured monitors"
+  printf '  %-40s  %s\n' "show <name>"             "Show fields for a specific monitor"
+  printf '  %-40s  %s\n' "<name> <field> <value>"  "Set a monitor field"
+  printf '  %-40s  %s\n' "exit"                    "Return to root context"
+  printf '\n'
+}
+
 _repl_help_section() {
   local section="$1"
+  if [[ "$section" == "monitors" ]]; then
+    _repl_help_monitors
+    return
+  fi
   printf '\n%s  %s options:%s\n' "$_b" "$section" "$_r"
   printf '  %-40s  %-12s  %-18s  %s\n' "KEY" "TYPE" "DEFAULT" "DESCRIPTION"
   printf '  %-40s  %-12s  %-18s\n' "$(printf '%0.s─' {1..40})" "$(printf '%0.s─' {1..12})" "$(printf '%0.s─' {1..18})"
@@ -1114,23 +1164,41 @@ cmd_configure() {
         show)        cmd_get "$context" ;;
         show\ *)     cmd_get "$context" "${line#show }" ;;
         no\ *)
-          local reset_key="${line#no }"
-          local meta; meta="$(_option_meta "$context" "$reset_key")"
-          [[ -n "$meta" ]] || { printf '%s  Unknown key: %s%s\n' "$_y" "$reset_key" "$_r"; continue; }
-          local _type _default _desc
-          IFS='|' read -r _type _default _desc <<<"$meta"
-          cmd_set_keyword "$context" "$reset_key" "$_default"
+          if [[ "$context" == "monitors" ]]; then
+            printf '%s  "no" is not applicable for monitors. Use: <name> <field> <value>%s\n' "$_y" "$_r"
+          else
+            local reset_key="${line#no }"
+            local meta; meta="$(_option_meta "$context" "$reset_key")"
+            [[ -n "$meta" ]] || { printf '%s  Unknown key: %s%s\n' "$_y" "$reset_key" "$_r"; continue; }
+            local _type _default _desc
+            IFS='|' read -r _type _default _desc <<<"$meta"
+            cmd_set_keyword "$context" "$reset_key" "$_default"
+          fi
           ;;
         *"?")
-          local qkey="${line% \?}"
-          local meta; meta="$(_option_meta "$context" "$qkey")"
-          [[ -n "$meta" ]] && cmd_get "$context" "$qkey" \
-            || printf '%s  Unknown key: %s%s\n' "$_y" "$qkey" "$_r"
+          if [[ "$context" == "monitors" ]]; then
+            local mon_name="${line% \?}"
+            cmd_get "monitors" "$mon_name"
+          else
+            local qkey="${line% \?}"
+            local meta; meta="$(_option_meta "$context" "$qkey")"
+            [[ -n "$meta" ]] && cmd_get "$context" "$qkey" \
+              || printf '%s  Unknown key: %s%s\n' "$_y" "$qkey" "$_r"
+          fi
           ;;
         *)
           local -a parts=()
           read -r -a parts <<<"$line"
-          if (( ${#parts[@]} >= 2 )); then
+          if [[ "$context" == "monitors" ]]; then
+            if (( ${#parts[@]} >= 3 )); then
+              # <name> <field> <value>
+              cmd_set_keyword "monitors" "${parts[0]}" "${parts[*]:1}"
+            elif (( ${#parts[@]} == 1 )); then
+              cmd_get "monitors" "${parts[0]}"
+            else
+              printf '%s  Usage: <name> <field> <value>  or  show [<name>]%s\n' "$_y" "$_r"
+            fi
+          elif (( ${#parts[@]} >= 2 )); then
             cmd_set_keyword "$context" "${parts[0]}" "${parts[*]:1}"
           elif (( ${#parts[@]} == 1 )); then
             cmd_get "$context" "${parts[0]}"
@@ -1147,7 +1215,7 @@ cmd_configure() {
 
 cmd_tui() {
   if [[ ! -f "$TUI_SCRIPT" ]]; then
-    die "TUI script not found at $TUI_SCRIPT\nRun 'hyprconf sync' to update your dotfiles."
+    die "TUI script not found at $TUI_SCRIPT\nRe-run the hyprconf install script to install it:\n  curl -fsSL https://raw.githubusercontent.com/ak4dev/.hyprconf/stable/install/install.sh | bash"
   fi
 
   if ! command -v python3 &>/dev/null; then

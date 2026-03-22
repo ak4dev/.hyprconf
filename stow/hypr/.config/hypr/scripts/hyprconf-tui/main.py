@@ -2510,7 +2510,14 @@ class HyprconfApp(App):
     def on_unmount(self) -> None:
         """Auto-save any pending changes when the app exits (q, Ctrl+C, or any other exit)."""
         if self._pending:
-            save_pending(self._pending)
+            ok, n = save_pending(self._pending)
+            if not ok:
+                import sys
+                print(
+                    "hyprconf-tui: WARNING — auto-save on exit failed. "
+                    "Pending changes were not written to disk.",
+                    file=sys.stderr,
+                )
 
     def action_quit(self) -> None:
         self.exit()
