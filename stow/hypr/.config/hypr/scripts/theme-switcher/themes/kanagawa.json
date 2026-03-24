@@ -16,5 +16,6 @@
     "extension": "rebelot.kanagawa",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#7aa89f"
+  "accent": "#7aa89f",
+  "btop": "kanagawa-wave"
 }

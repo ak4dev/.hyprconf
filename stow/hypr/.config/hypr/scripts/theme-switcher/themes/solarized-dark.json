@@ -16,5 +16,6 @@
     "extension": "ryanolsonx.solarized",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#2aa198"
+  "accent": "#2aa198",
+  "btop": "solarized_dark"
 }

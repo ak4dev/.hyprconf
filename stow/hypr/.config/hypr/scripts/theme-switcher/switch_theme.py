@@ -73,6 +73,8 @@ THEME_COLORS_CONF      = os.path.expanduser("~/.config/hypr/theme-colors.conf")
 HYPRLOCK_CONFIG_FILE   = os.path.expanduser("~/.config/hypr/hyprlock.conf")
 DOLPHIN_RC_FILE        = os.path.expanduser("~/.config/dolphinrc")
 TOUCH_PANEL_COLORS_FILE = os.path.expanduser("~/.config/touch-panel/colors")
+BTOP_CONF_FILE         = os.path.expanduser("~/.config/btop/btop.conf")
+BTOP_CUSTOM_THEMES_DIR = os.path.expanduser("~/.config/btop/themes")
 STATE_FILE             = os.path.expanduser("~/.config/hypr/.current-theme")
 
 FIREFOX_ENFORCED_PREFS = {
@@ -1687,6 +1689,119 @@ def update_touch_panel(theme: Dict[str, str]) -> None:
         print("touch-panel signalled to reload colors.")
 
 
+def _generate_btop_theme(theme: Dict[str, str], theme_name: str) -> str:
+    """Generate a btop .theme file from the hyprconf palette.
+
+    Returns the absolute path to the generated .theme file.
+    """
+    bg      = theme.get("background", "")
+    fg      = theme.get("foreground", "#ffffff")
+    accent  = theme.get("accent",     "#8be9fd")
+    comment = theme.get("comment",    "#6272a4")
+    green   = theme.get("green",  accent)
+    red     = theme.get("red",    "#ff5555")
+    cyan    = theme.get("cyan",   accent)
+    orange  = theme.get("orange", "#ffb86c")
+    purple  = theme.get("purple", accent)
+    yellow  = theme.get("yellow", orange)
+
+    lines = [
+        f'theme[main_bg]="{bg}"',
+        f'theme[main_fg]="{fg}"',
+        f'theme[title]="{fg}"',
+        f'theme[hi_fg]="{accent}"',
+        f'theme[selected_bg]="{accent}"',
+        f'theme[selected_fg]="{bg}"',
+        f'theme[inactive_fg]="{comment}"',
+        f'theme[graph_text]="{fg}"',
+        f'theme[meter_bg]="{comment}"',
+        f'theme[proc_misc]="{purple}"',
+        f'theme[cpu_box]="{purple}"',
+        f'theme[mem_box]="{green}"',
+        f'theme[net_box]="{red}"',
+        f'theme[proc_box]="{cyan}"',
+        f'theme[div_line]="{comment}"',
+        f'theme[temp_start]="{purple}"',
+        f'theme[temp_mid]="{orange}"',
+        f'theme[temp_end]="{red}"',
+        f'theme[cpu_start]="{purple}"',
+        f'theme[cpu_mid]="{cyan}"',
+        f'theme[cpu_end]="{green}"',
+        f'theme[free_start]="{cyan}"',
+        f'theme[free_mid]="{accent}"',
+        f'theme[free_end]="{purple}"',
+        f'theme[cached_start]="{green}"',
+        f'theme[cached_mid]="{cyan}"',
+        f'theme[cached_end]="{accent}"',
+        f'theme[available_start]="{cyan}"',
+        f'theme[available_mid]="{accent}"',
+        f'theme[available_end]="{purple}"',
+        f'theme[used_start]="{green}"',
+        f'theme[used_mid]="{yellow}"',
+        f'theme[used_end]="{red}"',
+        f'theme[download_start]="{purple}"',
+        f'theme[download_mid]="{green}"',
+        f'theme[download_end]="{cyan}"',
+        f'theme[upload_start]="{accent}"',
+        f'theme[upload_mid]="{orange}"',
+        f'theme[upload_end]="{red}"',
+        f'theme[process_start]="{green}"',
+        f'theme[process_mid]="{cyan}"',
+        f'theme[process_end]="{comment}"',
+    ]
+
+    os.makedirs(BTOP_CUSTOM_THEMES_DIR, exist_ok=True)
+    # Sanitize theme name for use as filename
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", theme_name)
+    out_path = os.path.join(BTOP_CUSTOM_THEMES_DIR, f"{safe_name}.theme")
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"btop generated theme written: {out_path}")
+    return out_path
+
+
+def update_btop(theme: Dict[str, str], theme_name: str = "") -> None:
+    """Apply btop theming.
+
+    If the JSON theme has a "btop" key, the value is treated as a system theme
+    name (looked up in /usr/share/btop/themes/) or an absolute path.
+    Otherwise a .theme file is generated from the palette and written to
+    ~/.config/btop/themes/.
+
+    Updates color_theme in ~/.config/btop/btop.conf.
+    """
+    if not os.path.exists(BTOP_CONF_FILE):
+        print("btop config not found, skipping.")
+        return
+
+    btop_key = theme.get("btop")
+    if btop_key:
+        if os.path.isabs(btop_key):
+            theme_path = btop_key
+        else:
+            theme_path = f"/usr/share/btop/themes/{btop_key}.theme"
+    else:
+        theme_path = _generate_btop_theme(theme, theme_name or "generated")
+
+    try:
+        with open(BTOP_CONF_FILE, "r", encoding="utf-8") as f:
+            content = f.read()
+        new_content = re.sub(
+            r'^color_theme\s*=.*$',
+            f'color_theme = "{theme_path}"',
+            content,
+            flags=re.MULTILINE,
+        )
+        if new_content == content:
+            # Key not present — append it
+            new_content = content.rstrip("\n") + f'\ncolor_theme = "{theme_path}"\n'
+        with open(BTOP_CONF_FILE, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        print(f"btop theme set to: {theme_path}")
+    except OSError as e:
+        print(f"Warning: could not update btop config: {e}")
+
+
 def apply_theme(theme_name: str, reload: bool = True) -> None:
     """Apply the selected theme to all relevant config files."""
     print(f"Switching to theme: {theme_name}")
@@ -1750,6 +1865,7 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
         update_wvkbd(theme)
     if shutil.which("touch-panel"):
         update_touch_panel(theme)
+    update_btop(theme, theme_name)
     if reload:
         reload_hyprland()
     write_state(theme_name)

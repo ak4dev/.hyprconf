@@ -9,5 +9,6 @@
   "purple": "#5e81ac",
   "red": "#bf616a",
   "yellow": "#ebcb8b",
-  "accent": "#88c0d0"
+  "accent": "#88c0d0",
+  "btop": "nord"
 }

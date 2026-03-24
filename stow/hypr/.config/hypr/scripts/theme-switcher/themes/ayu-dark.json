@@ -16,5 +16,6 @@
     "extension": "teabyii.ayu",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#ff8f40"
+  "accent": "#ff8f40",
+  "btop": "ayu"
 }

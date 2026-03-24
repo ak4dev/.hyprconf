@@ -16,5 +16,6 @@
     "extension": "sainnhe.everforest",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#a7c080"
+  "accent": "#a7c080",
+  "btop": "everforest-dark-hard"
 }

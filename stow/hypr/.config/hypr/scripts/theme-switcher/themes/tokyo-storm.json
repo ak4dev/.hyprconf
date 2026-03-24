@@ -16,5 +16,6 @@
     "extension": "enkia.tokyo-night",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#7dcfff"
+  "accent": "#7dcfff",
+  "btop": "tokyo-storm"
 }

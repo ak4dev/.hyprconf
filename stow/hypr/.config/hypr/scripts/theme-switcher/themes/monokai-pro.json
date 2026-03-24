@@ -16,5 +16,6 @@
     "extension": "monokai.theme-monokai-pro-vscode",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#ff6188"
+  "accent": "#ff6188",
+  "btop": "monokai"
 }

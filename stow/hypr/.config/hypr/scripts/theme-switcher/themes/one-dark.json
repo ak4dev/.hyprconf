@@ -16,5 +16,6 @@
     "extension": "zhuangtongfa.material-theme",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#98c379"
+  "accent": "#98c379",
+  "btop": "onedark"
 }

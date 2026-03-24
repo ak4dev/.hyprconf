@@ -1,0 +1,11 @@
+{
+  "background": "#1d1d1d",
+  "foreground": "#deddda",
+  "comment": "#77767b",
+  "accent": "#62a0ea",
+  "cyan": "#62a0ea",
+  "green": "#33d17a",
+  "red": "#e01b24",
+  "orange": "#e66100",
+  "btop": "adwaita-dark"
+}

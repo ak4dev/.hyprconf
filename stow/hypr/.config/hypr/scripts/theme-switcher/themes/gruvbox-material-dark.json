@@ -1,0 +1,12 @@
+{
+  "background": "#282828",
+  "foreground": "#d4be98",
+  "comment": "#928374",
+  "accent": "#ea6962",
+  "cyan": "#89b482",
+  "green": "#a9b665",
+  "red": "#ea6962",
+  "orange": "#e78a4e",
+  "purple": "#d3869b",
+  "btop": "gruvbox_material_dark"
+}

@@ -279,7 +279,7 @@ hyprconf theme dracula  # apply directly
 hyprconf theme random   # random pick
 ```
 
-Themes are applied simultaneously to: Hyprland borders · Waybar CSS · Kitty · Dunst · hyprlock · VS Code / Code OSS · Firefox · GTK 3 & 4 · Qt/KDE apps (`kdeglobals`) · Dolphin · wvkbd · touch-panel · wallpaper.
+Themes are applied simultaneously to: Hyprland borders · Waybar CSS · Kitty · Dunst · hyprlock · VS Code / Code OSS · Firefox · GTK 3 & 4 · Qt/KDE apps (`kdeglobals`) · Dolphin · wvkbd · touch-panel · btop · wallpaper.
 
 > **Firefox note:** `userChrome.css` and `user.js` are always updated. If Firefox is running when a theme is applied, `extensions.json` is left untouched (Firefox owns that file while open) and a desktop notification prompts you to restart Firefox for the full theme to activate.
 
@@ -298,16 +298,22 @@ Themes are applied simultaneously to: Hyprland borders · Waybar CSS · Kitty ·
 
 ### Available Themes
 
-**Community (24):**
+**Community (47):**
 
 | | | | |
 |---|---|---|---|
-| `ayu-dark` | `ayu-mirage` | `catppuccin-frappe` | `catppuccin-latte` |
-| `catppuccin-macchiato` | `catppuccin-mocha` | `cyberdream` | `dracula` |
-| `everforest-dark` | `gruvbox` | `kanagawa` | `monokai-pro` |
-| `nord` | `one-dark` | `oxocarbon` | `palenight` |
+| `adapta` | `adwaita` | `adwaita-dark` | `ayu-dark` |
+| `ayu-mirage` | `catppuccin-frappe` | `catppuccin-latte` | `catppuccin-macchiato` |
+| `catppuccin-mocha` | `cyberdream` | `dracula` | `dusklight` |
+| `elementarish` | `everforest-dark` | `everforest-light` | `flat-remix` |
+| `flat-remix-light` | `gotham` | `greyscale` | `gruvbox` |
+| `gruvbox-light` | `gruvbox-material-dark` | `horizon` | `hot-purple-traffic-light` |
+| `kanagawa` | `kanagawa-lotus` | `kyli0x` | `matcha-dark-sea` |
+| `monokai-pro` | `night-owl` | `nord` | `one-dark` |
+| `oxocarbon` | `palenight` | `paper` | `phoenix-night` |
 | `rose-pine` | `rose-pine-dawn` | `rose-pine-moon` | `shades-of-purple` |
-| `solarized-dark` | `tokyo-moon` | `tokyo-night` | `tokyo-storm` |
+| `solarized-dark` | `solarized-light` | `tokyo-moon` | `tokyo-night` |
+| `tokyo-storm` | `tomorrow-night` | `whiteout` | |
 
 **AI-original (20) — prefix `ai:`:**
 
@@ -353,7 +359,9 @@ Create a JSON file in `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`:
 }
 ```
 
-`kitty`, `vscode`, `firefox`, and `wallpaper` are all optional.
+`kitty`, `vscode`, `firefox`, `wallpaper`, and `btop` are all optional.
+
+The `btop` key accepts a system theme name (looked up in `/usr/share/btop/themes/`) or an absolute path. If omitted, a `.theme` file is auto-generated from the palette into `~/.config/btop/themes/`.
 
 ---
 
