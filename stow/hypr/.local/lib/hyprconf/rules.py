@@ -48,6 +48,7 @@ class RuleEntry(NamedTuple):
 _WIN_RULE_RE  = re.compile(r"^(windowrulev2|windowrule)\s*=", re.IGNORECASE)
 _WKSP_RULE_RE = re.compile(r"^workspace\s*=", re.IGNORECASE)
 _SOURCE_RE    = re.compile(r"^source\s*=\s*(.+)$")
+_COMMENT_RE   = re.compile(r"(^|\s)#.*$")
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Parsing — follows source directives recursively
@@ -63,7 +64,7 @@ def _collect_rules(root: Path, pattern: re.Pattern) -> list[RuleEntry]:
         seen.add(p)
         lines = read_lines(p)
         for idx, raw in enumerate(lines):
-            stripped = re.sub(r"(^|\s)#.*$", "", raw).strip()
+            stripped = _COMMENT_RE.sub("", raw).strip()
             if not stripped:
                 continue
             ms = _SOURCE_RE.match(stripped)

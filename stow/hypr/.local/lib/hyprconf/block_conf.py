@@ -16,7 +16,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from .file_edit import read_lines, append_block, update_line, delete_lines, insert_lines
 

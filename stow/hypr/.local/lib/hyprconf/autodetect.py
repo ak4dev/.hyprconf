@@ -41,6 +41,12 @@ CANDIDATE_CONFIGS: list[Path] = [
 # Marker written by hyprconf after first-run to suppress repeated prompts
 _FIRST_RUN_MARKER: Path = _CFG_HOME / "hyprconf" / ".initialized"
 
+# ── Pre-compiled parsing regexes (used per-line in _parse_file) ────────────────
+_RE_COMMENT    = re.compile(r"(^|\s)#.*$")
+_RE_SOURCE     = re.compile(r"^source\s*=\s*(.+)$")
+_RE_BLOCK_OPEN = re.compile(r"^(\w[\w.]*)\s*\{$")
+_RE_KEY_VAL    = re.compile(r"^([\w.]+[\w])\s*=\s*(.+)$")
+
 
 # ── Result types ───────────────────────────────────────────────────────────────
 
@@ -118,12 +124,12 @@ def _parse_file(
     current_section: list[str] = list(section_stack)
 
     for lineno, raw in enumerate(text.splitlines(), 1):
-        ln = re.sub(r"(^|\s)#.*$", "", raw).strip()
+        ln = _RE_COMMENT.sub("", raw).strip()
         if not ln:
             continue
 
         # source = ...
-        m = re.match(r"^source\s*=\s*(.+)$", ln)
+        m = _RE_SOURCE.match(ln)
         if m:
             raw_path = os.path.expanduser(os.path.expandvars(m.group(1).strip()))
             for p in sorted(
@@ -134,7 +140,7 @@ def _parse_file(
             continue
 
         # section open: "general {" or "decoration {"
-        m = re.match(r"^(\w[\w.]*)\s*\{$", ln)
+        m = _RE_BLOCK_OPEN.match(ln)
         if m:
             sec = m.group(1).strip()
             parent = ".".join(current_section) if current_section else ""
@@ -151,7 +157,7 @@ def _parse_file(
             continue
 
         # key = value
-        m = re.match(r"^([\w.]+[\w])\s*=\s*(.+)$", ln)
+        m = _RE_KEY_VAL.match(ln)
         if m and current_section:
             key = m.group(1).strip()
             value = m.group(2).strip()

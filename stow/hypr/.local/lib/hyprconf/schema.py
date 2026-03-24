@@ -34,7 +34,11 @@ Option types understood by hyprconf:
 
 from __future__ import annotations
 
+import re
 from typing import Optional
+
+_HEX_COLOR_RE  = re.compile(r"^0x[0-9a-fA-F]{6,8}$")
+_HASH_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6,8}$")
 
 # ── Type alias ────────────────────────────────────────────────────────────────
 # (type_str, default_str, description)
@@ -433,8 +437,7 @@ def validate_value(type_str: str, value: str) -> tuple[bool, str]:
 
     if type_str == "color":
         # Accept 0xAARRGGBB or #rrggbb
-        import re
-        if re.match(r"^0x[0-9a-fA-F]{6,8}$", v) or re.match(r"^#[0-9a-fA-F]{6,8}$", v):
+        if _HEX_COLOR_RE.match(v) or _HASH_COLOR_RE.match(v):
             return True, ""
         return False, f"expected 0xAARRGGBB or #rrggbb color, got: {v!r}"
 

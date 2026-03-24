@@ -40,6 +40,9 @@ MANAGED_MARKER: str = "# hyprconf-managed"
 # Legacy marker written by older TUI versions — recognised on read, replaced on write.
 _LEGACY_MARKER: str = "# hyprconf-tui managed"
 
+# Pre-compiled regex for parsing managed-block key=value lines
+_MANAGED_LINE_RE = re.compile(r"^([^#\s][^=]*?)\s*=\s*(.+)$")
+
 # ── Key formatting ─────────────────────────────────────────────────────────────
 
 def section_key_to_hyprctl(section: str, key: str) -> str:
@@ -83,13 +86,12 @@ def read_all_persisted() -> dict[str, str]:
 
     result: dict[str, str] = {}
     in_block = False
-    pat = re.compile(r"^([^#\s][^=]*?)\s*=\s*(.+)$")
     for ln in path.read_text(encoding="utf-8").splitlines():
         if MANAGED_MARKER in ln or _LEGACY_MARKER in ln:
             in_block = True
             continue
         if in_block:
-            m = pat.match(ln.strip())
+            m = _MANAGED_LINE_RE.match(ln.strip())
             if m:
                 result[m.group(1).strip()] = m.group(2).strip()
     return result

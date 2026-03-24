@@ -77,6 +77,23 @@ BTOP_CONF_FILE         = os.path.expanduser("~/.config/btop/btop.conf")
 BTOP_CUSTOM_THEMES_DIR = os.path.expanduser("~/.config/btop/themes")
 STATE_FILE             = os.path.expanduser("~/.config/hypr/.current-theme")
 
+# ── Pre-compiled regex patterns ────────────────────────────────────────────────
+_RE_DUNST_SECTION     = re.compile(r"^\[(\w+)\]")
+_RE_DUNST_DMENU_COLOR = re.compile(r'\s+-(?:nb|nf|sb|sf)\s+"?#[0-9a-fA-F]{6}"?')
+_RE_DUNST_COLOR_KEY   = re.compile(r'^(\s*)(\w+)\s*=\s*"#[0-9a-fA-F]{6}"')
+_RE_WALLPAPER_VAR     = re.compile(r'^\$wallpaper\s*=')
+_RE_USER_PREF         = re.compile(r'user_pref\("([^"]+)",\s*(.+)\);\s*$')
+_RE_GTK_THEME         = re.compile(r"^(gtk-theme-name\s*=).*$", re.MULTILINE)
+_RE_GTK_ICON          = re.compile(r"^(gtk-icon-theme-name\s*=).*$", re.MULTILINE)
+_RE_GTK_DARK          = re.compile(r"^(gtk-application-prefer-dark-theme\s*=).*$", re.MULTILINE)
+_RE_QT_APPEARANCE     = re.compile(r"(\[Appearance\]\n)")
+_RE_BTOP_SAFE_NAME    = re.compile(r"[^a-zA-Z0-9._-]")
+_RE_BTOP_COLOR_THEME  = re.compile(r"^color_theme\s*=.*$", re.MULTILINE)
+_RE_WAYBAR_COLOR      = re.compile(r"@define-color\s+(\w+)\s+[^;]+;")
+_RE_WAYBAR_BG_ALPHA   = re.compile(r"@define-color background-alpha\s+[^;]+;")
+_RE_WAYBAR_BG_ANCHOR  = re.compile(r"(@define-color background\s+[^;]+;)")
+_RE_WAYBAR_RGBA_BG    = re.compile(r"background:\s*rgba\(40,\s*42,\s*54,\s*0\.\d+\);")
+
 FIREFOX_ENFORCED_PREFS = {
     # --- UI ---
     "browser.tabs.verticalTabs": True,
@@ -284,7 +301,7 @@ def update_dunst(theme: Dict[str, str]) -> None:
     result = []
     for line in lines:
         stripped = line.strip()
-        section_match = re.match(r"^\[(\w+)\]", stripped)
+        section_match = _RE_DUNST_SECTION.match(stripped)
         if section_match:
             current_section = section_match.group(1).lower()
             result.append(line)
@@ -292,12 +309,12 @@ def update_dunst(theme: Dict[str, str]) -> None:
 
         if current_section == "global" and stripped.startswith("dmenu"):
             # Strip any existing color flags (quoted or unquoted) and append fresh themed ones
-            base_cmd = re.sub(r'\s+-(?:nb|nf|sb|sf)\s+"?#[0-9a-fA-F]{6}"?', '', line.rstrip())
+            base_cmd = _RE_DUNST_DMENU_COLOR.sub('', line.rstrip())
             result.append(base_cmd + dmenu_color_args + "\n")
             continue
 
         if current_section and current_section in section_colors:
-            color_match = re.match(r'^(\s*)(\w+)\s*=\s*"#[0-9a-fA-F]{6}"', line)
+            color_match = _RE_DUNST_COLOR_KEY.match(line)
             if color_match:
                 key = color_match.group(2)
                 if key in section_colors[current_section]:
@@ -650,29 +667,22 @@ def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
         else:
             return match.group(0)
 
-    updated_text = re.sub(
-        r"@define-color\s+(\w+)\s+[^;]+;",
-        replacer,
-        config_text,
-    )
+    updated_text = _RE_WAYBAR_COLOR.sub(replacer, config_text)
 
     rgba_bg = hex_to_rgba(theme_colors["background"], 0.8)
     if "@define-color background-alpha" in updated_text:
-        updated_text = re.sub(
-            r"@define-color background-alpha\s+[^;]+;",
+        updated_text = _RE_WAYBAR_BG_ALPHA.sub(
             f"@define-color background-alpha {rgba_bg};",
             updated_text,
         )
     else:
-        updated_text = re.sub(
-            r"(@define-color background\s+[^;]+;)",
+        updated_text = _RE_WAYBAR_BG_ANCHOR.sub(
             r"\1\n@define-color background-alpha " + rgba_bg + ";",
             updated_text,
             count=1,
         )
 
-    updated_text = re.sub(
-        r"background:\s*rgba\(40,\s*42,\s*54,\s*0\.\d+\);",
+    updated_text = _RE_WAYBAR_RGBA_BG.sub(
         "background: @background-alpha;",
         updated_text,
     )
@@ -712,7 +722,7 @@ def update_hyprpaper(theme: Dict[str, str]):
     updated_lines = []
     for line in lines:
         # Update the $wallpaper variable declaration used by all wallpaper blocks
-        if re.match(r'^\$wallpaper\s*=', line):
+        if _RE_WALLPAPER_VAR.match(line):
             updated_lines.append(f"$wallpaper = {wallpaper_entry}\n")
         else:
             updated_lines.append(line)
@@ -749,14 +759,12 @@ def parse_user_js(path: str) -> Dict[str, Any]:
         return {}
 
     prefs: Dict[str, Any] = {}
-    pattern = re.compile(r'user_pref\("([^"]+)",\s*(.+)\);\s*$')
-
     with open(path, "r", encoding="utf-8") as file:
         for line in file:
             line = line.strip()
             if not line or line.startswith("//"):
                 continue
-            match = pattern.match(line)
+            match = _RE_USER_PREF.match(line)
             if not match:
                 continue
             key, value_str = match.groups()
@@ -1188,19 +1196,9 @@ def update_gtk(theme: Dict[str, str]) -> None:
     def patch_ini(path: str) -> None:
         with open(path) as f:
             content = f.read()
-        content = re.sub(
-            r"^(gtk-theme-name\s*=).*$", f"gtk-theme-name={gtk_theme}",
-            content, flags=re.MULTILINE,
-        )
-        content = re.sub(
-            r"^(gtk-icon-theme-name\s*=).*$", f"gtk-icon-theme-name={icon_theme}",
-            content, flags=re.MULTILINE,
-        )
-        content = re.sub(
-            r"^(gtk-application-prefer-dark-theme\s*=).*$",
-            f"gtk-application-prefer-dark-theme={dark_val}",
-            content, flags=re.MULTILINE,
-        )
+        content = _RE_GTK_THEME.sub(f"gtk-theme-name={gtk_theme}", content)
+        content = _RE_GTK_ICON.sub(f"gtk-icon-theme-name={icon_theme}", content)
+        content = _RE_GTK_DARK.sub(f"gtk-application-prefer-dark-theme={dark_val}", content)
         with open(path, "w") as f:
             f.write(content)
 
@@ -1583,11 +1581,10 @@ def update_qt_platform_theme(theme: Dict[str, str]) -> None:
             text = "[Appearance]\n" + text
 
         def set_key(content: str, key: str, value: str) -> str:
-            pattern = rf"^{re.escape(key)}\s*=.*$"
-            replacement = f"{key}={value}"
-            if re.search(pattern, content, re.MULTILINE):
-                return re.sub(pattern, replacement, content, flags=re.MULTILINE)
-            return re.sub(r"(\[Appearance\]\n)", rf"\1{key}={value}\n", content, count=1)
+            pat = re.compile(rf"^{re.escape(key)}\s*=.*$", re.MULTILINE)
+            if pat.search(content):
+                return pat.sub(f"{key}={value}", content)
+            return _RE_QT_APPEARANCE.sub(rf"\g<1>{key}={value}\n", content, count=1)
 
         text = set_key(text, "color_scheme_path", colors_path)
         text = set_key(text, "custom_palette", "true")
@@ -1752,7 +1749,7 @@ def _generate_btop_theme(theme: Dict[str, str], theme_name: str) -> str:
 
     os.makedirs(BTOP_CUSTOM_THEMES_DIR, exist_ok=True)
     # Sanitize theme name for use as filename
-    safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", theme_name)
+    safe_name = _RE_BTOP_SAFE_NAME.sub("_", theme_name)
     out_path = os.path.join(BTOP_CUSTOM_THEMES_DIR, f"{safe_name}.theme")
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
@@ -1786,11 +1783,9 @@ def update_btop(theme: Dict[str, str], theme_name: str = "") -> None:
     try:
         with open(BTOP_CONF_FILE, "r", encoding="utf-8") as f:
             content = f.read()
-        new_content = re.sub(
-            r'^color_theme\s*=.*$',
+        new_content = _RE_BTOP_COLOR_THEME.sub(
             f'color_theme = "{theme_path}"',
             content,
-            flags=re.MULTILINE,
         )
         if new_content == content:
             # Key not present — append it

@@ -66,6 +66,7 @@ class MonitorConfig:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _MONITOR_RE = re.compile(r"^monitor\s*=\s*(.+)$", re.IGNORECASE)
+_COMMENT_RE = re.compile(r"(^|\s)#.*$")
 
 
 def read_monitor_configs(path: Optional[Path] = None) -> list[MonitorConfig]:
@@ -80,7 +81,7 @@ def read_monitor_configs(path: Optional[Path] = None) -> list[MonitorConfig]:
     configs: list[MonitorConfig] = []
     lines = read_lines(path)
     for idx, raw in enumerate(lines):
-        stripped = re.sub(r"(^|\s)#.*$", "", raw).strip()
+        stripped = _COMMENT_RE.sub("", raw).strip()
         m = _MONITOR_RE.match(stripped)
         if not m:
             continue

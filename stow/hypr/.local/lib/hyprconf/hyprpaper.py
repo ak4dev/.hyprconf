@@ -90,11 +90,11 @@ class SettingEntry:
 #  Readers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def read_preloads(path: Optional[Path] = None) -> list[PreloadEntry]:
+def read_preloads(path: Optional[Path] = None, *, _lines: Optional[list[str]] = None) -> list[PreloadEntry]:
     """Return all ``preload =`` entries."""
     p    = path or HYPRPAPER_FILE
     out: list[PreloadEntry] = []
-    for i, raw in enumerate(read_lines(p)):
+    for i, raw in enumerate(_lines if _lines is not None else read_lines(p)):
         s = _strip(raw)
         m = _PRELOAD_RE.match(s)
         if m:
@@ -102,11 +102,11 @@ def read_preloads(path: Optional[Path] = None) -> list[PreloadEntry]:
     return out
 
 
-def read_wallpaper_lines(path: Optional[Path] = None) -> list[WallpaperLine]:
+def read_wallpaper_lines(path: Optional[Path] = None, *, _lines: Optional[list[str]] = None) -> list[WallpaperLine]:
     """Return all ``wallpaper = monitor,path`` (line-based) entries."""
     p   = path or HYPRPAPER_FILE
     out: list[WallpaperLine] = []
-    for i, raw in enumerate(read_lines(p)):
+    for i, raw in enumerate(_lines if _lines is not None else read_lines(p)):
         s = _strip(raw)
         m = _WALLPAPER_RE.match(s)
         if m:
@@ -124,11 +124,11 @@ def read_wallpaper_blocks(path: Optional[Path] = None) -> list[ConfigBlock]:
     return [b for b in read_blocks(path or HYPRPAPER_FILE) if b.block_type == "wallpaper"]
 
 
-def read_settings(path: Optional[Path] = None) -> list[SettingEntry]:
+def read_settings(path: Optional[Path] = None, *, _lines: Optional[list[str]] = None) -> list[SettingEntry]:
     """Return top-level splash/ipc settings and variable definitions."""
     p   = path or HYPRPAPER_FILE
     out: list[SettingEntry] = []
-    for i, raw in enumerate(read_lines(p)):
+    for i, raw in enumerate(_lines if _lines is not None else read_lines(p)):
         s = _strip(raw)
         ms = _SETTING_RE.match(s)
         if ms:
@@ -152,11 +152,12 @@ def read_all(path: Optional[Path] = None) -> dict:
         settings        — list[SettingEntry]
     """
     p = path or HYPRPAPER_FILE
+    lines = read_lines(p)
     return {
-        "preloads":         read_preloads(p),
-        "wallpaper_lines":  read_wallpaper_lines(p),
+        "preloads":         read_preloads(p, _lines=lines),
+        "wallpaper_lines":  read_wallpaper_lines(p, _lines=lines),
         "wallpaper_blocks": read_wallpaper_blocks(p),
-        "settings":         read_settings(p),
+        "settings":         read_settings(p, _lines=lines),
     }
 
 

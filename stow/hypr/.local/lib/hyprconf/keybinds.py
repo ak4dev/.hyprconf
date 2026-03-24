@@ -46,9 +46,10 @@ class KeybindEntry(NamedTuple):
 #  Parsing
 # ─────────────────────────────────────────────────────────────────────────────
 
-_BIND_RE   = re.compile(r"^(bind[a-zA-Z]*)\s*=\s*(.+)$")
-_VAR_RE    = re.compile(r"^\$([A-Za-z0-9_]+)\s*=\s*(.+)$")
-_SOURCE_RE = re.compile(r"^source\s*=\s*(.+)$")
+_BIND_RE    = re.compile(r"^(bind[a-zA-Z]*)\s*=\s*(.+)$")
+_VAR_RE     = re.compile(r"^\$([A-Za-z0-9_]+)\s*=\s*(.+)$")
+_SOURCE_RE  = re.compile(r"^source\s*=\s*(.+)$")
+_COMMENT_RE = re.compile(r"(^|\s)#.*$")
 
 
 def _expand_vars(text: str, vars_: dict[str, str]) -> str:
@@ -84,7 +85,7 @@ def read_keybinds_with_location(
         local_vars: dict[str, str] = dict(inherited_vars)
         lines = read_lines(p)
         for idx, raw in enumerate(lines):
-            stripped = re.sub(r"(^|\s)#.*$", "", raw).strip()
+            stripped = _COMMENT_RE.sub("", raw).strip()
             if not stripped:
                 continue
             mv = _VAR_RE.match(stripped)
