@@ -16,7 +16,7 @@ _has_physical_keyboard() {
     local f
     for f in /sys/class/input/*/device/uevent; do
         grep -q '^ID_INPUT_KEYBOARD=1' "$f" 2>/dev/null \
-            && grep -q '^PHYS=.\+' "$f" 2>/dev/null \
+            && grep -E -q '^PHYS=.+' "$f" 2>/dev/null \
             && return 0
     done
     return 1

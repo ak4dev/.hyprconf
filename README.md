@@ -387,6 +387,8 @@ Touchpad workspace swiping is configured in `gestures.conf`:
 | `workspace_swipe_min_speed_to_force` | `15` | Minimum speed (px/s) to force completion |
 | `workspace_swipe_cancel_ratio` | `0.5` | Below 50% → cancel and return to current workspace |
 | `workspace_swipe_create_new` | `true` | Swipe past last workspace creates a new one |
+| `workspace_swipe_direction_lock` | `true` | Locks swipe axis after threshold distance |
+| `workspace_swipe_direction_lock_threshold` | `10` | Distance (px) before axis locks |
 | `workspace_swipe_forever` | `true` | Keeps animating beyond the threshold distance |
 
 ---
@@ -632,7 +634,7 @@ tests/
 │   └── test_cli_get_set.py
 ├── tui/                     # Tier 3 — Textual Pilot (headless, no terminal needed)
 │   └── test_tui_basic.py
-├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in, 42 tests)
+├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in, 43 tests)
 │   ├── run_vm.sh            # QEMU launch script (virtio-gpu-gl, SSH port 2222)
 │   └── test_hyprland_integration.py
 └── install/                 # Tier 5 — full Arch install smoke test (opt-in, 9 tests)

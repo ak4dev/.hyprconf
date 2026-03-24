@@ -321,3 +321,39 @@ def test_touch_panel_watch_uses_cmdline_pgrep_not_exact_name() -> None:
     assert "pgrep -f" in content, (
         "touch-panel-watch must use 'pgrep -f' to match by full command line."
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression: touch-panel-watch must use grep -E (ERE) for PHYS pattern
+# ---------------------------------------------------------------------------
+
+def test_touch_panel_watch_uses_grep_e_for_phys() -> None:
+    """Regression: touch-panel-watch used 'grep -q ^PHYS=.\\+' (GNU BRE
+    extension).  touch-panel-launcher was already fixed to use grep -E.
+    Both scripts must use the same ERE form for consistency and portability."""
+    content = TOUCH_PANEL_WATCH.read_text()
+    assert r"grep -q '^PHYS=.\+'" not in content, (
+        "touch-panel-watch still uses non-POSIX BRE \\+ — should use grep -E"
+    )
+    assert "grep -E" in content, (
+        "touch-panel-watch must use grep -E for PHYS pattern"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression: wvkbd-toggle default state file must use XDG_RUNTIME_DIR
+# ---------------------------------------------------------------------------
+
+def test_wvkbd_toggle_default_state_uses_xdg_runtime_dir() -> None:
+    """Regression: the default STATE_FILE was '/tmp/wvkbd-visible', shared
+    across all users and susceptible to /tmp TOCTOU attacks.  Fix: use
+    ${XDG_RUNTIME_DIR:-/tmp} so the file lives in the user's private runtime
+    directory when available."""
+    content = WVKBD_TOGGLE.read_text()
+    assert ":-/tmp}/wvkbd-visible" in content or "${XDG_RUNTIME_DIR" in content, (
+        "wvkbd-toggle default STATE_FILE should use ${XDG_RUNTIME_DIR:-/tmp}"
+    )
+    # Must NOT have the bare /tmp hardcode any more
+    assert ":-/tmp/wvkbd-visible}" not in content, (
+        "wvkbd-toggle still has bare /tmp/wvkbd-visible hardcode"
+    )

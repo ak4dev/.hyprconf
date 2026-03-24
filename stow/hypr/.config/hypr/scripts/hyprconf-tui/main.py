@@ -2156,8 +2156,11 @@ class HyprconfApp(App):
                     else:
                         launcher = shutil.which("wvkbd-launcher")
                         if launcher:
-                            subprocess.Popen([launcher])
-                            self.notify("OSK started")
+                            try:
+                                subprocess.Popen([launcher])
+                                self.notify("OSK started")
+                            except OSError as e:
+                                self.notify(f"Failed to start OSK: {e}", severity="error")
                         else:
                             self.notify("wvkbd-launcher not found", severity="error")
                     self._load_section("hardware")
@@ -2176,8 +2179,11 @@ class HyprconfApp(App):
                     else:
                         rotbin = shutil.which("autorotate")
                         if rotbin:
-                            subprocess.Popen([rotbin])
-                            self.notify("Auto-rotation started")
+                            try:
+                                subprocess.Popen([rotbin])
+                                self.notify("Auto-rotation started")
+                            except OSError as e:
+                                self.notify(f"Failed to start auto-rotation: {e}", severity="error")
                         else:
                             self.notify("autorotate not found", severity="error")
                     self._load_section("hardware")
@@ -2251,13 +2257,14 @@ class HyprconfApp(App):
             if not result or not result.strip():
                 return
             wp_path = result.strip()
-            ok = _lib_add_preload(wp_path)
             if ok:
                 ok2 = _lib_add_wp_block("", wp_path)
             else:
                 ok2 = False
-            if ok:
+            if ok and ok2:
                 self.notify("Wallpaper entry added")
+            elif ok and not ok2:
+                self.notify("Preload added but wallpaper line failed", severity="warning")
             else:
                 self.notify("Failed to add wallpaper entry", severity="error")
             self._load_section("hyprpaper")

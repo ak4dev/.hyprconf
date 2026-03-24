@@ -14,7 +14,7 @@ readonly STEP=5
 direction="${1:-+}"
 
 _get_int() {
-    hyprctl getoption "$1" | awk '/int:/{print $2; exit}'
+    hyprctl getoption "$1" | awk '/int:/{print $2; exit}' || echo "0"
 }
 
 gaps_in=$(  _get_int general:gaps_in  )

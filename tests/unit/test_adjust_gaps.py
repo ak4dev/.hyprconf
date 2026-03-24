@@ -128,3 +128,45 @@ def test_decrease_positive_result_does_not_abort():
     assert rc == 0, "Script must not abort on a positive post-decrement value"
     assert "general:gaps_in 15" in calls
     assert "general:gaps_out 25" in calls
+
+
+# ---------------------------------------------------------------------------
+# Regression: empty hyprctl output must not crash with arithmetic error
+# ---------------------------------------------------------------------------
+
+def test_increase_with_empty_hyprctl_output_defaults_to_zero(tmp_path):
+    """Regression: if hyprctl getoption returns no 'int:' line, awk outputs
+    empty string and $(( '' + STEP )) fails with 'not a valid identifier'.
+    Fix: _get_int adds '|| echo 0' so the empty case resolves to 0."""
+    fake_hyprctl = tmp_path / "hyprctl"
+    calls_file = tmp_path / "calls.txt"
+
+    # hyprctl returns output that contains no 'int:' token at all
+    fake_hyprctl.write_text(
+        f"""#!/usr/bin/env bash
+if [[ "$1" == "getoption" ]]; then
+    echo "option: general:gaps_in = 10"  # no 'int:' prefix
+elif [[ "$1" == "keyword" ]]; then
+    echo "$2 $3" >> "{calls_file}"
+fi
+"""
+    )
+    fake_hyprctl.chmod(0o755)
+
+    env = os.environ.copy()
+    env["PATH"] = f"{tmp_path}:{env['PATH']}"
+
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "+"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (
+        f"Script crashed on empty awk output.\nstderr: {result.stderr}"
+    )
+    # Gaps_in was 0 (fallback) + STEP=5 → 5
+    calls = calls_file.read_text().splitlines() if calls_file.exists() else []
+    assert any("general:gaps_in 5" in c for c in calls), (
+        f"Expected gaps_in=5 (0+5) but calls were: {calls}"
+    )

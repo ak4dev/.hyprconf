@@ -603,7 +603,7 @@ def cmd_rule(args: list[str]) -> int:
                 print(f"{_Y}Index out of range{_R}", file=sys.stderr)
                 return 1
             e = entries[idx]
-            update_window_rule(e.file_path, e.line_idx, args[3], args[4])
+            update_window_rule(e.file_path, e.line_idx, args[3], [args[4]])
             print(f"  {_B}Updated:{_R}  [{args[2]}] → windowrule = {args[3]}, {args[4]}")
             return 0
 

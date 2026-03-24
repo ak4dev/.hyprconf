@@ -7,7 +7,7 @@
 set -euo pipefail
 
 LAUNCHER="${HOME}/.local/bin/wvkbd-launcher"
-STATE_FILE="${WVKBD_STATE_FILE:-/tmp/wvkbd-visible}"
+STATE_FILE="${WVKBD_STATE_FILE:-${XDG_RUNTIME_DIR:-/tmp}/wvkbd-visible}"
 
 pid="$(pgrep -x -o wvkbd-mobintl 2>/dev/null || true)"
 

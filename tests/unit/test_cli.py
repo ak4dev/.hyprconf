@@ -1358,3 +1358,25 @@ def test_schema_list_sections_includes_hardware(hypr_dir, capsys):
     assert rc == 0
     out = capsys.readouterr().out
     assert "hardware" in out
+
+
+# ---------------------------------------------------------------------------
+# Regression: cmd_rule window update must preserve the whole filter string
+# ---------------------------------------------------------------------------
+
+def test_rule_window_update_writes_whole_filter_not_chars(hypr_dir, capsys):
+    """Regression: args[4] was passed as str where list[str] was expected.
+    update_window_rule iterates its filters arg — iterating a bare string yields
+    individual characters, producing 'tile, c, l, a, s, s, :, a, p, p' instead
+    of 'tile, class:app'.  Fix: wrap args[4] in a list."""
+    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    WINRULES_FILE.write_text("windowrulev2 = float, class:kitty\n")
+    HYPRLAND_CONF.write_text(f"source = {WINRULES_FILE}\n")
+
+    rc = cli.cmd_rule(["window", "update", "1", "tile", "class:app"])
+    assert rc == 0
+
+    content = WINRULES_FILE.read_text()
+    # Must contain the whole filter token, NOT individual characters
+    assert "class:app" in content, f"filter string mangled: {content!r}"
+    assert "c, l, a, s, s" not in content, f"filter was iterated char-by-char: {content!r}"
