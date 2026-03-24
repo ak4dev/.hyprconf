@@ -1,10 +1,25 @@
 [build-system]
-requires = ["setuptools"]
-build-backend = "setuptools.backends.legacy:build"
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
 
 [project]
-name = "hyprconf-tests"
-version = "0.1.0"
+name = "hyprconf"
+version = "2.0.35"
+description = "Hyprland configuration suite — CLI/TUI binary and Arch Linux dotfiles"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-xdist>=3",
+    "pytest-asyncio>=0.23",
+    "textual>=0.50",
+    "coverage[toml]",
+    "pytest-cov",
+]
+
+[tool.setuptools.package-dir]
+"" = "stow/hypr/.local/lib"
 
 [tool.pytest.ini_options]
 pythonpath = ["stow/hypr/.local/lib"]
@@ -21,3 +36,15 @@ omit   = ["tests/*"]
 
 [tool.coverage.report]
 show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true

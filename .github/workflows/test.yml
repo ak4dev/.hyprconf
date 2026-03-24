@@ -20,15 +20,16 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: |
-          pip install pytest pytest-asyncio coverage pytest-cov
+        run: pip install pytest pytest-asyncio pytest-xdist coverage pytest-cov
 
       - name: Run tests
         run: |
           python -m pytest tests/unit/ tests/integration/ \
-            --tb=short -q \
+            --tb=short -q -n auto \
             --cov=stow/hypr/.local/lib/hyprconf \
             --cov-report=term-missing
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
 
   tui:
     name: "TUI (Tier 3)"
@@ -43,12 +44,9 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: |
-          pip install pytest pytest-asyncio textual
+        run: pip install pytest pytest-asyncio pytest-xdist textual
 
       - name: Run TUI tests
-        run: |
-          python -m pytest tests/tui/ --tb=short -q
+        run: python -m pytest tests/tui/ --tb=short -q -n auto
         env:
-          # TUI tests run headless; no HYPRLAND_INSTANCE_SIGNATURE needed
           PYTHONDONTWRITEBYTECODE: "1"
