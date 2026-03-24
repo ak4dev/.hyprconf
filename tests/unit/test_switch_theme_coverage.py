@@ -294,21 +294,23 @@ def test_load_kitty_theme_raises_when_conf_missing(tmp_path):
 
 
 def test_load_kitty_theme_replaces_old_include(tmp_path):
-    old_theme = tmp_path / "themes" / "old.conf"
-    old_theme.parent.mkdir()
-    old_theme.write_text("background #000000\n")
-
+    """load_kitty_theme must remove any existing include pointing to
+    ~/.config/kitty/themes/ and add the new one."""
     new_theme = tmp_path / "themes" / "new.conf"
+    new_theme.parent.mkdir()
     new_theme.write_text("background #ffffff\n")
 
     kitty_conf = tmp_path / "kitty.conf"
-    kitty_conf.write_text(f"font_size 12.0\ninclude {old_theme}\n")
+    # Use a path that starts with "~/.config/kitty/themes/" so is_theme_include() matches
+    kitty_conf.write_text(
+        "font_size 12.0\ninclude ~/.config/kitty/themes/old.conf\n"
+    )
 
     with patch.object(st, "KITTY_CONFIG_FILE", str(kitty_conf)):
         st.load_kitty_theme(str(new_theme))
 
     content = kitty_conf.read_text()
-    assert str(old_theme) not in content
+    assert "~/.config/kitty/themes/old.conf" not in content
     assert str(new_theme) in content
 
 
@@ -693,6 +695,8 @@ def test_wofi_select_returns_none_when_wofi_missing(monkeypatch, tmp_path):
     monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
     monkeypatch.setattr(st, "STATE_FILE", str(tmp_path / ".current-theme"))
     monkeypatch.setattr(st.shutil, "which", lambda n: None)
+    # interactive_select uses curses — prevent it from running in CI/non-tty
+    monkeypatch.setattr(st, "interactive_select", lambda *_: None)
     result = st.wofi_select()
     assert result is None
 
