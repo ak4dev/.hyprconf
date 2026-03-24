@@ -371,3 +371,65 @@ async def test_on_unmount_logs_stderr_on_save_failure(
 
     assert any("auto-save" in msg.lower() or "WARNING" in msg for msg in stderr_msgs), \
         "on_unmount must print a warning to stderr when save_pending fails"
+
+
+# ---------------------------------------------------------------------------
+# Regression: block-field editing — line with no '=' must not crash
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_blkfld_no_equals_line_yields_empty_current_val(
+    patched_tui_env: Path,
+) -> None:
+    """Regression: editing a block field whose config line has no '=' must
+    yield an empty current value, not raise an IndexError."""
+    # Reproduce the logic that was previously `split("=", 1)[1]`
+    # This test verifies the guard is in place in the TUI source.
+    import main as tui_main, inspect
+
+    src = inspect.getsource(tui_main.HyprconfApp.on_row_selected)
+    # Old (buggy) pattern: split("=", 1)[1].strip()
+    assert 'split("=", 1)[1]' not in src, (
+        "TUI still uses unguarded split()[1] — IndexError regression"
+    )
+    # New pattern must check len before indexing
+    assert 'len(_parts) > 1' in src, (
+        "TUI must guard split result with len() check before indexing"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression: _set_wallpaper must use hyprpaper IPC, not hyprctl keyword
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_set_wallpaper_uses_hyprpaper_ipc(
+    patched_tui_env: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: _set_wallpaper must call `hyprctl hyprpaper wallpaper`
+    (hyprpaper's own IPC), NOT `hyprctl keyword hyprpaper:wallpaper`."""
+    import main as tui_main
+
+    run_calls: list[list[str]] = []
+    monkeypatch.setattr(tui_main, "_run", lambda args, **kw: (run_calls.append(list(args)), "ok")[1])
+
+    fake_wp = tmp_path / "bg.png"
+    fake_wp.write_bytes(b"")
+
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        app._set_wallpaper(fake_wp)
+        await pilot.pause()
+
+    # Must call hyprctl hyprpaper wallpaper …
+    assert any(
+        len(a) >= 3 and a[:3] == ["hyprctl", "hyprpaper", "wallpaper"]
+        for a in run_calls
+    ), "Expected `hyprctl hyprpaper wallpaper` call — hyprpaper has its own IPC"
+    # Must NOT call hyprctl keyword … hyprpaper …
+    assert not any(
+        len(a) >= 2 and a[0] == "hyprctl" and a[1] == "keyword"
+        and any("hyprpaper" in str(x) for x in a)
+        for a in run_calls
+    ), "`hyprctl keyword hyprpaper` is wrong — hyprpaper is not a Hyprland option section"

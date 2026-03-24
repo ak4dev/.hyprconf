@@ -32,8 +32,8 @@ log_step "Switching monitor config to: $1"
 
 # Write directly to monitors.conf, replacing any existing symlink or file.
 # This avoids overwriting the stow-tracked pcMonitors.conf source.
-rm -f "$MONITORS_CONF"
-cp "$SOURCE" "$MONITORS_CONF"
+cp "$SOURCE" "${MONITORS_CONF}.tmp"
+mv "${MONITORS_CONF}.tmp" "$MONITORS_CONF"
 
 hyprctl reload
 log_ok "Monitor preset '$1' active — Hyprland reloaded."

@@ -191,3 +191,20 @@ def test_reload_colors_preserves_expanded_state(panel: TouchPanel) -> None:
 
     assert panel._expanded is True
     assert panel._expand_box.get_visible() is True
+
+
+# ---------------------------------------------------------------------------
+# touch-panel-launcher grep regression
+# ---------------------------------------------------------------------------
+
+def test_touch_panel_launcher_uses_grep_E_for_phys() -> None:
+    """Regression: touch-panel-launcher must use grep -E (ERE) for PHYS pattern,
+    not the GNU-only BRE \\+ extension."""
+    launcher = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "touch-panel-launcher"
+    source = launcher.read_text()
+    # Must NOT use BRE \+ (GNU extension that's not POSIX)
+    assert r"grep -q '^PHYS=.\+'" not in source, \
+        "touch-panel-launcher still uses non-POSIX BRE \\+ — should use grep -E"
+    # Must use ERE form
+    assert "grep -E" in source, \
+        "touch-panel-launcher must use grep -E for PHYS pattern"

@@ -12,7 +12,7 @@ set -euo pipefail
 
 for f in /sys/class/input/*/device/uevent; do
     grep -q '^ID_INPUT_KEYBOARD=1' "$f" 2>/dev/null \
-        && grep -q '^PHYS=.\+' "$f" 2>/dev/null \
+        && grep -E -q '^PHYS=.+' "$f" 2>/dev/null \
         && exit 0  # physical keyboard present — touch panel not needed
 done
 

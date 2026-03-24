@@ -139,6 +139,7 @@ hyprsync               # backward-compatible alias for hyprconf sync
     │   │   ├── hypridle.conf
     │   │   ├── laptopMonitors.conf
     │   │   ├── pcMonitors.conf / .bedroom / .kitchen
+│   │   ├── pcMonitorsK.conf            # Desktop alt preset (monitorv2 block syntax)
     │   │   ├── conf.d/
     │   │   │   ├── 00-hyprconf.conf        # Source guard (includes conf.d glob)
     │   │   │   └── 99-hyprconf-local.conf  # Machine-local overrides (hyprconf set)
@@ -371,6 +372,40 @@ Hot-swap presets activate at runtime via keybind or `hyprconf monitor set <prese
 | `Super + Shift + B` | `pcMonitors.bedroom` |
 | `Super + Shift + K` | `pcMonitors.kitchen` |
 
+`pcMonitorsK.conf` is an alternate desktop preset using Hyprland's newer `monitorv2` block syntax (DP-1 4K@240Hz, DP-2 4K rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `hyprconf monitor set pcMonitorsK` → copies it to `monitors.conf` and reloads.
+
+---
+
+## Gestures
+
+Touchpad workspace swiping is configured in `gestures.conf`:
+
+| Setting | Value | Effect |
+|---|---|---|
+| `workspace_swipe_invert` | `true` | Natural (content-follows-finger) swipe direction |
+| `workspace_swipe_distance` | `300` | Pixels to travel for a full swipe |
+| `workspace_swipe_min_speed_to_force` | `15` | Minimum speed (px/s) to force completion |
+| `workspace_swipe_cancel_ratio` | `0.5` | Below 50% → cancel and return to current workspace |
+| `workspace_swipe_create_new` | `true` | Swipe past last workspace creates a new one |
+| `workspace_swipe_forever` | `true` | Keeps animating beyond the threshold distance |
+
+---
+
+## Autostart Services
+
+`hyprland.conf` starts these on session init:
+
+| Command | Purpose | Restart policy |
+|---|---|---|
+| `pkill hyprpaper; hyprpaper` | Wallpaper daemon | Restarted on every `exec` (config reload safe) |
+| `pkill waybar; waybar` | Status bar | Restarted on every `exec` |
+| `/usr/lib/pam_kwallet_init` | KDE Wallet PAM init | Once |
+| `kwalletd6` | KDE Wallet daemon (SSH/GPG key storage) | Once |
+| `systemctl --user start hyprpolkitagent` | Polkit agent (privilege elevation dialogs) | Once |
+| `xsettingsd` | GTK/X11 settings bridge (cursor, icon theme) | Once |
+| `hypridle` | Idle/lock daemon | Once |
+| `wl-paste … cliphist store` ×2 | Clipboard history (text + image) | Once |
+
 ---
 
 ## Hardware Auto-Detection
@@ -483,7 +518,7 @@ All bindings live in `stow/hypr/.config/hypr/keybinds.conf`.
 | `Super + F` | Browser (Firefox) |
 | `Super + C` | Editor (VS Code) |
 | `Super + E` | Files (Dolphin) |
-| `Super + D` | Launcher (Wofi) |
+| `Super + D` | Launcher (hyprlauncher) |
 
 ### Window Management
 
@@ -576,7 +611,7 @@ hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python an
 ```
 tests/
 ├── conftest.py              # shared fixtures (isolated config dirs, mock hyprctl)
-├── unit/                    # Tier 1 — pure Python, no Hyprland (639 tests)
+├── unit/                    # Tier 1 — pure Python, no Hyprland (832 tests)
 │   ├── test_config.py
 │   ├── test_schema.py
 │   ├── test_file_edit.py
@@ -586,7 +621,13 @@ tests/
 │   ├── test_monitors.py
 │   ├── test_hyprlock.py
 │   ├── test_hypridle.py
-│   └── test_hyprpaper.py
+│   ├── test_hyprpaper.py
+│   ├── test_touch_panel.py
+│   ├── test_wvkbd_toggle.py
+│   ├── test_autorotate.py
+│   ├── test_adjust_gaps.py
+│   ├── test_toggle_display.py
+│   └── test_switch_monitor.py
 ├── integration/             # Tier 2 — Python CLI layer with mock hyprctl
 │   └── test_cli_get_set.py
 ├── tui/                     # Tier 3 — Textual Pilot (headless, no terminal needed)

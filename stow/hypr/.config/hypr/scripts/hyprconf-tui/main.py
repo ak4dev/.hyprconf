@@ -2038,7 +2038,11 @@ class HyprconfApp(App):
                         line_idx  = int(parts[3])
                         field_key = "::".join(parts[4:])
                         lines_in_file = _lib_read_lines(Path(file_path))
-                        current_val   = lines_in_file[line_idx].split("=", 1)[1].strip() if line_idx < len(lines_in_file) else ""
+                        if line_idx < len(lines_in_file):
+                            _parts = lines_in_file[line_idx].split("=", 1)
+                            current_val = _parts[1].strip() if len(_parts) > 1 else ""
+                        else:
+                            current_val = ""
                         label = f"{field_key} ="
                         scr   = TextLineEditScreen(Path(file_path), line_idx, current_val, prompt=label)
                         def _handle_blkfld_edit(
@@ -2209,8 +2213,10 @@ class HyprconfApp(App):
         if not path.exists():
             self.notify(f"File not found: {path}", severity="error")
             return
-        ok = hyprctl_apply("hyprpaper", "wallpaper", f",{path}")
-        if ok:
+        # hyprpaper has its own IPC — use `hyprctl hyprpaper wallpaper` not
+        # `hyprctl keyword`, which only applies to Hyprland config sections.
+        out = _run(["hyprctl", "hyprpaper", "wallpaper", f",{path}"])
+        if out is not None:
             self.notify(f"Wallpaper set: {path.name}")
         else:
             self.notify(f"Selected: {path.name}  (edit hyprpaper.conf manually to persist)")

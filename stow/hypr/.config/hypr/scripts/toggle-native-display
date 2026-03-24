@@ -27,6 +27,6 @@ if [[ "$DISABLED" == "false" ]]; then
     log_ok "$PANEL disabled."
 else
     log_step "Enabling $PANEL..."
-    hyprctl keyword monitor "$PANEL,1920x1200,auto,1"
+    hyprctl keyword monitor "$PANEL,preferred,auto,1"
     log_ok "$PANEL enabled."
 fi

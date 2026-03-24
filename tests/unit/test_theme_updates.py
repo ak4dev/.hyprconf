@@ -685,3 +685,26 @@ def unittest_mock_open():
     m.return_value.__enter__ = lambda s: s
     m.return_value.__exit__ = MagicMock(return_value=False)
     return m
+
+
+# ---------------------------------------------------------------------------
+# Regression: load_theme() must raise ValueError on malformed JSON
+# ---------------------------------------------------------------------------
+
+def test_load_theme_malformed_json_raises_valueerror(tmp_path, monkeypatch):
+    """Regression: load_theme() must catch json.JSONDecodeError and re-raise
+    as ValueError with a helpful message, not crash with a bare JSONDecodeError."""
+    bad_theme = tmp_path / "broken.json"
+    bad_theme.write_text("{this is not valid json")
+
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+
+    with pytest.raises(ValueError, match="Malformed theme JSON"):
+        st.load_theme("broken")
+
+
+def test_load_theme_missing_file_raises_filenotfounderror(tmp_path, monkeypatch):
+    """load_theme() must raise FileNotFoundError when the theme file is absent."""
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        st.load_theme("nonexistent_theme")

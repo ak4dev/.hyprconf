@@ -575,9 +575,12 @@ def load_theme(theme_name: str) -> Dict[str, str]:
     path = os.path.join(THEMES_DIR, f"{theme_name}.json")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Theme file not found: {path}")
-    
-    with open(path, "r") as file:
-        theme = json.load(file)
+
+    try:
+        with open(path, "r") as file:
+            theme = json.load(file)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Malformed theme JSON in {path}: {e}") from e
 
     # Check for Kitty config file key
     if "kitty" in theme:
