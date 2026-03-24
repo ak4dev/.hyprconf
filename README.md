@@ -361,7 +361,7 @@ Create a JSON file in `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`:
 | Device type detected | Config symlinked |
 |---|---|
 | Desktop (chassis type 3–7, 13, 24) | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-3 4K rotated |
-| Laptop / portable (all other types) | `laptopMonitors.conf` — eDP-1 1920×1200 + external |
+| Laptop / portable (all other types) | `laptopMonitors.conf` — eDP-1 preferred + external connectors use `preferred` + catch-all wildcard |
 | Unknown chassis (fallback) | No battery present → desktop; battery present → laptop |
 
 Hot-swap presets activate at runtime via keybind or `hyprconf monitor set <preset>`:

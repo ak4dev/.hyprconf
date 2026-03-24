@@ -1,6 +1,7 @@
 """Tests for hyprconf.monitors — monitor line parser and writer."""
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,13 @@ from hyprconf.monitors import (
     read_monitor_configs,
     upsert_monitor,
 )
+
+# ---------------------------------------------------------------------------
+# Repo-root paths used for config regression tests
+# ---------------------------------------------------------------------------
+
+_REPO_ROOT = Path(__file__).parent.parent.parent
+_LAPTOP_CONF = _REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "laptopMonitors.conf"
 
 MONITORS_CONF = """\
 monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5
@@ -401,3 +409,65 @@ def test_update_monitor_field_creates_new_entry(hypr_dir: Path) -> None:
     mc = next((c for c in configs if c.name == "DP-1"), None)
     assert mc is not None
     assert mc.scale == "2.0"
+
+
+# ---------------------------------------------------------------------------
+# Regression tests — laptopMonitors.conf config correctness
+# ---------------------------------------------------------------------------
+
+def _laptop_configs() -> list[MonitorConfig]:
+    """Parse the real laptopMonitors.conf from the stow tree."""
+    return read_monitor_configs(_LAPTOP_CONF)
+
+
+def test_laptop_conf_has_catchall_wildcard() -> None:
+    """A catch-all rule must exist so any unrecognised connector gets a mode."""
+    configs = _laptop_configs()
+    assert any(c.name == "" for c in configs), (
+        "laptopMonitors.conf is missing a catch-all wildcard rule "
+        "(monitor=,preferred,auto,auto).  Without it, connectors not "
+        "explicitly listed (e.g. a USB-C HDMI adapter) are ignored by "
+        "Hyprland and produce no output."
+    )
+
+
+def test_laptop_dp_connectors_use_preferred_not_hardcoded_hz() -> None:
+    """DP-* entries must use 'preferred' resolution, not a hardcoded @Hz mode.
+
+    Hardcoding a refresh rate (e.g. 3840x2160@120.00Hz) silently breaks any
+    monitor that doesn't support that exact rate — Hyprland applies the mode
+    but the display rejects it and shows a blank screen.
+    """
+    hz_pattern = re.compile(r"@\d+(\.\d+)?Hz", re.IGNORECASE)
+    configs = _laptop_configs()
+    bad = [c for c in configs if c.name.startswith("DP-") and hz_pattern.search(c.resolution or "")]
+    assert bad == [], (
+        f"DP connector(s) in laptopMonitors.conf use hardcoded @Hz modes: "
+        f"{[c.name + '=' + (c.resolution or '') for c in bad]}.  "
+        f"Use 'preferred' so the display negotiates its own best mode."
+    )
+
+
+def test_laptop_external_connectors_use_preferred() -> None:
+    """All external connector entries (DP-*, HDMI-*) should use 'preferred'."""
+    configs = _laptop_configs()
+    bad = [
+        c for c in configs
+        if (c.name.startswith(("DP-", "HDMI-")))
+        and c.resolution not in ("preferred", "highres", "highrr", "disable")
+    ]
+    assert bad == [], (
+        f"External connector(s) in laptopMonitors.conf use fixed resolutions: "
+        f"{[c.name + '=' + (c.resolution or '') for c in bad]}.  "
+        f"Use 'preferred' for portability across different monitors."
+    )
+
+
+def test_laptop_internal_display_uses_preferred() -> None:
+    """eDP-1 (internal display) must use 'preferred' so the native panel mode is applied."""
+    configs = _laptop_configs()
+    edp = next((c for c in configs if c.name == "eDP-1"), None)
+    assert edp is not None, "eDP-1 entry missing from laptopMonitors.conf"
+    assert edp.resolution == "preferred", (
+        f"eDP-1 resolution is '{edp.resolution}', expected 'preferred'"
+    )

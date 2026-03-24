@@ -27,6 +27,6 @@ while IFS= read -r line; do
     [[ "$line" == *" remove "* ]] || continue
     sleep 0.3  # debounce — let sysfs settle after device removal
     _has_physical_keyboard && continue
-    pgrep -x touch-panel >/dev/null 2>&1 && continue
+    pgrep -f '[/]touch-panel$' >/dev/null 2>&1 && continue
     touch-panel &
 done

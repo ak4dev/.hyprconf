@@ -122,12 +122,19 @@ class TouchPanel(Gtk.Window):
         self._expand_box = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL, spacing=SPACING
         )
-        self._expand_box.set_visible(False)
+        # set_no_show_all prevents show_all() on the window from recursing
+        # into this box, so the expand menu stays collapsed until the FAB is
+        # tapped.  NOTE: set_no_show_all also makes show_all() on the box
+        # itself a no-op, so we must show each child button individually here
+        # and use show()/hide() (not show_all()) in _on_fab.
+        self._expand_box.set_no_show_all(True)
 
         self._btn_launcher = self._make_btn("⊞", self._on_launcher)
         self._btn_osk      = self._make_btn("⌨", self._on_osk)
         self._expand_box.pack_start(self._btn_launcher, False, False, 0)
         self._expand_box.pack_start(self._btn_osk,      False, False, 0)
+        self._btn_launcher.show()
+        self._btn_osk.show()
 
         self._btn_fab = self._make_btn("☰", self._on_fab)
 
@@ -162,7 +169,12 @@ class TouchPanel(Gtk.Window):
 
     def _on_fab(self, _btn: Gtk.Button) -> None:
         self._expanded = not self._expanded
-        self._expand_box.set_visible(self._expanded)
+        # Children were shown individually in _build_ui; just toggle the box.
+        # show_all() would be a no-op here because set_no_show_all is True.
+        if self._expanded:
+            self._expand_box.show()
+        else:
+            self._expand_box.hide()
 
     def _on_osk(self, _btn: Gtk.Button) -> None:
         toggle = Path.home() / ".local" / "bin" / "wvkbd-toggle"

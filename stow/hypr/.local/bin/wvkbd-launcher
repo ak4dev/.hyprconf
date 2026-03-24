@@ -30,16 +30,15 @@ if [[ -f "$COLORS_FILE" ]]; then
     done < "$COLORS_FILE"
 fi
 
-# Kill any existing instance so this is safe to call on theme change.
-existing_pid="$(pgrep -x wvkbd-mobintl 2>/dev/null || true)"
-if [[ -n "$existing_pid" ]]; then
-    kill "$existing_pid" 2>/dev/null || true
-    # Wait up to 1 s for the process to exit before proceeding.
-    local_timeout=10
-    while (( local_timeout-- > 0 )) && kill -0 "$existing_pid" 2>/dev/null; do
-        sleep 0.1
-    done
-fi
+# Kill any existing instances so this is safe to call on theme change.
+while IFS= read -r _p; do
+    kill "$_p" 2>/dev/null || true
+done < <(pgrep -x wvkbd-mobintl 2>/dev/null || true)
+# Wait up to 1 s for all instances to exit before proceeding.
+local_timeout=10
+while (( local_timeout-- > 0 )) && pgrep -x wvkbd-mobintl >/dev/null 2>&1; do
+    sleep 0.1
+done
 
 # Build argument list. Color flags are passed only when wvkbd supports them
 # (detected via --help) and values are available.
