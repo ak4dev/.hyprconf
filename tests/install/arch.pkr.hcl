@@ -71,13 +71,23 @@ source "qemu" "arch_hyprconf" {
   display  = "virtio-gpu-gl"
   headless = true
 
-  # Boot: press Enter to start the Arch live environment, then set root
-  # password and start sshd so Packer can SSH in.
+  # Boot: press Enter to start the Arch live environment, set root password,
+  # explicitly enable password auth + root login, then restart sshd.
+  # Notes:
+  #   - UEFI (OVMF) + initramfs needs ~60s before a shell is ready
+  #   - Recent Arch ISOs ship with PasswordAuthentication no by default
+  #   - sshd may already be running; restart handles both cases
   boot_wait = "5s"
   boot_command = [
     "<enter>",
-    "<wait30>",
-    "echo root:packer | chpasswd && systemctl start sshd<enter>",
+    "<wait60>",
+    "echo root:packer | chpasswd<enter>",
+    "<wait2>",
+    "echo PasswordAuthentication yes >> /etc/ssh/sshd_config<enter>",
+    "<wait2>",
+    "echo PermitRootLogin yes >> /etc/ssh/sshd_config<enter>",
+    "<wait2>",
+    "systemctl restart sshd<enter>",
     "<wait5>",
   ]
 
