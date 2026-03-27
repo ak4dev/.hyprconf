@@ -67,11 +67,14 @@ def read_persisted(section: str, key: str) -> Optional[str]:
         return None
 
     hkey = section_key_to_hyprctl(section, key)
-    pattern = re.compile(r"^" + re.escape(hkey) + r"\s*=\s*(.+)$")
+    prefix = hkey + " "
+    eq_prefix = hkey + "="
     for ln in path.read_text(encoding="utf-8").splitlines():
-        m = pattern.match(ln.strip())
-        if m:
-            return m.group(1).strip()
+        s = ln.strip()
+        if s.startswith(prefix) or s.startswith(eq_prefix):
+            m = _MANAGED_LINE_RE.match(s)
+            if m and m.group(1) == hkey:
+                return m.group(2).strip()
     return None
 
 

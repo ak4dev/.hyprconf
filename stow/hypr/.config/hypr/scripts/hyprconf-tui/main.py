@@ -38,7 +38,6 @@ from hyprconf.keybinds import (  # noqa: E402
     add_keybind                  as _lib_add_keybind,
     delete_keybind               as _lib_delete_keybind,
     update_keybind               as _lib_update_keybind,
-    KEYBINDS_FILE,
 )
 from hyprconf.rules import (     # noqa: E402
     read_window_rules_with_location    as _lib_win_rules,
@@ -1890,7 +1889,7 @@ class HyprconfApp(App):
 
         def _proc_running(name: str) -> bool:
             try:
-                r = subprocess.run(["pgrep", "-x", name], capture_output=True)
+                r = subprocess.run(["pgrep", "-x", name], capture_output=True, timeout=5)
                 return r.returncode == 0
             except FileNotFoundError:
                 return False
@@ -2144,7 +2143,7 @@ class HyprconfApp(App):
                 if rk == "hw_osk_toggle":
                     pid_r = subprocess.run(
                         ["pgrep", "-x", "wvkbd-mobintl"],
-                        capture_output=True, text=True,
+                        capture_output=True, text=True, timeout=5,
                     )
                     if pid_r.returncode == 0:
                         for pid in pid_r.stdout.split():
@@ -2167,7 +2166,7 @@ class HyprconfApp(App):
                 elif rk == "hw_rotate_toggle":
                     pid_r = subprocess.run(
                         ["pgrep", "-x", "autorotate"],
-                        capture_output=True, text=True,
+                        capture_output=True, text=True, timeout=5,
                     )
                     if pid_r.returncode == 0:
                         for pid in pid_r.stdout.split():
@@ -2205,7 +2204,7 @@ class HyprconfApp(App):
         try:
             subprocess.run(
                 ["python3", str(THEME_SCRIPT), name],
-                check=True, capture_output=True,
+                check=True, capture_output=True, timeout=60,
             )
             self._theme_name = name
             self.query_one("#brand-right", Static).update(f"[theme: {name}]")

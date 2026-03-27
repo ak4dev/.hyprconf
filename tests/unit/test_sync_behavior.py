@@ -3,7 +3,6 @@ Tests for config-preservation sync behaviour introduced to protect user dotfiles
 
 Covers:
 - migrate_user_conf() — converts stow-managed symlink to machine-local real file
-- _on_stable_branch() — detects whether the repo is on the stable branch
 - force_stow_package() — additive-only (stow) vs full-replace (restow) modes
 - stow_all_packages() — passes mode through correctly
 - --sync path — calls migrate_user_conf before git pull; uses additive mode on stable
@@ -162,25 +161,7 @@ class TestMigrateUserConf:
 
 
 # ---------------------------------------------------------------------------
-# 2. _on_stable_branch — helper function
-# ---------------------------------------------------------------------------
-
-class TestOnStableBranch:
-    def test_function_exists(self) -> None:
-        assert "_on_stable_branch()" in _setup_text()
-
-    def test_checks_current_branch(self) -> None:
-        body = _extract_function("_on_stable_branch")
-        assert "branch --show-current" in body or "rev-parse" in body
-
-    def test_compares_to_stable_constant(self) -> None:
-        body = _extract_function("_on_stable_branch")
-        # Must compare against the stable branch constant
-        assert "HYPRCONF_STABLE_BRANCH" in body
-
-
-# ---------------------------------------------------------------------------
-# 3. force_stow_package — additive-only mode
+# 2. force_stow_package — additive-only mode
 # ---------------------------------------------------------------------------
 
 class TestForceStowPackageMode:

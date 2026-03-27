@@ -170,11 +170,6 @@ EOF
     log_ok "Directories ready."
 }
 
-_on_stable_branch() {
-    local branch
-    branch=$(git -C "$HYPRCONF_DIR" branch --show-current 2>/dev/null || echo "")
-    [[ "$branch" == "$HYPRCONF_STABLE_BRANCH" ]]
-}
 
 # Ensure 99-hyprconf-local.conf is a real machine-local file, not a stow-managed
 # symlink.  Must run BEFORE clone_or_update_repo so user settings are preserved
@@ -221,10 +216,6 @@ _clone_repo_branch() {
     _apply_repo_sparse_checkout
 }
 
-_remote_branch_exists() {
-    local branch="$1"
-    git -C "$HYPRCONF_DIR" show-ref --verify --quiet "refs/remotes/origin/${branch}"
-}
 
 clone_or_update_repo() {
     local _force="${1:-false}"
@@ -607,40 +598,6 @@ _has_nvidia() {
     lspci 2>/dev/null | grep -qiE "(VGA compatible controller|3D controller|Display controller).*nvidia"
 }
 
-_has_physical_keyboard() {
-    # A physical keyboard has both ID_INPUT_KEYBOARD=1 and a non-empty PHYS
-    # (bus address string). Virtual keyboards (power/sleep keys, etc.) have
-    # ID_INPUT_KEYBOARD=1 but an empty or missing PHYS entry.
-    local f
-    for f in /sys/class/input/*/device/uevent; do
-        grep -q '^ID_INPUT_KEYBOARD=1' "$f" 2>/dev/null \
-            && grep -q '^PHYS=.\+' "$f" 2>/dev/null \
-            && return 0
-    done
-    return 1
-}
-
-# Return the Hyprland-normalised name of every touchscreen input node found in
-# sysfs.  Hyprland lowercases device names and replaces spaces with hyphens.
-# Results are sorted and deduplicated so that multi-node devices (e.g. a Wacom
-# digitizer that exposes separate pen and finger event nodes) emit one entry.
-_get_touch_device_names() {
-    local f name
-    for f in /sys/class/input/*/device/uevent; do
-        if grep -q "^ID_INPUT_TOUCHSCREEN=1" "$f" 2>/dev/null; then
-            name=$(grep '^NAME=' "$f" 2>/dev/null | cut -d'"' -f2 || true)
-        elif grep -q '^NAME="Wacom.*Finger' "$f" 2>/dev/null \
-                && grep -q '^PHYS="i2c-' "$f" 2>/dev/null; then
-            name=$(grep '^NAME=' "$f" 2>/dev/null | cut -d'"' -f2 || true)
-        else
-            continue
-        fi
-        [[ -n "$name" ]] && printf '%s\n' "$name"
-    done \
-        | tr '[:upper:]' '[:lower:]' \
-        | tr ' ' '-' \
-        | sort -u
-}
 
 detect_gpu_and_link_monitor_config() {
     log_step "Detecting device type for monitor config..."

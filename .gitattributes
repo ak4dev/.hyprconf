@@ -3,4 +3,6 @@ scripts/ export-ignore
 .github/ export-ignore
 AGENTS.md export-ignore
 Makefile export-ignore
+**/__pycache__/ export-ignore
+*.pyc export-ignore
 pyproject.toml export-ignore

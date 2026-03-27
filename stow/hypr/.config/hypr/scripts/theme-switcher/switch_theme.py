@@ -1582,7 +1582,8 @@ def update_qt_platform_theme(theme: Dict[str, str]) -> None:
             text = "[Appearance]\n" + text
 
         def set_key(content: str, key: str, value: str) -> str:
-            pat = re.compile(rf"^{re.escape(key)}\s*=.*$", re.MULTILINE)
+            esc_key = re.escape(key)
+            pat = re.compile(rf"^{esc_key}\s*=.*$", re.MULTILINE)
             if pat.search(content):
                 return pat.sub(f"{key}={value}", content)
             return _RE_QT_APPEARANCE.sub(rf"\g<1>{key}={value}\n", content, count=1)

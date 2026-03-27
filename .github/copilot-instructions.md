@@ -96,7 +96,7 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 - `kitty`, `vscode`, `firefox`, and `wallpaper` keys are optional. If `kitty` is absent, a conf is auto-generated from the palette.
 - `ai:` prefix is reserved for AI-original themes with no external VS Code/Firefox dependency.
 - When adding a new theme, add its name (and palette concept for `ai:` themes) to the themes tables in `README.md`.
-- New CLI flags: `--current`, `--next`, `--prev`, `--random`, `--wofi`, `--filter`, `--no-reload`.
+- New CLI flags: `--current`, `--next`, `--prev`, `--random`, `--pick`, `--filter`, `--no-reload`.
 
 ## Testing Rules (Non-Negotiable)
 
