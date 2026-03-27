@@ -788,7 +788,8 @@ setup_hardware_features() {
             || log_warn "iio-sensor-proxy install failed — auto-rotation unavailable."
         log_step "Enabling iio-sensor-proxy.service..."
         if _in_chroot; then
-            sudo systemctl enable iio-sensor-proxy
+            sudo systemctl enable iio-sensor-proxy \
+                || log_warn "Could not enable iio-sensor-proxy.service."
         else
             sudo systemctl enable --now iio-sensor-proxy \
                 || log_warn "Could not enable iio-sensor-proxy.service."
@@ -934,9 +935,11 @@ setup_firefox() {
     fi
 
     log_step "Installing Firefox policies (privacy defaults + uBlock Origin)..."
-    sudo mkdir -p "$policies_dir"
-    sudo cp "$policies_src" "$policies_dst"
-    log_ok "Firefox policies installed at $policies_dst."
+    if sudo mkdir -p "$policies_dir" && sudo cp "$policies_src" "$policies_dst"; then
+        log_ok "Firefox policies installed at $policies_dst."
+    else
+        log_warn "Could not install Firefox policies — skipping."
+    fi
 }
 
 enable_services() {
@@ -945,12 +948,12 @@ enable_services() {
         # ufw default/enable invoke ufw-init which requires a live netfilter stack.
         # ufw's shipped defaults (DROP inbound, ACCEPT outbound) are already correct,
         # so just enable the service unit for first boot.
-        sudo systemctl enable ufw
+        sudo systemctl enable ufw || log_warn "Could not enable ufw."
     else
-        sudo ufw default deny incoming
-        sudo ufw default allow outgoing
-        sudo ufw enable
-        sudo systemctl enable --now ufw
+        sudo ufw default deny incoming  || log_warn "Could not set ufw default (deny incoming)."
+        sudo ufw default allow outgoing || log_warn "Could not set ufw default (allow outgoing)."
+        sudo ufw enable                 || log_warn "Could not enable ufw."
+        sudo systemctl enable --now ufw || log_warn "Could not start ufw service."
     fi
 
     log_step "Disabling display manager (sddm)..."
@@ -981,15 +984,15 @@ sync_services() {
     fi
 
     if _in_chroot; then
-        sudo systemctl enable NetworkManager
-        command -v iwctl &>/dev/null && sudo systemctl enable iwd
-        sudo systemctl enable bluetooth
-        sudo systemctl enable ufw
+        sudo systemctl enable NetworkManager  || log_warn "Could not enable NetworkManager."
+        command -v iwctl &>/dev/null && sudo systemctl enable iwd || true
+        sudo systemctl enable bluetooth       || log_warn "Could not enable bluetooth."
+        sudo systemctl enable ufw             || log_warn "Could not enable ufw."
     else
-        sudo systemctl enable --now NetworkManager
-        command -v iwctl &>/dev/null && sudo systemctl enable --now iwd
-        sudo systemctl enable --now bluetooth
-        sudo systemctl enable --now ufw
+        sudo systemctl enable --now NetworkManager  || log_warn "Could not enable NetworkManager."
+        command -v iwctl &>/dev/null && sudo systemctl enable --now iwd || true
+        sudo systemctl enable --now bluetooth       || log_warn "Could not enable bluetooth."
+        sudo systemctl enable --now ufw             || log_warn "Could not enable ufw."
 
         # Warn if no wifi profiles are configured so the user knows how to connect.
         if ! nmcli -t -f TYPE con show 2>/dev/null | grep -q "^wifi$"; then

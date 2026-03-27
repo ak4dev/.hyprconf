@@ -1768,12 +1768,12 @@ _nightlight_on() {
   fi
   if command -v hyprsunset &>/dev/null; then
     hyprsunset -t "$temp" &
-    echo $! > "$_NIGHTLIGHT_PID"
+    echo "$!" > "$_NIGHTLIGHT_PID"
     echo "$temp" > "$_NIGHTLIGHT_STATE"
     printf "${_g}✔${_r} Night light ${_b}ON${_r} (%sK)\n" "$temp"
   elif command -v wlsunset &>/dev/null; then
     wlsunset -T "$temp" &
-    echo $! > "$_NIGHTLIGHT_PID"
+    echo "$!" > "$_NIGHTLIGHT_PID"
     echo "$temp" > "$_NIGHTLIGHT_STATE"
     printf "${_g}✔${_r} Night light ${_b}ON${_r} (%sK)\n" "$temp"
   else
@@ -1860,11 +1860,11 @@ _record_start() {
 
   if command -v wf-recorder &>/dev/null; then
     wf-recorder -f "$filename" "$@" &
-    echo $! > "$_RECORD_PIDFILE"
+    echo "$!" > "$_RECORD_PIDFILE"
     printf "${_g}✔${_r} Recording started → %s\n" "$filename"
   elif command -v gpu-screen-recorder &>/dev/null; then
     gpu-screen-recorder -w screen -f 60 -o "$filename" "$@" &
-    echo $! > "$_RECORD_PIDFILE"
+    echo "$!" > "$_RECORD_PIDFILE"
     printf "${_g}✔${_r} Recording started → %s\n" "$filename"
   else
     die "No screen recorder found. Install with: pacman -S wf-recorder"

@@ -200,7 +200,7 @@ hyprconf autodetect              Detect + migrate existing config
 # Hardware
 hyprconf hardware status         Show detected hardware and daemon status
 hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)
-hyprconf hardware rotate <on|off>      Control auto-rotation (autorotate)
+hyprconf hardware rotate [on|off]      Control auto-rotation (autorotate)
 
 # Utilities
 hyprconf doctor                  System health check (packages, services, configs, symlinks)
@@ -444,10 +444,10 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 
 | Category | Packages |
 |---|---|
-| Core | `base-devel`, `git`, `curl`, `wget`, `unzip`, `vim`, `stow`, `pciutils`, `xdg-user-dirs` |
+| Core | `base-devel`, `git`, `curl`, `wget`, `unzip`, `vim`, `stow`, `pciutils`, `xdg-user-dirs`, `openssh` |
 | Hyprland | `hyprland`, `hyprpaper`, `hyprshot`, `hyprlock`, `hypridle`, `xdg-desktop-portal-hyprland` |
 | Audio | `pipewire`, `pipewire-pulse`, `pipewire-alsa`, `wireplumber`, `pavucontrol` |
-| KDE Wallet | `kwallet`, `kwallet-pam` |
+| KDE / Qt | `kwallet`, `kwallet-pam`, `plasma-integration`, `breeze`, `breeze-gtk`, `kde-cli-tools`, `qt6-wayland` |
 | Polkit | `hyprpolkitagent` |
 | Terminal & shell | `kitty`, `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, `fastfetch` |
 | Bar / Launcher | `waybar`, `hyprlauncher` |
@@ -458,13 +458,14 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | Bluetooth | `bluez`, `bluez-utils`, `blueman` |
 | Networking | `networkmanager`, `network-manager-applet` |
 | System monitoring | `upower`, `lm_sensors` |
-| Python | `python`, `python-textual` |
+| Python | `python`, `python-textual`, `python-pillow` |
 | File manager support | `gvfs` |
 | Icons & themes | `papirus-icon-theme`, `adw-gtk3` (AUR) |
 | GTK sync | `xsettingsd` |
-| Fonts | `ttf-jetbrains-mono-nerd` |
+| Fonts | `ttf-jetbrains-mono-nerd`, `noto-fonts-emoji` |
 | Power management | `power-profiles-daemon` |
 | Firewall | `ufw` |
+| Testing | `python-pytest`, `python-pytest-asyncio`, `python-coverage` |
 | AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` *(yay is installed automatically during full setup)* |
 | Optional (Nvidia) | `nvidia-utils` *(uncomment in `packages` if needed)* |
 
