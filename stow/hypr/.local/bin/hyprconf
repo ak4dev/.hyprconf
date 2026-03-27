@@ -131,7 +131,7 @@ usage() {
   printf "  hyprconf nightlight [on|off|toggle|status]  Blue light filter\n"
   printf "  hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard\n"
   printf "  hyprconf record [start|stop|toggle|status]  Screen recording\n"
-  printf "  hyprconf keybinds overlay        Show all keybinds on screen\n"
+  printf "  hyprconf keybind overlay         Show all keybinds on screen\n"
   printf "  hyprconf help                    Show this message\n"
 }
 
@@ -571,7 +571,7 @@ cmd_show() {
   local sub="${1:-}"
   shift || true
   case "$sub" in
-    keybinds|keys|binds)
+    keybind|keybinds|keys|binds)
       local sub2="${1:-}"
       if [[ "$sub2" == "overlay" ]]; then
         cmd_keybind_overlay
@@ -579,7 +579,7 @@ cmd_show() {
         cmd_show_keybinds "$@"
       fi
       ;;
-    -h|--help|help|"") die "Usage: hyprconf show keybinds [overlay]" ;;
+    -h|--help|help|"") die "Usage: hyprconf show keybind [overlay]" ;;
     *) die "Unknown show target: $sub" ;;
   esac
 }
@@ -1258,6 +1258,10 @@ cmd_autodetect() {
 }
 
 cmd_keybind() {
+  if [[ "${1:-}" == "overlay" ]]; then
+    cmd_keybind_overlay
+    return
+  fi
   python3 "$CLI_LIB/cli.py" keybind "$@"
 }
 
@@ -1922,18 +1926,17 @@ for b in binds:
 print('\n'.join(sorted(lines)))
 " <<< "$binds")
 
-  if command -v wl-copy &>/dev/null; then
-    # Show via notification + copy to clipboard
-    local line_count
-    line_count=$(echo "$overlay_text" | wc -l)
-    if command -v notify-send &>/dev/null; then
-      notify-send -t 10000 "Keybinds ($line_count)" "$(echo "$overlay_text" | head -30)"
-    fi
-    echo "$overlay_text"
-    printf "\n${_g}✔${_r} %d keybinds shown.\n" "$line_count"
-  else
-    echo "$overlay_text"
+  local line_count
+  line_count=$(echo "$overlay_text" | wc -l)
+
+  # Fire-and-forget notification (notify-send can block in some contexts)
+  if command -v notify-send &>/dev/null; then
+    notify-send -t 10000 "Keybinds ($line_count)" \
+      "$(echo "$overlay_text" | head -30)" &>/dev/null &
   fi
+
+  echo "$overlay_text"
+  printf "\n${_g}✔${_r} %d keybinds shown.\n" "$line_count"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2260,7 +2263,6 @@ main() {
     schema)           cmd_schema "$@" ;;
     autodetect)       cmd_autodetect "$@" ;;
     keybind)          cmd_keybind "$@" ;;
-    keybinds)         cmd_show "keybinds" "$@" ;;
     rule)             cmd_rule "$@" ;;
     lock)             cmd_lock "$@" ;;
     idle)             cmd_idle "$@" ;;

@@ -449,16 +449,24 @@ class TestCmdRecord:
 # ---------------------------------------------------------------------------
 
 class TestCmdKeybindOverlay:
-    """Verify hyprconf keybinds overlay command."""
+    """Verify hyprconf keybind overlay command."""
 
     def test_function_exists(self) -> None:
         assert "cmd_keybind_overlay()" in _bin_text()
 
     def test_show_dispatches_overlay(self) -> None:
-        """'hyprconf show keybinds overlay' must route to cmd_keybind_overlay."""
+        """'hyprconf show keybind overlay' must route to cmd_keybind_overlay."""
         text = _bin_text()
         idx = text.index("cmd_show()")
         body = text[idx:idx + 500]
+        assert "overlay" in body
+        assert "cmd_keybind_overlay" in body
+
+    def test_keybind_overlay_subcommand(self) -> None:
+        """'hyprconf keybind overlay' must route to cmd_keybind_overlay."""
+        text = _bin_text()
+        idx = text.index("cmd_keybind()")
+        body = text[idx:idx + 300]
         assert "overlay" in body
         assert "cmd_keybind_overlay" in body
 
@@ -470,14 +478,7 @@ class TestCmdKeybindOverlay:
         assert "binds" in body
 
     def test_help_text(self) -> None:
-        assert "keybinds overlay" in _bin_text()
-
-    def test_keybinds_toplevel_dispatch(self) -> None:
-        """'hyprconf keybinds overlay' must work as a top-level command."""
-        text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "keybinds)" in l and "cmd_show" in l]
-        assert lines, "'keybinds' must be a top-level dispatcher entry"
+        assert "keybind overlay" in _bin_text()
 
 
 # ---------------------------------------------------------------------------
