@@ -122,6 +122,11 @@ usage() {
   printf "  hyprconf dev vm [start|stop|stop-all|build|status]\n"
   printf "  hyprconf dev publish             Full pipeline: tests → deploy → stable promote\n"
   printf "\n${_b}General${_r}\n"
+  printf "  hyprconf doctor                  System health check (packages, services, configs)\n"
+  printf "  hyprconf clipboard [fzf|rofi|wipe]  Clipboard history picker\n"
+  printf "  hyprconf screenshot [region|window|full|edit]  Screen capture\n"
+  printf "  hyprconf gamemode [on|off|toggle|status]  Toggle performance mode\n"
+  printf "  hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu\n"
   printf "  hyprconf help                    Show this message\n"
 }
 
@@ -1392,6 +1397,325 @@ cmd_hardware() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+# Doctor — system health check
+# ════════════════════════════════════════════════════════════════════════════
+
+_doctor_pass() { printf "  ${_g}✔${_r} %s\n" "$1"; }
+_doctor_fail() { printf "  ${_y}✘${_r} %s\n" "$1"; _doctor_errors=$(( _doctor_errors + 1 )); }
+_doctor_warn() { printf "  ${_y}⚠${_r} %s\n" "$1"; _doctor_warnings=$(( _doctor_warnings + 1 )); }
+
+_doctor_check_packages() {
+  printf "\n${_b}Packages${_r}\n"
+  local pkg_file="${HOME}/.hyprconf/packages"
+  if [[ ! -f "$pkg_file" ]]; then
+    _doctor_fail "Package list not found: $pkg_file"
+    return
+  fi
+  local missing=() pkg
+  while IFS= read -r pkg; do
+    [[ -z "$pkg" || "$pkg" == \#* ]] && continue
+    if ! pacman -Qi "$pkg" &>/dev/null; then
+      missing+=("$pkg")
+    fi
+  done < "$pkg_file"
+  if (( ${#missing[@]} == 0 )); then
+    _doctor_pass "All packages from packages list are installed"
+  else
+    _doctor_fail "Missing packages: ${missing[*]}"
+  fi
+}
+
+_doctor_check_services() {
+  printf "\n${_b}Services${_r}\n"
+  local svc
+  for svc in NetworkManager iwd bluetooth ufw power-profiles-daemon; do
+    if systemctl is-enabled "$svc" &>/dev/null; then
+      if systemctl is-active "$svc" &>/dev/null; then
+        _doctor_pass "$svc enabled and running"
+      else
+        _doctor_warn "$svc enabled but not running"
+      fi
+    else
+      _doctor_fail "$svc not enabled"
+    fi
+  done
+}
+
+_doctor_check_configs() {
+  printf "\n${_b}Configuration${_r}\n"
+  local f
+  for f in \
+    "$HOME/.config/hypr/hyprland.conf" \
+    "$HOME/.config/hypr/keybinds.conf" \
+    "$HOME/.config/hypr/gestures.conf" \
+    "$HOME/.config/hypr/monitors.conf" \
+    "$HOME/.config/hypr/hypridle.conf" \
+    "$HOME/.config/hypr/hyprlock.conf" \
+    "$HOME/.config/hypr/hyprpaper.conf"; do
+    if [[ -e "$f" ]]; then
+      _doctor_pass "$(basename "$f") present"
+    else
+      _doctor_fail "$(basename "$f") missing"
+    fi
+  done
+
+  # Check NM wifi backend
+  local nm_conf="/etc/NetworkManager/conf.d/wifi-backend.conf"
+  if grep -qs "wifi.backend=iwd" "$nm_conf" 2>/dev/null; then
+    _doctor_pass "NetworkManager wifi backend = iwd"
+  else
+    _doctor_fail "NetworkManager wifi backend not configured (expected iwd)"
+  fi
+}
+
+_doctor_check_symlinks() {
+  printf "\n${_b}Symlinks${_r}\n"
+  local broken
+  broken=$(find "$HOME/.config/hypr" "$HOME/.config/kitty" \
+    "$HOME/.config/waybar" "$HOME/.config/dunst" \
+    -xtype l 2>/dev/null | head -20) || true
+  if [[ -z "$broken" ]]; then
+    _doctor_pass "No broken symlinks in managed config dirs"
+  else
+    local count
+    count=$(echo "$broken" | wc -l)
+    _doctor_fail "$count broken symlink(s) found"
+    echo "$broken" | while IFS= read -r link; do
+      printf "    → %s\n" "$link"
+    done
+  fi
+}
+
+_doctor_check_theme() {
+  printf "\n${_b}Theme${_r}\n"
+  if command -v python3 &>/dev/null && [[ -f "$THEME_SCRIPT" ]]; then
+    local current
+    current=$(python3 "$THEME_SCRIPT" --current 2>/dev/null) || true
+    if [[ -n "$current" ]]; then
+      _doctor_pass "Active theme: $current"
+    else
+      _doctor_warn "No theme currently applied"
+    fi
+  else
+    _doctor_fail "Theme script not found"
+  fi
+}
+
+_doctor_check_hardware() {
+  printf "\n${_b}Hardware${_r}\n"
+  local hw_conf="$HOME/.config/hypr/conf.d/60-hardware.conf"
+  if [[ -f "$hw_conf" ]]; then
+    _doctor_pass "Hardware config present (60-hardware.conf)"
+  else
+    _doctor_warn "Hardware config not generated — run 'hyprconf sync'"
+  fi
+  if command -v hyprctl &>/dev/null; then
+    _doctor_pass "Hyprland $(hyprctl version -j 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("tag","(unknown)"))' 2>/dev/null || echo "(unknown)")"
+  else
+    _doctor_fail "hyprctl not found"
+  fi
+}
+
+_doctor_check_shell() {
+  printf "\n${_b}Shell${_r}\n"
+  if [[ -d "$HOME/.oh-my-zsh" ]]; then
+    _doctor_pass "Oh My Zsh installed"
+  else
+    _doctor_warn "Oh My Zsh not found"
+  fi
+  if [[ -d "$HOME/.oh-my-zsh/custom/themes/powerlevel10k" ]]; then
+    _doctor_pass "Powerlevel10k installed"
+  else
+    _doctor_warn "Powerlevel10k not found"
+  fi
+}
+
+cmd_doctor() {
+  local _doctor_errors=0 _doctor_warnings=0
+  printf "${_b}${_c}hyprconf doctor${_r} — system health check\n"
+  _doctor_check_packages
+  _doctor_check_services
+  _doctor_check_configs
+  _doctor_check_symlinks
+  _doctor_check_theme
+  _doctor_check_hardware
+  _doctor_check_shell
+  printf "\n"
+  if (( _doctor_errors == 0 && _doctor_warnings == 0 )); then
+    printf "${_g}✔ All checks passed.${_r}\n"
+  else
+    (( _doctor_errors > 0 )) && printf "${_y}✘ %d error(s)${_r}" "$_doctor_errors"
+    (( _doctor_errors > 0 && _doctor_warnings > 0 )) && printf ", "
+    (( _doctor_warnings > 0 )) && printf "${_y}⚠ %d warning(s)${_r}" "$_doctor_warnings"
+    printf "\n"
+    (( _doctor_errors > 0 )) && return 1
+  fi
+  return 0
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Clipboard — cliphist picker
+# ════════════════════════════════════════════════════════════════════════════
+
+cmd_clipboard() {
+  command -v cliphist &>/dev/null || die "cliphist not installed (pacman -S cliphist)"
+  local picker="${1:-fzf}"
+  case "$picker" in
+    fzf)
+      command -v fzf &>/dev/null || die "fzf not installed"
+      cliphist list | fzf --no-sort | cliphist decode | wl-copy
+      ;;
+    rofi)
+      command -v rofi &>/dev/null || die "rofi not installed"
+      cliphist list | rofi -dmenu -p "Clipboard" | cliphist decode | wl-copy
+      ;;
+    wipe)
+      cliphist wipe
+      printf "${_g}✔${_r} Clipboard history cleared.\n"
+      ;;
+    *)
+      printf "Usage: hyprconf clipboard [fzf|rofi|wipe]\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Screenshot — unified capture workflow
+# ════════════════════════════════════════════════════════════════════════════
+
+cmd_screenshot() {
+  command -v hyprshot &>/dev/null || die "hyprshot not installed"
+  local mode="${1:-region}"
+  local output_dir="${HYPRSHOT_DIR:-$HOME/Pictures/Screenshots}"
+  mkdir -p "$output_dir"
+  case "$mode" in
+    region)  hyprshot -m region -o "$output_dir" ;;
+    window)  hyprshot -m window -o "$output_dir" ;;
+    full)    hyprshot -m output -o "$output_dir" ;;
+    edit)
+      # Capture region, then open in swappy for annotation
+      if command -v swappy &>/dev/null; then
+        hyprshot -m region -o "$output_dir" --raw | swappy -f -
+      else
+        printf "${_y}swappy not installed — capturing without annotation${_r}\n"
+        hyprshot -m region -o "$output_dir"
+      fi
+      ;;
+    *)
+      printf "Usage: hyprconf screenshot [region|window|full|edit]\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Game mode — toggle performance mode
+# ════════════════════════════════════════════════════════════════════════════
+
+readonly _GAMEMODE_STATE="/tmp/hyprconf-gamemode"
+
+cmd_gamemode() {
+  local sub="${1:-toggle}"
+  case "$sub" in
+    on)     _gamemode_on ;;
+    off)    _gamemode_off ;;
+    toggle)
+      if [[ -f "$_GAMEMODE_STATE" ]]; then
+        _gamemode_off
+      else
+        _gamemode_on
+      fi
+      ;;
+    status)
+      if [[ -f "$_GAMEMODE_STATE" ]]; then
+        printf "${_y}Game mode is ON${_r} (animations, blur, shadows disabled)\n"
+      else
+        printf "${_g}Game mode is OFF${_r} (normal desktop)\n"
+      fi
+      ;;
+    *)
+      printf "Usage: hyprconf gamemode [on|off|toggle|status]\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+_gamemode_on() {
+  if [[ -f "$_GAMEMODE_STATE" ]]; then
+    printf "${_y}Game mode already active.${_r}\n"
+    return
+  fi
+  # Save current values
+  {
+    hyprctl -j getoption decoration:blur:enabled 2>/dev/null || true
+    hyprctl -j getoption decoration:shadow:enabled 2>/dev/null || true
+    hyprctl -j getoption animations:enabled 2>/dev/null || true
+  } > "$_GAMEMODE_STATE"
+
+  hyprctl --batch "\
+    keyword animations:enabled false;\
+    keyword decoration:blur:enabled false;\
+    keyword decoration:shadow:enabled false;\
+    keyword general:gaps_in 0;\
+    keyword general:gaps_out 0;\
+    keyword decoration:rounding 0" &>/dev/null
+
+  printf "${_g}✔${_r} Game mode ${_b}ON${_r} — animations, blur, shadows, gaps disabled.\n"
+}
+
+_gamemode_off() {
+  if [[ ! -f "$_GAMEMODE_STATE" ]]; then
+    printf "${_y}Game mode not active.${_r}\n"
+    return
+  fi
+  rm -f "$_GAMEMODE_STATE"
+
+  # Restore by reloading config (picks up all persisted values)
+  hyprctl reload &>/dev/null
+
+  printf "${_g}✔${_r} Game mode ${_b}OFF${_r} — desktop restored.\n"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Power menu — lock / logout / suspend / reboot / shutdown
+# ════════════════════════════════════════════════════════════════════════════
+
+cmd_power() {
+  local action="${1:-}"
+  if [[ -z "$action" ]]; then
+    # Interactive menu
+    local choices=("Lock" "Logout" "Suspend" "Reboot" "Shutdown")
+    if command -v fzf &>/dev/null; then
+      action=$(printf '%s\n' "${choices[@]}" | fzf --prompt="Power ▸ " --height=8 --no-sort) || return
+    else
+      printf "${_b}Power menu:${_r}\n"
+      local i
+      for i in "${!choices[@]}"; do
+        printf "  %d) %s\n" "$((i + 1))" "${choices[$i]}"
+      done
+      printf "Choice [1-%d]: " "${#choices[@]}"
+      local choice
+      read -r choice
+      (( choice >= 1 && choice <= ${#choices[@]} )) || { printf "${_y}Cancelled.${_r}\n"; return; }
+      action="${choices[$((choice - 1))]}"
+    fi
+  fi
+
+  case "${action,,}" in
+    lock)     hyprlock & ;;
+    logout)   hyprctl dispatch exit ;;
+    suspend)  systemctl suspend ;;
+    reboot)   systemctl reboot ;;
+    shutdown) systemctl poweroff ;;
+    *)
+      printf "Usage: hyprconf power [lock|logout|suspend|reboot|shutdown]\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════════════
 # Developer
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -1720,6 +2044,11 @@ main() {
     idle)             cmd_idle "$@" ;;
     paper)            cmd_paper "$@" ;;
     hardware)         cmd_hardware "$@" ;;
+    doctor)           cmd_doctor ;;
+    clipboard|clip)   cmd_clipboard "$@" ;;
+    screenshot|ss)    cmd_screenshot "$@" ;;
+    gamemode|game)    cmd_gamemode "$@" ;;
+    power)            cmd_power "$@" ;;
     addon)            cmd_addon "$@" ;;
     dev)              cmd_dev "$@" ;;
     help|-h|--help)   usage ;;

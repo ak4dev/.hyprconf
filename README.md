@@ -38,6 +38,7 @@
 - **Full-desktop theme switcher** — 67 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; hyprlauncher restarted automatically so the new theme takes effect immediately
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
+- **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown menu)
 - **Cloud deploy** — serve your own install endpoint via `hyprconf deploy` (S3 + CloudFront + ACM + Route53)
 
 ---
@@ -262,6 +263,13 @@ hyprconf autodetect              Detect + migrate existing config
 hyprconf hardware status         Show detected hardware and daemon status
 hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)
 hyprconf hardware rotate <on|off>      Control auto-rotation (autorotate)
+
+# Utilities
+hyprconf doctor                  System health check (packages, services, configs, symlinks)
+hyprconf clipboard [fzf|rofi|wipe]  Clipboard history picker (cliphist)
+hyprconf screenshot [region|window|full|edit]  Screen capture (hyprshot + swappy)
+hyprconf gamemode [on|off|toggle|status]  Toggle performance mode (no animations/blur/gaps)
+hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu
 
 # Addons
 hyprconf addon                   List available addons and their status

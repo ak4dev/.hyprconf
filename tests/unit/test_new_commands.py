@@ -1,0 +1,303 @@
+"""
+Tests for new CLI commands: doctor, clipboard, screenshot, gamemode, power.
+
+Validates that each command function exists in the hyprconf binary,
+has correct dispatcher entries, and appears in help text.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).parent.parent.parent
+HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
+
+
+def _bin_text() -> str:
+    return HYPRCONF_BIN.read_text()
+
+
+# ---------------------------------------------------------------------------
+# 1. cmd_doctor
+# ---------------------------------------------------------------------------
+
+class TestCmdDoctor:
+    """Verify hyprconf doctor command structure."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_doctor()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines() if "doctor)" in l and "cmd_doctor" in l]
+        assert lines, "doctor must have a dispatcher entry in main()"
+
+    def test_help_text(self) -> None:
+        assert "hyprconf doctor" in _bin_text()
+
+    def test_checks_packages(self) -> None:
+        text = _bin_text()
+        assert "_doctor_check_packages" in text
+
+    def test_checks_services(self) -> None:
+        text = _bin_text()
+        assert "_doctor_check_services" in text
+
+    def test_checks_configs(self) -> None:
+        text = _bin_text()
+        assert "_doctor_check_configs" in text
+
+    def test_checks_symlinks(self) -> None:
+        text = _bin_text()
+        assert "_doctor_check_symlinks" in text
+
+    def test_checks_theme(self) -> None:
+        text = _bin_text()
+        assert "_doctor_check_theme" in text
+
+    def test_checks_hardware(self) -> None:
+        text = _bin_text()
+        assert "_doctor_check_hardware" in text
+
+    def test_checks_shell(self) -> None:
+        text = _bin_text()
+        assert "_doctor_check_shell" in text
+
+    def test_returns_nonzero_on_errors(self) -> None:
+        """cmd_doctor must return 1 when errors are found."""
+        text = _bin_text()
+        idx = text.index("cmd_doctor()")
+        body = text[idx:idx + 800]
+        assert "return 1" in body
+
+    def test_checks_nm_wifi_backend(self) -> None:
+        """Doctor must verify NetworkManager wifi backend = iwd."""
+        text = _bin_text()
+        assert "wifi.backend=iwd" in text
+
+
+# ---------------------------------------------------------------------------
+# 2. cmd_clipboard
+# ---------------------------------------------------------------------------
+
+class TestCmdClipboard:
+    """Verify hyprconf clipboard command."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_clipboard()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if "clipboard" in l and "cmd_clipboard" in l]
+        assert lines, "clipboard must have a dispatcher entry"
+
+    def test_clip_alias(self) -> None:
+        """'clip' must be an alias for clipboard."""
+        text = _bin_text()
+        lines = [l for l in text.splitlines() if "clip)" in l and "cmd_clipboard" in l]
+        assert lines, "'clip' alias must dispatch to cmd_clipboard"
+
+    def test_supports_fzf_mode(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_clipboard()")
+        body = text[idx:idx + 500]
+        assert "fzf" in body
+
+    def test_supports_rofi_mode(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_clipboard()")
+        body = text[idx:idx + 500]
+        assert "rofi" in body
+
+    def test_supports_wipe(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_clipboard()")
+        body = text[idx:idx + 500]
+        assert "wipe" in body
+
+    def test_uses_cliphist(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_clipboard()")
+        body = text[idx:idx + 500]
+        assert "cliphist" in body
+
+    def test_help_text(self) -> None:
+        assert "hyprconf clipboard" in _bin_text()
+
+
+# ---------------------------------------------------------------------------
+# 3. cmd_screenshot
+# ---------------------------------------------------------------------------
+
+class TestCmdScreenshot:
+    """Verify hyprconf screenshot command."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_screenshot()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if "screenshot" in l and "cmd_screenshot" in l]
+        assert lines
+
+    def test_ss_alias(self) -> None:
+        """'ss' must be an alias for screenshot."""
+        text = _bin_text()
+        lines = [l for l in text.splitlines() if "ss)" in l and "cmd_screenshot" in l]
+        assert lines, "'ss' alias must dispatch to cmd_screenshot"
+
+    def test_region_mode(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_screenshot()")
+        body = text[idx:idx + 600]
+        assert "region" in body
+
+    def test_window_mode(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_screenshot()")
+        body = text[idx:idx + 600]
+        assert "window" in body
+
+    def test_full_mode(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_screenshot()")
+        body = text[idx:idx + 600]
+        assert "full" in body
+
+    def test_edit_mode_with_swappy(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_screenshot()")
+        body = text[idx:idx + 800]
+        assert "swappy" in body
+
+    def test_uses_hyprshot(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_screenshot()")
+        body = text[idx:idx + 600]
+        assert "hyprshot" in body
+
+    def test_help_text(self) -> None:
+        assert "hyprconf screenshot" in _bin_text()
+
+
+# ---------------------------------------------------------------------------
+# 4. cmd_gamemode
+# ---------------------------------------------------------------------------
+
+class TestCmdGamemode:
+    """Verify hyprconf gamemode command."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_gamemode()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if "gamemode" in l and "cmd_gamemode" in l]
+        assert lines
+
+    def test_game_alias(self) -> None:
+        """'game' must be an alias for gamemode."""
+        text = _bin_text()
+        lines = [l for l in text.splitlines() if "game)" in l and "cmd_gamemode" in l]
+        assert lines, "'game' alias must dispatch to cmd_gamemode"
+
+    def test_on_off_toggle(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_gamemode()")
+        body = text[idx:idx + 300]
+        assert "on" in body
+        assert "off" in body
+        assert "toggle" in body
+
+    def test_status_subcommand(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_gamemode()")
+        body = text[idx:idx + 500]
+        assert "status" in body
+
+    def test_disables_animations(self) -> None:
+        text = _bin_text()
+        assert "animations:enabled false" in text or "animations:enabled 0" in text
+
+    def test_disables_blur(self) -> None:
+        text = _bin_text()
+        assert "blur:enabled false" in text or "blur:enabled 0" in text
+
+    def test_disables_shadows(self) -> None:
+        text = _bin_text()
+        assert "shadow:enabled false" in text or "shadow:enabled 0" in text
+
+    def test_restores_via_reload(self) -> None:
+        """Game mode off must restore settings (via hyprctl reload)."""
+        text = _bin_text()
+        # Find _gamemode_off function
+        idx = text.index("_gamemode_off()")
+        body = text[idx:idx + 300]
+        assert "hyprctl reload" in body
+
+    def test_state_file(self) -> None:
+        """Game mode must use a state file for toggle tracking."""
+        text = _bin_text()
+        assert "_GAMEMODE_STATE" in text
+
+    def test_help_text(self) -> None:
+        assert "hyprconf gamemode" in _bin_text()
+
+
+# ---------------------------------------------------------------------------
+# 5. cmd_power
+# ---------------------------------------------------------------------------
+
+class TestCmdPower:
+    """Verify hyprconf power command."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_power()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if "power)" in l and "cmd_power" in l]
+        assert lines
+
+    def test_lock_action(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_power()")
+        body = text[idx:idx + 1000]
+        assert "hyprlock" in body
+
+    def test_logout_action(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_power()")
+        body = text[idx:idx + 1000]
+        assert "dispatch exit" in body
+
+    def test_suspend_action(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_power()")
+        body = text[idx:idx + 1000]
+        assert "systemctl suspend" in body
+
+    def test_reboot_action(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_power()")
+        body = text[idx:idx + 1000]
+        assert "systemctl reboot" in body
+
+    def test_shutdown_action(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_power()")
+        body = text[idx:idx + 1000]
+        assert "systemctl poweroff" in body
+
+    def test_interactive_menu(self) -> None:
+        """Power with no args must show interactive picker."""
+        text = _bin_text()
+        idx = text.index("cmd_power()")
+        body = text[idx:idx + 1000]
+        assert "fzf" in body or "read -r" in body
+
+    def test_help_text(self) -> None:
+        assert "hyprconf power" in _bin_text()
