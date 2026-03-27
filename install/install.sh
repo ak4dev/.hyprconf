@@ -1096,7 +1096,7 @@ EOF
     fi
   fi
 
-  log_warn "No ISO network profiles found to copy."
+  log_warn "No ISO network profiles found to copy — connect to wifi after first boot with: nmtui"
 }
 
 configure_in_chroot() {

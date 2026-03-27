@@ -1,5 +1,6 @@
 """
-Unit tests for install.sh — ESP auto-creation, arrow_select, and timezone picker.
+Unit tests for install.sh — ESP auto-creation, arrow_select, timezone picker,
+network config copy, and wifi post-install guidance.
 
 All tests are static-analysis only (no live disk, no TTY required).
 """
@@ -244,4 +245,55 @@ class TestBinaryInstallScripts:
         assert "hyprconf sync" not in func, (
             "cmd_tui error message should not reference 'hyprconf sync' "
             "since binary-install users have no dotfiles to sync"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Network config copy and wifi guidance
+# ---------------------------------------------------------------------------
+
+class TestNetworkConfig:
+    def test_iwd_in_pacstrap(self) -> None:
+        """iwd must be in the pacstrap package list so wifi works out of the box."""
+        text = _text()
+        # The package list is declared as `local pkgs=(...)` then passed to pacstrap
+        pkg_list_lines = [l for l in text.splitlines() if "local pkgs=(" in l and "networkmanager" in l]
+        assert pkg_list_lines, "No pacstrap package list (local pkgs=...) found in install.sh"
+        assert any("iwd" in l for l in pkg_list_lines), (
+            "iwd must be in the pacstrap packages — without it or wpa_supplicant, "
+            "NetworkManager cannot manage wifi"
+        )
+
+    def test_iwd_service_enabled_in_chroot(self) -> None:
+        """iwd.service must be enabled inside the chroot so it starts on first boot."""
+        text = _text()
+        assert "systemctl enable iwd" in text, (
+            "iwd.service must be enabled in the chroot setup so it starts on first boot"
+        )
+
+    def test_nm_wifi_backend_conf_written_in_chroot(self) -> None:
+        """Chroot setup must write the NM wifi-backend.conf to use iwd."""
+        text = _text()
+        assert "wifi.backend=iwd" in text, (
+            "install.sh must write /etc/NetworkManager/conf.d/wifi-backend.conf "
+            "with wifi.backend=iwd in the chroot"
+        )
+
+    def test_no_wifi_profiles_warning_mentions_nmtui(self) -> None:
+        """When no profiles are found, the warning must direct users to nmtui."""
+        func = _extract_function("copy_network_config_from_iso")
+        assert "nmtui" in func, (
+            "copy_network_config_from_iso must mention 'nmtui' in its no-profiles "
+            "warning so users know how to configure wifi after an ethernet install"
+        )
+
+    def test_copy_network_prefers_nm_profiles(self) -> None:
+        """NM profiles must be preferred over iwd profiles when both might exist."""
+        func = _extract_function("copy_network_config_from_iso")
+        nm_pos = func.find("/etc/NetworkManager/system-connections")
+        iwd_pos = func.find("/var/lib/iwd")
+        assert nm_pos != -1, "Function must check for NM profiles"
+        assert iwd_pos != -1, "Function must check for iwd profiles"
+        assert nm_pos < iwd_pos, (
+            "NM profile copy must be attempted before iwd profile import"
         )

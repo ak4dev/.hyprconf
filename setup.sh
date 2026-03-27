@@ -979,6 +979,11 @@ sync_services() {
         sudo systemctl enable --now iwd
         sudo systemctl enable --now bluetooth
         sudo systemctl enable --now ufw
+
+        # Warn if no wifi profiles are configured so the user knows how to connect.
+        if ! nmcli -t -f TYPE con show 2>/dev/null | grep -q "^wifi$"; then
+            log_warn "No wifi profiles configured — run: nmtui"
+        fi
     fi
     log_ok "Services enabled."
 }

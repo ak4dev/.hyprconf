@@ -257,6 +257,59 @@ class TestSyncPath:
 
 
 # ---------------------------------------------------------------------------
+# 7. sync_services wifi backend fix — sync-patchable networking
+# ---------------------------------------------------------------------------
+
+class TestSyncServicesWifi:
+    def test_sync_services_writes_nm_wifi_backend_conf(self) -> None:
+        """sync_services must write the NM wifi-backend.conf to use iwd."""
+        func = _extract_function("sync_services")
+        assert "wifi.backend=iwd" in func, (
+            "sync_services must write wifi.backend=iwd to the NM conf.d directory "
+            "so existing installs pick up the iwd backend fix via hyprconf sync"
+        )
+
+    def test_sync_services_enables_iwd(self) -> None:
+        """sync_services must enable iwd.service."""
+        func = _extract_function("sync_services")
+        assert "enable" in func and "iwd" in func, (
+            "sync_services must enable iwd.service — required for NM iwd backend"
+        )
+
+    def test_sync_services_nm_conf_is_idempotent(self) -> None:
+        """sync_services must guard the NM conf write to avoid overwriting on repeat runs."""
+        func = _extract_function("sync_services")
+        # Must check if conf already exists (grep -qs or similar) before writing
+        assert "grep" in func or "if " in func, (
+            "sync_services must check for the existing NM conf before writing "
+            "so repeated syncs are idempotent"
+        )
+        assert "_nm_wifi_conf" in func or "wifi-backend.conf" in func, (
+            "sync_services must reference the wifi-backend.conf path"
+        )
+
+    def test_sync_services_warns_when_no_wifi_profiles(self) -> None:
+        """sync_services must warn when no NM wifi profiles are configured."""
+        func = _extract_function("sync_services")
+        assert "nmcli" in func, (
+            "sync_services must check for wifi profiles via nmcli and warn if none exist"
+        )
+        assert "nmtui" in func, (
+            "sync_services warning must direct the user to nmtui to configure wifi"
+        )
+
+    def test_wifi_profile_warning_only_on_live_system(self) -> None:
+        """The no-profiles warning must only fire outside of a chroot."""
+        func = _extract_function("sync_services")
+        # nmtui reference must be in the non-chroot else branch, not inside _in_chroot block
+        chroot_block_end = func.find("else\n")
+        nmcli_pos = func.find("nmcli")
+        assert nmcli_pos > chroot_block_end, (
+            "nmcli wifi profile check must only run on a live system (not in chroot)"
+        )
+
+
+# ---------------------------------------------------------------------------
 # 6. 99-hyprconf-local.conf must NOT be tracked in stow package
 # ---------------------------------------------------------------------------
 
