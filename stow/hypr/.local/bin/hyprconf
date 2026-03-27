@@ -2260,6 +2260,7 @@ main() {
     schema)           cmd_schema "$@" ;;
     autodetect)       cmd_autodetect "$@" ;;
     keybind)          cmd_keybind "$@" ;;
+    keybinds)         cmd_show "keybinds" "$@" ;;
     rule)             cmd_rule "$@" ;;
     lock)             cmd_lock "$@" ;;
     idle)             cmd_idle "$@" ;;

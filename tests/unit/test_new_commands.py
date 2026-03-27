@@ -472,6 +472,13 @@ class TestCmdKeybindOverlay:
     def test_help_text(self) -> None:
         assert "keybinds overlay" in _bin_text()
 
+    def test_keybinds_toplevel_dispatch(self) -> None:
+        """'hyprconf keybinds overlay' must work as a top-level command."""
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if "keybinds)" in l and "cmd_show" in l]
+        assert lines, "'keybinds' must be a top-level dispatcher entry"
+
 
 # ---------------------------------------------------------------------------
 # 10. theme generate
