@@ -115,6 +115,7 @@ blueman
 # Networking
 networkmanager
 network-manager-applet
+iwd
 openssh
 
 # Power management

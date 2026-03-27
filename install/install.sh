@@ -966,7 +966,7 @@ install_base_system() {
     || log_info "No microcode package required."
 
   log_step "Installing base system via pacstrap (this takes a few minutes)..."
-  local pkgs=(base base-devel linux linux-firmware btrfs-progs networkmanager openssh git zsh sudo nano)
+  local pkgs=(base base-devel linux linux-firmware btrfs-progs networkmanager iwd openssh git zsh sudo nano)
   [[ -n "$CPU_UCODE" ]] && pkgs+=("$CPU_UCODE")
   pacstrap /mnt "${pkgs[@]}"
   genfstab -U /mnt >> /mnt/etc/fstab
@@ -1193,9 +1193,20 @@ chmod 440 /etc/sudoers.d/wheel
 
 # ── Services ──────────────────────────────────────────────────────────────────
 systemctl enable NetworkManager
+systemctl enable iwd
 systemctl enable systemd-resolved
 # Enable sshd only in CI (VM tests need it; not appropriate for desktop installs)
 [[ "${HYPRCONF_CI:-0}" == "1" ]] && systemctl enable sshd || true
+
+# ── NetworkManager wifi backend ───────────────────────────────────────────────
+# Configure NetworkManager to use iwd as its wifi backend.  iwd handles wifi
+# association more reliably than wpa_supplicant; NM still manages DHCP and
+# connection profiles.  This must be written before first boot.
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/wifi-backend.conf << 'NMCONF'
+[device]
+wifi.backend=iwd
+NMCONF
 
 # ── TTY1 auto-login ───────────────────────────────────────────────────────────
 # Uses a quoted inner heredoc so \u (agetty format specifier) is preserved literally.
