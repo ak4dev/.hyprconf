@@ -38,7 +38,7 @@
 - **Full-desktop theme switcher** — 67 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
-- **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording), `hyprconf keybind overlay` (on-screen keybind reference)
+- **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
 - **Cloud deploy** — serve your own install endpoint via `hyprconf deploy` (S3 + CloudFront + ACM + Route53)
 
 ---
@@ -274,7 +274,6 @@ hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu
 hyprconf nightlight [on|off|toggle|status]  Blue light filter (hyprsunset/wlsunset)
 hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard (hyprpicker)
 hyprconf record [start|stop|toggle|status]  Screen recording (wf-recorder)
-hyprconf keybind overlay        Show all keybinds on screen
 
 # Addons
 hyprconf addon                   List available addons and their status

@@ -445,44 +445,8 @@ class TestCmdRecord:
 
 
 # ---------------------------------------------------------------------------
-# 9. cmd_keybind_overlay
 # ---------------------------------------------------------------------------
-
-class TestCmdKeybindOverlay:
-    """Verify hyprconf keybind overlay command."""
-
-    def test_function_exists(self) -> None:
-        assert "cmd_keybind_overlay()" in _bin_text()
-
-    def test_show_dispatches_overlay(self) -> None:
-        """'hyprconf show keybind overlay' must route to cmd_keybind_overlay."""
-        text = _bin_text()
-        idx = text.index("cmd_show()")
-        body = text[idx:idx + 500]
-        assert "overlay" in body
-        assert "cmd_keybind_overlay" in body
-
-    def test_keybind_overlay_subcommand(self) -> None:
-        """'hyprconf keybind overlay' must route to cmd_keybind_overlay."""
-        text = _bin_text()
-        idx = text.index("cmd_keybind()")
-        body = text[idx:idx + 300]
-        assert "overlay" in body
-        assert "cmd_keybind_overlay" in body
-
-    def test_uses_hyprctl_binds(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_keybind_overlay()")
-        body = text[idx:idx + 600]
-        assert "hyprctl" in body
-        assert "binds" in body
-
-    def test_help_text(self) -> None:
-        assert "keybind overlay" in _bin_text()
-
-
-# ---------------------------------------------------------------------------
-# 10. theme generate
+# 9. theme generate
 # ---------------------------------------------------------------------------
 
 class TestThemeGenerate:

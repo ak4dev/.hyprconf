@@ -131,7 +131,6 @@ usage() {
   printf "  hyprconf nightlight [on|off|toggle|status]  Blue light filter\n"
   printf "  hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard\n"
   printf "  hyprconf record [start|stop|toggle|status]  Screen recording\n"
-  printf "  hyprconf keybind overlay         Show all keybinds on screen\n"
   printf "  hyprconf help                    Show this message\n"
 }
 
@@ -572,14 +571,9 @@ cmd_show() {
   shift || true
   case "$sub" in
     keybind|keybinds|keys|binds)
-      local sub2="${1:-}"
-      if [[ "$sub2" == "overlay" ]]; then
-        cmd_keybind_overlay
-      else
-        cmd_show_keybinds "$@"
-      fi
+      cmd_show_keybinds "$@"
       ;;
-    -h|--help|help|"") die "Usage: hyprconf show keybind [overlay]" ;;
+    -h|--help|help|"") die "Usage: hyprconf show keybind" ;;
     *) die "Unknown show target: $sub" ;;
   esac
 }
@@ -1258,10 +1252,6 @@ cmd_autodetect() {
 }
 
 cmd_keybind() {
-  if [[ "${1:-}" == "overlay" ]]; then
-    cmd_keybind_overlay
-    return
-  fi
   python3 "$CLI_LIB/cli.py" keybind "$@"
 }
 
@@ -1897,48 +1887,6 @@ _record_stop() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
-# Keybind overlay — show keybinds on screen
-# ════════════════════════════════════════════════════════════════════════════
-
-cmd_keybind_overlay() {
-  # Build a formatted keybind summary from hyprctl
-  local binds
-  binds=$(hyprctl -j binds 2>/dev/null) || die "hyprctl not available"
-
-  local overlay_text
-  overlay_text=$(python3 -c "
-import json, sys
-binds = json.loads(sys.stdin.read())
-lines = []
-for b in binds:
-    mods = b.get('modmask', 0)
-    mod_names = []
-    if mods & 64: mod_names.append('SUPER')
-    if mods & 8: mod_names.append('ALT')
-    if mods & 4: mod_names.append('CTRL')
-    if mods & 1: mod_names.append('SHIFT')
-    mod_str = '+'.join(mod_names) if mod_names else '-'
-    key = b.get('key', '?')
-    disp = b.get('dispatcher', '?')
-    arg = b.get('arg', '')
-    desc = f'{disp} {arg}'.strip()
-    lines.append(f'{mod_str:>20s} + {key:<12s}  →  {desc}')
-print('\n'.join(sorted(lines)))
-" <<< "$binds")
-
-  local line_count
-  line_count=$(echo "$overlay_text" | wc -l)
-
-  # Fire-and-forget notification (notify-send can block in some contexts)
-  if command -v notify-send &>/dev/null; then
-    notify-send -t 10000 "Keybinds ($line_count)" \
-      "$(echo "$overlay_text" | head -30)" &>/dev/null &
-  fi
-
-  echo "$overlay_text"
-  printf "\n${_g}✔${_r} %d keybinds shown.\n" "$line_count"
-}
-
 # ════════════════════════════════════════════════════════════════════════════
 # Developer
 # ════════════════════════════════════════════════════════════════════════════
