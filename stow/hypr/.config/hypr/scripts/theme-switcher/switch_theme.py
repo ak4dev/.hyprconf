@@ -619,6 +619,12 @@ def load_kitty_theme(kitty_config_path: str):
     # Normalize to make sure all paths are absolute
     normalized_path = os.path.abspath(kitty_config_path)
 
+    if not os.path.exists(KITTY_CONFIG_FILE):
+        Path(KITTY_CONFIG_FILE).parent.mkdir(parents=True, exist_ok=True)
+        Path(KITTY_CONFIG_FILE).write_text(f"include {normalized_path}\n")
+        print(f"Kitty theme applied from {normalized_path}.")
+        return
+
     # Read the current kitty.conf
     with open(KITTY_CONFIG_FILE, "r") as kitty_config:
         kitty_conf_content = kitty_config.read()
