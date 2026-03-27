@@ -347,10 +347,18 @@ class TestSyncServicesWifi:
         )
 
     def test_sync_services_enables_iwd(self) -> None:
-        """sync_services must enable iwd.service."""
+        """sync_services must enable iwd.service (guarded by iwctl presence)."""
         func = _extract_function("sync_services")
         assert "enable" in func and "iwd" in func, (
             "sync_services must enable iwd.service — required for NM iwd backend"
+        )
+
+    def test_sync_services_iwd_guarded(self) -> None:
+        """iwd enablement must be guarded behind a check for iwctl."""
+        func = _extract_function("sync_services")
+        assert "iwctl" in func, (
+            "sync_services must check for iwctl before enabling iwd "
+            "so systems without iwd don't fail"
         )
 
     def test_sync_services_nm_conf_is_idempotent(self) -> None:

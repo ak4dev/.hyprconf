@@ -970,22 +970,24 @@ sync_services() {
     # Ensure NetworkManager uses iwd as its wifi backend so it handles both
     # wifi association and DHCP.  Without this, systems that have iwd installed
     # (but no wpa_supplicant) get wifi association without DHCP.
-    local _nm_conf_dir="/etc/NetworkManager/conf.d"
-    local _nm_wifi_conf="$_nm_conf_dir/wifi-backend.conf"
-    if ! grep -qs "wifi.backend=iwd" "$_nm_wifi_conf" 2>/dev/null; then
-        sudo mkdir -p "$_nm_conf_dir"
-        printf '[device]\nwifi.backend=iwd\n' | sudo tee "$_nm_wifi_conf" > /dev/null
-        log_ok "NetworkManager wifi backend set to iwd."
+    if command -v iwctl &>/dev/null; then
+        local _nm_conf_dir="/etc/NetworkManager/conf.d"
+        local _nm_wifi_conf="$_nm_conf_dir/wifi-backend.conf"
+        if ! grep -qs "wifi.backend=iwd" "$_nm_wifi_conf" 2>/dev/null; then
+            sudo mkdir -p "$_nm_conf_dir"
+            printf '[device]\nwifi.backend=iwd\n' | sudo tee "$_nm_wifi_conf" > /dev/null
+            log_ok "NetworkManager wifi backend set to iwd."
+        fi
     fi
 
     if _in_chroot; then
         sudo systemctl enable NetworkManager
-        sudo systemctl enable iwd
+        command -v iwctl &>/dev/null && sudo systemctl enable iwd
         sudo systemctl enable bluetooth
         sudo systemctl enable ufw
     else
         sudo systemctl enable --now NetworkManager
-        sudo systemctl enable --now iwd
+        command -v iwctl &>/dev/null && sudo systemctl enable --now iwd
         sudo systemctl enable --now bluetooth
         sudo systemctl enable --now ufw
 
