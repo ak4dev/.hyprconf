@@ -43,15 +43,15 @@ When making any Hyprland configuration change, consult these resources in order:
 
 ---
 
-## Commit Message Tags (Required)
+## Commit Messages (Conventional Commits)
 
-When creating git commits in this repo, **always use one of the tags below**, and use this **exact subject-line format**:
+This repo follows the [Conventional Commits](https://www.conventionalcommits.org/) standard:
 
-`<tag>: [section] <message>`
+`<tag>(<scope>): <message>`
 
 Rules:
 - The *subject line* must be readable in a single line and **≤ 140 characters** total.
-- `[section]` should be a short area name (e.g., `installer`, `hyprland`, `theme`, `docs`, `infra`).
+- `(<scope>)` is optional but encouraged — use a short area name (e.g., `sync`, `theme`, `network`, `tui`, `docs`).
 - Breaking changes: add `!` to the tag (e.g., `feat!: ...`) and/or a `BREAKING CHANGE:` footer.
 
 Tags:
