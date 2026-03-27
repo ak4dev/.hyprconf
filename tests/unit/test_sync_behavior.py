@@ -255,6 +255,83 @@ class TestSyncPath:
         assert "setup_hardware_features" in sync_block, \
             "setup_hardware_features must be called in sync path for install/sync parity"
 
+    def test_force_flag_triggers_hard_reset(self) -> None:
+        """--force must trigger git reset --hard instead of --ff-only pull."""
+        func = _extract_function("clone_or_update_repo")
+        assert "reset --hard" in func, \
+            "clone_or_update_repo must use git reset --hard when force is true"
+
+    def test_force_flag_accepted_in_sync_block(self) -> None:
+        """The --sync arg parser must recognise --force."""
+        src = _setup_text()
+        sync_idx = src.index('"--sync"')
+        sync_block = src[sync_idx:sync_idx + 1000]
+        assert "--force" in sync_block, \
+            "--sync path must support --force flag"
+
+    def test_force_passed_to_clone_or_update(self) -> None:
+        """The sync block must pass the force flag to clone_or_update_repo."""
+        src = _setup_text()
+        sync_idx = src.index('"--sync"')
+        sync_block = src[sync_idx:sync_idx + 2000]
+        assert "clone_or_update_repo" in sync_block
+        # Must be called with the force variable, not bare
+        clone_line = [l for l in sync_block.splitlines() if "clone_or_update_repo" in l][0]
+        assert "_sync_force" in clone_line, \
+            "clone_or_update_repo must receive the _sync_force argument"
+
+    def test_clone_or_update_repo_accepts_force_param(self) -> None:
+        """clone_or_update_repo must accept a force parameter."""
+        func = _extract_function("clone_or_update_repo")
+        assert "_force" in func, \
+            "clone_or_update_repo must have a _force parameter"
+
+    def test_force_and_full_combinable(self) -> None:
+        """--force and --full must be combinable (loop-based parsing, not positional)."""
+        src = _setup_text()
+        sync_idx = src.index('"--sync"')
+        sync_block = src[sync_idx:sync_idx + 500]
+        assert "for _arg" in sync_block or "for arg" in sync_block, \
+            "Sync arg parsing must use a loop so flags are combinable in any order"
+
+
+# ---------------------------------------------------------------------------
+# 7a. hyprconf binary — dispatcher must forward $@ to cmd_sync
+# ---------------------------------------------------------------------------
+
+class TestDispatcherForwarding:
+    """Verify the main() dispatcher passes arguments to cmd_sync."""
+
+    def _hyprconf_text(self) -> str:
+        hyprconf_bin = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
+        return hyprconf_bin.read_text()
+
+    def test_cmd_sync_receives_args(self) -> None:
+        """main() dispatcher must call cmd_sync with '$@' so --force/--full reach setup.sh."""
+        text = self._hyprconf_text()
+        # Find the sync case in the dispatcher
+        sync_lines = [l.strip() for l in text.splitlines() if "sync)" in l and "cmd_sync" in l]
+        assert sync_lines, "No sync dispatcher line found in hyprconf binary"
+        assert any('"$@"' in l for l in sync_lines), (
+            "The sync dispatcher must pass '$@' to cmd_sync — without this, "
+            "--force and --full flags are silently dropped"
+        )
+
+    def test_cmd_sync_forwards_to_setup_sh(self) -> None:
+        """cmd_sync must forward its arguments to setup.sh --sync."""
+        text = self._hyprconf_text()
+        # Find cmd_sync function body
+        idx = text.index("cmd_sync()")
+        body = text[idx:idx + 200]
+        assert '"$@"' in body, \
+            "cmd_sync must pass '$@' to SETUP_SCRIPT --sync"
+
+    def test_help_text_includes_force_and_full(self) -> None:
+        """Help text must document both --force and --full flags."""
+        text = self._hyprconf_text()
+        assert "--force" in text, "Help text must document --force flag"
+        assert "--full" in text, "Help text must document --full flag"
+
 
 # ---------------------------------------------------------------------------
 # 7. sync_services wifi backend fix — sync-patchable networking

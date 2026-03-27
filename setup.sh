@@ -227,6 +227,7 @@ _remote_branch_exists() {
 }
 
 clone_or_update_repo() {
+    local _force="${1:-false}"
     if [ ! -d "$HYPRCONF_DIR/.git" ]; then
         log_step "Cloning hyprconf repo..."
         _clone_repo_branch "$HYPRCONF_STABLE_BRANCH" \
@@ -250,8 +251,16 @@ clone_or_update_repo() {
 
         if [[ -n "$upstream" ]]; then
             log_step "Updating hyprconf repo..."
-            git -C "$HYPRCONF_DIR" pull --ff-only \
-                || log_warn "Fast-forward pull failed — using existing files."
+            if [[ "$_force" == "true" ]]; then
+                log_warn "Force-resetting to $upstream (local divergence discarded)..."
+                git -C "$HYPRCONF_DIR" fetch origin 2>/dev/null \
+                    || log_warn "Fetch failed — resetting to last known remote state."
+                git -C "$HYPRCONF_DIR" reset --hard "$upstream" \
+                    || log_die "Force reset to $upstream failed."
+            else
+                git -C "$HYPRCONF_DIR" pull --ff-only \
+                    || log_warn "Fast-forward pull failed — using existing files."
+            fi
             log_ok "Repository ready."
         else
             log_ok "Repository ready (no upstream — skipping pull)."
@@ -1079,7 +1088,11 @@ main() {
 
     if [[ "${1:-}" == "--sync" ]]; then
         local _sync_full=false
-        [[ "${2:-}" == "--full" ]] && _sync_full=true
+        local _sync_force=false
+        for _arg in "${@:2}"; do
+            [[ "$_arg" == "--full"  ]] && _sync_full=true
+            [[ "$_arg" == "--force" ]] && _sync_force=true
+        done
 
         print_header "sync"
         log_step "Syncing configs..."
@@ -1087,7 +1100,7 @@ main() {
         # Migrate 99-hyprconf-local.conf BEFORE git pull so user settings survive
         # a pull that removes the now-untracked stow copy of the file.
         migrate_user_conf
-        clone_or_update_repo
+        clone_or_update_repo "$_sync_force"
         create_directories
         purge_broken_symlinks
         sync_vscode_theme_extensions

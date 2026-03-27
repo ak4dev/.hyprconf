@@ -7,7 +7,7 @@
   <img alt="arch linux" src="https://img.shields.io/badge/arch-linux-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" />
   <img alt="hyprland" src="https://img.shields.io/badge/hyprland-wayland-111827?style=for-the-badge&logo=wayland&logoColor=white" />
   <img alt="gnu stow" src="https://img.shields.io/badge/gnu%20stow-dotfiles-3a7f2e?style=for-the-badge&logo=gnu&logoColor=white" />
-  <img alt="themes" src="https://img.shields.io/badge/themes-44-8b5cf6?style=for-the-badge" />
+  <img alt="themes" src="https://img.shields.io/badge/themes-67-8b5cf6?style=for-the-badge" />
 </p>
 
 # .hyprconf
@@ -30,7 +30,7 @@
 - **`hyprconf` CLI** — unified control: `hyprconf theme random`, `hyprconf set general gaps_in 8`, `hyprconf keybind add`, `hyprconf monitor set bedroom`, `hyprconf configure` (IOS-style REPL), and more
 - **`hyprconf tui`** — full-screen Textual TUI with arrow-selectable pickers for enums, interactive sliders for numeric fields, and mode lists fetched from `hyprctl`; covers all Hyprland config sections (general, decoration, animations, input, gestures, group, misc, binds, cursor, render, opengl, xwayland, dwindle, master and their subsections), plus keybinds, window/workspace rules, monitors, hyprlock, hypridle, hyprpaper, and a built-in theme picker
 - **One-command setup** — installs packages (including `yay` AUR helper), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
-- **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages
+- **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages; `--force` to hard-reset a diverged branch, `--full` to restow all dotfiles
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
@@ -65,7 +65,7 @@ Prompts for username, password, hostname, timezone (auto-detected), network conf
 1. Partitions disk — **full wipe** or **unallocated space** (preserves existing partitions; reuses or creates EFI)
 2. LUKS2 encryption (AES-XTS 512-bit) on root
 3. btrfs with subvolumes: `@` `/`, `@home` `/home`, `@snapshots` `/.snapshots`, `@var_log` `/var/log`
-4. `pacstrap` — base system, CPU microcode, NetworkManager, ZSH
+4. `pacstrap` — base system, CPU microcode, NetworkManager, iwd, ZSH
 5. Chroot config: locale, timezone, hostname, `mkinitcpio` (systemd + sd-encrypt), `systemd-boot`, user account, TTY1 auto-login
 6. Pre-clones repo; first-boot hook runs `setup.sh` automatically on login
 
@@ -83,8 +83,10 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
 9. Hardware feature detection: touchscreen → installs `wvkbd` (AUR) + writes `conf.d/60-hardware.conf`; accelerometer → installs + enables `iio-sensor-proxy`
 10. `ufw` deny-inbound / allow-outbound; enable + start
-11. Disable `sddm`; enable `NetworkManager`, `bluetooth`, `power-profiles-daemon`
+11. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend
 11. Reload Hyprland
+
+> **WiFi:** if no wifi profiles were copied from the ISO (e.g. ethernet install), connect after first boot with `nmtui`.
 
 > **AUR dependency:** `bibata-cursor-theme` must be installed manually: `yay -S bibata-cursor-theme`
 
@@ -92,12 +94,15 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 
 ```bash
 hyprconf sync          # pull, re-apply services, reload Hyprland (always config-safe)
+hyprconf sync --force  # discard local divergence, hard-reset to remote branch
 hyprconf sync --full   # as above + full dotfile restow (resets configs to repo defaults)
 hyprconf repair        # fix stow tree, broken symlinks, Python imports, monitors.conf
 hyprsync               # backward-compatible alias for hyprconf sync
 ```
 
 `hyprconf sync` is **always config-safe**, regardless of branch — it uses additive-only stow, which creates symlinks for new files but never replaces existing symlinks or real files you have modified. Use `hyprconf sync --full` to explicitly reset all dotfiles to repo defaults.
+
+`hyprconf sync --force` is for devices whose local branch has diverged from origin (e.g. days behind with local commits). It discards local changes and resets to the remote branch state. Combine with `--full` to also restow.
 
 `~/.config/hypr/conf.d/99-hyprconf-local.conf` — the file written by `hyprconf set` and the TUI — is **machine-local and never managed by stow or git**. It survives all sync modes. If a previous install left it as a stow symlink, the first sync after this update migrates it automatically to a regular file.
 
@@ -241,6 +246,8 @@ hyprconf tui --slim
 
 # Sync / repair
 hyprconf sync
+hyprconf sync --force            Discard local divergence, reset to remote
+hyprconf sync --full             Full dotfile restow (reset configs to defaults)
 hyprconf repair
 
 # Cloud deploy
@@ -255,6 +262,16 @@ hyprconf autodetect              Detect + migrate existing config
 hyprconf hardware status         Show detected hardware and daemon status
 hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)
 hyprconf hardware rotate <on|off>      Control auto-rotation (autorotate)
+
+# Addons
+hyprconf addon                   List available addons and their status
+hyprconf addon <name>            Install a named addon (e.g. dev)
+
+# Developer
+hyprconf dev                     Show developer pipeline commands
+hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]
+hyprconf dev vm [start|stop|stop-all|build|status]
+hyprconf dev publish             Full pipeline: tests → deploy → stable promote
 
 hyprconf help
 ```

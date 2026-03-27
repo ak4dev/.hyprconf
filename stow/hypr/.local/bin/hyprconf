@@ -40,6 +40,8 @@ usage() {
   printf "  hyprconf theme filter <str>      Filter themes in TUI\n"
   printf "\n${_b}Sync / Repair${_r}\n"
   printf "  hyprconf sync                    Pull latest configs and re-stow\n"
+  printf "  hyprconf sync --force            Force-reset to remote (discard local divergence)\n"
+  printf "  hyprconf sync --full             Re-stow all dotfiles, resetting to repo defaults\n"
   printf "  hyprconf repair                  Scan and fix installation discrepancies\n"
   printf "                                   (stow dir-symlinks, broken links, Python\n"
   printf "                                    imports, monitors.conf)\n"
@@ -1699,7 +1701,7 @@ main() {
   shift || true
   case "$cmd" in
     theme)            cmd_theme "$@" ;;
-    sync)             cmd_sync ;;
+    sync)             cmd_sync "$@" ;;
     repair)           cmd_repair ;;
     monitor)          cmd_monitor "$@" ;;
     display)          cmd_display "$@" ;;
