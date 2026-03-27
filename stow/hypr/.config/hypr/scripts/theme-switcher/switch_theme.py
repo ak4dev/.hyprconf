@@ -2091,6 +2091,132 @@ def wofi_select(initial_filter: str = "") -> Optional[str]:
         return interactive_select(initial_filter)
 
 
+# ---------------------------------------------------------------------------
+# Wallpaper → theme generator
+# ---------------------------------------------------------------------------
+
+def _extract_dominant_colors(image_path: str, num_colors: int = 8) -> list:
+    """Extract dominant colours from an image using PIL k-means quantisation."""
+    try:
+        from PIL import Image
+    except ImportError:
+        raise RuntimeError(
+            "python-pillow is required for theme generation. "
+            "Install with: sudo pacman -S python-pillow"
+        )
+    img = Image.open(image_path).convert("RGB")
+    img = img.resize((150, 150))
+    result = img.quantize(colors=num_colors, method=Image.Quantize.MEDIANCUT)
+    palette = result.getpalette()
+    if not palette:
+        raise RuntimeError("Failed to extract palette from image.")
+    colors = []
+    for i in range(num_colors):
+        r, g, b = palette[i * 3], palette[i * 3 + 1], palette[i * 3 + 2]
+        colors.append((r, g, b))
+    return colors
+
+
+def _luminance(r: int, g: int, b: int) -> float:
+    return 0.299 * r + 0.587 * g + 0.114 * b
+
+
+def _saturation(r: int, g: int, b: int) -> float:
+    import colorsys
+    _, s, _ = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+    return s
+
+
+def _rgb_to_hex(r: int, g: int, b: int) -> str:
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+def _hue_shift(r: int, g: int, b: int, degrees: float) -> tuple:
+    import colorsys
+    h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
+    h = (h + degrees / 360) % 1.0
+    rr, gg, bb = colorsys.hsv_to_rgb(h, s, v)
+    return int(rr * 255), int(gg * 255), int(bb * 255)
+
+
+def generate_theme_from_wallpaper(
+    image_path: str,
+    theme_name: str | None = None,
+) -> str:
+    """Generate a theme JSON from wallpaper dominant colours and save it.
+
+    Returns the theme name (usable with apply_theme).
+    """
+    image_path = os.path.expanduser(image_path)
+    if not os.path.isfile(image_path):
+        raise FileNotFoundError(f"Image not found: {image_path}")
+
+    colors = _extract_dominant_colors(image_path, num_colors=10)
+
+    sorted_by_lum = sorted(colors, key=lambda c: _luminance(*c))
+    darkest = sorted_by_lum[0]
+    lightest = sorted_by_lum[-1]
+
+    is_dark = _luminance(*darkest) < 80
+
+    if is_dark:
+        background = darkest
+        foreground = lightest
+    else:
+        background = lightest
+        foreground = darkest
+
+    saturated = sorted(colors, key=lambda c: _saturation(*c), reverse=True)
+    accent = saturated[0]
+
+    mid_lum = _luminance(*background) * 0.6 + _luminance(*foreground) * 0.4
+    comment_candidates = sorted(colors, key=lambda c: abs(_luminance(*c) - mid_lum))
+    comment = comment_candidates[0]
+
+    def _pick_for_hue_range(lo: float, hi: float, fallback_shift: float) -> tuple:
+        import colorsys
+        for c in saturated:
+            h, s, _ = colorsys.rgb_to_hsv(c[0] / 255, c[1] / 255, c[2] / 255)
+            if lo <= h <= hi and s > 0.2:
+                return c
+        return _hue_shift(*accent, fallback_shift)
+
+    red = _pick_for_hue_range(0.95, 1.0, 0)
+    if red == accent:
+        red = _pick_for_hue_range(0.0, 0.05, 0)
+    orange = _pick_for_hue_range(0.05, 0.12, 30)
+    green = _pick_for_hue_range(0.25, 0.42, 120)
+    cyan = _pick_for_hue_range(0.45, 0.55, 180)
+
+    theme_data = {
+        "background": _rgb_to_hex(*background),
+        "foreground": _rgb_to_hex(*foreground),
+        "comment": _rgb_to_hex(*comment),
+        "accent": _rgb_to_hex(*accent),
+        "red": _rgb_to_hex(*red),
+        "orange": _rgb_to_hex(*orange),
+        "green": _rgb_to_hex(*green),
+        "cyan": _rgb_to_hex(*cyan),
+        "wallpaper": image_path,
+    }
+
+    if theme_name is None:
+        basename = os.path.splitext(os.path.basename(image_path))[0]
+        theme_name = f"generated:{basename}"
+
+    out_path = os.path.join(THEMES_DIR, f"{theme_name}.json")
+    with open(out_path, "w") as fh:
+        json.dump(theme_data, fh, indent=2)
+        fh.write("\n")
+
+    print(f"Theme generated: {theme_name}")
+    print(f"  background: {theme_data['background']}")
+    print(f"  foreground: {theme_data['foreground']}")
+    print(f"  accent:     {theme_data['accent']}")
+    print(f"Saved to: {out_path}")
+    return theme_name
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -2121,6 +2247,8 @@ if __name__ == "__main__":
     parser.add_argument("--prev",      "-p", action="store_true", help="Apply the previous theme (sorted order).")
     parser.add_argument("--pick",      "-w", action="store_true", help="Select theme via hyprlauncher --dmenu.")
     parser.add_argument("--no-reload",       action="store_true", help="Skip hyprctl reload after applying.")
+    parser.add_argument("--generate", "-g", metavar="IMAGE",
+                        help="Generate a theme from a wallpaper image and apply it.")
     parser.add_argument("--filter",    "-f", default="", metavar="STR",
                         help="Pre-filter themes by substring (used with TUI, --pick, --random).")
 
@@ -2128,7 +2256,11 @@ if __name__ == "__main__":
     do_reload = not args.no_reload
 
     try:
-        if args.current:
+        if args.generate:
+            name = generate_theme_from_wallpaper(args.generate)
+            print(f"Switching to theme: {name}")
+            apply_theme(name, reload=do_reload)
+        elif args.current:
             state = read_state()
             print(state if state else "(no theme applied yet)")
         elif args.list:

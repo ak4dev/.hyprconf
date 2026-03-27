@@ -66,6 +66,7 @@ lm_sensors
 # Python (theme switcher + hyprconf TUI)
 python
 python-textual
+python-pillow
 
 # Testing (Tiers 1–3 run without a Hyprland session; pytest-asyncio is for TUI tests)
 python-pytest

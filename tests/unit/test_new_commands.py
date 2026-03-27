@@ -1,5 +1,6 @@
 """
-Tests for new CLI commands: doctor, clipboard, screenshot, gamemode, power.
+Tests for new CLI commands: doctor, clipboard, screenshot, gamemode, power,
+nightlight, colorpicker, record, keybind overlay, theme generate.
 
 Validates that each command function exists in the hyprconf binary,
 has correct dispatcher entries, and appears in help text.
@@ -301,3 +302,247 @@ class TestCmdPower:
 
     def test_help_text(self) -> None:
         assert "hyprconf power" in _bin_text()
+
+
+# ---------------------------------------------------------------------------
+# 6. cmd_nightlight
+# ---------------------------------------------------------------------------
+
+class TestCmdNightlight:
+    """Verify hyprconf nightlight command."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_nightlight()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if "nightlight" in l and "cmd_nightlight" in l]
+        assert lines
+
+    def test_night_alias(self) -> None:
+        text = _bin_text()
+        lines = [l for l in text.splitlines() if "night)" in l and "cmd_nightlight" in l]
+        assert lines, "'night' alias must dispatch to cmd_nightlight"
+
+    def test_on_off_toggle(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_nightlight()")
+        body = text[idx:idx + 400]
+        assert "on)" in body or "on\n" in body
+        assert "off)" in body
+        assert "toggle)" in body
+
+    def test_status_subcommand(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_nightlight()")
+        body = text[idx:idx + 500]
+        assert "status" in body
+
+    def test_uses_hyprsunset(self) -> None:
+        text = _bin_text()
+        assert "hyprsunset" in text
+
+    def test_pid_tracking(self) -> None:
+        """Nightlight must use PID tracking (not pkill)."""
+        text = _bin_text()
+        assert "_NIGHTLIGHT_PID" in text
+        assert "pkill" not in text, "Must use PID tracking, not pkill"
+
+    def test_help_text(self) -> None:
+        assert "hyprconf nightlight" in _bin_text()
+
+
+# ---------------------------------------------------------------------------
+# 7. cmd_colorpicker
+# ---------------------------------------------------------------------------
+
+class TestCmdColorpicker:
+    """Verify hyprconf colorpicker command."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_colorpicker()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if "colorpicker" in l and "cmd_colorpicker" in l]
+        assert lines
+
+    def test_color_alias(self) -> None:
+        text = _bin_text()
+        lines = [l for l in text.splitlines()
+                 if "color)" in l and "cmd_colorpicker" in l]
+        assert lines, "'color' alias must dispatch to cmd_colorpicker"
+
+    def test_hex_mode(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_colorpicker()")
+        body = text[idx:idx + 400]
+        assert "hex" in body
+
+    def test_rgb_mode(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_colorpicker()")
+        body = text[idx:idx + 400]
+        assert "rgb" in body
+
+    def test_uses_hyprpicker(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_colorpicker()")
+        body = text[idx:idx + 400]
+        assert "hyprpicker" in body
+
+    def test_help_text(self) -> None:
+        assert "hyprconf colorpicker" in _bin_text()
+
+
+# ---------------------------------------------------------------------------
+# 8. cmd_record
+# ---------------------------------------------------------------------------
+
+class TestCmdRecord:
+    """Verify hyprconf record command."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_record()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines()
+                 if "record" in l and "cmd_record" in l]
+        assert lines
+
+    def test_rec_alias(self) -> None:
+        text = _bin_text()
+        lines = [l for l in text.splitlines() if "rec)" in l and "cmd_record" in l]
+        assert lines, "'rec' alias must dispatch to cmd_record"
+
+    def test_start_stop_toggle(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_record()")
+        body = text[idx:idx + 400]
+        assert "start" in body
+        assert "stop" in body
+        assert "toggle" in body
+
+    def test_status_subcommand(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_record()")
+        body = text[idx:idx + 500]
+        assert "status" in body
+
+    def test_pid_tracking(self) -> None:
+        text = _bin_text()
+        assert "_RECORD_PIDFILE" in text
+
+    def test_uses_wf_recorder(self) -> None:
+        text = _bin_text()
+        assert "wf-recorder" in text
+
+    def test_help_text(self) -> None:
+        assert "hyprconf record" in _bin_text()
+
+
+# ---------------------------------------------------------------------------
+# 9. cmd_keybind_overlay
+# ---------------------------------------------------------------------------
+
+class TestCmdKeybindOverlay:
+    """Verify hyprconf keybinds overlay command."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_keybind_overlay()" in _bin_text()
+
+    def test_show_dispatches_overlay(self) -> None:
+        """'hyprconf show keybinds overlay' must route to cmd_keybind_overlay."""
+        text = _bin_text()
+        idx = text.index("cmd_show()")
+        body = text[idx:idx + 500]
+        assert "overlay" in body
+        assert "cmd_keybind_overlay" in body
+
+    def test_uses_hyprctl_binds(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_keybind_overlay()")
+        body = text[idx:idx + 600]
+        assert "hyprctl" in body
+        assert "binds" in body
+
+    def test_help_text(self) -> None:
+        assert "keybinds overlay" in _bin_text()
+
+
+# ---------------------------------------------------------------------------
+# 10. theme generate
+# ---------------------------------------------------------------------------
+
+class TestThemeGenerate:
+    """Verify hyprconf theme generate command."""
+
+    def test_generate_in_binary(self) -> None:
+        """cmd_theme must dispatch 'generate' subcommand."""
+        text = _bin_text()
+        idx = text.index("cmd_theme()")
+        body = text[idx:idx + 800]
+        assert "generate)" in body
+        assert "--generate" in body
+
+    def test_help_text(self) -> None:
+        assert "theme generate" in _bin_text()
+
+    def test_generate_function_in_switch_theme(self) -> None:
+        """switch_theme.py must have generate_theme_from_wallpaper()."""
+        theme_script = (
+            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
+            / "scripts" / "theme-switcher" / "switch_theme.py"
+        )
+        text = theme_script.read_text()
+        assert "def generate_theme_from_wallpaper" in text
+
+    def test_generate_flag_in_argparse(self) -> None:
+        """switch_theme.py must accept --generate flag."""
+        theme_script = (
+            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
+            / "scripts" / "theme-switcher" / "switch_theme.py"
+        )
+        text = theme_script.read_text()
+        assert '"--generate"' in text
+
+    def test_extracts_dominant_colors(self) -> None:
+        """Generator must have colour extraction function."""
+        theme_script = (
+            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
+            / "scripts" / "theme-switcher" / "switch_theme.py"
+        )
+        text = theme_script.read_text()
+        assert "_extract_dominant_colors" in text
+
+    def test_generates_required_keys(self) -> None:
+        """Generated theme must include all required JSON keys."""
+        theme_script = (
+            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
+            / "scripts" / "theme-switcher" / "switch_theme.py"
+        )
+        text = theme_script.read_text()
+        idx = text.index("def generate_theme_from_wallpaper")
+        body = text[idx:idx + 2000]
+        for key in ("background", "foreground", "comment", "accent",
+                     "red", "orange", "green", "cyan"):
+            assert f'"{key}"' in body, f"Generated theme must include '{key}'"
+
+    def test_saves_to_themes_dir(self) -> None:
+        """Generated theme must be saved to themes directory."""
+        theme_script = (
+            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
+            / "scripts" / "theme-switcher" / "switch_theme.py"
+        )
+        text = theme_script.read_text()
+        idx = text.index("def generate_theme_from_wallpaper")
+        body = text[idx:idx + 3000]
+        assert "THEMES_DIR" in body
+
+    def test_pillow_in_packages(self) -> None:
+        """python-pillow must be in the packages file."""
+        pkgs = (REPO_ROOT / "packages").read_text()
+        assert "python-pillow" in pkgs

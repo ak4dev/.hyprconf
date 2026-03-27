@@ -38,6 +38,7 @@ usage() {
   printf "  hyprconf theme list              Pretty colour table of all themes\n"
   printf "  hyprconf theme pick              Select via hyprlauncher\n"
   printf "  hyprconf theme filter <str>      Filter themes in TUI\n"
+  printf "  hyprconf theme generate <image>  Generate theme from wallpaper image\n"
   printf "\n${_b}Sync / Repair${_r}\n"
   printf "  hyprconf sync                    Pull latest configs and re-stow\n"
   printf "  hyprconf sync --force            Force-reset to remote (discard local divergence)\n"
@@ -127,6 +128,10 @@ usage() {
   printf "  hyprconf screenshot [region|window|full|edit]  Screen capture\n"
   printf "  hyprconf gamemode [on|off|toggle|status]  Toggle performance mode\n"
   printf "  hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu\n"
+  printf "  hyprconf nightlight [on|off|toggle|status]  Blue light filter\n"
+  printf "  hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard\n"
+  printf "  hyprconf record [start|stop|toggle|status]  Screen recording\n"
+  printf "  hyprconf keybinds overlay        Show all keybinds on screen\n"
   printf "  hyprconf help                    Show this message\n"
 }
 
@@ -142,6 +147,7 @@ cmd_theme() {
     current)  python3 "$THEME_SCRIPT" --current ;;
     pick)     python3 "$THEME_SCRIPT" --pick ;;
     filter)   python3 "$THEME_SCRIPT" --filter "${1:-}" ;;
+    generate) python3 "$THEME_SCRIPT" --generate "${1:?Usage: hyprconf theme generate <image>}" ;;
     set)      python3 "$THEME_SCRIPT" "${1:?Usage: hyprconf theme set <name>}" ;;
     *)        python3 "$THEME_SCRIPT" "$sub" ;;
   esac
@@ -565,8 +571,15 @@ cmd_show() {
   local sub="${1:-}"
   shift || true
   case "$sub" in
-    keybinds|keys|binds) cmd_show_keybinds "$@" ;;
-    -h|--help|help|"") die "Usage: hyprconf show keybinds" ;;
+    keybinds|keys|binds)
+      local sub2="${1:-}"
+      if [[ "$sub2" == "overlay" ]]; then
+        cmd_keybind_overlay
+      else
+        cmd_show_keybinds "$@"
+      fi
+      ;;
+    -h|--help|help|"") die "Usage: hyprconf show keybinds [overlay]" ;;
     *) die "Unknown show target: $sub" ;;
   esac
 }
@@ -1716,6 +1729,214 @@ cmd_power() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+# Night light — blue light filter
+# ════════════════════════════════════════════════════════════════════════════
+
+readonly _NIGHTLIGHT_STATE="/tmp/hyprconf-nightlight"
+readonly _NIGHTLIGHT_PID="/tmp/hyprconf-nightlight.pid"
+
+cmd_nightlight() {
+  local sub="${1:-toggle}"
+  case "$sub" in
+    on)
+      _nightlight_on "${2:-4000}"
+      ;;
+    off)
+      _nightlight_off
+      ;;
+    toggle)
+      if [[ -f "$_NIGHTLIGHT_STATE" ]]; then
+        _nightlight_off
+      else
+        _nightlight_on "${2:-4000}"
+      fi
+      ;;
+    status)
+      if [[ -f "$_NIGHTLIGHT_STATE" ]]; then
+        printf "${_y}Night light is ON${_r} (temp: %sK)\n" "$(< "$_NIGHTLIGHT_STATE")"
+      else
+        printf "${_g}Night light is OFF${_r}\n"
+      fi
+      ;;
+    *)
+      printf "Usage: hyprconf nightlight [on [temp]|off|toggle|status]\n" >&2
+      printf "  temp: colour temperature in Kelvin (default: 4000, range: 1000-6500)\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+_nightlight_on() {
+  local temp="${1:-4000}"
+  if [[ -f "$_NIGHTLIGHT_PID" ]] && kill -0 "$(< "$_NIGHTLIGHT_PID")" 2>/dev/null; then
+    printf "${_y}Night light already active.${_r}\n"
+    return
+  fi
+  if command -v hyprsunset &>/dev/null; then
+    hyprsunset -t "$temp" &
+    echo $! > "$_NIGHTLIGHT_PID"
+    echo "$temp" > "$_NIGHTLIGHT_STATE"
+    printf "${_g}✔${_r} Night light ${_b}ON${_r} (%sK)\n" "$temp"
+  elif command -v wlsunset &>/dev/null; then
+    wlsunset -T "$temp" &
+    echo $! > "$_NIGHTLIGHT_PID"
+    echo "$temp" > "$_NIGHTLIGHT_STATE"
+    printf "${_g}✔${_r} Night light ${_b}ON${_r} (%sK)\n" "$temp"
+  else
+    die "Neither hyprsunset nor wlsunset is installed. Install with: pacman -S hyprsunset"
+  fi
+}
+
+_nightlight_off() {
+  if [[ ! -f "$_NIGHTLIGHT_PID" ]]; then
+    printf "${_y}Night light not active.${_r}\n"
+    return
+  fi
+  local pid
+  pid=$(< "$_NIGHTLIGHT_PID")
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+  fi
+  rm -f "$_NIGHTLIGHT_PID" "$_NIGHTLIGHT_STATE"
+  printf "${_g}✔${_r} Night light ${_b}OFF${_r}\n"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Color picker — pick colour from screen
+# ════════════════════════════════════════════════════════════════════════════
+
+cmd_colorpicker() {
+  command -v hyprpicker &>/dev/null \
+    || die "hyprpicker not installed. Install with: pacman -S hyprpicker"
+  local format="${1:-hex}"
+  local color
+  case "$format" in
+    hex)  color=$(hyprpicker -a) ;;
+    rgb)  color=$(hyprpicker -a -f rgb) ;;
+    *)
+      printf "Usage: hyprconf colorpicker [hex|rgb]\n" >&2
+      exit 1
+      ;;
+  esac
+  if [[ -n "$color" ]]; then
+    printf "${_g}✔${_r} Copied to clipboard: ${_b}%s${_r}\n" "$color"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Screen recording
+# ════════════════════════════════════════════════════════════════════════════
+
+readonly _RECORD_PIDFILE="/tmp/hyprconf-recording.pid"
+
+cmd_record() {
+  local sub="${1:-toggle}"
+  case "$sub" in
+    start)   _record_start "${@:2}" ;;
+    stop)    _record_stop ;;
+    toggle)
+      if [[ -f "$_RECORD_PIDFILE" ]] && kill -0 "$(< "$_RECORD_PIDFILE")" 2>/dev/null; then
+        _record_stop
+      else
+        _record_start "${@:2}"
+      fi
+      ;;
+    status)
+      if [[ -f "$_RECORD_PIDFILE" ]] && kill -0 "$(< "$_RECORD_PIDFILE")" 2>/dev/null; then
+        printf "${_y}Recording in progress${_r} (PID %s)\n" "$(< "$_RECORD_PIDFILE")"
+      else
+        printf "${_g}Not recording.${_r}\n"
+      fi
+      ;;
+    *)
+      printf "Usage: hyprconf record [start|stop|toggle|status]\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+_record_start() {
+  if [[ -f "$_RECORD_PIDFILE" ]] && kill -0 "$(< "$_RECORD_PIDFILE")" 2>/dev/null; then
+    printf "${_y}Already recording.${_r} Stop first with: hyprconf record stop\n"
+    return
+  fi
+  local output_dir="${HOME}/Videos/Recordings"
+  mkdir -p "$output_dir"
+  local filename="$output_dir/recording-$(date +%Y%m%d-%H%M%S).mp4"
+
+  if command -v wf-recorder &>/dev/null; then
+    wf-recorder -f "$filename" "$@" &
+    echo $! > "$_RECORD_PIDFILE"
+    printf "${_g}✔${_r} Recording started → %s\n" "$filename"
+  elif command -v gpu-screen-recorder &>/dev/null; then
+    gpu-screen-recorder -w screen -f 60 -o "$filename" "$@" &
+    echo $! > "$_RECORD_PIDFILE"
+    printf "${_g}✔${_r} Recording started → %s\n" "$filename"
+  else
+    die "No screen recorder found. Install with: pacman -S wf-recorder"
+  fi
+}
+
+_record_stop() {
+  if [[ ! -f "$_RECORD_PIDFILE" ]]; then
+    printf "${_y}Not recording.${_r}\n"
+    return
+  fi
+  local pid
+  pid=$(< "$_RECORD_PIDFILE")
+  if kill -0 "$pid" 2>/dev/null; then
+    kill -INT "$pid" 2>/dev/null
+    wait "$pid" 2>/dev/null || true
+  fi
+  rm -f "$_RECORD_PIDFILE"
+  printf "${_g}✔${_r} Recording stopped.\n"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Keybind overlay — show keybinds on screen
+# ════════════════════════════════════════════════════════════════════════════
+
+cmd_keybind_overlay() {
+  # Build a formatted keybind summary from hyprctl
+  local binds
+  binds=$(hyprctl -j binds 2>/dev/null) || die "hyprctl not available"
+
+  local overlay_text
+  overlay_text=$(python3 -c "
+import json, sys
+binds = json.loads(sys.stdin.read())
+lines = []
+for b in binds:
+    mods = b.get('modmask', 0)
+    mod_names = []
+    if mods & 64: mod_names.append('SUPER')
+    if mods & 8: mod_names.append('ALT')
+    if mods & 4: mod_names.append('CTRL')
+    if mods & 1: mod_names.append('SHIFT')
+    mod_str = '+'.join(mod_names) if mod_names else '-'
+    key = b.get('key', '?')
+    disp = b.get('dispatcher', '?')
+    arg = b.get('arg', '')
+    desc = f'{disp} {arg}'.strip()
+    lines.append(f'{mod_str:>20s} + {key:<12s}  →  {desc}')
+print('\n'.join(sorted(lines)))
+" <<< "$binds")
+
+  if command -v wl-copy &>/dev/null; then
+    # Show via notification + copy to clipboard
+    local line_count
+    line_count=$(echo "$overlay_text" | wc -l)
+    if command -v notify-send &>/dev/null; then
+      notify-send -t 10000 "Keybinds ($line_count)" "$(echo "$overlay_text" | head -30)"
+    fi
+    echo "$overlay_text"
+    printf "\n${_g}✔${_r} %d keybinds shown.\n" "$line_count"
+  else
+    echo "$overlay_text"
+  fi
+}
+
+# ════════════════════════════════════════════════════════════════════════════
 # Developer
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -2049,6 +2270,9 @@ main() {
     screenshot|ss)    cmd_screenshot "$@" ;;
     gamemode|game)    cmd_gamemode "$@" ;;
     power)            cmd_power "$@" ;;
+    nightlight|night) cmd_nightlight "$@" ;;
+    colorpicker|color) cmd_colorpicker "$@" ;;
+    record|rec)       cmd_record "$@" ;;
     addon)            cmd_addon "$@" ;;
     dev)              cmd_dev "$@" ;;
     help|-h|--help)   usage ;;
