@@ -314,6 +314,22 @@ def test_load_kitty_theme_replaces_old_include(tmp_path):
     assert str(new_theme) in content
 
 
+def test_load_kitty_theme_creates_conf_when_absent(tmp_path):
+    """When kitty.conf doesn't exist, load_kitty_theme should create it."""
+    kitty_conf = tmp_path / "kitty" / "kitty.conf"
+    theme_conf = tmp_path / "themes" / "generated.conf"
+    theme_conf.parent.mkdir(parents=True)
+    theme_conf.write_text("background #282a36\n")
+
+    with patch.object(st, "KITTY_CONFIG_FILE", str(kitty_conf)):
+        st.load_kitty_theme(str(theme_conf))
+
+    assert kitty_conf.exists()
+    content = kitty_conf.read_text()
+    assert f"include" in content
+    assert str(theme_conf) in content
+
+
 # ---------------------------------------------------------------------------
 # update_dunst
 # ---------------------------------------------------------------------------

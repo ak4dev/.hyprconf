@@ -1620,7 +1620,7 @@ cmd_screenshot() {
 # Game mode — toggle performance mode
 # ════════════════════════════════════════════════════════════════════════════
 
-readonly _GAMEMODE_STATE="/tmp/hyprconf-gamemode"
+readonly _GAMEMODE_STATE="${XDG_RUNTIME_DIR:-/tmp}/hyprconf-gamemode"
 
 cmd_gamemode() {
   local sub="${1:-toggle}"
@@ -1726,8 +1726,8 @@ cmd_power() {
 # Night light — blue light filter
 # ════════════════════════════════════════════════════════════════════════════
 
-readonly _NIGHTLIGHT_STATE="/tmp/hyprconf-nightlight"
-readonly _NIGHTLIGHT_PID="/tmp/hyprconf-nightlight.pid"
+readonly _NIGHTLIGHT_STATE="${XDG_RUNTIME_DIR:-/tmp}/hyprconf-nightlight"
+readonly _NIGHTLIGHT_PID="${XDG_RUNTIME_DIR:-/tmp}/hyprconf-nightlight.pid"
 
 cmd_nightlight() {
   local sub="${1:-toggle}"
@@ -1821,7 +1821,7 @@ cmd_colorpicker() {
 # Screen recording
 # ════════════════════════════════════════════════════════════════════════════
 
-readonly _RECORD_PIDFILE="/tmp/hyprconf-recording.pid"
+readonly _RECORD_PIDFILE="${XDG_RUNTIME_DIR:-/tmp}/hyprconf-recording.pid"
 
 cmd_record() {
   local sub="${1:-toggle}"
