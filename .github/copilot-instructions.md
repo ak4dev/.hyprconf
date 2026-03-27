@@ -67,6 +67,16 @@ Tags:
 - `chore`: maintenance (non-prod code changes)
 - `revert`: revert a previous commit
 
+## Versioning (Semantic Versioning)
+
+This repo follows [Semantic Versioning](https://semver.org/). Version bumps are determined by the commits in a release:
+
+- **PATCH** (`2.0.x`) — `fix:`, `docs:`, `perf:`, `refactor:`, `style:`, `test:`, `build:`, `ci:`, `chore:` — no new user-facing features.
+- **MINOR** (`2.x.0`) — any `feat:` commit — new backward-compatible functionality.
+- **MAJOR** (`x.0.0`) — any `feat!:` / `fix!:` or `BREAKING CHANGE:` footer — removed/renamed commands, changed CLI interface, or other incompatible changes.
+
+A release containing at least one `feat:` commit gets a minor bump; at least one breaking change gets a major bump. Otherwise it's a patch.
+
 ## Project Structure
 
 This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a standalone CLI/TUI binary (`hyprconf`) combined with the maintainer's personal dotfiles. Configs live under `stow/<package>/` and are symlinked into `$HOME` by `setup.sh` / `hyprconf sync`. The Python core library lives at `stow/hypr/.local/lib/hyprconf/`.
