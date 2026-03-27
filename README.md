@@ -371,6 +371,8 @@ Touchpad workspace swiping is configured in `gestures.conf`:
 | `xsettingsd` | GTK/X11 settings bridge (cursor, icon theme) | Once |
 | `hypridle` | Idle/lock daemon | Once |
 | `wl-paste … cliphist store` ×2 | Clipboard history (text + image) | Once |
+| `nm-applet --indicator` | NetworkManager tray icon | Once |
+| `blueman-applet` | Bluetooth tray icon | Once |
 
 ---
 
