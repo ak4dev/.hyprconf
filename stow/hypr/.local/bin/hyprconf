@@ -101,7 +101,7 @@ usage() {
   printf "\n${_b}Config${_r}\n"
   printf "  hyprconf set mainMod <KEY...>    Set \$mainMod (e.g. SUPER, ALT, CTRL)\n"
   printf "\n${_b}Show${_r}\n"
-  printf "  hyprconf show keybinds           Pretty table of keybinds from config\n"
+  printf "  hyprconf show keybind            Pretty table of keybinds from config\n"
   printf "\n${_b}Schema / AI interface${_r}\n"
   printf "  hyprconf schema dump             Dump full schema as JSON\n"
   printf "  hyprconf schema validate         Validate all section keys are known\n"

@@ -1,6 +1,6 @@
 """
 Tests for new CLI commands: doctor, clipboard, screenshot, gamemode, power,
-nightlight, colorpicker, record, keybind overlay, theme generate.
+nightlight, colorpicker, record, theme generate.
 
 Validates that each command function exists in the hyprconf binary,
 has correct dispatcher entries, and appears in help text.

@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import time
+import colorsys
 import filecmp
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -2122,7 +2123,6 @@ def _luminance(r: int, g: int, b: int) -> float:
 
 
 def _saturation(r: int, g: int, b: int) -> float:
-    import colorsys
     _, s, _ = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
     return s
 
@@ -2132,7 +2132,6 @@ def _rgb_to_hex(r: int, g: int, b: int) -> str:
 
 
 def _hue_shift(r: int, g: int, b: int, degrees: float) -> tuple:
-    import colorsys
     h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
     h = (h + degrees / 360) % 1.0
     rr, gg, bb = colorsys.hsv_to_rgb(h, s, v)
@@ -2174,7 +2173,6 @@ def generate_theme_from_wallpaper(
     comment = comment_candidates[0]
 
     def _pick_for_hue_range(lo: float, hi: float, fallback_shift: float) -> tuple:
-        import colorsys
         for c in saturated:
             h, s, _ = colorsys.rgb_to_hsv(c[0] / 255, c[1] / 255, c[2] / 255)
             if lo <= h <= hi and s > 0.2:

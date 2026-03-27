@@ -85,7 +85,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 9. Hardware feature detection: touchscreen → installs `wvkbd` (AUR) + writes `conf.d/60-hardware.conf`; accelerometer → installs + enables `iio-sensor-proxy`
 10. `ufw` deny-inbound / allow-outbound; enable + start
 11. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend
-11. Reload Hyprland
+12. Reload Hyprland
 
 > **WiFi:** if no wifi profiles were copied from the ISO (e.g. ethernet install), connect after first boot with `nmtui`.
 
@@ -101,87 +101,24 @@ hyprconf repair        # fix stow tree, broken symlinks, Python imports, monitor
 hyprsync               # backward-compatible alias for hyprconf sync
 ```
 
-`hyprconf sync` is **always config-safe**, regardless of branch — it uses additive-only stow, which creates symlinks for new files but never replaces existing symlinks or real files you have modified. Use `hyprconf sync --full` to explicitly reset all dotfiles to repo defaults.
-
-`hyprconf sync --force` is for devices whose local branch has diverged from origin (e.g. days behind with local commits). It discards local changes and resets to the remote branch state. Combine with `--full` to also restow.
-
-`~/.config/hypr/conf.d/99-hyprconf-local.conf` — the file written by `hyprconf set` and the TUI — is **machine-local and never managed by stow or git**. It survives all sync modes. If a previous install left it as a stow symlink, the first sync after this update migrates it automatically to a regular file.
+`hyprconf sync` is **always config-safe** — additive-only stow creates symlinks for new files but never replaces files you've modified. `--force` hard-resets a diverged branch; `--full` restows all dotfiles. `~/.config/hypr/conf.d/99-hyprconf-local.conf` (written by `hyprconf set` / TUI) is machine-local, never managed by stow or git, and survives all sync modes.
 
 ---
 
 ## Repository Layout
 
-```
-.hyprconf/
-├── packages                  # Arch packages to install (one per line, comments ok)
-├── setup.sh                  # Local bootstrap + sync entry point
-│
-├── assets/                   # Shared project assets
-│   ├── banner.sh             # print_banner() — glitch palette + logo
-│   └── banner.svg            # README header banner
-│
-├── docs/
-│   └── hyprland-reference.md # Hyprland config syntax cheatsheet
-│
-├── infra/                    # AWS cloud infrastructure (S3 + CloudFront + ACM + Route53)
-│   ├── env.sh.example        # Config template (copy → env.sh, never commit)
-│   ├── deploy.sh             # Idempotent create/update
-│   └── teardown.sh           # Destroy all resources (confirmation required)
-│
-├── install/
-│   └── install.sh            # Self-contained installer (served from CloudFront)
-│
-├── scripts/
-│   └── publish               # Run tests, deploy, promote dev → stable, build release archive
-│
-└── stow/                     # GNU Stow packages — symlinked into $HOME
-    ├── hypr/
-    │   ├── .config/hypr/
-    │   │   ├── hyprland.conf           # Animations, layout, env vars
-    │   │   ├── keybinds.conf           # All keybindings
-    │   │   ├── gestures.conf
-    │   │   ├── hyprpaper.conf
-    │   │   ├── hyprlock.conf
-    │   │   ├── hypridle.conf
-    │   │   ├── laptopMonitors.conf
-    │   │   ├── pcMonitors.conf / .bedroom / .kitchen
-│   │   ├── pcMonitorsK.conf            # Desktop alt preset (monitorv2 block syntax)
-    │   │   ├── conf.d/
-    │   │   │   ├── 00-hyprconf.conf        # Source guard (includes conf.d glob)
-    │   │   │   └── 99-hyprconf-local.conf  # Machine-local overrides (hyprconf set)
-    │   │   └── scripts/
-    │   │       ├── hyprconf-tui/main.py    # Textual TUI
-    │   │       ├── switch_monitor.sh
-    │   │       ├── toggle-native-display   # Toggle built-in laptop screen (eDP-1)
-    │   │       └── theme-switcher/
-    │   │           ├── switch_theme.py
-    │   │           └── themes/             # Theme JSON files
-    │   └── .local/
-    │       ├── bin/hyprconf               # CLI entry point → ~/.local/bin/
-    │       └── lib/hyprconf/              # Shared Python library
-    │           ├── schema.py              # OPTION_SCHEMA — all Hyprland keys + types + defaults
-    │           ├── config.py              # Read/write 99-hyprconf-local.conf
-    │           ├── hyprctl.py             # hyprctl IPC wrapper
-    │           ├── autodetect.py          # First-run config migration
-    │           ├── cli.py                 # Python CLI backend
-    │           ├── file_edit.py           # Atomic file operations
-    │           ├── block_conf.py          # Generic block-format config parser
-    │           ├── keybinds.py            # Keybind read/write
-    │           ├── rules.py               # Window/workspace rule read/write
-    │           ├── monitors.py            # Monitor config read/write
-    │           ├── hyprlock.py            # hyprlock block read/write
-    │           ├── hypridle.py            # hypridle block read/write
-    │           ├── hyprpaper.py           # hyprpaper read/write
-    │           └── __init__.py
-    ├── btop/   kitty/   dunst/   fastfetch/   code-oss/
-    ├── waybar/ wallpaper/
-    └── theme/                  # Vendor extension payloads (not stowed)
-        ├── firefox/extensions/
-        └── .vscode-oss/extensions/
-├── infra/
-│   ├── firefox/policies.json   # Enterprise policies (telemetry off, uBlock Origin)
-│   └── ...                     # Deploy / VM infra scripts
-```
+See [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) for the full directory tree, test architecture, and developer workflow.
+
+Key paths:
+
+| Path | Purpose |
+|---|---|
+| `stow/hypr/.local/bin/hyprconf` | CLI entry point |
+| `stow/hypr/.config/hypr/scripts/` | Theme engine, TUI, monitor switching |
+| `stow/hypr/.local/lib/hyprconf/` | Python library (schema, config, keybinds, …) |
+| `setup.sh` | Bootstrap + sync entry point |
+| `packages` | Arch packages (one per line) |
+| `install/install.sh` | Self-contained installer (served from CloudFront) |
 
 ---
 
@@ -214,7 +151,7 @@ hyprconf configure / conf         Enter configure mode
 
 # Keybinds
 hyprconf keybind list / add / delete / update
-hyprconf show keybinds           Pretty table from config
+hyprconf show keybind            Pretty table from config
 
 # Window & workspace rules
 hyprconf rule window  list / add / delete / update
@@ -301,16 +238,6 @@ This file is sourced by Hyprland on every restart via the `conf.d/*.conf` glob.
 ---
 
 ## Theme Switcher
-
-```bash
-hyprconf theme          # interactive TUI
-hyprconf theme dracula  # apply directly
-hyprconf theme random   # random pick
-```
-
-Themes are applied simultaneously to: Hyprland borders · Waybar CSS · Kitty · Dunst · hyprlock · VS Code / Code OSS · Firefox · GTK 3 & 4 · Qt/KDE apps (`kdeglobals`) · Dolphin · wvkbd · touch-panel · btop · wallpaper.
-
-> **Firefox note:** `userChrome.css` and `user.js` are always updated. If Firefox is running when a theme is applied, `extensions.json` is left untouched (Firefox owns that file while open) and a desktop notification prompts you to restart Firefox for the full theme to activate.
 
 ### Theme Flags
 
@@ -545,9 +472,9 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 
 ## Keybindings
 
-`$mainMod` is **Super (Win)**. Change it persistently: `hyprconf set mainMod ALT`
+> **Note:** these bindings are the maintainer's defaults and ship with the dotfiles. Change them via `hyprconf keybind` or edit `keybinds.conf` directly.
 
-All bindings live in `stow/hypr/.config/hypr/keybinds.conf`.
+`$mainMod` is **Super (Win)**. Change it persistently: `hyprconf set mainMod ALT`
 
 ### Applications
 
@@ -643,130 +570,14 @@ Config is stored at `~/.config/hyprconf/infra.env` (never committed). See `infra
 | `HYPRCONF_ZONE_ID` | Route53 hosted zone ID |
 | `HYPRCONF_REPO` | Fork's GitHub URL |
 
-## Testing
+## Testing & Development
 
-hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python and run without a Hyprland session; Tiers 4–5 are opt-in and require KVM.
-
-```
-tests/
-├── conftest.py              # shared fixtures (isolated config dirs, mock hyprctl)
-├── unit/                    # Tier 1 — pure Python, no Hyprland (921 tests)
-│   ├── test_config.py
-│   ├── test_schema.py
-│   ├── test_file_edit.py
-│   ├── test_block_conf.py
-│   ├── test_keybinds.py
-│   ├── test_rules.py
-│   ├── test_monitors.py
-│   ├── test_hyprlock.py
-│   ├── test_hypridle.py
-│   ├── test_hyprpaper.py
-│   ├── test_touch_panel.py
-│   ├── test_wvkbd_toggle.py
-│   ├── test_autorotate.py
-│   ├── test_adjust_gaps.py
-│   ├── test_toggle_display.py
-│   └── test_switch_monitor.py
-├── integration/             # Tier 2 — Python CLI layer with mock hyprctl
-│   └── test_cli_get_set.py
-├── tui/                     # Tier 3 — Textual Pilot (headless, no terminal needed)
-│   └── test_tui_basic.py
-├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in, 43 tests)
-│   ├── run_vm.sh            # QEMU launch script (virtio-gpu-gl, SSH port 2222)
-│   └── test_hyprland_integration.py
-└── install/                 # Tier 5 — full Arch install smoke test (opt-in, 9 tests)
-    ├── arch.pkr.hcl         # Packer template — builds image using real install.sh
-    ├── build_image.sh       # Packer build + move image + write .meta (date, commit)
-    ├── run_install_vm.sh    # QEMU launch script (COW overlay, SSH port 2223)
-    └── test_full_install.py
-```
-
-**Run tests:**
+hyprconf uses a **5-tier test architecture** (unit → integration → TUI → VM → full install). Quick start:
 
 ```bash
-# Tier 1 — unit tests (fastest, no deps beyond pytest)
-pytest tests/unit/
-
-# Tier 2 — integration tests (mock hyprctl)
-pytest tests/integration/
-
-# Tier 3 — TUI tests (requires python-pytest-asyncio + python-textual)
-pytest tests/tui/
-
-# Tiers 1–3 together with coverage
-pytest tests/unit/ tests/integration/ tests/tui/ --cov=stow/hypr/.local/lib/hyprconf
-
-# Tier 4 — live Hyprland in QEMU (requires KVM; sudo modprobe kvm_amd first)
-bash tests/vm/run_vm.sh           # start VM, wait for SSH
-pytest tests/vm/ --run-vm -v
-
-# Tier 5 — full Arch install smoke test
-# Option A: use an existing image (fast — skips install.sh, validates post-install state)
-bash tests/install/build_image.sh   # first time only; ~20 min — tests install.sh end-to-end
-bash tests/install/run_install_vm.sh
-pytest tests/install/ --run-install -v
-
-# Option B: rebuild and test install.sh on every run
-bash tests/install/build_image.sh   # ~20 min; requires packer + KVM
-bash tests/install/run_install_vm.sh
-pytest tests/install/ --run-install -v
-
-# scripts/publish prompts automatically — no need to manage the VM manually
-
-# Convenience via Makefile
-make test            # Tiers 1–3
-make test-vm         # Tier 4 (VM must be running)
-make test-install    # Tier 5 (image must be built)
-make build-vm-image  # runs build_image.sh
+make test            # Tiers 1–3 (no Hyprland session needed)
+make test-vm         # Tier 4 (live Hyprland in QEMU)
+make test-install    # Tier 5 (full Arch install smoke test)
 ```
 
-**Tier 5 install image** — `build_image.sh` runs Packer to build a full Arch+hyprconf image (exercising `install.sh` end-to-end) and writes `tests/vm/arch-hyprconf.meta` with the build date and commit. The VM launches on port 2223 via `run_install_vm.sh` using a **COW overlay**, so the base image is never dirtied by test runs. `scripts/publish` detects the image, shows its metadata, and prompts: _use existing_ (fast validation only) or _rebuild_ (re-runs `install.sh` via Packer, ~20 min).
-
-**Key fixtures** (`tests/conftest.py`):
-- `hypr_dir` — isolated `~/.config/hypr` in a `tmp_path`, monkeypatches all 9 module-level path constants so each test gets a clean slate
-- `mock_hyprctl` — patches `subprocess.run` with canned JSON responses; tests pass even without `HYPRLAND_INSTANCE_SIGNATURE`
-
-**CI** (`.github/workflows/test.yml`): Tiers 1–3 run on every push/PR via GitHub Actions. Tiers 4–5 require a self-hosted runner with KVM.
-
-**Test packages** (`packages`): `python-pytest`, `python-pytest-asyncio`, `python-coverage`
-
----
-
-## Developer Workflow
-
-### Branches
-
-| Branch | Purpose |
-|--------|---------|
-| `dev` | All active development — tests, docs, scripts, configs |
-| `stable` | Release-ready source branch with normal shared git history |
-
-The model is `dev` → `stable` with shared history. User installs use a sparse checkout of `stable`; release archives are exported from the same commit via `git archive`.
-
-### Publishing to stable
-
-```bash
-bash scripts/publish
-```
-
-`scripts/publish` handles the full pipeline automatically:
-1. Verifies `dev` branch with a clean working tree
-2. Starts the tier-4 test VM if not already running (stops it when done)
-3. Runs all 5 test tiers (aborts on any failure)
-4. **Tier 5 — install image detection**: checks for `tests/vm/arch-hyprconf.qcow2`; if found, displays its build date and commit, then prompts:
-   - **Use existing** — skip `install.sh` re-execution, run post-install validation (~fast)
-   - **Rebuild** — re-run Packer to exercise `install.sh` end-to-end (~20 min)
-   - If no image exists, builds automatically (no prompt)
-5. Starts the tier-5 VM on port 2223 via COW overlay; stops it on exit
-6. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
-7. Builds a filtered release archive from `HEAD` using `git archive` + `.gitattributes`
-8. Pushes `HEAD` to `origin/stable`
-9. Creates and pushes the annotated tag `v<hyprconf.__version__>` unless it already points at `HEAD`
-
-Files excluded from the release archive: `tests/` `scripts/` `.github/` `AGENTS.md` `Makefile` `pyproject.toml`
-
-| Flag | Effect |
-|------|--------|
-| `--skip-deploy` | Skip the deploy step |
-| `--skip-tag` | Skip annotated release-tag creation |
-| `--dry-run` | Build the release archive locally but do not push branches/tags |
+See [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md) for the full test tree, fixtures, CI config, branching model, and publish workflow.
