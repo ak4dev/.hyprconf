@@ -328,7 +328,7 @@ The `btop` key accepts a system theme name (looked up in `/usr/share/btop/themes
 
 | Device type detected | Config symlinked |
 |---|---|
-| Desktop (chassis type 3–7, 13, 24) | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-3 4K rotated |
+| Desktop (chassis type 3–7, 13, 24) | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-1 4K@240Hz rotated |
 | Laptop / portable (all other types) | `laptopMonitors.conf` — eDP-1 preferred + external connectors use `preferred` + catch-all wildcard |
 | Unknown chassis (fallback) | No battery present → desktop; battery present → laptop |
 
@@ -339,7 +339,7 @@ Hot-swap presets activate at runtime via keybind or `hyprconf monitor set <prese
 | `Super + Shift + B` | `pcMonitors.bedroom` |
 | `Super + Shift + K` | `pcMonitors.kitchen` |
 
-`pcMonitorsK.conf` is an alternate desktop preset using Hyprland's newer `monitorv2` block syntax (DP-1 4K@240Hz, DP-2 4K rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `hyprconf monitor set pcMonitorsK` → copies it to `monitors.conf` and reloads.
+`pcMonitorsK.conf` is an alternate desktop preset using Hyprland's newer `monitorv2` block syntax (DP-1 4K@240Hz, DP-2 4K@75Hz rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `hyprconf monitor set pcMonitorsK` → copies it to `monitors.conf` and reloads.
 
 ---
 
@@ -388,7 +388,8 @@ Runs at every `setup.sh` invocation and `hyprconf sync`. Results are written to
 
 Detection (checked in order):
 1. `/sys/class/input/*/device/uevent` → `ID_INPUT_TOUCHSCREEN=1` — standard HID touchscreens (ELAN, etc.)
-2. Same path → `NAME="Wacom * Finger"` + `PHYS="i2c-*"` — Wacom I2C pen+touch digitizers (ThinkPad Yoga, Surface-style devices) whose driver bypasses the generic udev HID rules and never sets `ID_INPUT_TOUCHSCREEN=1`
+2. Same path → `ID_INPUT_TOUCH=1` — generic touch devices (e.g. ASUS ROG Ally, some AMD-based handhelds) that don't set `ID_INPUT_TOUCHSCREEN`
+3. Same path → `NAME="Wacom * Finger"` + `PHYS="i2c-*"` — Wacom I2C pen+touch digitizers (ThinkPad Yoga, Surface-style devices) whose driver bypasses the generic udev HID rules and never sets `ID_INPUT_TOUCHSCREEN=1`
 
 Installs **`wvkbd`** (AUR, requires `yay`) — a minimal wlroots on-screen keyboard.
 
@@ -435,9 +436,9 @@ Hyprland transform to the built-in display (`eDP-*`):
 | Timeout | Action |
 |---|---|
 | 4 min | Dim display to 10% |
-| 5 min | Wipe clipboard + lock (hyprlock) |
-| 5 min 30 s | Displays off (DPMS) — 30 s after lock |
-| 30 min | Suspend (`systemctl suspend`) |
+| 45 min | Wipe clipboard + lock (hyprlock) |
+| 90 min | Displays off (DPMS) |
+| 3 hr | Suspend (`systemctl suspend`) |
 
 Lock manually: `Super + L` or `Super + Shift + Escape`.
 

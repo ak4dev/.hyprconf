@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 from .config import OVERRIDES_FILE
+from .file_edit import strip_comment
 from .schema import get_option_meta
 
 # ── Candidate config paths ─────────────────────────────────────────────────────
@@ -42,7 +43,6 @@ CANDIDATE_CONFIGS: list[Path] = [
 _FIRST_RUN_MARKER: Path = _CFG_HOME / "hyprconf" / ".initialized"
 
 # ── Pre-compiled parsing regexes (used per-line in _parse_file) ────────────────
-_RE_COMMENT    = re.compile(r"(^|\s)#.*$")
 _RE_SOURCE     = re.compile(r"^source\s*=\s*(.+)$")
 _RE_BLOCK_OPEN = re.compile(r"^(\w[\w.]*)\s*\{$")
 _RE_KEY_VAL    = re.compile(r"^([\w.]+[\w])\s*=\s*(.+)$")
@@ -124,7 +124,7 @@ def _parse_file(
     current_section: list[str] = list(section_stack)
 
     for lineno, raw in enumerate(text.splitlines(), 1):
-        ln = _RE_COMMENT.sub("", raw).strip()
+        ln = strip_comment(raw)
         if not ln:
             continue
 
@@ -143,7 +143,7 @@ def _parse_file(
         m = _RE_BLOCK_OPEN.match(ln)
         if m:
             sec = m.group(1).strip()
-            parent = ".".join(current_section) if current_section else ""
+            parent = current_section[-1] if current_section else ""
             if parent:
                 current_section.append(f"{parent}.{sec}")
             else:

@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from .file_edit import read_lines, update_line, delete_line, append_block
+from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Paths
@@ -48,7 +48,6 @@ class RuleEntry(NamedTuple):
 _WIN_RULE_RE  = re.compile(r"^(windowrulev2|windowrule)\s*=", re.IGNORECASE)
 _WKSP_RULE_RE = re.compile(r"^workspace\s*=", re.IGNORECASE)
 _SOURCE_RE    = re.compile(r"^source\s*=\s*(.+)$")
-_COMMENT_RE   = re.compile(r"(^|\s)#.*$")
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Parsing — follows source directives recursively
@@ -64,7 +63,7 @@ def _collect_rules(root: Path, pattern: re.Pattern) -> list[RuleEntry]:
         seen.add(p)
         lines = read_lines(p)
         for idx, raw in enumerate(lines):
-            stripped = _COMMENT_RE.sub("", raw).strip()
+            stripped = strip_comment(raw)
             if not stripped:
                 continue
             ms = _SOURCE_RE.match(stripped)

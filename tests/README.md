@@ -53,7 +53,7 @@ make test-install
 
 | Tier | What It Tests | Command | Requirements |
 |------|--------------|---------|--------------|
-| 1 — Unit | All Python config parsers/writers (1,090 tests) | `make test-unit` | None |
+| 1 — Unit | All Python config parsers/writers (1,122 tests) | `make test-unit` | None |
 | 2 — Integration | CLI layer with mock hyprctl | `make test-integration` | None |
 | 3 — TUI | Textual Pilot headless UI tests | `make test-tui` | `python-pytest-asyncio` |
 | 4 — VM | Every CLI subcommand against live Hyprland | `make test-vm` | KVM + `qemu-full` + running VM |

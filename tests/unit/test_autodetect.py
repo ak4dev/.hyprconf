@@ -144,7 +144,23 @@ def test_detect_and_parse_nested_section(tmp_path, monkeypatch):
     assert any("blur" in s for s in sections)
 
 
-def test_detect_and_parse_follows_source_include(tmp_path, monkeypatch):
+def test_detect_and_parse_three_level_nesting(tmp_path, monkeypatch):
+    """Regression: 3-level nesting must produce 'group.groupbar', not 'group.group.groupbar'."""
+    cfg = tmp_path / "hyprland.conf"
+    cfg.write_text(
+        "group {\n"
+        "    groupbar {\n"
+        "        enabled = true\n"
+        "        font_size = 10\n"
+        "    }\n"
+        "}\n"
+    )
+    monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
+    result = _auto.detect_and_parse()
+    sections = {o.section for o in result.parsed_options}
+    assert "group.groupbar" in sections
+    # Must NOT contain the buggy double-prefixed key
+    assert not any("group.group." in s for s in sections)
     sub = tmp_path / "sub.conf"
     sub.write_text("general {\n    gaps_in = 8\n}\n")
     cfg = tmp_path / "hyprland.conf"
