@@ -17,20 +17,21 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .file_edit import read_lines, append_block, update_line, delete_lines, insert_lines
+from .file_edit import (
+    read_lines, append_block, update_line, delete_lines, insert_lines,
+    strip_comment,
+)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-_COMMENT_RE  = re.compile(r"(^|\s)#.*$")
 _KEY_VAL_RE  = re.compile(r"^\s*([A-Za-z0-9_\-\.]+)\s*=\s*(.*)$")
 # Matches:  "block_type {" or "block_type = label {"  (brace may be absent for split-brace style)
 _BLOCK_RE    = re.compile(r"^([A-Za-z0-9_\-]+)\s*(?:=\s*([^\{]+?))?\s*\{?\s*$")
 
 
-def _strip(line: str) -> str:
-    return _COMMENT_RE.sub("", line).strip()
+_strip = strip_comment
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -193,7 +194,7 @@ def update_block_field(
     Returns True on success.
     """
     lines = read_lines(path)
-    for i in range(start_line, min(end_line, len(lines))):
+    for i in range(start_line, min(end_line + 1, len(lines))):
         m = _KEY_VAL_RE.match(_strip(lines[i]))
         if m and m.group(1) == key:
             # Preserve leading whitespace from the original line

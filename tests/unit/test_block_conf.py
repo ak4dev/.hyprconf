@@ -294,3 +294,27 @@ def test_update_block_field_returns_false_when_end_out_of_range(tmp_path: Path) 
     # key not found, and end_line 99 is beyond file length → return False
     result = update_block_field(p, start_line=0, end_line=99, key="no_such_key", value="val")
     assert result is False
+
+
+# ---------------------------------------------------------------------------
+# update_block_field — scans up to end_line inclusive (regression for off-by-one)
+# ---------------------------------------------------------------------------
+
+def test_update_block_field_finds_key_on_last_content_line(tmp_path: Path) -> None:
+    """Ensure a key on the line immediately before the closing brace is found.
+
+    Regression: the scan previously used ``range(start, end_line)`` instead of
+    ``range(start, end_line + 1)``, which could miss the last content line in
+    unclosed blocks where end_line equals the last content line index.
+    """
+    from hyprconf.block_conf import update_block_field, read_blocks
+    # Block where 'path' is on line 1, '}' is on line 2 → end_line == 2
+    content = "background {\n    path = /tmp/old.jpg\n}\n"
+    p = _conf(tmp_path, content)
+    blocks = read_blocks(p)
+    assert len(blocks) == 1
+    b = blocks[0]
+    # Update 'path' which sits between start_line and end_line
+    result = update_block_field(p, b.start_line, b.end_line, "path", "/tmp/new.jpg")
+    assert result is True
+    assert "path = /tmp/new.jpg" in p.read_text()

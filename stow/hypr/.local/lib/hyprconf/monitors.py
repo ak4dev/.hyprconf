@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from .file_edit import read_lines, update_line, delete_line, append_block
+from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Paths
@@ -66,7 +66,6 @@ class MonitorConfig:
 # ─────────────────────────────────────────────────────────────────────────────
 
 _MONITOR_RE = re.compile(r"^monitor\s*=\s*(.+)$", re.IGNORECASE)
-_COMMENT_RE = re.compile(r"(^|\s)#.*$")
 
 
 def read_monitor_configs(path: Optional[Path] = None) -> list[MonitorConfig]:
@@ -81,7 +80,7 @@ def read_monitor_configs(path: Optional[Path] = None) -> list[MonitorConfig]:
     configs: list[MonitorConfig] = []
     lines = read_lines(path)
     for idx, raw in enumerate(lines):
-        stripped = _COMMENT_RE.sub("", raw).strip()
+        stripped = strip_comment(raw)
         m = _MONITOR_RE.match(stripped)
         if not m:
             continue

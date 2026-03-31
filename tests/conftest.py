@@ -6,11 +6,8 @@ tree via the ``hypr_dir`` fixture — no test ever touches ~/.config/hypr.
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -83,42 +80,6 @@ def hypr_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                         hypr / "hyprpaper.conf")
 
     return hypr
-
-
-# ---------------------------------------------------------------------------
-# Mock hyprctl (for tests that exercise IPC calls)
-# ---------------------------------------------------------------------------
-
-def _make_hyprctl_response(value: Any) -> MagicMock:
-    mock = MagicMock()
-    mock.returncode = 0
-    mock.stdout = json.dumps(value)
-    mock.stderr = ""
-    return mock
-
-
-@pytest.fixture()
-def mock_hyprctl(monkeypatch: pytest.MonkeyPatch):
-    """Return a factory that patches subprocess.run for hyprctl calls.
-
-    Usage::
-
-        def test_foo(mock_hyprctl):
-            mock_hyprctl({"int": 8, "str": "", "float": 0.0, "custom_type": "int"})
-            result = hyprctl.get_option("general", "gaps_in")
-            assert result["int"] == 8
-    """
-    import hyprconf.hyprctl as _hyprctl_mod
-
-    responses: list[MagicMock] = []
-
-    def _setup(response: Any) -> None:
-        mock = _make_hyprctl_response(response)
-        responses.clear()
-        responses.append(mock)
-        monkeypatch.setattr("subprocess.run", lambda *a, **kw: mock)
-
-    return _setup
 
 
 # ---------------------------------------------------------------------------

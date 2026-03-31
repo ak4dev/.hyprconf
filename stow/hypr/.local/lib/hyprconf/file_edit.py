@@ -10,8 +10,21 @@ renamed into place, so a crash mid-write can never corrupt the config.
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from pathlib import Path
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Shared parsing helpers (used by block_conf, hyprpaper, keybinds, monitors)
+# ─────────────────────────────────────────────────────────────────────────────
+
+COMMENT_RE = re.compile(r"(^|\s)#.*$")
+
+
+def strip_comment(line: str) -> str:
+    """Remove an inline ``# …`` comment and surrounding whitespace."""
+    return COMMENT_RE.sub("", line).strip()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

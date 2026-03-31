@@ -53,7 +53,7 @@ make test-install
 
 | Tier | What It Tests | Command | Requirements |
 |------|--------------|---------|--------------|
-| 1 — Unit | All Python config parsers/writers (246 tests) | `make test-unit` | None |
+| 1 — Unit | All Python config parsers/writers (1,090 tests) | `make test-unit` | None |
 | 2 — Integration | CLI layer with mock hyprctl | `make test-integration` | None |
 | 3 — TUI | Textual Pilot headless UI tests | `make test-tui` | `python-pytest-asyncio` |
 | 4 — VM | Every CLI subcommand against live Hyprland | `make test-vm` | KVM + `qemu-full` + running VM |
@@ -65,7 +65,7 @@ make test-install
 
 ```
 tests/
-├── conftest.py               # Shared fixtures: hypr_dir, mock_hyprctl
+├── conftest.py               # Shared fixtures: hypr_dir
 ├── unit/                     # Tier 1 — pure Python, zero Hyprland dependency
 │   ├── test_config.py
 │   ├── test_schema.py

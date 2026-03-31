@@ -313,3 +313,27 @@ def test_write_lines_double_exception_is_ignored(tmp_path: Path) -> None:
 
     # Original file must be unchanged since replace failed
     assert p.read_text() == "original\n"
+
+
+# ---------------------------------------------------------------------------
+# strip_comment / COMMENT_RE
+# ---------------------------------------------------------------------------
+
+def test_strip_comment_removes_inline_comment() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("key = value  # comment") == "key = value"
+
+
+def test_strip_comment_removes_line_comment() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("# full line comment") == ""
+
+
+def test_strip_comment_preserves_plain_line() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("key = value") == "key = value"
+
+
+def test_strip_comment_strips_surrounding_whitespace() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("   key = value   ") == "key = value"

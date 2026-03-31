@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Optional
 
 from .block_conf import ConfigBlock, read_blocks, update_block_field, delete_block, add_block
-from .file_edit  import read_lines, update_line, delete_line, append_block
+from .file_edit  import read_lines, update_line, delete_line, append_block, strip_comment
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Path
@@ -45,15 +45,12 @@ HYPRPAPER_FILE = _CFG / "hypr" / "hyprpaper.conf"
 #  Regexes
 # ─────────────────────────────────────────────────────────────────────────────
 
-_COMMENT_RE   = re.compile(r"(^|\s)#.*$")
 _PRELOAD_RE   = re.compile(r"^preload\s*=\s*(.+)$",           re.IGNORECASE)
 _WALLPAPER_RE = re.compile(r"^wallpaper\s*=\s*([^,]*),\s*(.+)$", re.IGNORECASE)
 _SETTING_RE   = re.compile(r"^(splash|ipc)\s*=\s*(.+)$",     re.IGNORECASE)
 _VAR_RE       = re.compile(r"^\$([A-Za-z0-9_]+)\s*=\s*(.+)$")
 
-
-def _strip(line: str) -> str:
-    return _COMMENT_RE.sub("", line).strip()
+_strip = strip_comment
 
 
 # ─────────────────────────────────────────────────────────────────────────────

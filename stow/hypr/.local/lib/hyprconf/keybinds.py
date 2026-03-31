@@ -18,7 +18,7 @@ import re
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from .file_edit import read_lines, update_line, delete_line, append_block
+from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Paths
@@ -49,7 +49,6 @@ class KeybindEntry(NamedTuple):
 _BIND_RE    = re.compile(r"^(bind[a-zA-Z]*)\s*=\s*(.+)$")
 _VAR_RE     = re.compile(r"^\$([A-Za-z0-9_]+)\s*=\s*(.+)$")
 _SOURCE_RE  = re.compile(r"^source\s*=\s*(.+)$")
-_COMMENT_RE = re.compile(r"(^|\s)#.*$")
 
 
 def _expand_vars(text: str, vars_: dict[str, str]) -> str:
@@ -85,7 +84,7 @@ def read_keybinds_with_location(
         local_vars: dict[str, str] = dict(inherited_vars)
         lines = read_lines(p)
         for idx, raw in enumerate(lines):
-            stripped = _COMMENT_RE.sub("", raw).strip()
+            stripped = strip_comment(raw)
             if not stripped:
                 continue
             mv = _VAR_RE.match(stripped)
