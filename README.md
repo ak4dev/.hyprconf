@@ -462,9 +462,9 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | Clipboard | `cliphist`, `wl-clipboard` |
 | Media & input | `playerctl`, `brightnessctl` |
 | Bluetooth | `bluez`, `bluez-utils`, `blueman` |
-| Networking | `networkmanager`, `network-manager-applet`, `iwd` |
+| Networking | `networkmanager`, `network-manager-applet` |
 | System monitoring | `upower`, `lm_sensors`, `iio-sensor-proxy` |
-| Python | `python`, `python-textual`, `python-pillow` |
+| Python | `python`, `python-textual` |
 | File manager support | `gvfs` |
 | Icons & themes | `papirus-icon-theme`, `adw-gtk3` (AUR) |
 | GTK sync | `xsettingsd` |
