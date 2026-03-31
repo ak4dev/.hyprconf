@@ -128,6 +128,7 @@ usage() {
   printf "  hyprconf screenshot [region|window|full|edit]  Screen capture\n"
   printf "  hyprconf gamemode [on|off|toggle|status]  Toggle performance mode\n"
   printf "  hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu\n"
+  printf "  hyprconf power-profile [status|performance|balanced|power-saver|auto]  Power profile\n"
   printf "  hyprconf nightlight [on|off|toggle|status]  Blue light filter\n"
   printf "  hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard\n"
   printf "  hyprconf record [start|stop|toggle|status]  Screen recording\n"
@@ -1521,6 +1522,21 @@ _doctor_check_hardware() {
   else
     _doctor_fail "hyprctl not found"
   fi
+
+  # Power profile auto-switching (battery devices only)
+  if compgen -G "/sys/class/power_supply/BAT*" > /dev/null 2>&1; then
+    local udev_rule="/etc/udev/rules.d/99-hyprconf-power.rules"
+    if [[ -f "$udev_rule" ]]; then
+      _doctor_pass "Power profile auto-switching enabled (udev rule installed)"
+    else
+      _doctor_warn "Power profile auto-switching not configured — run 'hyprconf sync'"
+    fi
+    if [[ -x "$HOME/.local/bin/hyprconf-power-monitor" ]]; then
+      _doctor_pass "hyprconf-power-monitor installed"
+    else
+      _doctor_warn "hyprconf-power-monitor not found — run 'hyprconf sync'"
+    fi
+  fi
 }
 
 _doctor_check_shell() {
@@ -1717,6 +1733,76 @@ cmd_power() {
     shutdown) systemctl poweroff ;;
     *)
       printf "Usage: hyprconf power [lock|logout|suspend|reboot|shutdown]\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# ════════════════════════════════════════════════════════════════════════════
+# Power profile — query / switch power-profiles-daemon profiles
+# ════════════════════════════════════════════════════════════════════════════
+
+_pp_available() {
+  command -v powerprofilesctl &>/dev/null
+}
+
+cmd_power_profile() {
+  if ! _pp_available; then
+    printf "${_y}powerprofilesctl not found — install power-profiles-daemon.${_r}\n" >&2
+    exit 1
+  fi
+
+  local sub="${1:-status}"
+  case "$sub" in
+    status)
+      local current ac_state
+      current="$(powerprofilesctl get 2>/dev/null || echo 'unknown')"
+      if compgen -G "/sys/class/power_supply/BAT*" > /dev/null 2>&1; then
+        local monitor="${HOME}/.local/bin/hyprconf-power-monitor"
+        if [[ -x "$monitor" ]]; then
+          ac_state="$("$monitor" status 2>/dev/null | grep 'AC adapter' | sed 's/.*: *//')"
+        else
+          ac_state="unknown"
+        fi
+        printf "${_b}Power profile:${_r} %s\n" "$current"
+        printf "${_b}AC adapter:${_r}    %s\n" "$ac_state"
+
+        local udev_rule="/etc/udev/rules.d/99-hyprconf-power.rules"
+        if [[ -f "$udev_rule" ]]; then
+          printf "${_b}Auto-switch:${_r}   ${_g}enabled${_r} (udev rule installed)\n"
+        else
+          printf "${_b}Auto-switch:${_r}   ${_y}disabled${_r} (run hyprconf sync to enable)\n"
+        fi
+      else
+        printf "${_b}Power profile:${_r} %s\n" "$current"
+        printf "${_b}Battery:${_r}       not detected (desktop)\n"
+      fi
+      ;;
+    performance|balanced|power-saver)
+      local current
+      current="$(powerprofilesctl get 2>/dev/null || echo 'unknown')"
+      if [[ "$current" == "$sub" ]]; then
+        printf "${_y}Already set to %s.${_r}\n" "$sub"
+      else
+        powerprofilesctl set "$sub" 2>/dev/null \
+          && printf "${_g}✔${_r} Power profile set to ${_b}%s${_r}\n" "$sub" \
+          || { printf "${_y}Failed to set power profile.${_r}\n" >&2; exit 1; }
+      fi
+      ;;
+    auto)
+      local monitor="${HOME}/.local/bin/hyprconf-power-monitor"
+      if [[ -x "$monitor" ]]; then
+        "$monitor" auto
+        local new_profile
+        new_profile="$(powerprofilesctl get 2>/dev/null || echo 'unknown')"
+        printf "${_g}✔${_r} Auto-detected profile: ${_b}%s${_r}\n" "$new_profile"
+      else
+        printf "${_y}hyprconf-power-monitor not found — run hyprconf sync.${_r}\n" >&2
+        exit 1
+      fi
+      ;;
+    *)
+      printf "Usage: hyprconf power-profile [status|performance|balanced|power-saver|auto]\n" >&2
       exit 1
       ;;
   esac
@@ -2221,6 +2307,7 @@ main() {
     screenshot|ss)    cmd_screenshot "$@" ;;
     gamemode|game)    cmd_gamemode "$@" ;;
     power)            cmd_power "$@" ;;
+    power-profile|pp) cmd_power_profile "$@" ;;
     nightlight|night) cmd_nightlight "$@" ;;
     colorpicker|color) cmd_colorpicker "$@" ;;
     record|rec)       cmd_record "$@" ;;

@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# hyprconf-power-monitor — automatic power profile switching
+#
+# Called by udev when the AC adapter state changes.  Sets "performance"
+# when plugged in, "power-saver" when on battery.
+#
+# Also callable directly:
+#   hyprconf-power-monitor          # auto-detect and apply
+#   hyprconf-power-monitor status   # show current state
+
+readonly LOG_TAG="hyprconf-power"
+
+_log() { logger -t "$LOG_TAG" "$*" 2>/dev/null || true; }
+
+# Guard: powerprofilesctl must be available
+if ! command -v powerprofilesctl &>/dev/null; then
+    _log "powerprofilesctl not found — exiting."
+    exit 0
+fi
+
+# Guard: only act on devices with a battery
+_has_battery() {
+    compgen -G "/sys/class/power_supply/BAT*" > /dev/null 2>&1
+}
+
+if ! _has_battery; then
+    exit 0
+fi
+
+# Determine AC adapter state by reading the first Mains-type power supply.
+_ac_online() {
+    local ps
+    for ps in /sys/class/power_supply/*/type; do
+        [[ -f "$ps" ]] || continue
+        if [[ "$(< "$ps")" == "Mains" ]]; then
+            local online_file="${ps%/type}/online"
+            [[ -f "$online_file" ]] || continue
+            local val
+            val="$(< "$online_file")"
+            [[ "$val" == "1" ]] && return 0
+            return 1
+        fi
+    done
+    # No Mains supply found — assume battery (conservative)
+    return 1
+}
+
+_current_profile() {
+    powerprofilesctl get 2>/dev/null || echo "unknown"
+}
+
+_apply_profile() {
+    local target="$1"
+    local current
+    current="$(_current_profile)"
+    if [[ "$current" == "$target" ]]; then
+        _log "Profile already set to $target — no change."
+        return 0
+    fi
+    if powerprofilesctl set "$target" 2>/dev/null; then
+        _log "Switched power profile: $current → $target"
+    else
+        _log "Failed to set power profile to $target"
+        return 1
+    fi
+}
+
+_status() {
+    local current ac_state
+    current="$(_current_profile)"
+    if _ac_online; then
+        ac_state="plugged in (AC)"
+    else
+        ac_state="on battery"
+    fi
+    printf "Power profile: %s\n" "$current"
+    printf "AC adapter:    %s\n" "$ac_state"
+}
+
+case "${1:-auto}" in
+    auto)
+        if _ac_online; then
+            _apply_profile "performance"
+        else
+            _apply_profile "power-saver"
+        fi
+        ;;
+    status)
+        _status
+        ;;
+    *)
+        printf "Usage: hyprconf-power-monitor [auto|status]\n" >&2
+        exit 1
+        ;;
+esac

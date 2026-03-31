@@ -33,12 +33,13 @@
 - **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages; `--force` to hard-reset a diverged branch, `--full` to restow all dotfiles
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
+- **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 67 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
-- **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
+- **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
 - **Cloud deploy** — serve your own install endpoint via `hyprconf deploy` (S3 + CloudFront + ACM + Route53)
 
 ---
@@ -83,9 +84,10 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 7. Firefox enterprise policies (`/etc/firefox/policies/policies.json`): telemetry disabled, uBlock Origin installed
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
 9. Hardware feature detection: touchscreen → installs `wvkbd` (AUR) + writes `conf.d/60-hardware.conf`; accelerometer → installs + enables `iio-sensor-proxy`
-10. `ufw` deny-inbound / allow-outbound; enable + start
-11. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend
-12. Reload Hyprland
+10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery
+11. `ufw` deny-inbound / allow-outbound; enable + start
+12. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend
+13. Reload Hyprland
 
 > **WiFi:** if no wifi profiles were copied from the ISO (e.g. ethernet install), connect after first boot with `nmtui`.
 
@@ -208,6 +210,7 @@ hyprconf clipboard [fzf|rofi|wipe]  Clipboard history picker (cliphist)
 hyprconf screenshot [region|window|full|edit]  Screen capture (hyprshot + swappy)
 hyprconf gamemode [on|off|toggle|status]  Toggle performance mode (no animations/blur/gaps)
 hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu
+hyprconf power-profile [status|performance|balanced|power-saver|auto]  Power profile control
 hyprconf nightlight [on|off|toggle|status]  Blue light filter (hyprsunset/wlsunset)
 hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard (hyprpicker)
 hyprconf record [start|stop|toggle|status]  Screen recording (wf-recorder)

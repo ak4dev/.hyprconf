@@ -621,6 +621,49 @@ detect_gpu_and_link_monitor_config() {
         else
             sudo systemctl enable --now power-profiles-daemon
         fi
+        setup_power_monitor
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Automatic power profile switching (laptop/battery devices only)
+# ---------------------------------------------------------------------------
+# Installs a udev rule that triggers hyprconf-power-monitor on AC adapter
+# state changes.  The script sets "performance" when plugged in and
+# "power-saver" when on battery via powerprofilesctl.
+
+setup_power_monitor() {
+    local monitor_script="$HOME/.local/bin/hyprconf-power-monitor"
+    local udev_rule="/etc/udev/rules.d/99-hyprconf-power.rules"
+
+    if [[ ! -x "$monitor_script" ]]; then
+        log_warn "hyprconf-power-monitor not found at $monitor_script — skipping power monitor setup."
+        return 0
+    fi
+
+    log_step "Installing udev rule for automatic power profile switching..."
+    local rule_content
+    rule_content="# hyprconf — automatic power profile switching (performance on AC, power-saver on battery)
+ACTION==\"change\", SUBSYSTEM==\"power_supply\", ATTR{type}==\"Mains\", RUN+=\"$monitor_script\""
+
+    if [[ -f "$udev_rule" ]] && grep -qF "$monitor_script" "$udev_rule" 2>/dev/null; then
+        log_ok "udev rule already installed — skipping."
+    else
+        printf '%s\n' "$rule_content" | sudo tee "$udev_rule" > /dev/null \
+            && log_ok "udev rule installed: $udev_rule" \
+            || { log_warn "Could not install udev rule — automatic power switching unavailable."; return 0; }
+    fi
+
+    if ! _in_chroot; then
+        sudo udevadm control --reload-rules 2>/dev/null \
+            && log_ok "udev rules reloaded." \
+            || log_warn "Could not reload udev rules — reboot to apply."
+
+        # Set the initial power profile based on current AC state
+        log_step "Setting initial power profile..."
+        "$monitor_script" auto \
+            && log_ok "Initial power profile applied." \
+            || log_warn "Could not set initial power profile."
     fi
 }
 
