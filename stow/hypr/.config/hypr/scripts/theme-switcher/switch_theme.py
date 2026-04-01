@@ -1904,7 +1904,7 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
 
 # === Entry Point ===
 def list_themes() -> None:
-    """Print a pretty table of all available themes and their accent colors."""
+    """Print a pretty table of all available themes with colour swatches."""
     current = read_state()
     themes = []
     for fname in sorted(os.listdir(THEMES_DIR)):
@@ -1922,30 +1922,27 @@ def list_themes() -> None:
         appearance = d.get("appearance", "")
         themes.append((name, bg, fg, accent, appearance))
 
-    col_name   = max(len("THEME"),      max(len(t[0]) for t in themes))
-    col_bg     = max(len("BACKGROUND"), max(len(t[1]) for t in themes))
-    col_fg     = max(len("FOREGROUND"), max(len(t[2]) for t in themes))
-    col_accent = max(len("ACCENT"),     max(len(t[3]) for t in themes))
-    col_appear = max(len("TYPE"),       max(len(t[4]) for t in themes))
+    col_name   = max(len("THEME"),  max(len(t[0]) for t in themes))
+    col_appear = max(len("TYPE"),   max(len(t[4]) for t in themes))
 
-    # ANSI helpers
-    def ansi_swatch(hex_color: str, text: str) -> str:
+    BLOCK = "██"
+
+    def _swatch(hex_color: str) -> str:
         h = hex_color.lstrip("#")
         if len(h) != 6:
-            return text
+            return "  "
         r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return f"\033[38;2;{r};{g};{b}m{text}\033[0m"
+        return f"\033[38;2;{r};{g};{b}m{BLOCK}\033[0m"
 
     def bold(text: str) -> str:
         return f"\033[1m{text}\033[0m"
 
-    sep = f"  {'─' * col_name}  {'─' * col_appear}  {'─' * col_bg}  {'─' * col_fg}  {'─' * col_accent}"
+    swatch_header = "BG FG ACCENT"
+    sep = f"  {'─' * col_name}  {'─' * col_appear}  {'─' * len(swatch_header)}"
     header = (
         f"  {bold(f'{'THEME':<{col_name}}')}  "
         f"{bold(f'{'TYPE':<{col_appear}}')}  "
-        f"{bold(f'{'BACKGROUND':<{col_bg}}')}  "
-        f"{bold(f'{'FOREGROUND':<{col_fg}}')}  "
-        f"{bold(f'{'ACCENT':<{col_accent}}')}"
+        f"{bold(swatch_header)}"
     )
     print(sep)
     print(header)
@@ -1955,9 +1952,7 @@ def list_themes() -> None:
         row = (
             f"  {marker}{name:<{col_name}}  "
             f"{appearance:<{col_appear}}  "
-            f"{ansi_swatch(bg,  f'{bg:<{col_bg}}')}  "
-            f"{ansi_swatch(fg,  f'{fg:<{col_fg}}')}  "
-            f"{ansi_swatch(accent, f'{accent:<{col_accent}}')}"
+            f"{_swatch(bg)} {_swatch(fg)} {_swatch(accent)}"
         )
         print(row)
     print(sep)
