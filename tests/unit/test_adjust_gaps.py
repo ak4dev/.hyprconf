@@ -1,10 +1,12 @@
 """Tests for stow/hypr/.config/hypr/scripts/adjust-gaps."""
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
 import tempfile
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -15,26 +17,58 @@ SCRIPT = (
 )
 
 
+def _fake_hyprctl_script(
+    calls_file: Path,
+    json_in: str,
+    json_out: str,
+) -> str:
+    """Return a fake hyprctl bash script body.
+
+    getoption returns CCssGapData JSON; --batch records keyword calls.
+    """
+    return textwrap.dedent(f"""\
+        #!/usr/bin/env bash
+        if [[ "$1" == "getoption" ]]; then
+            case "$2" in
+                general:gaps_in)  echo '{json_in}' ;;
+                general:gaps_out) echo '{json_out}' ;;
+            esac
+        elif [[ "$1" == "--batch" ]]; then
+            IFS=';' read -ra CMDS <<< "$2"
+            for cmd in "${{CMDS[@]}}"; do
+                cmd="$(echo "$cmd" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                if [[ "$cmd" == keyword\\ * ]]; then
+                    echo "${{cmd#keyword }}" >> "{calls_file}"
+                fi
+            done
+        fi
+    """)
+
+
 def _run(direction: str, gaps_in: int, gaps_out: int) -> tuple[int, list[str]]:
-    """Run adjust-gaps with a fake hyprctl in PATH; return (rc, keyword_calls)."""
+    """Run adjust-gaps with a fake hyprctl in PATH; return (rc, keyword_calls).
+
+    The fake hyprctl returns JSON with a ``custom`` field (CCssGapData format)
+    for getoption calls, and records keyword calls from --batch to a file.
+    """
     fake_dir = Path(tempfile.mkdtemp())
     try:
         fake_hyprctl = fake_dir / "hyprctl"
-
-        # getoption returns the current value; keyword calls are recorded to a file
         calls_file = fake_dir / "calls.txt"
 
+        json_in = json.dumps({
+            "option": "general:gaps_in", "int": 0, "float": 0.0,
+            "str": "", "custom": f"{gaps_in} {gaps_in} {gaps_in} {gaps_in}",
+            "set": True,
+        })
+        json_out = json.dumps({
+            "option": "general:gaps_out", "int": 0, "float": 0.0,
+            "str": "", "custom": f"{gaps_out} {gaps_out} {gaps_out} {gaps_out}",
+            "set": True,
+        })
+
         fake_hyprctl.write_text(
-            f"""#!/usr/bin/env bash
-if [[ "$1" == "getoption" ]]; then
-    case "$2" in
-        general:gaps_in)  echo "int: {gaps_in}" ;;
-        general:gaps_out) echo "int: {gaps_out}" ;;
-    esac
-elif [[ "$1" == "keyword" ]]; then
-    echo "$2 $3" >> "{calls_file}"
-fi
-"""
+            _fake_hyprctl_script(calls_file, json_in, json_out)
         )
         fake_hyprctl.chmod(0o755)
 
@@ -131,26 +165,29 @@ def test_decrease_positive_result_does_not_abort():
 
 
 # ---------------------------------------------------------------------------
-# Regression: empty hyprctl output must not crash with arithmetic error
+# Regression: broken/empty hyprctl output must not crash
 # ---------------------------------------------------------------------------
 
-def test_increase_with_empty_hyprctl_output_defaults_to_zero(tmp_path):
-    """Regression: if hyprctl getoption returns no 'int:' line, awk outputs
-    empty string and $(( '' + STEP )) fails with 'not a valid identifier'.
-    Fix: _get_int adds '|| echo 0' so the empty case resolves to 0."""
+def test_increase_with_broken_hyprctl_output_defaults_to_zero(tmp_path):
+    """Regression: if hyprctl getoption returns non-JSON output, python3
+    json.load raises and the '|| echo 0' fallback must kick in."""
     fake_hyprctl = tmp_path / "hyprctl"
     calls_file = tmp_path / "calls.txt"
 
-    # hyprctl returns output that contains no 'int:' token at all
-    fake_hyprctl.write_text(
-        f"""#!/usr/bin/env bash
-if [[ "$1" == "getoption" ]]; then
-    echo "option: general:gaps_in = 10"  # no 'int:' prefix
-elif [[ "$1" == "keyword" ]]; then
-    echo "$2 $3" >> "{calls_file}"
-fi
-"""
-    )
+    fake_hyprctl.write_text(textwrap.dedent(f"""\
+        #!/usr/bin/env bash
+        if [[ "$1" == "getoption" ]]; then
+            echo "option: general:gaps_in = 10"
+        elif [[ "$1" == "--batch" ]]; then
+            IFS=';' read -ra CMDS <<< "$2"
+            for cmd in "${{CMDS[@]}}"; do
+                cmd="$(echo "$cmd" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+                if [[ "$cmd" == keyword\\ * ]]; then
+                    echo "${{cmd#keyword }}" >> "{calls_file}"
+                fi
+            done
+        fi
+    """))
     fake_hyprctl.chmod(0o755)
 
     env = os.environ.copy()
@@ -163,10 +200,49 @@ fi
         text=True,
     )
     assert result.returncode == 0, (
-        f"Script crashed on empty awk output.\nstderr: {result.stderr}"
+        f"Script crashed on broken hyprctl output.\nstderr: {result.stderr}"
     )
     # Gaps_in was 0 (fallback) + STEP=2 → 2
     calls = calls_file.read_text().splitlines() if calls_file.exists() else []
     assert any("general:gaps_in 2" in c for c in calls), (
         f"Expected gaps_in=2 (0+2) but calls were: {calls}"
     )
+
+
+def test_increase_with_int_field_fallback():
+    """When the JSON has a populated int field but no custom field (e.g. older
+    Hyprland or non-CSS option), the script should read the int value."""
+    fake_dir = Path(tempfile.mkdtemp())
+    try:
+        fake_hyprctl = fake_dir / "hyprctl"
+        calls_file = fake_dir / "calls.txt"
+
+        json_in = json.dumps({
+            "option": "general:gaps_in", "int": 8, "float": 0.0,
+            "str": "", "set": True,
+        })
+        json_out = json.dumps({
+            "option": "general:gaps_out", "int": 15, "float": 0.0,
+            "str": "", "set": True,
+        })
+
+        fake_hyprctl.write_text(
+            _fake_hyprctl_script(calls_file, json_in, json_out)
+        )
+        fake_hyprctl.chmod(0o755)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{fake_dir}:{env['PATH']}"
+
+        result = subprocess.run(
+            ["bash", str(SCRIPT), "+"],
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0
+        calls = [l.strip() for l in calls_file.read_text().splitlines() if l.strip()]
+        assert "general:gaps_in 10" in calls
+        assert "general:gaps_out 17" in calls
+    finally:
+        shutil.rmtree(fake_dir, ignore_errors=True)
