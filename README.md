@@ -36,7 +36,7 @@
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
-- **Full-desktop theme switcher** — 67 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
+- **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
 - **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
@@ -274,7 +274,7 @@ This file is sourced by Hyprland on every restart via the `conf.d/*.conf` glob.
 | `solarized-dark` | `solarized-light` | `tokyo-moon` | `tokyo-night` |
 | `tokyo-storm` | `tomorrow-night` | `whiteout` | |
 
-**AI-original (20) — prefix `ai:`:**
+**AI-original (21) — prefix `ai:`:**
 
 | Theme | Palette concept |
 |---|---|
@@ -298,6 +298,7 @@ This file is sourced by Hyprland on every restart via the `conf.d/*.conf` glob.
 | `ai:sakura` | Dark ink wash with cherry blossom pink |
 | `ai:circuit` | PCB dark green with circuit-trace cyan |
 | `ai:dusk` | Dark dusty purple with desert sunset orange |
+| `ai:btop-tty` | Classic ANSI 16-colour palette from btop's TTY mode |
 
 > `ai:` themes auto-generate a Kitty colour config from their palette. All include a `vscode` block mapped to the nearest community extension. Use `--filter ai:` to show only AI themes.
 
