@@ -1982,14 +1982,6 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
 
     selected: list[Optional[str]] = [None]
 
-    def _swatch(hex_c: str, width: int = 2) -> str:
-        """Truecolor ANSI background block — renders in kitty and modern terminals."""
-        h = (hex_c or "").lstrip("#")
-        if len(h) != 6:
-            return " " * width
-        r2, g2, b2 = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return f"\033[48;2;{r2};{g2};{b2}m{' ' * width}\033[0m"
-
     def _menu(stdscr: "curses._CursesWindow") -> None:  # type: ignore[name-defined]
         curses.curs_set(0)
         curses.use_default_colors()
@@ -2025,22 +2017,10 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
             for row_i, t_idx in enumerate(range(start, min(start + visible, len(themes)))):
                 name       = themes[t_idx]
                 d          = theme_data.get(name, {})
-                bg_col     = d.get("background", "")
-                accent_col = d.get("accent", d.get("purple", ""))
-                cyan_col   = d.get("cyan",   "")
-                green_col  = d.get("green",  "")
-                red_col    = d.get("red",    "")
                 appearance = d.get("appearance", "")
                 is_current = name == current
                 marker     = "★ " if is_current else "  "
 
-                swatches = (
-                    _swatch(bg_col)     + " " +
-                    _swatch(accent_col) + " " +
-                    _swatch(cyan_col)   + " " +
-                    _swatch(green_col)  + " " +
-                    _swatch(red_col)
-                )
                 tag = "☀" if appearance == "light" else "☾"
                 text_part = f"{marker}{name:<34} {tag}"
 
@@ -2056,13 +2036,6 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
                     attr = curses.color_pair(2)
 
                 stdscr.addstr(y, 0, ("  " + text_part)[:max_w - 1], attr)
-                # Append ANSI colour swatches at fixed column (truecolor, bypasses curses accounting)
-                swatch_col = 2 + 2 + 34 + 2 + 2
-                if swatch_col < max_w - 16:
-                    try:
-                        stdscr.addstr(y, swatch_col, swatches)
-                    except curses.error:
-                        pass
 
             # ── Footer ─────────────────────────────────────────────────────────
             match_info = f"  {len(themes)}/{len(all_themes)} themes"
