@@ -64,23 +64,23 @@ fi
 def test_increase_by_step():
     rc, calls = _run("+", gaps_in=10, gaps_out=20)
     assert rc == 0
-    assert "general:gaps_in 15" in calls
-    assert "general:gaps_out 25" in calls
+    assert "general:gaps_in 12" in calls
+    assert "general:gaps_out 22" in calls
 
 
 def test_increase_from_zero():
     rc, calls = _run("+", gaps_in=0, gaps_out=0)
     assert rc == 0
-    assert "general:gaps_in 5" in calls
-    assert "general:gaps_out 5" in calls
+    assert "general:gaps_in 2" in calls
+    assert "general:gaps_out 2" in calls
 
 
 def test_increase_large_values():
     """No upper cap — can grow well beyond typical values."""
     rc, calls = _run("+", gaps_in=200, gaps_out=300)
     assert rc == 0
-    assert "general:gaps_in 205" in calls
-    assert "general:gaps_out 305" in calls
+    assert "general:gaps_in 202" in calls
+    assert "general:gaps_out 302" in calls
 
 
 # ---------------------------------------------------------------------------
@@ -90,13 +90,13 @@ def test_increase_large_values():
 def test_decrease_by_step():
     rc, calls = _run("-", gaps_in=15, gaps_out=25)
     assert rc == 0
-    assert "general:gaps_in 10" in calls
-    assert "general:gaps_out 20" in calls
+    assert "general:gaps_in 13" in calls
+    assert "general:gaps_out 23" in calls
 
 
 def test_decrease_clamps_at_zero():
     """Decreasing below zero should floor at 0, not go negative."""
-    rc, calls = _run("-", gaps_in=3, gaps_out=2)
+    rc, calls = _run("-", gaps_in=1, gaps_out=1)
     assert rc == 0
     assert "general:gaps_in 0" in calls
     assert "general:gaps_out 0" in calls
@@ -112,7 +112,7 @@ def test_decrease_from_zero_stays_at_zero():
 
 def test_decrease_exactly_step():
     """Decreasing when value equals STEP should land exactly on zero."""
-    rc, calls = _run("-", gaps_in=5, gaps_out=5)
+    rc, calls = _run("-", gaps_in=2, gaps_out=2)
     assert rc == 0
     assert "general:gaps_in 0" in calls
     assert "general:gaps_out 0" in calls
@@ -126,8 +126,8 @@ def test_decrease_positive_result_does_not_abort():
     """
     rc, calls = _run("-", gaps_in=20, gaps_out=30)
     assert rc == 0, "Script must not abort on a positive post-decrement value"
-    assert "general:gaps_in 15" in calls
-    assert "general:gaps_out 25" in calls
+    assert "general:gaps_in 18" in calls
+    assert "general:gaps_out 28" in calls
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +165,8 @@ fi
     assert result.returncode == 0, (
         f"Script crashed on empty awk output.\nstderr: {result.stderr}"
     )
-    # Gaps_in was 0 (fallback) + STEP=5 → 5
+    # Gaps_in was 0 (fallback) + STEP=2 → 2
     calls = calls_file.read_text().splitlines() if calls_file.exists() else []
-    assert any("general:gaps_in 5" in c for c in calls), (
-        f"Expected gaps_in=5 (0+5) but calls were: {calls}"
+    assert any("general:gaps_in 2" in c for c in calls), (
+        f"Expected gaps_in=2 (0+2) but calls were: {calls}"
     )

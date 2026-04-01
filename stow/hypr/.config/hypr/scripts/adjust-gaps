@@ -9,7 +9,7 @@ set -euo pipefail
 # Usage: adjust-gaps +    # increase by STEP
 #        adjust-gaps -    # decrease by STEP (floors at 0)
 
-readonly STEP=5
+readonly STEP=2
 
 direction="${1:-+}"
 
