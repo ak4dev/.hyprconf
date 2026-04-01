@@ -1846,18 +1846,24 @@ class HyprconfApp(App):
 
     def _fill_themes(self, table: DataTable) -> None:
         table.add_column("THEME",  width=34)
+        table.add_column("TYPE",   width=6)
         table.add_column("STATUS", width=10)
-        table.add_column("PATH",   width=60)
         themes = list_themes()
         q = self._search_query
         if not themes:
             table.add_row("(no themes found)", "", "")
             return
         for name in themes:
-            if q and q not in name.lower():
+            try:
+                data = json.loads((THEME_DIR / f"{name}.json").read_text())
+            except Exception:
+                data = {}
+            appearance = data.get("appearance", "")
+            if q and q not in name.lower() and q not in appearance.lower():
                 continue
             status = " active" if name == self._theme_name else ""
-            table.add_row(name, status, str(THEME_DIR / f"{name}.json"))
+            tag = "☀" if appearance == "light" else "☾"
+            table.add_row(name, f" {tag}", status)
             self._row_keys.append(name)
 
     def _fill_hardware(self, table: DataTable) -> None:

@@ -2042,7 +2042,7 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
                     _swatch(red_col)
                 )
                 tag = "☀" if appearance == "light" else "☾"
-                text_part = f"{marker}{name:<34} {tag} {bg_col:<8}"
+                text_part = f"{marker}{name:<34} {tag}"
 
                 y = row_i + 4
                 if y >= max_h - 2:
@@ -2057,7 +2057,7 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
 
                 stdscr.addstr(y, 0, ("  " + text_part)[:max_w - 1], attr)
                 # Append ANSI colour swatches at fixed column (truecolor, bypasses curses accounting)
-                swatch_col = 2 + 2 + 34 + 2 + 9
+                swatch_col = 2 + 2 + 34 + 2 + 2
                 if swatch_col < max_w - 16:
                     try:
                         stdscr.addstr(y, swatch_col, swatches)
