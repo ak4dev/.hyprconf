@@ -1,18 +1,19 @@
 {
   "background": "#0a0203",
   "foreground": "#f5d5d5",
-  "comment":    "#4a1020",
-  "cyan":       "#0e7490",
-  "green":      "#166534",
-  "orange":     "#c2410c",
-  "pink":       "#9d174d",
-  "purple":     "#6b21a8",
-  "red":        "#be123c",
-  "yellow":     "#854d0e",
-  "accent":     "#be123c",
+  "comment": "#4a1020",
+  "cyan": "#0e7490",
+  "green": "#166534",
+  "orange": "#c2410c",
+  "pink": "#9d174d",
+  "purple": "#6b21a8",
+  "red": "#be123c",
+  "yellow": "#854d0e",
+  "accent": "#be123c",
   "vscode": {
-    "theme":     "Dracula Theme",
+    "theme": "Dracula Theme",
     "extension": "dracula-theme.theme-dracula",
-    "font":      "JetBrainsMono Nerd Font"
-  }
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "appearance": "dark"
 }

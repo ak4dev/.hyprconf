@@ -7,5 +7,6 @@
   "green": "#26a269",
   "red": "#c01c28",
   "orange": "#c64600",
-  "btop": "adwaita"
+  "btop": "adwaita",
+  "appearance": "light"
 }

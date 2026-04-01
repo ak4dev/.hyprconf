@@ -6,5 +6,6 @@
   "cyan": "#284d75",
   "green": "#1a361e",
   "red": "#8a0000",
-  "btop": "whiteout"
+  "btop": "whiteout",
+  "appearance": "light"
 }

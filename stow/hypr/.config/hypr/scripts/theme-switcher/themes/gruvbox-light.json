@@ -8,5 +8,6 @@
   "red": "#cc241d",
   "orange": "#d65d0e",
   "yellow": "#b57614",
-  "btop": "gruvbox_light"
+  "btop": "gruvbox_light",
+  "appearance": "light"
 }

@@ -9,5 +9,6 @@
   "orange": "#cb4b16",
   "yellow": "#b58900",
   "purple": "#6c71c4",
-  "btop": "solarized_light"
+  "btop": "solarized_light",
+  "appearance": "light"
 }

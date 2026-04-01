@@ -16,5 +16,6 @@
     "extension": "ahmadawais.shades-of-purple",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#9effff"
+  "accent": "#9effff",
+  "appearance": "dark"
 }

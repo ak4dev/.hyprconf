@@ -12,9 +12,10 @@
   "wallpaper": "~/wallpaper/rose-pine-dawn.png",
   "kitty": "~/.config/kitty/themes/rose-pine-dawn.conf",
   "vscode": {
-    "theme": "Ros\u00e9 Pine Dawn",
+    "theme": "Rosé Pine Dawn",
     "extension": "mvllow.rose-pine",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#d7827e"
+  "accent": "#d7827e",
+  "appearance": "light"
 }

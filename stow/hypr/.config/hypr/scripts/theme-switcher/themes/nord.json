@@ -10,5 +10,6 @@
   "red": "#bf616a",
   "yellow": "#ebcb8b",
   "accent": "#88c0d0",
-  "btop": "nord"
+  "btop": "nord",
+  "appearance": "dark"
 }

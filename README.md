@@ -252,7 +252,7 @@ This file is sourced by Hyprland on every restart via the `conf.d/*.conf` glob.
 | `--prev` / `-p` | `theme prev` | Previous |
 | `--random` / `-r` | `theme random` | Random pick |
 | `--pick` / `-w` | `theme pick` | Hyperlauncher picker |
-| `--filter STR` / `-f` | `theme filter <str>` | Substring filter |
+| `--filter STR` / `-f` | `theme filter <str>` | Substring filter (matches name **or** `appearance` tag — use `light` / `dark`) |
 | `--no-reload` | | Skip `hyprctl reload` |
 
 ### Available Themes
@@ -312,12 +312,15 @@ Create a JSON file in `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`:
   "foreground": "#cdd6f4",
   "comment":    "#6c7086",
   "accent":     "#f5c2e7",
+  "appearance": "dark",
   "wallpaper":  "~/wallpaper/my-theme.png",
   "kitty":      "~/.config/kitty/themes/my-theme.conf",
   "vscode":  { "theme": "Theme Name", "extension": "publisher.id", "font": "JetBrainsMono Nerd Font" },
   "firefox": { "theme_name": "Theme Name", "theme_id": "{uuid}" }
 }
 ```
+
+`appearance` is `"light"` or `"dark"` — used by `--filter` and shown in `--list`. Auto-generated themes set it from background luminance.
 
 `kitty`, `vscode`, `firefox`, `wallpaper`, and `btop` are all optional.
 

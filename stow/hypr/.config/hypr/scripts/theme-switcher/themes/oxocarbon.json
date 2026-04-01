@@ -16,5 +16,6 @@
     "extension": "IBM.code-IBM-carbon-theme",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#3ddbd9"
+  "accent": "#3ddbd9",
+  "appearance": "dark"
 }

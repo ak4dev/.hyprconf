@@ -8,5 +8,6 @@
   "red": "#fd3535",
   "orange": "#fea44c",
   "purple": "#8c42ab",
-  "btop": "flat-remix"
+  "btop": "flat-remix",
+  "appearance": "dark"
 }

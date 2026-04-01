@@ -17,5 +17,6 @@
     "font": "JetBrainsMono Nerd Font"
   },
   "accent": "#98c379",
-  "btop": "onedark"
+  "btop": "onedark",
+  "appearance": "dark"
 }

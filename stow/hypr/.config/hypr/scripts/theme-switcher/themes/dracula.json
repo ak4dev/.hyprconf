@@ -21,5 +21,6 @@
     "theme_id": "{b743f56d-1cc1-4048-8ba6-f9c2ab7aa54d}"
   },
   "accent": "#8be9fd",
-  "btop": "dracula"
+  "btop": "dracula",
+  "appearance": "dark"
 }

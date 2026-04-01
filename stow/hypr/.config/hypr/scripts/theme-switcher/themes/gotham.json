@@ -7,5 +7,6 @@
   "green": "#2aa889",
   "red": "#c23127",
   "orange": "#b58900",
-  "btop": "gotham"
+  "btop": "gotham",
+  "appearance": "dark"
 }

@@ -8,5 +8,6 @@
   "red": "#d1302c",
   "orange": "#b28602",
   "purple": "#6c71c4",
-  "btop": "elementarish"
+  "btop": "elementarish",
+  "appearance": "dark"
 }

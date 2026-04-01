@@ -16,5 +16,6 @@
     "extension": "Catppuccin.catppuccin-vsc",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#f5bde6"
+  "accent": "#f5bde6",
+  "appearance": "dark"
 }

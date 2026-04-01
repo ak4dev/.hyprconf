@@ -162,7 +162,7 @@ def launcher_select(initial_filter: str = "") -> Optional[str]:
     """Select a theme via hyprlauncher --dmenu (no terminal window required)."""
     themes = get_all_themes()
     if initial_filter:
-        themes = [t for t in themes if initial_filter.lower() in t.lower()]
+        themes = filter_themes(themes, initial_filter)
     current = read_state()
     display = [f"★  {t}" if t == current else f"   {t}" for t in themes]
     try:
@@ -383,6 +383,33 @@ def get_all_themes() -> list:
         if fname.endswith(".json")
     )
 
+
+def load_theme_json(name: str) -> Dict:
+    """Load and return the parsed JSON for *name*, or {} on failure."""
+    try:
+        with open(os.path.join(THEMES_DIR, f"{name}.json")) as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+def filter_themes(themes: list, query: str) -> list:
+    """Return themes matching *query* by name or ``appearance`` tag.
+
+    The match is a case-insensitive substring check against the theme name
+    **and** its ``appearance`` field (``"light"`` / ``"dark"``).  A theme is
+    included if *query* matches either.
+    """
+    q = query.lower()
+    result = []
+    for name in themes:
+        if q in name.lower():
+            result.append(name)
+            continue
+        data = load_theme_json(name)
+        if q in data.get("appearance", "").lower():
+            result.append(name)
+    return result
 
 def read_state() -> Optional[str]:
     """Return the name of the last applied theme, or None."""
@@ -1889,15 +1916,17 @@ def list_themes() -> None:
                 d = json.load(_fh)
         except Exception:
             continue
-        bg      = d.get("background", "")
-        fg      = d.get("foreground", "")
-        accent  = d.get("accent", d.get("purple", ""))
-        themes.append((name, bg, fg, accent))
+        bg         = d.get("background", "")
+        fg         = d.get("foreground", "")
+        accent     = d.get("accent", d.get("purple", ""))
+        appearance = d.get("appearance", "")
+        themes.append((name, bg, fg, accent, appearance))
 
     col_name   = max(len("THEME"),      max(len(t[0]) for t in themes))
     col_bg     = max(len("BACKGROUND"), max(len(t[1]) for t in themes))
     col_fg     = max(len("FOREGROUND"), max(len(t[2]) for t in themes))
     col_accent = max(len("ACCENT"),     max(len(t[3]) for t in themes))
+    col_appear = max(len("TYPE"),       max(len(t[4]) for t in themes))
 
     # ANSI helpers
     def ansi_swatch(hex_color: str, text: str) -> str:
@@ -1910,9 +1939,10 @@ def list_themes() -> None:
     def bold(text: str) -> str:
         return f"\033[1m{text}\033[0m"
 
-    sep = f"  {'─' * col_name}  {'─' * col_bg}  {'─' * col_fg}  {'─' * col_accent}"
+    sep = f"  {'─' * col_name}  {'─' * col_appear}  {'─' * col_bg}  {'─' * col_fg}  {'─' * col_accent}"
     header = (
         f"  {bold(f'{'THEME':<{col_name}}')}  "
+        f"{bold(f'{'TYPE':<{col_appear}}')}  "
         f"{bold(f'{'BACKGROUND':<{col_bg}}')}  "
         f"{bold(f'{'FOREGROUND':<{col_fg}}')}  "
         f"{bold(f'{'ACCENT':<{col_accent}}')}"
@@ -1920,10 +1950,11 @@ def list_themes() -> None:
     print(sep)
     print(header)
     print(sep)
-    for name, bg, fg, accent in themes:
+    for name, bg, fg, accent, appearance in themes:
         marker = "★ " if name == current else "  "
         row = (
             f"  {marker}{name:<{col_name}}  "
+            f"{appearance:<{col_appear}}  "
             f"{ansi_swatch(bg,  f'{bg:<{col_bg}}')}  "
             f"{ansi_swatch(fg,  f'{fg:<{col_fg}}')}  "
             f"{ansi_swatch(accent, f'{accent:<{col_accent}}')}"
@@ -1971,7 +2002,7 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
         idx    = 0
 
         while True:
-            themes = [t for t in all_themes if search.lower() in t.lower()] if search else all_themes
+            themes = filter_themes(all_themes, search) if search else all_themes
             idx    = min(idx, max(0, len(themes) - 1))
 
             max_h, max_w = stdscr.getmaxyx()
@@ -1999,6 +2030,7 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
                 cyan_col   = d.get("cyan",   "")
                 green_col  = d.get("green",  "")
                 red_col    = d.get("red",    "")
+                appearance = d.get("appearance", "")
                 is_current = name == current
                 marker     = "★ " if is_current else "  "
 
@@ -2009,7 +2041,8 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
                     _swatch(green_col)  + " " +
                     _swatch(red_col)
                 )
-                text_part = f"{marker}{name:<34}  {bg_col:<8}"
+                tag = "☀" if appearance == "light" else "☾"
+                text_part = f"{marker}{name:<34} {tag} {bg_col:<8}"
 
                 y = row_i + 4
                 if y >= max_h - 2:
@@ -2080,7 +2113,7 @@ def wofi_select(initial_filter: str = "") -> Optional[str]:
     """Select a theme via wofi --dmenu (no terminal window required)."""
     themes = get_all_themes()
     if initial_filter:
-        themes = [t for t in themes if initial_filter.lower() in t.lower()]
+        themes = filter_themes(themes, initial_filter)
     current = read_state()
     display = [f"★  {t}" if t == current else f"   {t}" for t in themes]
     try:
@@ -2193,8 +2226,9 @@ def generate_theme_from_wallpaper(
     green = _pick_for_hue_range(0.25, 0.42, 120)
     cyan = _pick_for_hue_range(0.45, 0.55, 180)
 
+    bg_hex = _rgb_to_hex(*background)
     theme_data = {
-        "background": _rgb_to_hex(*background),
+        "background": bg_hex,
         "foreground": _rgb_to_hex(*foreground),
         "comment": _rgb_to_hex(*comment),
         "accent": _rgb_to_hex(*accent),
@@ -2203,6 +2237,7 @@ def generate_theme_from_wallpaper(
         "green": _rgb_to_hex(*green),
         "cyan": _rgb_to_hex(*cyan),
         "wallpaper": image_path,
+        "appearance": "dark" if is_dark_color(bg_hex) else "light",
     }
 
     if theme_name is None:
@@ -2273,7 +2308,7 @@ if __name__ == "__main__":
         elif args.random:
             pool = get_all_themes()
             if args.filter:
-                pool = [t for t in pool if args.filter.lower() in t.lower()]
+                pool = filter_themes(pool, args.filter)
             if pool:
                 choice = random.choice(pool)
                 print(f"Random theme: {choice}")

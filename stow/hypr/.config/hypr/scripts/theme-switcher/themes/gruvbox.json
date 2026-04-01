@@ -21,5 +21,6 @@
     "theme_id": "{08d5243b-4236-4a27-984b-1ded22ce01c3}"
   },
   "accent": "#d65d0e",
-  "btop": "gruvbox_dark_v2"
+  "btop": "gruvbox_dark_v2",
+  "appearance": "dark"
 }

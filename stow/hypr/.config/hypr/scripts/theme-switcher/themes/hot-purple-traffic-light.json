@@ -8,5 +8,6 @@
   "red": "#ff3300",
   "orange": "#ff9900",
   "purple": "#a64dff",
-  "btop": "HotPurpleTrafficLight"
+  "btop": "HotPurpleTrafficLight",
+  "appearance": "dark"
 }

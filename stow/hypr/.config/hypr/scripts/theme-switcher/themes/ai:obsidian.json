@@ -1,18 +1,19 @@
 {
   "background": "#080808",
   "foreground": "#f5f5f4",
-  "comment":    "#3f3f3f",
-  "cyan":       "#22d3ee",
-  "green":      "#4ade80",
-  "orange":     "#f59e0b",
-  "pink":       "#f472b6",
-  "purple":     "#c084fc",
-  "red":        "#f87171",
-  "yellow":     "#fde047",
-  "accent":     "#f59e0b",
+  "comment": "#3f3f3f",
+  "cyan": "#22d3ee",
+  "green": "#4ade80",
+  "orange": "#f59e0b",
+  "pink": "#f472b6",
+  "purple": "#c084fc",
+  "red": "#f87171",
+  "yellow": "#fde047",
+  "accent": "#f59e0b",
   "vscode": {
-    "theme":     "Monokai Pro",
+    "theme": "Monokai Pro",
     "extension": "monokai.theme-monokai-pro-vscode",
-    "font":      "JetBrainsMono Nerd Font"
-  }
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "appearance": "dark"
 }

@@ -8,5 +8,6 @@
   "red": "#cc6666",
   "orange": "#de935f",
   "purple": "#b294bb",
-  "btop": "tomorrow-night"
+  "btop": "tomorrow-night",
+  "appearance": "dark"
 }

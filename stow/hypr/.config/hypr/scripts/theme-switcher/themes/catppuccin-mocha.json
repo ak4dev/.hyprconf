@@ -20,5 +20,6 @@
     "theme_name": "Catppuccin Mocha",
     "theme_id": "{8446b178-c865-4f5c-8ccc-1a3c9a0a1b1e}"
   },
-  "accent": "#f5c2e7"
+  "accent": "#f5c2e7",
+  "appearance": "dark"
 }

@@ -12,9 +12,10 @@
   "wallpaper": "~/wallpaper/catppuccin-frappe.png",
   "kitty": "~/.config/kitty/themes/catppuccin-frappe.conf",
   "vscode": {
-    "theme": "Catppuccin Frapp\u00e9",
+    "theme": "Catppuccin Frappé",
     "extension": "Catppuccin.catppuccin-vsc",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#f4b8e4"
+  "accent": "#f4b8e4",
+  "appearance": "dark"
 }

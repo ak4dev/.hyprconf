@@ -1,18 +1,19 @@
 {
   "background": "#120810",
   "foreground": "#f5d5e8",
-  "comment":    "#4a2040",
-  "cyan":       "#38bdf8",
-  "green":      "#86efac",
-  "orange":     "#f97316",
-  "pink":       "#f0abfc",
-  "purple":     "#c084fc",
-  "red":        "#fca5a5",
-  "yellow":     "#fef08a",
-  "accent":     "#f97316",
+  "comment": "#4a2040",
+  "cyan": "#38bdf8",
+  "green": "#86efac",
+  "orange": "#f97316",
+  "pink": "#f0abfc",
+  "purple": "#c084fc",
+  "red": "#fca5a5",
+  "yellow": "#fef08a",
+  "accent": "#f97316",
   "vscode": {
-    "theme":     "Shades of Purple",
+    "theme": "Shades of Purple",
     "extension": "ahmadawais.shades-of-purple",
-    "font":      "JetBrainsMono Nerd Font"
-  }
+    "font": "JetBrainsMono Nerd Font"
+  },
+  "appearance": "dark"
 }

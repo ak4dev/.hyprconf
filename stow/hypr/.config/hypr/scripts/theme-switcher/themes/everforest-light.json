@@ -8,5 +8,6 @@
   "red": "#f85552",
   "orange": "#dfa000",
   "purple": "#df69ba",
-  "btop": "everforest-light-medium"
+  "btop": "everforest-light-medium",
+  "appearance": "light"
 }

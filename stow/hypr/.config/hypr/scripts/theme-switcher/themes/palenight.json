@@ -16,5 +16,6 @@
     "extension": "Equinusocio.vsc-material-theme",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#89ddff"
+  "accent": "#89ddff",
+  "appearance": "dark"
 }

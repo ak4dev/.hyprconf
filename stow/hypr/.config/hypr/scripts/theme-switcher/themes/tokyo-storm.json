@@ -17,5 +17,6 @@
     "font": "JetBrainsMono Nerd Font"
   },
   "accent": "#7dcfff",
-  "btop": "tokyo-storm"
+  "btop": "tokyo-storm",
+  "appearance": "dark"
 }

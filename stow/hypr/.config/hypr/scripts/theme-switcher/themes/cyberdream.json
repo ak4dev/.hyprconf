@@ -16,5 +16,6 @@
     "extension": "nickmessing.cyberdream",
     "font": "JetBrainsMono Nerd Font"
   },
-  "accent": "#5ef1ff"
+  "accent": "#5ef1ff",
+  "appearance": "dark"
 }

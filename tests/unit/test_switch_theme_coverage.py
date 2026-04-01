@@ -799,3 +799,140 @@ def test_update_btop_uses_absolute_path_directly(tmp_path, monkeypatch):
 
     content = conf.read_text()
     assert str(custom_theme) in content
+
+
+# ---------------------------------------------------------------------------
+# load_theme_json / filter_themes / appearance
+# ---------------------------------------------------------------------------
+
+def test_load_theme_json_returns_dict(tmp_path, monkeypatch):
+    data = {"background": "#000", "appearance": "dark"}
+    (tmp_path / "foo.json").write_text(json.dumps(data))
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+    result = st.load_theme_json("foo")
+    assert result["background"] == "#000"
+    assert result["appearance"] == "dark"
+
+
+def test_load_theme_json_missing_file(tmp_path, monkeypatch):
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+    result = st.load_theme_json("nonexistent")
+    assert result == {}
+
+
+def test_filter_themes_by_appearance(tmp_path, monkeypatch):
+    (tmp_path / "dracula.json").write_text(json.dumps({"appearance": "dark"}))
+    (tmp_path / "paper.json").write_text(json.dumps({"appearance": "light"}))
+    (tmp_path / "solarized-light.json").write_text(json.dumps({"appearance": "light"}))
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+
+    themes = ["dracula", "paper", "solarized-light"]
+    light = st.filter_themes(themes, "light")
+    assert "paper" in light
+    assert "solarized-light" in light
+    assert "dracula" not in light
+
+
+def test_filter_themes_by_name_substring(tmp_path, monkeypatch):
+    (tmp_path / "ai:void.json").write_text(json.dumps({"appearance": "dark"}))
+    (tmp_path / "ai:glacier.json").write_text(json.dumps({"appearance": "light"}))
+    (tmp_path / "dracula.json").write_text(json.dumps({"appearance": "dark"}))
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+
+    themes = ["ai:void", "ai:glacier", "dracula"]
+    result = st.filter_themes(themes, "ai:")
+    assert set(result) == {"ai:glacier", "ai:void"}
+
+
+def test_filter_themes_empty_filter(tmp_path, monkeypatch):
+    (tmp_path / "a.json").write_text(json.dumps({"appearance": "dark"}))
+    (tmp_path / "b.json").write_text(json.dumps({"appearance": "light"}))
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+
+    themes = ["a", "b"]
+    assert st.filter_themes(themes, "") == ["a", "b"]
+
+
+def test_filter_themes_case_insensitive(tmp_path, monkeypatch):
+    (tmp_path / "foo.json").write_text(json.dumps({"appearance": "dark"}))
+    (tmp_path / "bar.json").write_text(json.dumps({"appearance": "light"}))
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+
+    themes = ["foo", "bar"]
+    assert st.filter_themes(themes, "LIGHT") == ["bar"]
+    assert st.filter_themes(themes, "DARK") == ["foo"]
+
+
+def test_list_themes_shows_type_column(tmp_path, monkeypatch, capsys):
+    theme = {**DARK_THEME, "appearance": "dark"}
+    (tmp_path / "test-theme.json").write_text(json.dumps(theme))
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+    monkeypatch.setattr(st, "read_state", lambda: None)
+
+    st.list_themes()
+    out = capsys.readouterr().out
+    assert "TYPE" in out
+    assert "dark" in out
+
+
+def test_list_themes_shows_light_type(tmp_path, monkeypatch, capsys):
+    theme = {**DARK_THEME, "background": "#ffffff", "appearance": "light"}
+    (tmp_path / "bright.json").write_text(json.dumps(theme))
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+    monkeypatch.setattr(st, "read_state", lambda: None)
+
+    st.list_themes()
+    out = capsys.readouterr().out
+    assert "light" in out
+
+
+def test_generate_theme_sets_dark_appearance(tmp_path, monkeypatch):
+    """generate_theme_from_wallpaper auto-sets appearance based on bg."""
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+    img = tmp_path / "dark.png"
+
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        pytest.skip("Pillow not installed")
+
+    img_obj = Image.new("RGB", (100, 100), (20, 20, 20))
+    draw = ImageDraw.Draw(img_obj)
+    # Add varied colors so quantize can extract 8 distinct palette entries
+    for i, color in enumerate([
+        (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
+        (255, 0, 255), (0, 255, 255), (128, 128, 128),
+    ]):
+        draw.rectangle([i * 14, 0, i * 14 + 13, 13], fill=color)
+    img_obj.save(str(img))
+
+    name = st.generate_theme_from_wallpaper(str(img))
+    out_path = tmp_path / f"{name}.json"
+    data = json.loads(out_path.read_text())
+    assert data["appearance"] == "dark"
+
+
+def test_generate_theme_sets_light_appearance(tmp_path, monkeypatch):
+    """generate_theme_from_wallpaper auto-sets appearance=light for bright bg."""
+    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
+    img = tmp_path / "light.png"
+
+    try:
+        from PIL import Image, ImageDraw
+    except ImportError:
+        pytest.skip("Pillow not installed")
+
+    img_obj = Image.new("RGB", (100, 100), (240, 240, 240))
+    draw = ImageDraw.Draw(img_obj)
+    # Tiny colored pixels so quantize sees variety but bg stays dominant
+    for i, color in enumerate([
+        (200, 50, 50), (50, 200, 50), (50, 50, 200), (200, 200, 50),
+        (200, 50, 200), (50, 200, 200), (180, 180, 180),
+    ]):
+        draw.point((i, 0), fill=color)
+    img_obj.save(str(img))
+
+    name = st.generate_theme_from_wallpaper(str(img))
+    out_path = tmp_path / f"{name}.json"
+    data = json.loads(out_path.read_text())
+    assert data["appearance"] == "light"

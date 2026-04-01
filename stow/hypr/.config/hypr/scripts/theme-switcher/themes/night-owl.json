@@ -8,5 +8,6 @@
   "red": "#ef5350",
   "orange": "#f78c6c",
   "purple": "#c792ea",
-  "btop": "night-owl"
+  "btop": "night-owl",
+  "appearance": "dark"
 }

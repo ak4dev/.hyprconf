@@ -8,5 +8,6 @@
   "red": "#e95678",
   "orange": "#fab795",
   "purple": "#B877DB",
-  "btop": "horizon"
+  "btop": "horizon",
+  "appearance": "dark"
 }
