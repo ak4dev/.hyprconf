@@ -164,7 +164,12 @@ def launcher_select(initial_filter: str = "") -> Optional[str]:
     if initial_filter:
         themes = filter_themes(themes, initial_filter)
     current = read_state()
-    display = [f"★  {t}" if t == current else f"   {t}" for t in themes]
+    display = []
+    for t in themes:
+        data = load_theme_json(t)
+        tag = "☀" if data.get("appearance") == "light" else "☾"
+        marker = "★" if t == current else " "
+        display.append(f"{marker} {tag} {t}")
     try:
         # Brief pause so any calling launcher (e.g. hyprlauncher itself) has
         # fully released its window before we open a new dmenu instance.
@@ -175,7 +180,7 @@ def launcher_select(initial_filter: str = "") -> Optional[str]:
             capture_output=True,
             text=True,
         )
-        result = proc.stdout.strip().lstrip("★").strip()
+        result = proc.stdout.strip().lstrip("★").strip().lstrip("☀☾").strip()
         return result if result in themes else None
     except FileNotFoundError:
         print("hyprlauncher not found; falling back to interactive TUI.")
@@ -2110,7 +2115,12 @@ def wofi_select(initial_filter: str = "") -> Optional[str]:
     if initial_filter:
         themes = filter_themes(themes, initial_filter)
     current = read_state()
-    display = [f"★  {t}" if t == current else f"   {t}" for t in themes]
+    display = []
+    for t in themes:
+        data = load_theme_json(t)
+        tag = "☀" if data.get("appearance") == "light" else "☾"
+        marker = "★" if t == current else " "
+        display.append(f"{marker} {tag} {t}")
     try:
         # When launched from wofi's drun, starting a second wofi immediately can race/fail.
         time.sleep(0.15)
@@ -2120,7 +2130,7 @@ def wofi_select(initial_filter: str = "") -> Optional[str]:
             capture_output=True,
             text=True,
         )
-        result = proc.stdout.strip().lstrip("★").strip()
+        result = proc.stdout.strip().lstrip("★").strip().lstrip("☀☾").strip()
         return result if result in themes else None
     except FileNotFoundError:
         print("wofi not found; falling back to interactive TUI.")

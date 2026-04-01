@@ -389,7 +389,8 @@ def test_launcher_select_filters_themes(st) -> None:
          patch.object(st, "read_state", return_value=None):
         st.launcher_select(initial_filter="ai:")
 
-    themes_shown = [l.strip().lstrip("★").strip() for l in captured_input["input"].splitlines()]
+    themes_shown = [l.strip().lstrip("★").strip().lstrip("☀☾").strip()
+                    for l in captured_input["input"].splitlines()]
     assert themes_shown == ["ai:void"], (
         f"Only ai: themes should be shown with filter 'ai:', got: {themes_shown}"
     )
