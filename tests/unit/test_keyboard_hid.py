@@ -18,41 +18,55 @@ class TestSetupKeyboardHidPermissionsFunction:
     def test_udev_rule_path(self) -> None:
         assert "70-keychron.rules" in _setup_text()
 
-    def test_vendor_id(self) -> None:
+    def test_vendor_id_keychron(self) -> None:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
-        body = text[idx : idx + 2000]
+        body = text[idx : idx + 2500]
         assert '3434' in body
+
+    def test_vendor_id_lemokey(self) -> None:
+        text = _setup_text()
+        idx = text.index("setup_keyboard_hid_permissions()")
+        body = text[idx : idx + 2500]
+        assert '362d' in body
 
     def test_uaccess_tag(self) -> None:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
-        body = text[idx : idx + 2000]
+        body = text[idx : idx + 2500]
         assert 'uaccess' in body
 
     def test_hidraw_subsystem(self) -> None:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
-        body = text[idx : idx + 2000]
+        body = text[idx : idx + 2500]
         assert 'hidraw' in body
 
     def test_udevadm_reload(self) -> None:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
-        body = text[idx : idx + 2000]
+        body = text[idx : idx + 2500]
         assert "udevadm control --reload-rules" in body
+
+    def test_udevadm_trigger(self) -> None:
+        """After installing, trigger should retrigger existing hidraw devices."""
+        text = _setup_text()
+        idx = text.index("setup_keyboard_hid_permissions()")
+        body = text[idx : idx + 2500]
+        assert "udevadm trigger" in body
+        assert "hidraw" in body
 
     def test_idempotent_check(self) -> None:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
-        body = text[idx : idx + 2000]
+        body = text[idx : idx + 2500]
         assert "already installed" in body
 
     def test_graceful_failure(self) -> None:
         """Should warn and return 0 on failure, not abort."""
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
-        body = text[idx : idx + 2000]
+        body = text[idx : idx + 2500]
         assert "log_warn" in body
         assert "return 0" in body
 
@@ -60,7 +74,7 @@ class TestSetupKeyboardHidPermissionsFunction:
         """udevadm reload must be guarded by _in_chroot check."""
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
-        body = text[idx : idx + 2000]
+        body = text[idx : idx + 2500]
         assert "_in_chroot" in body
 
 

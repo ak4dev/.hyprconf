@@ -971,10 +971,9 @@ enable_services() {
 # Keychron / Lemokey keyboard — HID raw device permissions
 # ---------------------------------------------------------------------------
 # Installs a udev rule that grants the active login session read/write access
-# to the hidraw device for any keyboard with Keychron's USB vendor ID (0x3434,
-# shared by Keychron and its Lemokey sub-brand).  This is required so the
-# web-based remapper at launcher.keychron.com (WebHID API) can remap keys
-# without elevated privileges.
+# to the hidraw device for Keychron (VID 0x3434) and Lemokey (VID 0x362d)
+# keyboards.  This is required so the web-based remapper at
+# launcher.keychron.com (WebHID API) can remap keys without elevated privileges.
 
 setup_keyboard_hid_permissions() {
     local udev_rule="/etc/udev/rules.d/70-keychron.rules"
@@ -982,12 +981,16 @@ setup_keyboard_hid_permissions() {
     rule_content='# hyprconf — Keychron / Lemokey keyboard HID access for web-based remapping
 # Grants the active session user read/write access to the hidraw device so
 # launcher.keychron.com (WebHID API) can remap keys without elevated privileges.
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"'
+# Keychron keyboards (VID 0x3434)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"
+# Lemokey keyboards (VID 0x362d)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="362d", TAG+="uaccess"'
 
     log_step "Installing udev rule for Keychron/Lemokey HID access..."
 
-    if [[ -f "$udev_rule" ]] && grep -qF 'TAG+="uaccess"' "$udev_rule" 2>/dev/null \
-        && grep -qF 'idVendor=="3434"' "$udev_rule" 2>/dev/null; then
+    if [[ -f "$udev_rule" ]] && grep -qF 'idVendor=="3434"' "$udev_rule" 2>/dev/null \
+        && grep -qF 'idVendor=="362d"' "$udev_rule" 2>/dev/null \
+        && grep -qF 'TAG+="uaccess"' "$udev_rule" 2>/dev/null; then
         log_ok "Keychron udev rule already installed — skipping."
         return 0
     fi
@@ -1000,6 +1003,9 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"'
         sudo udevadm control --reload-rules 2>/dev/null \
             && log_ok "udev rules reloaded." \
             || log_warn "Could not reload udev rules — reboot to apply."
+        sudo udevadm trigger --subsystem-match=hidraw 2>/dev/null \
+            && log_ok "hidraw devices retriggered." \
+            || log_warn "Could not retrigger hidraw devices — reconnect keyboard to apply."
     fi
 }
 
