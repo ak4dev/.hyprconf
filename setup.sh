@@ -967,6 +967,42 @@ enable_services() {
     log_ok "Security services configured."
 }
 
+# ---------------------------------------------------------------------------
+# Keychron / Lemokey keyboard — HID raw device permissions
+# ---------------------------------------------------------------------------
+# Installs a udev rule that grants the active login session read/write access
+# to the hidraw device for any keyboard with Keychron's USB vendor ID (0x3434,
+# shared by Keychron and its Lemokey sub-brand).  This is required so the
+# web-based remapper at launcher.keychron.com (WebHID API) can remap keys
+# without elevated privileges.
+
+setup_keyboard_hid_permissions() {
+    local udev_rule="/etc/udev/rules.d/70-keychron.rules"
+    local rule_content
+    rule_content='# hyprconf — Keychron / Lemokey keyboard HID access for web-based remapping
+# Grants the active session user read/write access to the hidraw device so
+# launcher.keychron.com (WebHID API) can remap keys without elevated privileges.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"'
+
+    log_step "Installing udev rule for Keychron/Lemokey HID access..."
+
+    if [[ -f "$udev_rule" ]] && grep -qF 'TAG+="uaccess"' "$udev_rule" 2>/dev/null \
+        && grep -qF 'idVendor=="3434"' "$udev_rule" 2>/dev/null; then
+        log_ok "Keychron udev rule already installed — skipping."
+        return 0
+    fi
+
+    printf '%s\n' "$rule_content" | sudo tee "$udev_rule" > /dev/null \
+        && log_ok "Keychron udev rule installed: $udev_rule" \
+        || { log_warn "Could not install Keychron udev rule — HID permissions not set."; return 0; }
+
+    if ! _in_chroot; then
+        sudo udevadm control --reload-rules 2>/dev/null \
+            && log_ok "udev rules reloaded." \
+            || log_warn "Could not reload udev rules — reboot to apply."
+    fi
+}
+
 sync_services() {
     log_step "Enabling system services..."
 
@@ -1000,6 +1036,8 @@ sync_services() {
         fi
     fi
     log_ok "Services enabled."
+
+    setup_keyboard_hid_permissions
 }
 
 reload_hyprland() {
