@@ -10,6 +10,10 @@
   <img alt="themes" src="https://img.shields.io/badge/themes-68-8b5cf6?style=for-the-badge" />
 </p>
 
+<p align="center">
+  <img src="assets/hyprconf.png" width="920" alt=".hyprconf desktop and TUI" />
+</p>
+
 # .hyprconf
 
 **hyprconf** is a Hyprland configuration suite for Arch Linux — combining a standalone CLI/TUI tool with the maintainer's fully-managed personal dotfiles. The tool is independently usable by any Hyprland user (AUR-compatible); the dotfiles are the daily-driven reference implementation built on top of it.
@@ -59,7 +63,7 @@
 bash <(curl -fsSL hyprconf.sh)
 ```
 
-The installer prompts for one of two modes:
+The installer prompts for one of three modes:
 
 ### [1] Full Arch Linux install *(from the Arch ISO)*
 
@@ -88,12 +92,21 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery
 11. Keychron / Lemokey HID permissions: installs udev rule (`70-keychron.rules`) for Keychron (`0x3434`) and Lemokey (`0x362d`) → `TAG+="uaccess"` so `launcher.keychron.com` (WebHID) can remap keys
 12. `ufw` deny-inbound / allow-outbound; enable + start
-12. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend
-13. Reload Hyprland
+13. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend
+14. Reload Hyprland
 
 > **WiFi:** if no wifi profiles were copied from the ISO (e.g. ethernet install), connect after first boot with `nmtui`.
 
 > **AUR dependency:** `bibata-cursor-theme` must be installed manually: `yay -S bibata-cursor-theme`
+
+### [3] hyprconf only *(any existing Hyprland system)*
+
+Installs just the `hyprconf` CLI/TUI binary into `~/.local/bin` and its library into `~/.local/lib` — no dotfiles, no config changes.
+
+1. Sparse-clones the repo (CLI/library paths only)
+2. Copies `hyprconf` binary to `~/.local/bin/`
+3. Copies Python library to `~/.local/lib/hyprconf/`
+4. Ready to use: `hyprconf --help`
 
 ### Sync / Repair
 
@@ -144,7 +157,7 @@ The project website at **[hyprconf.sh](https://hyprconf.sh)** is a React SPA wit
 
 **Theme sync:** Themes are generated at build time from the same JSON files used by the desktop theme engine. Run `cd web && npm run generate-themes` after adding themes.
 
-**Deploy:** `web/deploy.sh` builds the frontend, deploys assets via CDK, and updates the CloudFront Function. Requires AWS credentials for the `390844779058` account.
+**Deploy:** `web/deploy.sh` builds the frontend, deploys assets via CDK, and updates the CloudFront Function. Requires configured AWS credentials (`aws configure`).
 
 ---
 
@@ -356,7 +369,7 @@ The `btop` key accepts a system theme name (looked up in `/usr/share/btop/themes
 
 | Device type detected | Config symlinked |
 |---|---|
-| Desktop (chassis type 3–7, 13, 24) | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-1 4K@240Hz rotated |
+| Desktop (chassis type 3–7, 13, 24) | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-1 4K@240Hz |
 | Laptop / portable (all other types) | `laptopMonitors.conf` — eDP-1 preferred + external connectors use `preferred` + catch-all wildcard |
 | Unknown chassis (fallback) | No battery present → desktop; battery present → laptop |
 

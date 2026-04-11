@@ -147,7 +147,7 @@ The `web/` directory contains a React SPA served at `hyprconf.sh` for browser vi
 - **React Router** — multi-page SPA (/, /themes, /keybindings, /cli, /install)
 - **Radix UI** — accessible primitives (icons)
 - **CSS Modules** — co-located per-component styles consuming design tokens
-- **Vitest** + **React Testing Library** — 236+ tests
+- **Vitest** + **React Testing Library** — 240+ tests
 
 ### Architecture Rules
 
@@ -203,7 +203,7 @@ The CDK stack manages S3 asset deployment and cache invalidation. It coexists wi
 |---|---|
 | Distribution ID | `E3MPOPCWTB2GDM` |
 | S3 Bucket | `hyprconf-sh` |
-| AWS Account | `390844779058` |
+| AWS Account | resolved at deploy time via `aws sts get-caller-identity` |
 
 ### Important constraints
 
@@ -214,10 +214,24 @@ The CDK stack manages S3 asset deployment and cache invalidation. It coexists wi
 
 ---
 
+## No Personal Information (Non-Negotiable)
+
+**Never commit personal data to the repository.** Before every push, verify that no file contains:
+
+- Hardcoded home paths (`/home/<user>/`) — use `~`, `$HOME`, or relative paths
+- AWS account IDs, access keys, or secrets — use environment variables or `aws sts get-caller-identity`
+- Real usernames, emails, or IPs — use `$USER`, generic placeholders, or resolve at runtime
+
+The CDK stack resolves the AWS account at deploy time via `CDK_DEFAULT_ACCOUNT`. Config files under `stow/` must use `~` or relative paths since they are stowed into any user's `$HOME`.
+
+---
+
 ## Known Codebase Quirks
 
 These findings may help future agents avoid common pitfalls:
 
+- **Branding: `.hyprconf` vs `hyprconf.sh`** — the project name is stylised as **`.hyprconf`** (with leading dot) everywhere except when referring to the domain/URL, which is **`hyprconf.sh`**. In the web frontend the dot is rendered with a `<span className={styles.dot}>` for accent colouring. Never write "hyprconf" without a leading dot unless it's the domain, a CLI binary name (`hyprconf theme`, `hyprconf sync`), or the install command.
+- **Default theme is `ai:circuit`** — the web frontend defaults to `ai:circuit` (set in `web/scripts/generate-themes.ts`). If changing, update the generator template — the generated file is overwritten on every build.
 - **Bash 5.3 `$(< file 2>/dev/null)` is broken** — the redirect breaks the `$(<)` special form, returning empty. Use `$(cat file 2>/dev/null)` instead.
 - **Number keys 3/4 are NOT bound to workspaces** — F1/F2 are used instead for workspaces 3/4.
 - **`iwd` package** is commented out in `packages` but referenced in `setup.sh` — guarded by `command -v iwctl` so systems without iwd don't fail.

@@ -1059,6 +1059,6 @@ export const aiThemeNames: string[] = [
   "ai:void"
 ];
 
-export const defaultThemeName = 'catppuccin-mocha';
+export const defaultThemeName = 'ai:circuit';
 
 export const themeCount = 68;

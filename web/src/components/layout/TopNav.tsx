@@ -18,8 +18,9 @@ export function TopNav() {
   return (
     <header className={styles.nav}>
       <div className={styles.inner}>
-        <NavLink to="/" className={styles.logo} aria-label="hyprconf home">
-          hyprconf<span className={styles.dot}>.</span>
+        <NavLink to="/" className={styles.logo} aria-label=".hyprconf home">
+          <span className={styles.glyph} aria-hidden="true">›_</span>
+          <span className={styles.dot}>.</span>hyprconf
         </NavLink>
 
         {!isMobile && (

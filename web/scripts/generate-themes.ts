@@ -121,7 +121,7 @@ export const communityThemeNames: string[] = ${JSON.stringify(communityThemes, n
 
 export const aiThemeNames: string[] = ${JSON.stringify(aiThemes, null, 2)};
 
-export const defaultThemeName = 'catppuccin-mocha';
+export const defaultThemeName = 'ai:circuit';
 
 export const themeCount = ${allNames.length};
 `;

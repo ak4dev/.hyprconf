@@ -11,7 +11,7 @@ function createStack(): { stack: HyprconfWebStack; template: Template } {
     },
   });
   const stack = new HyprconfWebStack(app, 'TestStack', {
-    env: { account: '390844779058', region: 'us-east-1' },
+    env: { account: '123456789012', region: 'us-east-1' },
   });
   const template = Template.fromStack(stack);
   return { stack, template };

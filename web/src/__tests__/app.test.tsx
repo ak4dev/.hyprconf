@@ -48,4 +48,12 @@ describe('Landing page', () => {
     const ghLinks = screen.getAllByLabelText(/github/i);
     expect(ghLinks.length).toBeGreaterThan(0);
   });
+
+  it('renders desktop screenshot', () => {
+    renderWithRouter();
+    const img = screen.getByAltText('.hyprconf desktop with TUI');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', '/images/hyprconf.webp');
+    expect(img).toHaveAttribute('loading', 'lazy');
+  });
 });

@@ -33,6 +33,9 @@
   letter-spacing: -0.02em;
   margin: 0;
 }
+.dot {
+  color: var(--hc-accent);
+}
 
 .tagline {
   font-family: var(--hc-font-mono);
@@ -79,6 +82,27 @@
 .ghButton:hover {
   background: var(--hc-accent-muted);
   box-shadow: var(--hc-glow-sm);
+}
+
+.showcase {
+  display: flex;
+  justify-content: center;
+  max-width: var(--hc-content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+.screenshot {
+  width: 100%;
+  max-width: 960px;
+  height: auto;
+  border-radius: var(--hc-radius-md);
+  border: var(--hc-border-width) solid var(--hc-border-color);
+  box-shadow: 0 4px 32px color-mix(in srgb, var(--hc-accent) 10%, transparent);
+  transition: box-shadow var(--hc-transition-base);
+}
+.screenshot:hover {
+  box-shadow: 0 4px 48px color-mix(in srgb, var(--hc-accent) 20%, transparent);
 }
 
 .features {

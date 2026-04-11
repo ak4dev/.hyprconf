@@ -11,7 +11,7 @@ export function Footer() {
       <div className={styles.inner}>
         <div className={styles.col}>
           <span className={styles.brand}>
-            hyprconf<span className={styles.dot}>.</span>
+            <span className={styles.dot}>.</span>hyprconf
           </span>
           <span className={styles.version}>v{VERSION}</span>
         </div>
@@ -41,7 +41,7 @@ export function Footer() {
             <GitHubLogoIcon width={14} height={14} />
             <span>View on GitHub</span>
           </a>
-          <span className={styles.license}>MIT License</span>
+          <span className={styles.license}>AGPL-3.0</span>
         </div>
       </div>
     </footer>

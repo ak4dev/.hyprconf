@@ -19,12 +19,30 @@
 }
 
 .logo {
+  display: flex;
+  align-items: center;
+  gap: var(--hc-space-2);
   font-family: var(--hc-font-mono);
   font-size: var(--hc-font-size-lg);
   font-weight: 700;
   color: var(--hc-fg);
   text-decoration: none;
   letter-spacing: -0.01em;
+}
+.glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: var(--hc-radius-sm);
+  background: color-mix(in srgb, var(--hc-accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--hc-accent) 30%, transparent);
+  color: var(--hc-accent);
+  font-size: 0.85em;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
 }
 .dot {
   color: var(--hc-accent);

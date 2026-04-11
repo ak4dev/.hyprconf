@@ -15,7 +15,7 @@ export default function Landing() {
     <div className={styles.page}>
       <section className={styles.hero}>
         <div className={styles.heroGlow}>
-          <h1 className={styles.heroTitle}>hyprconf</h1>
+          <h1 className={styles.heroTitle}><span className={styles.dot}>.</span>hyprconf</h1>
           <p className={styles.tagline}>{PROJECT_TAGLINE}</p>
           <p className={styles.description}>{PROJECT_DESCRIPTION}</p>
 
@@ -36,6 +36,17 @@ export default function Landing() {
             </a>
           </div>
         </div>
+      </section>
+
+      <section className={styles.showcase}>
+        <img
+          src="/images/hyprconf.webp"
+          alt=".hyprconf desktop with TUI"
+          className={styles.screenshot}
+          loading="lazy"
+          width={1920}
+          height={1079}
+        />
       </section>
 
       <section className={styles.features}>
