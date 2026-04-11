@@ -23,7 +23,7 @@ export const PROJECT_DESCRIPTION =
 
 export const INSTALL_COMMAND = 'bash <(curl -fsSL hyprconf.sh)';
 
-export const VERSION = '2.1.1';
+export const VERSION = '2.1.2';
 
 export interface Feature {
   title: string;
