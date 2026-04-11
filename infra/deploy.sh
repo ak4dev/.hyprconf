@@ -345,22 +345,7 @@ deploy_bucket() {
     log_ok "Bucket exists."
   fi
 
-  # Allow public read on all objects (install.sh + web frontend assets)
-  aws s3api put-public-access-block --bucket "$HYPRCONF_BUCKET" \
-    --public-access-block-configuration \
-    'BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false' \
-    > /dev/null
-
-  aws s3api put-bucket-policy --bucket "$HYPRCONF_BUCKET" --policy "{
-    \"Version\": \"2012-10-17\",
-    \"Statement\": [{
-      \"Sid\": \"PublicReadAllObjects\",
-      \"Effect\": \"Allow\",
-      \"Principal\": \"*\",
-      \"Action\": \"s3:GetObject\",
-      \"Resource\": \"arn:aws:s3:::${HYPRCONF_BUCKET}/*\"
-    }]
-  }" > /dev/null
+  _ensure_bucket_policy
 
   # Inject this fork's repo URL into install.sh before uploading.
   # The source file keeps the original URL; the deployed copy uses HYPRCONF_REPO.
@@ -370,10 +355,44 @@ deploy_bucket() {
     "$ROOT_DIR/install/install.sh" > "$tmp"
   aws s3 cp "$tmp" "s3://$HYPRCONF_BUCKET/install.sh" \
     --content-type 'text/plain; charset=utf-8' \
-    --cache-control 'no-cache, no-store' \
-    --output text > /dev/null
+    --cache-control 'no-cache, no-store' > /dev/null
   rm -f "$tmp"
   log_ok "install.sh uploaded → s3://$HYPRCONF_BUCKET/install.sh"
+}
+
+# ── Ensure bucket policy allows public read on all objects ────────────────────
+# Idempotent — safe to call from any code path (full deploy, web-only, etc.).
+_ensure_bucket_policy() {
+  log_step "Ensuring bucket policy allows public read on all objects ..."
+
+  # Disable Block Public Access (both bucket-level settings)
+  aws s3api put-public-access-block --bucket "$HYPRCONF_BUCKET" \
+    --public-access-block-configuration \
+    'BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false'
+
+  local policy="{
+    \"Version\": \"2012-10-17\",
+    \"Statement\": [{
+      \"Sid\": \"PublicReadAllObjects\",
+      \"Effect\": \"Allow\",
+      \"Principal\": \"*\",
+      \"Action\": \"s3:GetObject\",
+      \"Resource\": \"arn:aws:s3:::${HYPRCONF_BUCKET}/*\"
+    }]
+  }"
+  aws s3api put-bucket-policy --bucket "$HYPRCONF_BUCKET" --policy "$policy"
+
+  # Verify the policy was applied
+  local applied_resource
+  applied_resource=$(aws s3api get-bucket-policy --bucket "$HYPRCONF_BUCKET" \
+    --query 'Policy' --output text 2>/dev/null \
+    | python3 -c "import sys,json; p=json.load(sys.stdin); print(p['Statement'][0]['Resource'])" 2>/dev/null || echo "")
+  if [[ "$applied_resource" == *"/*" ]]; then
+    log_ok "Bucket policy verified — public read on all objects."
+  else
+    log_warn "Bucket policy verification failed — site may return AccessDenied."
+    log_warn "Check account-level S3 Block Public Access settings in the AWS Console."
+  fi
 }
 
 # ── Step 1b: Build + upload web frontend ──────────────────────────────────────
@@ -410,13 +429,13 @@ deploy_web() {
     --exclude "install.sh" \
     --delete \
     --cache-control 'public, max-age=31536000, immutable' \
-    --output text > /dev/null
+    > /dev/null
 
   # index.html should never be cached aggressively (SPA entry point)
   aws s3 cp "$dist_dir/index.html" "s3://$HYPRCONF_BUCKET/index.html" \
     --content-type 'text/html; charset=utf-8' \
     --cache-control 'no-cache, no-store' \
-    --output text > /dev/null
+    > /dev/null
 
   log_ok "Web frontend deployed to s3://$HYPRCONF_BUCKET/"
 }
@@ -614,9 +633,10 @@ _deploy_cf_function() {
 
   log_step "Deploying CloudFront Function ($cf_fn_name) ..."
 
+  # describe-function defaults to DEVELOPMENT stage
   local etag
   etag=$(aws cloudfront describe-function \
-    --name "$cf_fn_name" \
+    --name "$cf_fn_name" --stage DEVELOPMENT \
     --query 'ETag' --output text 2>/dev/null || echo "")
 
   if [[ -z "$etag" ]] || [[ "$etag" == "None" ]]; then
@@ -653,17 +673,77 @@ _deploy_cf_function() {
     log_ok "CloudFront Function published."
   fi
 
-  # Associate function with distribution if not already associated.
-  # This only runs on newly created distributions — existing ones are left alone
-  # because modifying their config requires the full distribution config JSON.
+  # Ensure function is associated with the distribution's default cache behavior.
+  # Without this, browsers would NOT be routed to index.html and the site returns
+  # AccessDenied (S3 returns 403 for non-existent paths without ListBucket).
+  _ensure_cf_function_association "$dist_id" "$cf_fn_name"
+}
+
+# ── Ensure CF function is associated with a distribution ──────────────────────
+_ensure_cf_function_association() {
+  local dist_id="$1" fn_name="$2"
+
+  # Check if already associated
   local current_fn
   current_fn=$(aws cloudfront get-distribution-config --id "$dist_id" \
     --query 'DistributionConfig.DefaultCacheBehavior.FunctionAssociations.Items[?EventType==`viewer-request`].FunctionARN | [0]' \
     --output text 2>/dev/null || echo "")
-  if [[ -z "$current_fn" ]] || [[ "$current_fn" == "None" ]]; then
-    log_info "Note: Associate the '$cf_fn_name' function with distribution $dist_id via the AWS Console"
-    log_info "(viewer-request event on the default cache behavior)."
+
+  if [[ -n "$current_fn" ]] && [[ "$current_fn" != "None" ]]; then
+    log_ok "CF function already associated with distribution."
+    return 0
   fi
+
+  log_step "Associating CF function with distribution $dist_id ..."
+
+  # Get the function ARN from the LIVE stage
+  local fn_arn
+  fn_arn=$(aws cloudfront describe-function \
+    --name "$fn_name" --stage LIVE \
+    --query 'FunctionSummary.FunctionMetadata.FunctionARN' \
+    --output text 2>/dev/null || echo "")
+
+  if [[ -z "$fn_arn" ]] || [[ "$fn_arn" == "None" ]]; then
+    log_warn "Could not get function ARN — associate '$fn_name' with the distribution manually."
+    return 0
+  fi
+
+  # Get the full distribution config + ETag (required for update)
+  local tmp_cfg; tmp_cfg=$(mktemp)
+  local dist_etag
+  dist_etag=$(aws cloudfront get-distribution-config --id "$dist_id" \
+    --output json > "$tmp_cfg" && \
+    python3 -c "import json,sys; d=json.load(sys.stdin); print(d['ETag'])" < "$tmp_cfg")
+
+  # Inject FunctionAssociations into DefaultCacheBehavior and ensure
+  # DefaultRootObject is index.html (fallback if function ever fails).
+  local tmp_updated; tmp_updated=$(mktemp)
+  python3 -c "
+import json, sys
+
+data = json.load(sys.stdin)
+cfg = data['DistributionConfig']
+cfg['DefaultRootObject'] = 'index.html'
+dcb = cfg['DefaultCacheBehavior']
+dcb['FunctionAssociations'] = {
+    'Quantity': 1,
+    'Items': [{
+        'FunctionARN': '${fn_arn}',
+        'EventType': 'viewer-request'
+    }]
+}
+json.dump(cfg, sys.stdout)
+" < "$tmp_cfg" > "$tmp_updated"
+
+  aws cloudfront update-distribution \
+    --id "$dist_id" \
+    --if-match "$dist_etag" \
+    --distribution-config "file://$tmp_updated" \
+    > /dev/null 2>&1 \
+    && log_ok "CF function associated with distribution." \
+    || log_warn "Could not update distribution config — associate '$fn_name' manually."
+
+  rm -f "$tmp_cfg" "$tmp_updated"
 }
 
 # ── Cache invalidation helper ─────────────────────────────────────────────────
@@ -733,6 +813,7 @@ main() {
     # Quick web-only deploy: build + sync + invalidate. Skips infra setup.
     local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
     [[ -z "$dist_id" ]] && log_die "No existing deployment found. Run a full deploy first."
+    _ensure_bucket_policy
     deploy_web
     _deploy_cf_function "$dist_id"
     _invalidate_cdn "$dist_id"

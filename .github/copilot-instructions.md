@@ -213,10 +213,12 @@ All web assets are deployed via `aws s3 sync` (no CDK dependency). The CloudFron
 
 ### Important constraints
 
-- **`DefaultRootObject` is `index.html`** on new distributions — the CF function handles curl→install.sh routing
+- **`DefaultRootObject` is `index.html`** — the deploy pipeline ensures this on both new AND existing distributions (via `_ensure_cf_function_association` which also sets `DefaultRootObject`)
+- **Bucket policy is enforced on every deploy path** — `_ensure_bucket_policy()` is idempotent and called by both the full deploy and web-only (`deploy web`) paths. Without it, S3 returns 403 (AccessDenied) for all web assets.
+- **CF function association is automated** — `_ensure_cf_function_association()` programmatically associates the function with the distribution's default cache behavior via `update-distribution`. Without this, browsers hit S3 directly, which returns 403 for non-existent SPA routes.
 - **`web/deploy.sh` is a thin wrapper** — delegates to `infra/deploy.sh web`
 - **`infra/cdk/` exists but is not used in the deploy pipeline** — kept for reference only
-- The CloudFront Function was originally created manually via AWS CLI — now managed by `deploy_cdn()`
+- The CloudFront Function was originally created manually via AWS CLI — now managed by `_deploy_cf_function()`
 
 ---
 

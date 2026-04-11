@@ -119,11 +119,35 @@ class TestBucketPolicy:
     def test_policy_covers_all_objects(self) -> None:
         text = _read(DEPLOY_SCRIPT)
         assert "/*" in text
-        # The old install.sh-only policy should be gone
+        # The old install.sh-only policy SID should be gone
         lines = text.splitlines()
         for line in lines:
             if "PublicReadInstallScript" in line:
                 raise AssertionError("Old install.sh-only policy SID still present")
+
+    def test_ensure_bucket_policy_function_exists(self) -> None:
+        assert "_ensure_bucket_policy()" in _read(DEPLOY_SCRIPT)
+
+    def test_ensure_bucket_policy_verifies(self) -> None:
+        """Policy enforcement must verify the applied policy."""
+        text = _read(DEPLOY_SCRIPT)
+        assert "get-bucket-policy" in text
+
+    def test_web_only_path_enforces_policy(self) -> None:
+        """The web-only deploy path must also enforce bucket policy."""
+        text = _read(DEPLOY_SCRIPT)
+        # Find the web_only block and verify _ensure_bucket_policy is called
+        in_web_only = False
+        found = False
+        for line in text.splitlines():
+            if "web_only" in line and "then" in line:
+                in_web_only = True
+            if in_web_only and "_ensure_bucket_policy" in line:
+                found = True
+                break
+            if in_web_only and "else" in line:
+                break
+        assert found, "web-only path must call _ensure_bucket_policy"
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +178,23 @@ class TestCloudFrontFunction:
         text = _read(DEPLOY_SCRIPT)
         assert "hyprconf-ua-router" in text
         assert "cloudfront-function.js" in text
+
+    def test_cf_function_association_is_automated(self) -> None:
+        """CF function association must be done programmatically, not manually."""
+        text = _read(DEPLOY_SCRIPT)
+        assert "_ensure_cf_function_association" in text
+        assert "update-distribution" in text
+
+    def test_cf_function_uses_explicit_stage(self) -> None:
+        """describe-function should use explicit --stage DEVELOPMENT."""
+        text = _read(DEPLOY_SCRIPT)
+        assert "--stage DEVELOPMENT" in text
+
+    def test_default_root_object_is_index_html(self) -> None:
+        """Existing distributions must have DefaultRootObject updated to index.html."""
+        text = _read(DEPLOY_SCRIPT)
+        assert "DefaultRootObject" in text
+        assert "'index.html'" in text or '"index.html"' in text
 
 
 # ---------------------------------------------------------------------------
