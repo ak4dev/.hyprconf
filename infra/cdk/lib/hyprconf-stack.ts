@@ -144,7 +144,8 @@ export class HyprconfStack extends cdk.Stack {
     // ── Deploy install.sh separately with no-cache ─────────────────────────
     // The wrapper script (deploy.sh) creates install.sh.deploy with the
     // fork's repo URL injected. Use that if available, otherwise use the
-    // original install.sh.
+    // original install.sh.  We stage the file into a temp directory as
+    // "install.sh" so the S3 key is always install.sh regardless of source.
     const installDeploy = path.join(
       repoRoot,
       "install",
@@ -154,15 +155,12 @@ export class HyprconfStack extends cdk.Stack {
       ? installDeploy
       : installSrc;
     if (fs.existsSync(installFile)) {
+      const stageDir = path.join(repoRoot, "install", ".install-stage");
+      fs.mkdirSync(stageDir, { recursive: true });
+      fs.copyFileSync(installFile, path.join(stageDir, "install.sh"));
+
       new s3deploy.BucketDeployment(this, "InstallScript", {
-        sources: [
-          s3deploy.Source.asset(path.dirname(installFile), {
-            exclude: [
-              "*",
-              "!" + path.basename(installFile),
-            ],
-          }),
-        ],
+        sources: [s3deploy.Source.asset(stageDir)],
         destinationBucket: this.bucket,
         destinationKeyPrefix: "",
         cacheControl: [

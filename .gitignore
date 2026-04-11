@@ -40,3 +40,4 @@ tests/install/output-arch/
 dist/
 .coverage
 install/install.sh.deploy
+install/.install-stage/
