@@ -194,12 +194,10 @@ When updating features in the README, also update the corresponding data in `web
 
 ### Deploy Process
 
-The deploy pipeline is unified in `infra/deploy.sh`. `web/deploy.sh` is a thin wrapper.
+The deploy pipeline uses AWS CDK (TypeScript) in `infra/cdk/`. `infra/deploy.sh` is a thin wrapper.
 
-1. **Full deploy** (`hyprconf deploy`): S3 bucket → web build/sync → ACM cert → CloudFront dist + UA function → Route53 DNS
-2. **Web-only deploy** (`hyprconf deploy web`): web build/sync → CF function update → cache invalidation (requires prior full deploy)
-
-All web assets are deployed via `aws s3 sync` (no CDK dependency). The CloudFront Function is managed via `aws cloudfront` CLI.
+1. **Full deploy** (`hyprconf deploy`): configure env → build web → migrate legacy resources → `cdk deploy` (S3, ACM, CloudFront, CF Function, Route53, BucketDeployment)
+2. **Web-only deploy** (`hyprconf deploy web`): web build → `cdk deploy` (BucketDeployment updates + cache invalidation)
 
 ### Adding a New Page
 
@@ -211,14 +209,14 @@ All web assets are deployed via `aws s3 sync` (no CDK dependency). The CloudFron
 
 ## Infrastructure (`infra/`)
 
-`infra/deploy.sh` is the single deploy pipeline. It manages:
+`infra/cdk/` contains the AWS CDK stack (`HyprconfStack`). `infra/deploy.sh` is a bash wrapper that handles env setup, web builds, and legacy migration before calling `cdk deploy`. Resources managed by CDK:
 
-- **S3 bucket** — public-read policy for `/*` (install script + web assets)
-- **Web frontend** — `npm run build` in `web/`, `aws s3 sync` excluding `install.sh`
-- **CloudFront Function** (`hyprconf-ua-router`) — UA-based routing: curl→install.sh, browser→SPA
-- **CloudFront distribution** — HTTPS termination, caching, cache invalidation
-- **ACM certificate** — TLS for custom domains
-- **Route53** — DNS alias records
+- **S3 bucket** — public-read policy (install script + web assets). Supports importing existing buckets via `importBucket` context flag.
+- **BucketDeployment** — syncs `web/dist/` + `install.sh` to S3 with cache invalidation
+- **CloudFront Function** — UA-based routing: curl→install.sh, browser→SPA
+- **CloudFront distribution** — HTTPS termination, caching, custom domain
+- **ACM certificate** — DNS-validated TLS via Route53
+- **Route53** — A-record alias to CloudFront
 
 ### CloudFront Function routing
 
@@ -232,17 +230,20 @@ All web assets are deployed via `aws s3 sync` (no CDK dependency). The CloudFron
 
 | Resource | Source |
 |---|---|
-| Distribution ID | auto-detected or created by `deploy_cdn()` |
-| S3 Bucket | derived from domain name |
+| CDK Stack | `HyprconfStack` — manages all AWS resources |
+| S3 Bucket | derived from domain name, imported if pre-existing |
+| Distribution ID | created by CDK (legacy distributions migrated automatically) |
 | AWS Account | resolved at deploy time via `aws sts` |
 
 ### Important constraints
 
-- **`DefaultRootObject` is `index.html`** — the deploy pipeline ensures this on both new AND existing distributions (via `_ensure_cf_function_association` which also sets `DefaultRootObject`)
-- **Bucket policy is enforced on every deploy path** — `_ensure_bucket_policy()` is idempotent and called by both the full deploy and web-only (`deploy web`) paths. Without it, S3 returns 403 (AccessDenied) for all web assets.
-- **CF function association is automated** — `_ensure_cf_function_association()` programmatically associates the function with the distribution's default cache behavior via `update-distribution`. Without this, browsers hit S3 directly, which returns 403 for non-existent SPA routes.
+- **CDK manages all resources** — do not create/modify AWS resources via raw CLI calls. All changes go through `infra/cdk/lib/hyprconf-stack.ts`.
+- **Existing buckets are imported** — `deploy.sh` detects pre-existing S3 buckets and passes `importBucket=true` to CDK, which uses `Bucket.fromBucketAttributes()` instead of creating a new bucket.
+- **Legacy migration is automatic** — `migrate_legacy_resources()` in `deploy.sh` handles first CDK deploy over old CLI-managed infrastructure (removes CloudFront CNAME conflict, saves legacy distribution ID).
+- **Bucket policy is managed by CDK** — public-read access for web assets is declarative in the stack.
+- **CF function routing** is embedded in the CDK stack — reads `infra/cloudfront-function.js` at synth time.
 - **`web/deploy.sh` is a thin wrapper** — delegates to `infra/deploy.sh web`
-- The CloudFront Function was originally created manually via AWS CLI — now managed by `_deploy_cf_function()`
+- **Teardown** uses `cdk destroy` + bucket cleanup — see `infra/teardown.sh`
 
 ---
 

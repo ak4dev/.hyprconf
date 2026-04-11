@@ -15,10 +15,11 @@
 │   ├── CONTRIBUTING.md       # This file
 │   └── hyprland-reference.md # Hyprland config syntax cheatsheet
 │
-├── infra/                    # AWS cloud infrastructure (S3 + CloudFront + ACM + Route53)
+├── infra/                    # AWS CDK stack + deploy wrapper (S3 + CloudFront + ACM + Route53)
+│   ├── cdk/                  # CDK TypeScript app (lib/hyprconf-stack.ts)
 │   ├── env.sh.example        # Config template (copy → env.sh, never commit)
-│   ├── deploy.sh             # Idempotent create/update
-│   └── teardown.sh           # Destroy all resources (confirmation required)
+│   ├── deploy.sh             # CDK wrapper: configure → build → deploy
+│   └── teardown.sh           # cdk destroy + bucket cleanup
 │
 ├── install/
 │   └── install.sh            # Self-contained installer (served from CloudFront)
@@ -117,6 +118,12 @@ make test            # Tiers 1–3
 make test-vm         # Tier 4 (VM must be running)
 make test-install    # Tier 5 (image must be built)
 make build-vm-image  # runs build_image.sh
+
+# Web frontend tests (vitest)
+cd web && npm test
+
+# CDK infrastructure tests (vitest)
+cd infra/cdk && npm test
 ```
 
 ### Tier 5 install image

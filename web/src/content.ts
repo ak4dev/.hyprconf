@@ -149,6 +149,7 @@ export const CLI_GROUPS: CliGroup[] = [
       { name: 'hyprconf rule workspace list', usage: 'hyprconf rule workspace list', description: 'List all workspace rules' },
       { name: 'hyprconf rule workspace add', usage: 'hyprconf rule workspace add <ws_id> <options>', description: 'Add a workspace rule' },
       { name: 'hyprconf rule workspace delete', usage: 'hyprconf rule workspace delete <index>', description: 'Delete a workspace rule by index' },
+      { name: 'hyprconf rule workspace update', usage: 'hyprconf rule workspace update <index> <ws_id> <options>', description: 'Update a workspace rule by index' },
     ],
   },
   {
