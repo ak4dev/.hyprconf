@@ -7,9 +7,9 @@ export default function CLI() {
     <div className={styles.page}>
       <SectionHeading id="cli-reference">CLI & TUI Reference</SectionHeading>
       <p className={styles.intro}>
-        <code>hyprconf</code> is a standalone CLI/TUI tool for managing your Hyprland
-        configuration. Run <code>hyprconf tui</code> for the interactive terminal UI, or use
-        subcommands directly.
+        <code>hyprconf</code> is the command-line interface for managing your
+        Hyprland environment. Run <code>hyprconf tui</code> for the interactive terminal UI,
+        or use any subcommand directly from the shell.
       </p>
 
       <AccordionGroup>
@@ -24,6 +24,9 @@ export default function CLI() {
                       {cmd.usage}
                     </CodeBlock>
                     <p className={styles.cmdDesc}>{cmd.description}</p>
+                    {cmd.example && (
+                      <pre className={styles.exampleBlock}>{cmd.example}</pre>
+                    )}
                   </div>
                 ))}
               </div>

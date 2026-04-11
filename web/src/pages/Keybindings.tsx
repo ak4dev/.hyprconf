@@ -23,8 +23,8 @@ export default function Keybindings() {
     <div className={styles.page}>
       <SectionHeading id="keybindings">Keybindings</SectionHeading>
       <p className={styles.intro}>
-        All keybindings use <strong>Super</strong> (Windows key) as the main modifier.
-        Fully customisable via <code>hyprconf keybinds</code>.
+        All keybindings use <strong>Super</strong> (the Windows key) as the primary modifier.
+        Every binding is fully customizable through <code>hyprconf keybind</code>.
       </p>
 
       <FilterBar

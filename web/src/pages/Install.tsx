@@ -7,8 +7,7 @@ export default function Install() {
     <div className={styles.page}>
       <SectionHeading id="installation">Installation</SectionHeading>
       <p className={styles.intro}>
-        Three install modes — pick the one that fits your setup.
-        All modes use the same one-line command:
+        Choose from three install modes. All start with the same one-line command:
       </p>
 
       <div className={styles.installBlock}>
@@ -48,11 +47,11 @@ export default function Install() {
       <div className={styles.prose}>
         <p>
           After installation, run <code>hyprconf sync</code> to apply all configuration
-          changes. This is also how you update an existing install — sync patches
+          changes. Sync also serves as the update mechanism for existing installs — it patches
           hardware config, services, and packages idempotently.
         </p>
         <p>
-          Choose your first theme with <code>hyprconf theme --pick</code> or explore
+          Choose your first theme with <code>hyprconf theme pick</code> or explore
           the gallery on the <a href="/themes">Themes page</a>.
         </p>
       </div>

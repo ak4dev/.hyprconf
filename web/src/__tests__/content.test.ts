@@ -42,6 +42,22 @@ describe('content.ts data integrity', () => {
       }
     });
 
+    it('examples, when present, are non-empty strings', () => {
+      for (const g of CLI_GROUPS) {
+        for (const cmd of g.commands) {
+          if (cmd.example !== undefined) {
+            expect(typeof cmd.example).toBe('string');
+            expect(cmd.example.length).toBeGreaterThan(0);
+          }
+        }
+      }
+    });
+
+    it('has at least 5 commands with examples', () => {
+      const withExamples = CLI_GROUPS.flatMap((g) => g.commands).filter((c) => c.example);
+      expect(withExamples.length).toBeGreaterThanOrEqual(5);
+    });
+
     it('uses singular "show keybind" not plural', () => {
       const allNames = CLI_GROUPS.flatMap((g) => g.commands.map((c) => c.name));
       const showKeybind = allNames.filter((n) => n.includes('show keybind'));

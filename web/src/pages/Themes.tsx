@@ -82,9 +82,8 @@ export default function Themes() {
       </SectionHeading>
       <div className={styles.prose}>
         <p>
-          Themes are JSON files in the dotfiles repository. Each theme defines a colour palette
-          (background, foreground, accent, comment, and optional extended colours) plus an
-          appearance flag (dark/light).
+          Each theme is a JSON file defining a color palette — background, foreground,
+          accent, and comment — plus optional extended colors and a dark/light appearance flag.
         </p>
         <p>
           When you switch themes via <code>hyprconf theme</code>, the CLI cascades the palette
@@ -93,7 +92,7 @@ export default function Themes() {
         </p>
         <p>
           This website mirrors those same theme files. The theme picker in the top nav applies
-          colours as CSS custom properties — every component on the site responds instantly.
+          colors as CSS custom properties — every component on the site responds instantly.
         </p>
       </div>
     </div>
