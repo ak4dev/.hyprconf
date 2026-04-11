@@ -1,8 +1,8 @@
 """
-Tests for the deploy infrastructure (infra/deploy.sh, web/deploy.sh, teardown.sh).
+Tests for the deploy infrastructure (infra/deploy.sh, teardown.sh, CDK stack).
 
-Validates script syntax, required functions, the web deploy integration,
-and the CloudFront function source file.
+Validates script syntax, required functions, CDK integration, the web deploy
+pipeline, and the CloudFront function source file.
 """
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 INFRA_DIR = REPO_ROOT / "infra"
+CDK_DIR = INFRA_DIR / "cdk"
 WEB_DIR = REPO_ROOT / "web"
 DEPLOY_SCRIPT = INFRA_DIR / "deploy.sh"
 TEARDOWN_SCRIPT = INFRA_DIR / "teardown.sh"
@@ -52,32 +53,73 @@ class TestScriptSyntax:
 
 
 # ---------------------------------------------------------------------------
-# deploy.sh function structure
+# deploy.sh function structure (CDK wrapper)
 # ---------------------------------------------------------------------------
 
 class TestDeployFunctions:
-    """deploy.sh must contain all required pipeline functions."""
+    """deploy.sh must contain all CDK wrapper pipeline functions."""
 
-    def test_deploy_bucket_exists(self) -> None:
-        assert "deploy_bucket()" in _read(DEPLOY_SCRIPT)
+    def test_configure_env_exists(self) -> None:
+        assert "configure_env()" in _read(DEPLOY_SCRIPT)
 
-    def test_deploy_web_exists(self) -> None:
-        assert "deploy_web()" in _read(DEPLOY_SCRIPT)
+    def test_prepare_install_sh_exists(self) -> None:
+        assert "prepare_install_sh()" in _read(DEPLOY_SCRIPT)
 
-    def test_deploy_cert_exists(self) -> None:
-        assert "deploy_cert()" in _read(DEPLOY_SCRIPT)
+    def test_build_web_exists(self) -> None:
+        assert "build_web()" in _read(DEPLOY_SCRIPT)
 
-    def test_deploy_cdn_exists(self) -> None:
-        assert "deploy_cdn()" in _read(DEPLOY_SCRIPT)
+    def test_migrate_legacy_resources_exists(self) -> None:
+        assert "migrate_legacy_resources()" in _read(DEPLOY_SCRIPT)
 
-    def test_deploy_dns_exists(self) -> None:
-        assert "deploy_dns()" in _read(DEPLOY_SCRIPT)
+    def test_cdk_deploy_exists(self) -> None:
+        assert "cdk_deploy()" in _read(DEPLOY_SCRIPT)
 
-    def test_deploy_cf_function_exists(self) -> None:
-        assert "_deploy_cf_function()" in _read(DEPLOY_SCRIPT)
 
-    def test_invalidate_cdn_exists(self) -> None:
-        assert "_invalidate_cdn()" in _read(DEPLOY_SCRIPT)
+# ---------------------------------------------------------------------------
+# CDK stack structure
+# ---------------------------------------------------------------------------
+
+class TestCDKStack:
+    """CDK stack files must exist with correct structure."""
+
+    def test_cdk_dir_exists(self) -> None:
+        assert CDK_DIR.is_dir()
+
+    def test_stack_file_exists(self) -> None:
+        assert (CDK_DIR / "lib" / "hyprconf-stack.ts").is_file()
+
+    def test_app_entry_exists(self) -> None:
+        assert (CDK_DIR / "bin" / "app.ts").is_file()
+
+    def test_cdk_json_exists(self) -> None:
+        assert (CDK_DIR / "cdk.json").is_file()
+
+    def test_package_json_exists(self) -> None:
+        assert (CDK_DIR / "package.json").is_file()
+
+    def test_test_file_exists(self) -> None:
+        assert (CDK_DIR / "test" / "hyprconf-stack.test.ts").is_file()
+
+    def test_stack_defines_s3_bucket(self) -> None:
+        text = _read(CDK_DIR / "lib" / "hyprconf-stack.ts")
+        assert "s3.Bucket" in text
+
+    def test_stack_defines_cloudfront(self) -> None:
+        text = _read(CDK_DIR / "lib" / "hyprconf-stack.ts")
+        assert "cloudfront.Distribution" in text
+
+    def test_stack_defines_acm_cert(self) -> None:
+        text = _read(CDK_DIR / "lib" / "hyprconf-stack.ts")
+        assert "acm.Certificate" in text
+
+    def test_stack_defines_route53(self) -> None:
+        text = _read(CDK_DIR / "lib" / "hyprconf-stack.ts")
+        assert "route53.ARecord" in text
+
+    def test_stack_supports_bucket_import(self) -> None:
+        text = _read(CDK_DIR / "lib" / "hyprconf-stack.ts")
+        assert "importBucket" in text
+        assert "fromBucketAttributes" in text
 
 
 # ---------------------------------------------------------------------------
@@ -85,23 +127,25 @@ class TestDeployFunctions:
 # ---------------------------------------------------------------------------
 
 class TestWebDeployIntegration:
-    """Web deploy must be integrated into the main pipeline."""
+    """Web deploy must be integrated into the CDK pipeline."""
 
-    def test_main_calls_deploy_web(self) -> None:
+    def test_main_calls_build_web(self) -> None:
         text = _read(DEPLOY_SCRIPT)
-        assert "deploy_web" in text
+        assert "build_web" in text
 
     def test_web_only_mode(self) -> None:
         text = _read(DEPLOY_SCRIPT)
         assert 'web_only' in text or '"web"' in text
 
-    def test_s3_sync_excludes_install_sh(self) -> None:
-        text = _read(DEPLOY_SCRIPT)
-        assert '--exclude "install.sh"' in text or "--exclude 'install.sh'" in text
+    def test_cdk_handles_s3_deployment(self) -> None:
+        """CDK stack should handle S3 deployment (not raw aws s3 sync)."""
+        text = _read(CDK_DIR / "lib" / "hyprconf-stack.ts")
+        assert "BucketDeployment" in text
 
-    def test_index_html_no_cache(self) -> None:
-        text = _read(DEPLOY_SCRIPT)
-        assert "no-cache" in text and "index.html" in text
+    def test_install_sh_no_cache(self) -> None:
+        """install.sh must be deployed with no-cache headers."""
+        text = _read(CDK_DIR / "lib" / "hyprconf-stack.ts")
+        assert "no-cache" in text
 
     def test_web_deploy_is_thin_wrapper(self) -> None:
         text = _read(WEB_DEPLOY_SCRIPT)
@@ -110,44 +154,32 @@ class TestWebDeployIntegration:
 
 
 # ---------------------------------------------------------------------------
-# Bucket policy covers all objects
+# Legacy migration
 # ---------------------------------------------------------------------------
 
-class TestBucketPolicy:
-    """Bucket policy must allow public read on all objects, not just install.sh."""
+class TestLegacyMigration:
+    """deploy.sh must handle migration from pre-CDK resources."""
 
-    def test_policy_covers_all_objects(self) -> None:
+    def test_detects_existing_bucket(self) -> None:
         text = _read(DEPLOY_SCRIPT)
-        assert "/*" in text
-        # The old install.sh-only policy SID should be gone
-        lines = text.splitlines()
-        for line in lines:
-            if "PublicReadInstallScript" in line:
-                raise AssertionError("Old install.sh-only policy SID still present")
+        assert "head-bucket" in text
+        assert "importBucket" in text
 
-    def test_ensure_bucket_policy_function_exists(self) -> None:
-        assert "_ensure_bucket_policy()" in _read(DEPLOY_SCRIPT)
-
-    def test_ensure_bucket_policy_verifies(self) -> None:
-        """Policy enforcement must verify the applied policy."""
+    def test_detects_existing_cf_distribution(self) -> None:
         text = _read(DEPLOY_SCRIPT)
-        assert "get-bucket-policy" in text
+        assert "list-distributions" in text
 
-    def test_web_only_path_enforces_policy(self) -> None:
-        """The web-only deploy path must also enforce bucket policy."""
+    def test_removes_cname_from_legacy_distribution(self) -> None:
         text = _read(DEPLOY_SCRIPT)
-        # Find the web_only block and verify _ensure_bucket_policy is called
-        in_web_only = False
-        found = False
-        for line in text.splitlines():
-            if "web_only" in line and "then" in line:
-                in_web_only = True
-            if in_web_only and "_ensure_bucket_policy" in line:
-                found = True
-                break
-            if in_web_only and "else" in line:
-                break
-        assert found, "web-only path must call _ensure_bucket_policy"
+        assert "update-distribution" in text
+
+    def test_checks_cloudformation_stack_exists(self) -> None:
+        text = _read(DEPLOY_SCRIPT)
+        assert "describe-stacks" in text
+
+    def test_waits_for_propagation(self) -> None:
+        text = _read(DEPLOY_SCRIPT)
+        assert "Waiting for" in text and "propagat" in text
 
 
 # ---------------------------------------------------------------------------
@@ -171,56 +203,36 @@ class TestCloudFrontFunction:
 
     def test_cf_function_passes_static_assets(self) -> None:
         text = _read(CF_FUNCTION)
-        # The regex !/\.\w+$/ ensures file-extension URIs pass through
         assert r"\.\w+$" in text or ".w+" in text
 
-    def test_deploy_references_cf_function(self) -> None:
-        text = _read(DEPLOY_SCRIPT)
-        assert "hyprconf-ua-router" in text
+    def test_cdk_reads_cf_function(self) -> None:
+        """CDK stack must read the CF function source file."""
+        text = _read(CDK_DIR / "lib" / "hyprconf-stack.ts")
         assert "cloudfront-function.js" in text
-
-    def test_cf_function_association_is_automated(self) -> None:
-        """CF function association must be done programmatically, not manually."""
-        text = _read(DEPLOY_SCRIPT)
-        assert "_ensure_cf_function_association" in text
-        assert "update-distribution" in text
-
-    def test_cf_function_uses_explicit_stage(self) -> None:
-        """describe-function should use explicit --stage DEVELOPMENT."""
-        text = _read(DEPLOY_SCRIPT)
-        assert "--stage DEVELOPMENT" in text
-
-    def test_default_root_object_is_index_html(self) -> None:
-        """Existing distributions must have DefaultRootObject updated to index.html."""
-        text = _read(DEPLOY_SCRIPT)
-        assert "DefaultRootObject" in text
-        assert "'index.html'" in text or '"index.html"' in text
+        assert "readFileSync" in text
 
 
 # ---------------------------------------------------------------------------
-# Teardown covers CF function
+# Teardown (CDK-managed)
 # ---------------------------------------------------------------------------
 
 class TestTeardown:
-    """Teardown must clean up all resources including CF function."""
+    """Teardown must use cdk destroy and clean up remaining resources."""
 
-    def test_teardown_removes_cf_function(self) -> None:
+    def test_teardown_uses_cdk_destroy(self) -> None:
         text = _read(TEARDOWN_SCRIPT)
-        assert "hyprconf-ua-router" in text
-        assert "delete-function" in text
+        assert "cdk destroy" in text
 
-    def test_teardown_removes_distribution(self) -> None:
-        text = _read(TEARDOWN_SCRIPT)
-        assert "delete-distribution" in text
-
-    def test_teardown_removes_bucket(self) -> None:
+    def test_teardown_cleans_up_bucket(self) -> None:
+        """Bucket has RETAIN policy, so teardown must explicitly delete it."""
         text = _read(TEARDOWN_SCRIPT)
         assert "delete-bucket" in text
 
-    def test_teardown_removes_cert(self) -> None:
+    def test_teardown_cleans_up_legacy_cf_function(self) -> None:
         text = _read(TEARDOWN_SCRIPT)
-        assert "delete-certificate" in text
+        assert "hyprconf-ua-router" in text
 
-    def test_teardown_removes_dns(self) -> None:
+    def test_teardown_requires_confirmation(self) -> None:
         text = _read(TEARDOWN_SCRIPT)
-        assert "change-resource-record-sets" in text
+        assert "confirm" in text
+        assert "Type the domain" in text

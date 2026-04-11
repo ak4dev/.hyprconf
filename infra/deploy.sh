@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-#  infra/deploy.sh — idempotent AWS deploy for hyprconf
+#  infra/deploy.sh — idempotent AWS deploy for hyprconf (CDK-managed)
 #
 #  Invoked via:  hyprconf deploy
 #  Or directly:  bash infra/deploy.sh
@@ -9,6 +9,10 @@
 #  them to ~/.config/hyprconf/infra.env (outside the repo, chmod 600).
 #  Subsequent runs (and 'hyprconf deploy' refreshes) load from that file
 #  without prompting, making the command fully idempotent.
+#
+#  All AWS resources are managed by CDK (infra/cdk/). This script is a
+#  wrapper that handles: interactive config, web build, install.sh repo
+#  injection, then delegates to `cdk deploy`.
 #
 #  For CI/CD or scripted use, export all required variables before calling
 #  this script — it will skip the interactive prompts automatically.
@@ -198,72 +202,6 @@ _select_zone() {
   HYPRCONF_ZONE_ID="${ids[$idx]}"; export HYPRCONF_ZONE_ID
 }
 
-# ── Auto-detect existing infrastructure ───────────────────────────────────────
-# Searches AWS for existing CloudFront / ACM / S3 resources tied to
-# HYPRCONF_DOMAIN and pre-populates the state file so every deploy step is
-# idempotent — critical when a dev uses a new device without a local state file.
-_autodetect_infra() {
-  local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
-  local cert_arn; cert_arn="$(state_get CERT_ARN)"
-  [[ -n "$dist_id" && -n "$cert_arn" ]] && return 0
-
-  log_step "Auto-detecting existing infrastructure for ${HYPRCONF_DOMAIN} ..."
-
-  # ── CloudFront: find distribution by CNAME alias ──────────────────────────
-  if [[ -z "$dist_id" ]]; then
-    dist_id=$(aws cloudfront list-distributions \
-      --query "DistributionList.Items[?Aliases.Items[?@=='${HYPRCONF_DOMAIN}']].Id | [0]" \
-      --output text 2>/dev/null || true)
-    [[ "$dist_id" == "None" || "$dist_id" == "null" ]] && dist_id=""
-
-    if [[ -n "$dist_id" ]]; then
-      local dist_domain
-      dist_domain=$(aws cloudfront get-distribution --id "$dist_id" \
-        --query 'Distribution.DomainName' --output text 2>/dev/null || true)
-      state_set DISTRIBUTION_ID     "$dist_id"
-      state_set DISTRIBUTION_DOMAIN "$dist_domain"
-      log_ok "Detected CloudFront distribution: $dist_id  ($dist_domain)"
-
-      # Extract ACM cert ARN from the distribution's viewer certificate config
-      if [[ -z "$cert_arn" ]]; then
-        cert_arn=$(aws cloudfront get-distribution --id "$dist_id" \
-          --query 'Distribution.DistributionConfig.ViewerCertificate.ACMCertificateArn' \
-          --output text 2>/dev/null || true)
-        [[ "$cert_arn" == "None" || "$cert_arn" == "null" ]] && cert_arn=""
-        if [[ -n "$cert_arn" ]]; then
-          state_set CERT_ARN "$cert_arn"
-          log_ok "Detected ACM certificate: $cert_arn"
-        fi
-      fi
-
-      # Extract S3 bucket from origin domain (bucket.s3.region.amazonaws.com)
-      if [[ -z "${HYPRCONF_BUCKET:-}" ]]; then
-        local origin_domain detected_bucket
-        origin_domain=$(aws cloudfront get-distribution --id "$dist_id" \
-          --query 'Distribution.DistributionConfig.Origins.Items[0].DomainName' \
-          --output text 2>/dev/null || true)
-        detected_bucket=$(printf '%s' "$origin_domain" | sed 's/\.s3\..*//')
-        if [[ -n "$detected_bucket" && "$detected_bucket" != "$origin_domain" ]]; then
-          HYPRCONF_BUCKET="$detected_bucket"; export HYPRCONF_BUCKET
-          log_ok "Detected S3 bucket: $HYPRCONF_BUCKET"
-        fi
-      fi
-    fi
-  fi
-
-  # ── ACM: direct lookup if cert still not found via CloudFront ─────────────
-  if [[ -z "$cert_arn" ]]; then
-    cert_arn=$(aws acm list-certificates --region us-east-1 \
-      --query "CertificateSummaryList[?DomainName=='${HYPRCONF_DOMAIN}' && Status=='ISSUED'].CertificateArn | [0]" \
-      --output text 2>/dev/null || true)
-    [[ "$cert_arn" == "None" || "$cert_arn" == "null" ]] && cert_arn=""
-    if [[ -n "$cert_arn" ]]; then
-      state_set CERT_ARN "$cert_arn"
-      log_ok "Detected ACM certificate: $cert_arn"
-    fi
-  fi
-}
-
 # ── Interactive environment configuration ─────────────────────────────────────
 configure_env() {
   # Load saved config if present (vars already in env take priority)
@@ -331,83 +269,32 @@ configure_env() {
 }
 
 # ── Step 1: S3 bucket + install.sh upload ─────────────────────────────────────
-deploy_bucket() {
-  log_head "S3"
+# Pre-CDK: inject repo URL into install.sh before CDK deploys it.
+prepare_install_sh() {
+  log_head "Install Script"
 
-  if ! aws s3api head-bucket --bucket "$HYPRCONF_BUCKET" 2>/dev/null; then
-    log_step "Creating bucket $HYPRCONF_BUCKET ..."
-    local args=(--bucket "$HYPRCONF_BUCKET")
-    [[ "${AWS_DEFAULT_REGION:-us-east-1}" != "us-east-1" ]] && \
-      args+=(--create-bucket-configuration "LocationConstraint=${AWS_DEFAULT_REGION}")
-    aws s3api create-bucket "${args[@]}" --output text > /dev/null
-    log_ok "Bucket created."
-  else
-    log_ok "Bucket exists."
-  fi
+  local install_src="$ROOT_DIR/install/install.sh"
+  local install_deploy="$ROOT_DIR/install/install.sh.deploy"
 
-  _ensure_bucket_policy
-
-  # Inject this fork's repo URL into install.sh before uploading.
-  # The source file keeps the original URL; the deployed copy uses HYPRCONF_REPO.
-  log_step "Uploading install.sh (repo: ${HYPRCONF_REPO}) ..."
-  local tmp; tmp=$(mktemp)
-  sed "s|^readonly REPO_URL=.*|readonly REPO_URL=\"${HYPRCONF_REPO}\"|" \
-    "$ROOT_DIR/install/install.sh" > "$tmp"
-  aws s3 cp "$tmp" "s3://$HYPRCONF_BUCKET/install.sh" \
-    --content-type 'text/plain; charset=utf-8' \
-    --cache-control 'no-cache, no-store' > /dev/null
-  rm -f "$tmp"
-  log_ok "install.sh uploaded → s3://$HYPRCONF_BUCKET/install.sh"
-}
-
-# ── Ensure bucket policy allows public read on all objects ────────────────────
-# Idempotent — safe to call from any code path (full deploy, web-only, etc.).
-_ensure_bucket_policy() {
-  log_step "Ensuring bucket policy allows public read on all objects ..."
-
-  # Disable Block Public Access (both bucket-level settings)
-  aws s3api put-public-access-block --bucket "$HYPRCONF_BUCKET" \
-    --public-access-block-configuration \
-    'BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false'
-
-  local policy="{
-    \"Version\": \"2012-10-17\",
-    \"Statement\": [{
-      \"Sid\": \"PublicReadAllObjects\",
-      \"Effect\": \"Allow\",
-      \"Principal\": \"*\",
-      \"Action\": \"s3:GetObject\",
-      \"Resource\": \"arn:aws:s3:::${HYPRCONF_BUCKET}/*\"
-    }]
-  }"
-  aws s3api put-bucket-policy --bucket "$HYPRCONF_BUCKET" --policy "$policy"
-
-  # Verify the policy was applied
-  local applied_resource
-  applied_resource=$(aws s3api get-bucket-policy --bucket "$HYPRCONF_BUCKET" \
-    --query 'Policy' --output text 2>/dev/null \
-    | python3 -c "import sys,json; p=json.load(sys.stdin); print(p['Statement'][0]['Resource'])" 2>/dev/null || echo "")
-  if [[ "$applied_resource" == *"/*" ]]; then
-    log_ok "Bucket policy verified — public read on all objects."
-  else
-    log_warn "Bucket policy verification failed — site may return AccessDenied."
-    log_warn "Check account-level S3 Block Public Access settings in the AWS Console."
+  if [[ -n "${HYPRCONF_REPO:-}" ]] && [[ -f "$install_src" ]]; then
+    log_step "Injecting repo URL into install.sh ..."
+    sed "s|^readonly REPO_URL=.*|readonly REPO_URL=\"${HYPRCONF_REPO}\"|" \
+      "$install_src" > "$install_deploy"
+    log_ok "install.sh prepared (repo: ${HYPRCONF_REPO})"
   fi
 }
 
-# ── Step 1b: Build + upload web frontend ──────────────────────────────────────
-deploy_web() {
+# ── Step 2: Build web frontend ────────────────────────────────────────────────
+build_web() {
   log_head "Web Frontend"
 
   local web_dir="$ROOT_DIR/web"
-  local dist_dir="$web_dir/dist"
 
   if [[ ! -d "$web_dir" ]] || [[ ! -f "$web_dir/package.json" ]]; then
-    log_warn "web/ directory not found — skipping frontend deploy."
+    log_warn "web/ directory not found — skipping frontend build."
     return 0
   fi
 
-  # Check node/npm availability
   if ! command -v npm &>/dev/null; then
     log_warn "npm not found — skipping frontend build. Install Node.js to deploy the web UI."
     return 0
@@ -419,382 +306,195 @@ deploy_web() {
   log_step "Building web frontend ..."
   (cd "$web_dir" && npm run build)
 
-  if [[ ! -d "$dist_dir" ]] || [[ ! -f "$dist_dir/index.html" ]]; then
-    log_warn "Build produced no output — skipping frontend upload."
+  if [[ ! -d "$web_dir/dist" ]] || [[ ! -f "$web_dir/dist/index.html" ]]; then
+    log_warn "Build produced no output — CDK will skip web asset deployment."
     return 0
   fi
 
-  log_step "Syncing web assets to s3://$HYPRCONF_BUCKET/ ..."
-  aws s3 sync "$dist_dir" "s3://$HYPRCONF_BUCKET/" \
-    --exclude "install.sh" \
-    --delete \
-    --cache-control 'public, max-age=31536000, immutable' \
-    > /dev/null
-
-  # index.html should never be cached aggressively (SPA entry point)
-  aws s3 cp "$dist_dir/index.html" "s3://$HYPRCONF_BUCKET/index.html" \
-    --content-type 'text/html; charset=utf-8' \
-    --cache-control 'no-cache, no-store' \
-    > /dev/null
-
-  log_ok "Web frontend deployed to s3://$HYPRCONF_BUCKET/"
+  log_ok "Web frontend built → web/dist/"
 }
 
-# ── Step 2: ACM certificate (us-east-1 only) ──────────────────────────────────
-deploy_cert() {
-  log_head "ACM Certificate"
-
-  local cert_arn; cert_arn="$(state_get CERT_ARN)"
-
-  if [[ -n "$cert_arn" ]]; then
-    local status
-    status=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
-      --region us-east-1 --query 'Certificate.Status' --output text 2>/dev/null || true)
-    if [[ "$status" == "ISSUED" ]]; then
-      log_ok "Certificate already issued: $cert_arn"; return 0
-    elif [[ "$status" == "PENDING_VALIDATION" ]]; then
-      log_step "Certificate pending — attempting to auto-validate via Route53 ..."
-      _upsert_cert_cname "$cert_arn"
-      _wait_cert_issued "$cert_arn"
-      return 0
-    fi
+# ── Step 3: Migrate legacy (non-CDK) resources ───────────────────────────────
+# On the FIRST CDK deploy, existing AWS resources created by the old deploy.sh
+# conflict with CDK trying to create them. This function detects and resolves
+# those conflicts:
+#   - S3 bucket → imported via importBucket=true context flag
+#   - CloudFront Distribution → CNAME alias removed (CDK creates a new dist)
+#   - CloudFront Function → orphaned (CDK auto-names its own)
+#   - ACM cert / Route53 → CDK recreates them (no conflict)
+migrate_legacy_resources() {
+  # If the CDK stack already exists, no migration needed
+  if aws cloudformation describe-stacks --stack-name HyprconfStack &>/dev/null 2>&1; then
+    return 0
   fi
 
-  log_step "Requesting certificate for $HYPRCONF_DOMAIN ..."
-  cert_arn=$(aws acm request-certificate \
-    --domain-name "$HYPRCONF_DOMAIN" \
-    --validation-method DNS \
-    --region us-east-1 \
-    --query 'CertificateArn' --output text)
-  state_set CERT_ARN "$cert_arn"
-  log_ok "Certificate requested: $cert_arn"
+  log_step "First CDK deploy — checking for legacy resources to migrate ..."
 
-  # ACM takes a few seconds to populate the validation record
-  log_step "Waiting for ACM to generate validation record ..."
-  local rec_name rec_value i
-  for i in $(seq 1 12); do
-    rec_name=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
-      --region us-east-1 \
-      --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Name' \
-      --output text 2>/dev/null || true)
-    [[ -n "$rec_name" && "$rec_name" != "None" ]] && break
-    sleep 5
-  done
-  [[ -n "$rec_name" && "$rec_name" != "None" ]] \
-    || log_die "ACM did not provide a validation record after 60s — re-run: hyprconf deploy"
-
-  _upsert_cert_cname "$cert_arn"
-  _wait_cert_issued "$cert_arn"
-}
-
-# Write (or overwrite) the ACM validation CNAME into Route53 automatically.
-_upsert_cert_cname() {
-  local cert_arn="$1"
-  local rec_name rec_value
-  rec_name=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
-    --region us-east-1 \
-    --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Name' \
-    --output text)
-  rec_value=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
-    --region us-east-1 \
-    --query 'Certificate.DomainValidationOptions[0].ResourceRecord.Value' \
-    --output text)
-
-  log_step "Adding validation CNAME to Route53 zone $HYPRCONF_ZONE_ID ..."
-  printf '%s  %s%s%s\n' "$DM" "$WH" "$rec_name  →  $rec_value" "$RS"
-
-  local change_batch
-  change_batch=$(printf '{"Changes":[{"Action":"UPSERT","ResourceRecordSet":{"Name":"%s","Type":"CNAME","TTL":60,"ResourceRecords":[{"Value":"%s"}]}}]}' \
-    "$rec_name" "$rec_value")
-
-  aws route53 change-resource-record-sets \
-    --hosted-zone-id "$HYPRCONF_ZONE_ID" \
-    --change-batch "$change_batch" \
-    --output text --query 'ChangeInfo.Status' >/dev/null
-
-  log_ok "Validation CNAME created in Route53."
-}
-
-# Poll until ACM marks the certificate ISSUED (typically 1–3 minutes).
-_wait_cert_issued() {
-  local cert_arn="$1"
-  log_step "Waiting for ACM to validate certificate (usually 1–3 min) ..."
-  local i status
-  for i in $(seq 1 36); do
-    status=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
-      --region us-east-1 --query 'Certificate.Status' --output text 2>/dev/null || true)
-    if [[ "$status" == "ISSUED" ]]; then
-      log_ok "Certificate issued: $cert_arn"
-      return 0
-    fi
-    printf '\r%s  [%d/36] Status: %s — waiting ...%s' "$DM" "$i" "$status" "$RS"
-    sleep 5
-  done
-  printf '\n'
-  log_die "Certificate not issued after 3 min. Status: $status — re-run: hyprconf deploy"
-}
-
-# ── Step 3: CloudFront distribution ──────────────────────────────────────────
-deploy_cdn() {
-  log_head "CloudFront"
-
-  local cert_arn; cert_arn="$(state_get CERT_ARN)"
-  local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
-
-  if [[ -n "$dist_id" ]]; then
-    local dist_domain
-    dist_domain=$(aws cloudfront get-distribution --id "$dist_id" \
-      --query 'Distribution.DomainName' --output text 2>/dev/null || true)
-    if [[ -n "$dist_domain" ]]; then
-      log_ok "Distribution exists: $dist_id ($dist_domain)"
-      state_set DISTRIBUTION_DOMAIN "$dist_domain"
-      _deploy_cf_function "$dist_id"
-      _invalidate_cdn "$dist_id"
-      return 0
-    fi
-  fi
-
-  # Belt-and-suspenders: search by CNAME in case _autodetect_infra missed it
-  # (e.g. deploy_cdn called directly without going through main).
+  # Find existing CloudFront distribution by CNAME alias
+  local dist_id
   dist_id=$(aws cloudfront list-distributions \
-    --query "DistributionList.Items[?Aliases.Items[?@=='${HYPRCONF_DOMAIN}']].Id | [0]" \
+    --query "DistributionList.Items[?contains(Aliases.Items, '${HYPRCONF_DOMAIN}')].Id | [0]" \
     --output text 2>/dev/null || true)
-  [[ "$dist_id" == "None" || "$dist_id" == "null" ]] && dist_id=""
-  if [[ -n "$dist_id" ]]; then
-    local dist_domain_found
-    dist_domain_found=$(aws cloudfront get-distribution --id "$dist_id" \
-      --query 'Distribution.DomainName' --output text 2>/dev/null || true)
-    state_set DISTRIBUTION_ID     "$dist_id"
-    state_set DISTRIBUTION_DOMAIN "$dist_domain_found"
-    log_ok "Detected existing distribution for ${HYPRCONF_DOMAIN}: $dist_id"
-    _deploy_cf_function "$dist_id"
-    _invalidate_cdn "$dist_id"
-    return 0
-  fi
 
-  log_step "Creating CloudFront distribution ..."
-  local s3_origin="${HYPRCONF_BUCKET}.s3.${AWS_DEFAULT_REGION:-us-east-1}.amazonaws.com"
-  local result
-  result=$(aws cloudfront create-distribution --distribution-config "{
-    \"CallerReference\": \"hyprconf-$(date +%s)\",
-    \"Comment\": \"hyprconf install + web — ${HYPRCONF_DOMAIN}\",
-    \"Origins\": {
-      \"Quantity\": 1,
-      \"Items\": [{
-        \"Id\": \"s3-origin\",
-        \"DomainName\": \"$s3_origin\",
-        \"S3OriginConfig\": { \"OriginAccessIdentity\": \"\" }
-      }]
-    },
-    \"DefaultRootObject\": \"index.html\",
-    \"DefaultCacheBehavior\": {
-      \"TargetOriginId\": \"s3-origin\",
-      \"ViewerProtocolPolicy\": \"redirect-to-https\",
-      \"CachePolicyId\": \"658327ea-f89d-4fab-a63d-7e88639e58f6\",
-      \"Compress\": true,
-      \"AllowedMethods\": {
-        \"Quantity\": 2,
-        \"Items\": [\"GET\", \"HEAD\"],
-        \"CachedMethods\": { \"Quantity\": 2, \"Items\": [\"GET\", \"HEAD\"] }
-      }
-    },
-    \"Aliases\": { \"Quantity\": 1, \"Items\": [\"$HYPRCONF_DOMAIN\"] },
-    \"ViewerCertificate\": {
-      \"ACMCertificateArn\": \"$cert_arn\",
-      \"SSLSupportMethod\": \"sni-only\",
-      \"MinimumProtocolVersion\": \"TLSv1.2_2021\"
-    },
-    \"PriceClass\": \"PriceClass_100\",
-    \"Enabled\": true
-  }")
+  if [[ -n "$dist_id" && "$dist_id" != "None" && "$dist_id" != "null" ]]; then
+    log_info "Legacy CloudFront distribution found: $dist_id"
+    log_step "Removing domain alias from legacy distribution ..."
 
-  local dist_id dist_domain
-  dist_id=$(printf '%s' "$result"     | grep -o '"Id": "[^"]*"' | head -1 | cut -d'"' -f4)
-  dist_domain=$(printf '%s' "$result" | grep -o '"DomainName": "[^"]*cloudfront\.net"' | head -1 | cut -d'"' -f4)
+    local tmp_config etag config_json
+    tmp_config=$(mktemp)
 
-  state_set DISTRIBUTION_ID     "$dist_id"
-  state_set DISTRIBUTION_DOMAIN "$dist_domain"
-  log_ok "Distribution created: $dist_id"
-  log_info "CloudFront domain: $dist_domain  (DNS propagation ~15 min)"
+    # Get current distribution config
+    aws cloudfront get-distribution-config --id "$dist_id" > "$tmp_config" 2>/dev/null \
+      || { rm -f "$tmp_config"; log_warn "Could not fetch distribution config — skipping migration."; return 0; }
 
-  _deploy_cf_function "$dist_id"
-}
-
-# ── CloudFront Function: UA-based routing (curl→install.sh, browser→SPA) ─────
-_deploy_cf_function() {
-  local dist_id="$1"
-  local cf_fn_name="hyprconf-ua-router"
-  local cf_fn_file="$INFRA_DIR/cloudfront-function.js"
-
-  if [[ ! -f "$cf_fn_file" ]]; then
-    log_warn "CloudFront function source not found ($cf_fn_file) — skipping."
-    return 0
-  fi
-
-  log_step "Deploying CloudFront Function ($cf_fn_name) ..."
-
-  # describe-function defaults to DEVELOPMENT stage
-  local etag
-  etag=$(aws cloudfront describe-function \
-    --name "$cf_fn_name" --stage DEVELOPMENT \
-    --query 'ETag' --output text 2>/dev/null || echo "")
-
-  if [[ -z "$etag" ]] || [[ "$etag" == "None" ]]; then
-    log_info "Creating new CloudFront Function ..."
-    aws cloudfront create-function \
-      --name "$cf_fn_name" \
-      --function-config "Comment=UA routing for ${HYPRCONF_DOMAIN},Runtime=cloudfront-js-2.0" \
-      --function-code "fileb://$cf_fn_file" \
-      > /dev/null \
-      || { log_warn "Could not create CloudFront Function — manual setup may be needed."; return 0; }
-  else
-    log_info "Updating existing function (ETag: $etag) ..."
-    aws cloudfront update-function \
-      --name "$cf_fn_name" \
-      --if-match "$etag" \
-      --function-config "Comment=UA routing for ${HYPRCONF_DOMAIN},Runtime=cloudfront-js-2.0" \
-      --function-code "fileb://$cf_fn_file" \
-      > /dev/null \
-      || { log_warn "Could not update CloudFront Function."; return 0; }
-  fi
-
-  # Publish the function (DEVELOPMENT → LIVE)
-  local dev_etag
-  dev_etag=$(aws cloudfront describe-function \
-    --name "$cf_fn_name" --stage DEVELOPMENT \
-    --query 'ETag' --output text 2>/dev/null || echo "")
-
-  if [[ -n "$dev_etag" ]] && [[ "$dev_etag" != "None" ]]; then
-    aws cloudfront publish-function \
-      --name "$cf_fn_name" \
-      --if-match "$dev_etag" \
-      > /dev/null \
-      || { log_warn "Could not publish CloudFront Function."; return 0; }
-    log_ok "CloudFront Function published."
-  fi
-
-  # Ensure function is associated with the distribution's default cache behavior.
-  # Without this, browsers would NOT be routed to index.html and the site returns
-  # AccessDenied (S3 returns 403 for non-existent paths without ListBucket).
-  _ensure_cf_function_association "$dist_id" "$cf_fn_name"
-}
-
-# ── Ensure CF function is associated with a distribution ──────────────────────
-_ensure_cf_function_association() {
-  local dist_id="$1" fn_name="$2"
-  local tmp_cfg="" tmp_updated=""
-  trap 'rm -f "$tmp_cfg" "$tmp_updated"' RETURN
-
-  # Check if already associated
-  local current_fn
-  current_fn=$(aws cloudfront get-distribution-config --id "$dist_id" \
-    --query 'DistributionConfig.DefaultCacheBehavior.FunctionAssociations.Items[?EventType==`viewer-request`].FunctionARN | [0]' \
-    --output text 2>/dev/null || echo "")
-
-  if [[ -n "$current_fn" ]] && [[ "$current_fn" != "None" ]]; then
-    log_ok "CF function already associated with distribution."
-    return 0
-  fi
-
-  log_step "Associating CF function with distribution $dist_id ..."
-
-  # Get the function ARN from the LIVE stage
-  local fn_arn
-  fn_arn=$(aws cloudfront describe-function \
-    --name "$fn_name" --stage LIVE \
-    --query 'FunctionSummary.FunctionMetadata.FunctionARN' \
-    --output text 2>/dev/null || echo "")
-
-  if [[ -z "$fn_arn" ]] || [[ "$fn_arn" == "None" ]]; then
-    log_warn "Could not get function ARN — associate '$fn_name' with the distribution manually."
-    return 0
-  fi
-
-  # Get the full distribution config + ETag (required for update)
-  local tmp_cfg; tmp_cfg=$(mktemp)
-  local dist_etag
-  dist_etag=$(aws cloudfront get-distribution-config --id "$dist_id" \
-    --output json > "$tmp_cfg" && \
-    python3 -c "import json,sys; d=json.load(sys.stdin); print(d['ETag'])" < "$tmp_cfg")
-
-  # Inject FunctionAssociations into DefaultCacheBehavior and ensure
-  # DefaultRootObject is index.html (fallback if function ever fails).
-  local tmp_updated; tmp_updated=$(mktemp)
-  python3 -c "
+    # Extract ETag and modify config to remove CNAME alias + custom cert
+    etag=$(python3 -c "
 import json, sys
-
-data = json.load(sys.stdin)
-cfg = data['DistributionConfig']
-cfg['DefaultRootObject'] = 'index.html'
-dcb = cfg['DefaultCacheBehavior']
-dcb['FunctionAssociations'] = {
-    'Quantity': 1,
-    'Items': [{
-        'FunctionARN': '${fn_arn}',
-        'EventType': 'viewer-request'
-    }]
+d = json.load(open('$tmp_config'))
+print(d['ETag'])
+" 2>/dev/null)
+    config_json=$(python3 -c "
+import json, sys
+d = json.load(open('$tmp_config'))['DistributionConfig']
+d['Aliases'] = {'Quantity': 0, 'Items': []}
+d['ViewerCertificate'] = {
+    'CloudFrontDefaultCertificate': True,
+    'MinimumProtocolVersion': 'TLSv1'
 }
-json.dump(cfg, sys.stdout)
-" < "$tmp_cfg" > "$tmp_updated"
+print(json.dumps(d))
+" 2>/dev/null)
 
-  aws cloudfront update-distribution \
-    --id "$dist_id" \
-    --if-match "$dist_etag" \
-    --distribution-config "file://$tmp_updated" \
-    > /dev/null 2>&1 \
-    && log_ok "CF function associated with distribution." \
-    || log_warn "Could not update distribution config — associate '$fn_name' manually."
+    printf '%s' "$config_json" > "$tmp_config"
 
-  rm -f "$tmp_cfg" "$tmp_updated"
+    # Update distribution to remove CNAME alias
+    aws cloudfront update-distribution \
+      --id "$dist_id" \
+      --if-match "$etag" \
+      --distribution-config "file://$tmp_config" &>/dev/null \
+      || { rm -f "$tmp_config"; log_warn "Could not update distribution — you may need to remove the CNAME alias manually."; return 0; }
+
+    rm -f "$tmp_config"
+    log_ok "Removed domain alias from legacy distribution."
+    log_info "Waiting for CloudFront update to propagate ..."
+
+    # Wait for the distribution update to deploy (required before CDK can
+    # create a new distribution with the same CNAME).
+    local wait_start=$SECONDS max_wait=900 poll_interval=15
+    while true; do
+      local status
+      status=$(aws cloudfront get-distribution --id "$dist_id" \
+        --query 'Distribution.Status' --output text 2>/dev/null || echo "Unknown")
+
+      if [[ "$status" == "Deployed" ]]; then
+        log_ok "Legacy distribution updated — CNAME alias removed."
+        break
+      fi
+
+      if (( SECONDS - wait_start > max_wait )); then
+        log_warn "Distribution update still in progress after $((max_wait/60))m."
+        log_warn "CDK deploy may fail if the alias hasn't been released yet."
+        break
+      fi
+
+      printf '\r%s  ─ Waiting for distribution update (%ds elapsed, status: %s) ...%s' \
+        "$DM" $((SECONDS - wait_start)) "$status" "$RS"
+      sleep "$poll_interval"
+    done
+    printf '\n'
+
+    # Save old distribution ID for later cleanup
+    state_set LEGACY_DISTRIBUTION_ID "$dist_id"
+    log_info "Old distribution $dist_id is orphaned. Clean up later with:"
+    log_info "  aws cloudfront disable-distribution --id $dist_id"
+    log_info "  aws cloudfront delete-distribution --id $dist_id --if-match <etag>"
+  fi
+
+  log_ok "Legacy migration check complete."
 }
 
-# ── Cache invalidation helper ─────────────────────────────────────────────────
-_invalidate_cdn() {
-  local dist_id="$1"
-  log_step "Invalidating CloudFront cache ..."
-  local inv_id
-  inv_id=$(aws cloudfront create-invalidation \
-    --distribution-id "$dist_id" --paths '/*' \
-    --query 'Invalidation.Id' --output text)
-  log_info "Invalidation $inv_id in progress — waiting for completion ..."
-  aws cloudfront wait invalidation-completed \
-    --distribution-id "$dist_id" --id "$inv_id"
-  log_ok "Cache cleared — site live at https://${HYPRCONF_DOMAIN}"
+# ── Step 4: CDK Deploy ────────────────────────────────────────────────────────
+cdk_deploy() {
+  log_head "CDK Deploy"
+
+  local cdk_dir="$INFRA_DIR/cdk"
+
+  if [[ ! -d "$cdk_dir" ]]; then
+    log_die "infra/cdk/ directory not found."
+  fi
+
+  command -v npx &>/dev/null || log_die "npx not found. Install Node.js."
+
+  # Ensure CDK dependencies are installed
+  if [[ ! -d "$cdk_dir/node_modules" ]]; then
+    log_step "Installing CDK dependencies ..."
+    (cd "$cdk_dir" && npm install --silent)
+  fi
+
+  # Resolve AWS account ID for CDK env
+  local account_id
+  account_id=$(aws sts get-caller-identity --query 'Account' --output text 2>/dev/null) \
+    || log_die "Could not resolve AWS account ID."
+  export CDK_DEFAULT_ACCOUNT="$account_id"
+
+  # Check if CDK is bootstrapped in this account/region
+  local region="${AWS_DEFAULT_REGION:-us-east-1}"
+  log_step "Checking CDK bootstrap status ..."
+  if ! aws ssm get-parameter \
+    --name "/cdk-bootstrap/hnb659fds/version" \
+    --region "$region" &>/dev/null 2>&1; then
+    log_step "CDK not bootstrapped — running cdk bootstrap ..."
+    (cd "$cdk_dir" && npx cdk bootstrap "aws://${account_id}/${region}")
+    log_ok "CDK bootstrapped."
+  else
+    log_ok "CDK already bootstrapped."
+  fi
+
+  log_step "Deploying HyprconfStack via CDK ..."
+
+  # Auto-detect if bucket already exists (created by legacy deploy.sh)
+  local import_bucket="false"
+  if aws s3api head-bucket --bucket "$HYPRCONF_BUCKET" 2>/dev/null; then
+    import_bucket="true"
+    log_info "Existing bucket detected — importing into CDK stack."
+  fi
+
+  (cd "$cdk_dir" && npx cdk deploy \
+    --require-approval never \
+    --context "domain=${HYPRCONF_DOMAIN}" \
+    --context "bucket=${HYPRCONF_BUCKET}" \
+    --context "zoneId=${HYPRCONF_ZONE_ID}" \
+    --context "repoUrl=${HYPRCONF_REPO:-}" \
+    --context "importBucket=${import_bucket}" \
+    --outputs-file "$CFG_DIR/cdk-outputs.json" \
+    2>&1)
+
+  log_ok "CDK deploy complete."
+
+  # Extract outputs for display
+  if [[ -f "$CFG_DIR/cdk-outputs.json" ]]; then
+    local dist_id dist_domain
+    dist_id=$(python3 -c "
+import json, sys
+d = json.load(open('${CFG_DIR}/cdk-outputs.json'))
+s = d.get('HyprconfStack', {})
+print(s.get('DistributionId', ''))
+" 2>/dev/null || true)
+    dist_domain=$(python3 -c "
+import json, sys
+d = json.load(open('${CFG_DIR}/cdk-outputs.json'))
+s = d.get('HyprconfStack', {})
+print(s.get('DistributionDomain', ''))
+" 2>/dev/null || true)
+
+    # Save to state file for backward compatibility
+    [[ -n "$dist_id" ]] && state_set DISTRIBUTION_ID "$dist_id"
+    [[ -n "$dist_domain" ]] && state_set DISTRIBUTION_DOMAIN "$dist_domain"
+  fi
 }
 
-# ── Step 4: Route53 alias record ──────────────────────────────────────────────
-deploy_dns() {
-  log_head "Route53"
-
-  local dist_domain; dist_domain="$(state_get DISTRIBUTION_DOMAIN)"
-  [[ -n "$dist_domain" ]] \
-    || log_die "No CloudFront domain in state — deploy_cdn must run first."
-
-  log_step "Aliasing $HYPRCONF_DOMAIN → $dist_domain ..."
-  local existing action="CREATE"
-  existing=$(aws route53 list-resource-record-sets \
-    --hosted-zone-id "$HYPRCONF_ZONE_ID" \
-    --query "ResourceRecordSets[?Name=='${HYPRCONF_DOMAIN}.'].Name" \
-    --output text 2>/dev/null || true)
-  [[ -n "$existing" ]] && action="UPSERT"
-
-  aws route53 change-resource-record-sets \
-    --hosted-zone-id "$HYPRCONF_ZONE_ID" \
-    --change-batch "{
-      \"Changes\": [{
-        \"Action\": \"$action\",
-        \"ResourceRecordSet\": {
-          \"Name\": \"$HYPRCONF_DOMAIN\",
-          \"Type\": \"A\",
-          \"AliasTarget\": {
-            \"HostedZoneId\": \"Z2FDTNDATAQYW2\",
-            \"DNSName\": \"$dist_domain\",
-            \"EvaluateTargetHealth\": false
-          }
-        }
-      }]
-    }" --output text > /dev/null
-  log_ok "DNS record ${action}D."
+# ── Cleanup temporary files ───────────────────────────────────────────────────
+cleanup() {
+  rm -f "$ROOT_DIR/install/install.sh.deploy"
 }
 
 # ── Entry ─────────────────────────────────────────────────────────────────────
@@ -809,22 +509,17 @@ main() {
   fi
 
   configure_env
-  _autodetect_infra
+  trap cleanup EXIT
 
   if $web_only; then
-    # Quick web-only deploy: build + sync + invalidate. Skips infra setup.
-    local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
-    [[ -z "$dist_id" ]] && log_die "No existing deployment found. Run a full deploy first."
-    _ensure_bucket_policy
-    deploy_web
-    _deploy_cf_function "$dist_id"
-    _invalidate_cdn "$dist_id"
+    build_web
+    migrate_legacy_resources
+    cdk_deploy
   else
-    deploy_bucket
-    deploy_web
-    deploy_cert
-    deploy_cdn
-    deploy_dns
+    prepare_install_sh
+    build_web
+    migrate_legacy_resources
+    cdk_deploy
   fi
 
   printf '\n%s  ──────────────────────────────────────────────────────────────%s\n' "$GR" "$RS"
@@ -834,7 +529,7 @@ main() {
   printf '%s  Web frontend:  %shttps://%s%s\n'                       "$DM" "$AM" "$HYPRCONF_DOMAIN" "$RS"
   printf '%s  One-liner:     %sbash <(curl -fsSL https://%s)%s\n'    "$DM" "$WH" "$HYPRCONF_DOMAIN" "$RS"
   printf '%s  Config file:   %s%s%s\n'                                "$DM" "$DM" "$CFG_FILE"        "$RS"
-  printf '%s  State file:    %s%s%s\n\n'                              "$DM" "$DM" "$STATE_FILE"       "$RS"
+  printf '%s  CDK outputs:   %s%s/cdk-outputs.json%s\n\n'             "$DM" "$DM" "$CFG_DIR"          "$RS"
 }
 
 main "$@"
