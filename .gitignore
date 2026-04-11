@@ -39,3 +39,4 @@ tests/install/output-arch/
 # Release artefacts
 dist/
 .coverage
+install/install.sh.deploy
