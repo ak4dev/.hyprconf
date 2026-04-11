@@ -66,10 +66,10 @@
     │           ├── hyprpaper.py           # hyprpaper read/write
     │           └── __init__.py
     ├── btop/   kitty/   dunst/   fastfetch/   code-oss/
-    ├── waybar/ wallpaper/
-    └── theme/                  # Vendor extension payloads (not stowed)
-        ├── firefox/extensions/
-        └── .vscode-oss/extensions/
+    └── waybar/ wallpaper/
+theme/                          # Vendor extension payloads (NOT under stow/)
+    ├── firefox/extensions/
+    └── .vscode-oss/extensions/
 ```
 
 ---
@@ -170,7 +170,7 @@ bash scripts/publish
 8. Pushes `HEAD` to `origin/stable`
 9. Creates and pushes the annotated tag `v<hyprconf.__version__>` unless it already points at `HEAD`
 
-Files excluded from the release archive: `tests/` `scripts/` `.github/` `AGENTS.md` `Makefile` `pyproject.toml`
+Files excluded from the release archive: `tests/` `scripts/` `.github/` `web/` `docs/` `AGENTS.md` `Makefile` `.editorconfig` `pyproject.toml` `__pycache__/` `*.pyc`
 
 | Flag | Effect |
 |------|--------|

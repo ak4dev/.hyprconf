@@ -34,6 +34,7 @@ declare -ra REPO_SPARSE_PATHS=(
   /packages
   /setup.sh
   /stow
+  /theme
 )
 
 # Collected during prompts — must remain mutable (not readonly)
@@ -326,7 +327,7 @@ choose_free_region() {
     log_warn "Timed out reading free space map (parted) on $disk"
     return 1
   fi
-  if (( rc != 0 || -z "${out:-}" )); then
+  if (( rc != 0 )) || [[ -z "${out:-}" ]]; then
     log_warn "Failed to read free space map (parted) on $disk"
     return 1
   fi
@@ -1193,7 +1194,7 @@ chmod 440 /etc/sudoers.d/wheel
 
 # ── Services ──────────────────────────────────────────────────────────────────
 systemctl enable NetworkManager
-systemctl enable iwd
+command -v iwctl &>/dev/null && systemctl enable iwd || true
 systemctl enable systemd-resolved
 # Enable sshd only in CI (VM tests need it; not appropriate for desktop installs)
 [[ "${HYPRCONF_CI:-0}" == "1" ]] && systemctl enable sshd || true
@@ -1249,15 +1250,16 @@ run_setup_in_chroot() {
     log_ok "Repo extracted."
   else
     log_step "Cloning dotfiles repo into /home/${USERNAME}/.hyprconf ..."
+    local sparse_paths="${REPO_SPARSE_PATHS[*]}"
     arch-chroot /mnt /bin/bash -c "
       if git clone --depth=1 --single-branch --branch '${REPO_STABLE_BRANCH}' --sparse '${REPO_URL}' /home/${USERNAME}/.hyprconf; then
-        git -C /home/${USERNAME}/.hyprconf sparse-checkout init --cone >/dev/null 2>&1 || true
-        git -C /home/${USERNAME}/.hyprconf sparse-checkout set README.md assets docs infra install packages setup.sh stow >/dev/null
+        git -C /home/${USERNAME}/.hyprconf sparse-checkout init --no-cone >/dev/null 2>&1 || true
+        git -C /home/${USERNAME}/.hyprconf sparse-checkout set ${sparse_paths} >/dev/null
       else
         rm -rf /home/${USERNAME}/.hyprconf
         git clone --depth=1 --single-branch --branch '${REPO_COMPAT_BRANCH}' --sparse '${REPO_URL}' /home/${USERNAME}/.hyprconf
-        git -C /home/${USERNAME}/.hyprconf sparse-checkout init --cone >/dev/null 2>&1 || true
-        git -C /home/${USERNAME}/.hyprconf sparse-checkout set README.md assets docs infra install packages setup.sh stow >/dev/null
+        git -C /home/${USERNAME}/.hyprconf sparse-checkout init --no-cone >/dev/null 2>&1 || true
+        git -C /home/${USERNAME}/.hyprconf sparse-checkout set ${sparse_paths} >/dev/null
       fi
       chown -R ${USERNAME}:${USERNAME} /home/${USERNAME}/.hyprconf
     "

@@ -166,7 +166,7 @@ _select_zone() {
   done <<< "$zones_raw"
 
   # Try to auto-match: find any zone whose name the domain ends with
-  local match_idx=-1
+  local match_idx=-1 i
   for i in "${!names[@]}"; do
     if [[ "$HYPRCONF_DOMAIN" == *.${names[$i]} ]] || \
        [[ "$HYPRCONF_DOMAIN" == "${names[$i]}" ]]; then
@@ -471,7 +471,7 @@ deploy_cert() {
 
   # ACM takes a few seconds to populate the validation record
   log_step "Waiting for ACM to generate validation record ..."
-  local rec_name rec_value
+  local rec_name rec_value i
   for i in $(seq 1 12); do
     rec_name=$(aws acm describe-certificate --certificate-arn "$cert_arn" \
       --region us-east-1 \
@@ -682,6 +682,8 @@ _deploy_cf_function() {
 # ── Ensure CF function is associated with a distribution ──────────────────────
 _ensure_cf_function_association() {
   local dist_id="$1" fn_name="$2"
+  local tmp_cfg="" tmp_updated=""
+  trap 'rm -f "$tmp_cfg" "$tmp_updated"' RETURN
 
   # Check if already associated
   local current_fn

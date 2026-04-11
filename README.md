@@ -407,8 +407,8 @@ Touchpad workspace swiping is configured in `gestures.conf`:
 
 | Command | Purpose | Restart policy |
 |---|---|---|
-| `pkill hyprpaper; hyprpaper` | Wallpaper daemon | Restarted on every `exec` (config reload safe) |
-| `pkill waybar; waybar` | Status bar | Restarted on every `exec` |
+| `pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf` | Wallpaper daemon | Restarted on every `exec` (config reload safe) |
+| `pkill waybar; waybar -c ~/.config/waybar/waybar.jsonc -s ~/.config/waybar/waybar.css` | Status bar | Restarted on every `exec` |
 | `/usr/lib/pam_kwallet_init` | KDE Wallet PAM init | Once |
 | `kwalletd6` | KDE Wallet daemon (SSH/GPG key storage) | Once |
 | `systemctl --user start hyprpolkitagent` | Polkit agent (privilege elevation dialogs) | Once |

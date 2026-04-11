@@ -1031,6 +1031,7 @@ sync_services() {
     if command -v ufw &>/dev/null && ! _in_chroot; then
         sudo ufw default deny incoming  2>/dev/null || log_warn "Could not set ufw default (deny incoming)."
         sudo ufw default allow outgoing 2>/dev/null || log_warn "Could not set ufw default (allow outgoing)."
+        sudo ufw --force enable         2>/dev/null || log_warn "Could not enable ufw."
     fi
 
     if _in_chroot; then

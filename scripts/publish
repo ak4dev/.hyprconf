@@ -297,7 +297,7 @@ ok "Tier 5 passed"
 
 fi  # end: if [[ "$SKIP_TESTS" != true ]]
 
-ok "All tests passed"
+[[ "$SKIP_TESTS" == true ]] || ok "All tests passed"
 
 if [[ "$SKIP_DEPLOY" == false ]]; then
   step "Deploying hyprconf.sh"

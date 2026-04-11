@@ -63,7 +63,7 @@ export const FEATURES: Feature[] = [
   {
     title: 'Hardware Detection',
     description:
-      'Automatic detection and configuration for touchscreens, convertible laptops, accelerometers, Keychron keyboards, and Nvidia GPUs.',
+      'Automatic detection and configuration for touchscreens, convertible laptops, accelerometers, Keychron/Lemokey keyboards, and Nvidia GPUs.',
     icon: Cpu,
   },
   {
@@ -75,7 +75,7 @@ export const FEATURES: Feature[] = [
   {
     title: 'Privacy Firefox',
     description:
-      'Pre-configured Firefox with arkenfox user.js, uBlock Origin, and theme-matched extensions. Privacy-first browsing out of the box.',
+      'Pre-configured Firefox with enterprise policies, uBlock Origin, and theme-matched extensions. Privacy-first browsing out of the box.',
     icon: Shield,
   },
   {
@@ -107,12 +107,12 @@ export const CLI_GROUPS: CliGroup[] = [
   {
     title: 'Theme',
     commands: [
-      { name: 'hyprconf theme set', usage: 'hyprconf theme set <name>', description: 'Apply a theme by name' },
+      { name: 'hyprconf theme <name>', usage: 'hyprconf theme <name>', description: 'Apply a theme by name' },
       { name: 'hyprconf theme current', usage: 'hyprconf theme current', description: 'Show current theme' },
       { name: 'hyprconf theme next', usage: 'hyprconf theme next', description: 'Cycle to next theme' },
       { name: 'hyprconf theme prev', usage: 'hyprconf theme prev', description: 'Cycle to previous theme' },
       { name: 'hyprconf theme random', usage: 'hyprconf theme random', description: 'Apply a random theme' },
-      { name: 'hyprconf theme pick', usage: 'hyprconf theme pick', description: 'Interactive theme picker (fzf)' },
+      { name: 'hyprconf theme pick', usage: 'hyprconf theme pick', description: 'Interactive theme picker (hyprlauncher)' },
       { name: 'hyprconf theme filter', usage: 'hyprconf theme filter <dark|light>', description: 'Filter by appearance' },
       { name: 'hyprconf theme list', usage: 'hyprconf theme list', description: 'List all available themes' },
       { name: 'hyprconf theme generate', usage: 'hyprconf theme generate <image>', description: 'Generate a theme from an image' },
@@ -121,26 +121,34 @@ export const CLI_GROUPS: CliGroup[] = [
   {
     title: 'Options',
     commands: [
-      { name: 'hyprconf get', usage: 'hyprconf get <section> [key]', description: 'Show current value of Hyprland variables' },
+      { name: 'hyprconf get', usage: 'hyprconf get [section] [key]', description: 'Show current value of Hyprland variables (no args lists sections)' },
       { name: 'hyprconf set', usage: 'hyprconf set <section> <key> <value>', description: 'Set a Hyprland variable (applied live + persisted)' },
       { name: 'hyprconf configure', usage: 'hyprconf configure', description: 'Interactive IOS-style REPL for editing options' },
-      { name: 'hyprconf schema', usage: 'hyprconf schema [section]', description: 'Dump the schema for Hyprland config sections' },
-      { name: 'hyprconf show', usage: 'hyprconf show <section>', description: 'Display all values for a config section' },
+      { name: 'hyprconf schema dump', usage: 'hyprconf schema dump', description: 'Dump the full schema as JSON' },
+      { name: 'hyprconf schema list-sections', usage: 'hyprconf schema list-sections', description: 'List all config sections and key counts' },
+      { name: 'hyprconf schema keys', usage: 'hyprconf schema keys <section>', description: 'List all keys in a config section with types and defaults' },
+      { name: 'hyprconf schema validate', usage: 'hyprconf schema validate', description: 'Validate persisted config against the schema' },
+      { name: 'hyprconf show keybinds', usage: 'hyprconf show keybinds', description: 'Display all keybindings in a formatted table' },
     ],
   },
   {
     title: 'Keybinds',
     commands: [
       { name: 'hyprconf keybind list', usage: 'hyprconf keybind list', description: 'List all keybindings' },
-      { name: 'hyprconf keybind set', usage: 'hyprconf keybind set <mods> <key> <action>', description: 'Add or update a keybinding' },
-      { name: 'hyprconf keybind config', usage: 'hyprconf keybind config', description: 'Interactive keybind editor' },
+      { name: 'hyprconf keybind add', usage: 'hyprconf keybind add <kind> <mods> <key> <dispatcher> [args]', description: 'Add a keybinding' },
+      { name: 'hyprconf keybind delete', usage: 'hyprconf keybind delete <index>', description: 'Delete a keybinding by index' },
+      { name: 'hyprconf keybind update', usage: 'hyprconf keybind update <index> <kind> <mods> <key> <dispatcher> [args]', description: 'Update a keybinding by index' },
     ],
   },
   {
-    title: 'Window Rules',
+    title: 'Window & Workspace Rules',
     commands: [
-      { name: 'hyprconf rule list', usage: 'hyprconf rule list', description: 'List all window rules' },
-      { name: 'hyprconf rule new', usage: 'hyprconf rule new', description: 'Create a new window rule interactively' },
+      { name: 'hyprconf rule window list', usage: 'hyprconf rule window list', description: 'List all window rules' },
+      { name: 'hyprconf rule window add', usage: 'hyprconf rule window add <rule> <filter>', description: 'Add a window rule' },
+      { name: 'hyprconf rule window delete', usage: 'hyprconf rule window delete <index>', description: 'Delete a window rule by index' },
+      { name: 'hyprconf rule workspace list', usage: 'hyprconf rule workspace list', description: 'List all workspace rules' },
+      { name: 'hyprconf rule workspace add', usage: 'hyprconf rule workspace add <ws_id> <options>', description: 'Add a workspace rule' },
+      { name: 'hyprconf rule workspace delete', usage: 'hyprconf rule workspace delete <index>', description: 'Delete a workspace rule by index' },
     ],
   },
   {
@@ -174,7 +182,9 @@ export const CLI_GROUPS: CliGroup[] = [
     commands: [
       { name: 'hyprconf sync', usage: 'hyprconf sync', description: 'Re-apply all configs, packages, services, and hardware detection' },
       { name: 'hyprconf repair', usage: 'hyprconf repair', description: 'Run self-repair checks and fix common issues' },
-      { name: 'hyprconf hardware', usage: 'hyprconf hardware', description: 'Show detected hardware features and capabilities' },
+      { name: 'hyprconf hardware status', usage: 'hyprconf hardware status', description: 'Show detected hardware features and daemon status' },
+      { name: 'hyprconf hardware osk', usage: 'hyprconf hardware osk', description: 'Toggle on-screen keyboard (wvkbd)' },
+      { name: 'hyprconf hardware rotate', usage: 'hyprconf hardware rotate', description: 'Toggle auto-rotation (accelerometer)' },
       { name: 'hyprconf doctor', usage: 'hyprconf doctor', description: 'Diagnose and report system health' },
       { name: 'hyprconf autodetect', usage: 'hyprconf autodetect', description: 'Import existing Hyprland config into .hyprconf format' },
     ],
@@ -215,13 +225,12 @@ export const KEYBINDINGS: KeybindCategory[] = [
     title: 'Applications',
     id: 'apps',
     bindings: [
-      { keys: ['Super', 'Return'], action: 'Open terminal (Kitty)' },
-      { keys: ['Super', 'B'], action: 'Open browser (Firefox)' },
-      { keys: ['Super', 'E'], action: 'Open file manager (Thunar)' },
-      { keys: ['Super', 'Space'], action: 'Application launcher (Rofi)' },
-      { keys: ['Super', 'V'], action: 'Clipboard manager (cliphist)' },
-      { keys: ['Super', 'Period'], action: 'Emoji picker' },
-      { keys: ['Super', 'Escape'], action: 'Power menu (wlogout)' },
+      { keys: ['Super', 'T'], action: 'Open terminal (Kitty)' },
+      { keys: ['Super', 'F'], action: 'Open browser (Firefox)' },
+      { keys: ['Super', 'E'], action: 'Open file manager (Dolphin)' },
+      { keys: ['Super', 'D'], action: 'Application launcher (hyprlauncher)' },
+      { keys: ['Super', 'C'], action: 'Open VS Code' },
+      { keys: ['Super', 'Shift', 'V'], action: 'Clipboard history (cliphist + hyprlauncher)' },
     ],
   },
   {
@@ -229,13 +238,17 @@ export const KEYBINDINGS: KeybindCategory[] = [
     id: 'windows',
     bindings: [
       { keys: ['Super', 'Q'], action: 'Close active window' },
-      { keys: ['Super', 'F'], action: 'Toggle fullscreen' },
-      { keys: ['Super', 'T'], action: 'Toggle floating' },
+      { keys: ['Super', 'V'], action: 'Toggle floating' },
+      { keys: ['Super', 'Shift', 'Space'], action: 'Toggle floating (alternate)' },
+      { keys: ['Super', 'Shift', 'F'], action: 'Toggle fullscreen' },
       { keys: ['Super', 'P'], action: 'Toggle pseudo-tile' },
       { keys: ['Super', 'J'], action: 'Toggle split direction' },
       { keys: ['Super', '←/→/↑/↓'], action: 'Move focus' },
-      { keys: ['Super', 'Shift', '←/→/↑/↓'], action: 'Move window' },
-      { keys: ['Super', 'Ctrl', '←/→/↑/↓'], action: 'Resize window' },
+      { keys: ['Super', 'Shift', '←/→/↑/↓'], action: 'Resize window' },
+      { keys: ['Super', 'Shift', 'A/D/W/S'], action: 'Swap window position (L/R/U/D)' },
+      { keys: ['Super', 'Shift', '+/−'], action: 'Adjust window gaps' },
+      { keys: ['Super', 'LMB drag'], action: 'Move window' },
+      { keys: ['Super', 'RMB drag'], action: 'Resize window' },
     ],
   },
   {
@@ -243,11 +256,12 @@ export const KEYBINDINGS: KeybindCategory[] = [
     id: 'workspaces',
     bindings: [
       { keys: ['Super', '1–2'], action: 'Switch to workspace 1–2' },
-      { keys: ['F1', '/', 'F2'], action: 'Switch to workspace 3/4' },
+      { keys: ['Super', 'F1/F2'], action: 'Switch to workspace 3/4' },
       { keys: ['Super', '5–0'], action: 'Switch to workspace 5–10' },
-      { keys: ['Super', 'Shift', '1–0'], action: 'Move window to workspace 1–10' },
+      { keys: ['Super', 'Shift', '1–0/F1/F2'], action: 'Move window to workspace' },
       { keys: ['Super', 'Scroll'], action: 'Cycle workspaces' },
-      { keys: ['Super', 'S'], action: 'Toggle special workspace' },
+      { keys: ['Super', 'M'], action: 'Toggle special workspace (scratchpad)' },
+      { keys: ['Super', 'Shift', 'M'], action: 'Move window to special workspace' },
     ],
   },
   {
@@ -260,15 +274,33 @@ export const KEYBINDINGS: KeybindCategory[] = [
       { keys: ['XF86AudioRaiseVolume'], action: 'Volume up' },
       { keys: ['XF86AudioLowerVolume'], action: 'Volume down' },
       { keys: ['XF86AudioMute'], action: 'Toggle mute' },
+      { keys: ['XF86AudioMicMute'], action: 'Toggle mic mute' },
     ],
   },
   {
-    title: 'Screenshots',
+    title: 'Brightness',
+    id: 'brightness',
+    bindings: [
+      { keys: ['XF86MonBrightnessUp'], action: 'Brightness up' },
+      { keys: ['XF86MonBrightnessDown'], action: 'Brightness down' },
+    ],
+  },
+  {
+    title: 'Screenshots & Screen Lock',
     id: 'screenshots',
     bindings: [
-      { keys: ['Print'], action: 'Screenshot region (clipboard)' },
-      { keys: ['Super', 'Print'], action: 'Screenshot active window' },
-      { keys: ['Super', 'Shift', 'Print'], action: 'Screenshot full screen' },
+      { keys: ['Super', 'Shift', '4'], action: 'Screenshot region (hyprshot)' },
+      { keys: ['Super', 'L'], action: 'Lock screen (hyprlock)' },
+      { keys: ['Super', 'Shift', 'Escape'], action: 'Lock screen (alternate)' },
+    ],
+  },
+  {
+    title: 'Monitor',
+    id: 'monitor',
+    bindings: [
+      { keys: ['Super', 'Shift', 'B'], action: 'Switch to bedroom monitor preset' },
+      { keys: ['Super', 'Shift', 'K'], action: 'Switch to kitchen monitor preset' },
+      { keys: ['Super', 'Shift', 'Backspace'], action: 'Toggle native laptop display' },
     ],
   },
 ];

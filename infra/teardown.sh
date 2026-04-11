@@ -83,11 +83,8 @@ teardown_dns() {
   log_ok "DNS record removed."
 }
 
-# ── Step 2: CloudFront distribution ──────────────────────────────────────────
-teardown_cdn() {
-  local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
-
-  # Remove CloudFront Function first (before the distribution that uses it)
+# ── Helper: delete CloudFront Function ────────────────────────────────────────
+_teardown_cf_function() {
   local cf_fn_name="hyprconf-ua-router"
   local fn_etag
   fn_etag=$(aws cloudfront describe-function \
@@ -98,11 +95,19 @@ teardown_cdn() {
     aws cloudfront delete-function \
       --name "$cf_fn_name" --if-match "$fn_etag" \
       --output text > /dev/null 2>&1 \
-      || log_warn "Could not delete CloudFront Function (may still be associated with distribution)."
+      || log_warn "Could not delete CloudFront Function."
     log_ok "CloudFront Function deleted."
   fi
+}
+
+# ── Step 2: CloudFront distribution ──────────────────────────────────────────
+teardown_cdn() {
+  local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
+
   if [[ -z "$dist_id" ]]; then
     log_warn "No distribution ID in state — skipping."
+    # Still try to delete the CF function since there's no distribution referencing it
+    _teardown_cf_function
     return
   fi
 
@@ -147,6 +152,9 @@ teardown_cdn() {
     --output text > /dev/null 2>&1 \
     || { log_warn "Distribution not yet deletable. Wait a few minutes and re-run teardown.sh."; return; }
   log_ok "Distribution deleted."
+
+  # Delete CF function after distribution is gone (avoids FunctionInUse error)
+  _teardown_cf_function
 }
 
 # ── Step 3: ACM certificate ───────────────────────────────────────────────────
@@ -216,12 +224,17 @@ main() {
     || log_die "AWS authentication failed."
 
   confirm
-  teardown_dns
-  teardown_cdn
-  teardown_cert
-  teardown_bucket
+  local _teardown_errors=0
+  teardown_dns      || (( _teardown_errors++ )) || true
+  teardown_cdn      || (( _teardown_errors++ )) || true
+  teardown_cert     || (( _teardown_errors++ )) || true
+  teardown_bucket   || (( _teardown_errors++ )) || true
 
-  rm -f "$STATE_FILE"
+  if (( _teardown_errors > 0 )); then
+    log_warn "Some teardown steps had issues. State file preserved for re-run."
+  else
+    rm -f "$STATE_FILE"
+  fi
   printf '\n%s  ✔ Teardown complete. All hyprconf AWS resources removed.%s\n\n' "$GR" "$RS"
 }
 
