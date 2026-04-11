@@ -905,7 +905,7 @@ partition_unallocated() {
     EFI_PART=$(part_dev "$DISK" "$efi_num")
     ROOT_PART=$(part_dev "$DISK" "$root_num")
 
-    (( do_wipe == 1 )) && wipefs -af "$EFI_PART" || true
+    (( do_wipe == 1 )) && { wipefs -af "$EFI_PART" || log_warn "wipefs failed on $EFI_PART"; }
     mkfs.fat -F32 -n EFI "$EFI_PART"
     log_ok "EFI: $EFI_PART"
   else
@@ -917,7 +917,7 @@ partition_unallocated() {
     ROOT_PART=$(part_dev "$DISK" "$next_num")
   fi
 
-  (( do_wipe == 1 )) && wipefs -af "$ROOT_PART" || true
+  (( do_wipe == 1 )) && { wipefs -af "$ROOT_PART" || log_warn "wipefs failed on $ROOT_PART"; }
   log_ok "Root: $ROOT_PART"
 }
 
@@ -1303,7 +1303,11 @@ arch_install() {
     confirm_install
   fi
 
-  [[ "$PART_MODE" == "full" ]] && partition_full || partition_unallocated
+  if [[ "$PART_MODE" == "full" ]]; then
+    partition_full
+  else
+    partition_unallocated
+  fi
 
   setup_luks
   setup_btrfs

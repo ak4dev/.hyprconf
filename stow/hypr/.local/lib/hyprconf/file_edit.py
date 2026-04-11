@@ -19,7 +19,7 @@ from pathlib import Path
 #  Shared parsing helpers (used by block_conf, hyprpaper, keybinds, monitors)
 # ─────────────────────────────────────────────────────────────────────────────
 
-COMMENT_RE = re.compile(r"(^|\s)#.*$")
+COMMENT_RE = re.compile(r"(?<!\S)#(?![0-9a-fA-F]{6}\b)(?![0-9a-fA-F]{8}\b).*$")
 
 
 def strip_comment(line: str) -> str:

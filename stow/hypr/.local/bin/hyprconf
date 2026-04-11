@@ -23,7 +23,7 @@ else
 fi
 
 die() {
-  printf "%s%s%s\n" "${_y}" "$1" "${_r}" >&2
+  printf "%b%b%b\n" "${_y}" "$1" "${_r}" >&2
   exit 1
 }
 
@@ -1001,7 +1001,8 @@ cmd_set_keyword() {
   local value="${3:-}"
 
   [[ -n "$section" && -n "$key" && -n "$value" ]] || {
-    die "Usage: hyprconf set <section> <key> <value>\nExample: hyprconf set general gaps_in 8"
+    printf '%sUsage: hyprconf set <section> <key> <value>\nExample: hyprconf set general gaps_in 8%s\n' "$_y" "$_r" >&2
+    return 1
   }
 
   # Special section: monitors — key=<name>  value=<field> <fieldvalue>
@@ -1010,14 +1011,15 @@ cmd_set_keyword() {
     local -a fv_parts=()
     read -r -a fv_parts <<<"$value"
     if (( ${#fv_parts[@]} < 2 )); then
-      die "Usage: hyprconf set monitors <name> <field> <value>\nExample: hyprconf set monitors HDMI-A-1 vrr 1"
+      printf '%sUsage: hyprconf set monitors <name> <field> <value>\nExample: hyprconf set monitors HDMI-A-1 vrr 1%s\n' "$_y" "$_r" >&2
+      return 1
     fi
     python3 "$CLI_LIB/cli.py" monitor field set "$mon_name" "${fv_parts[0]}" "${fv_parts[*]:1}"
     return $?
   fi
 
   local meta; meta="$(_option_meta "$section" "$key")"
-  [[ -n "$meta" ]] || die "Unknown option '$key' in section '$section'  (try: hyprconf get $section)"
+  [[ -n "$meta" ]] || { printf '%sUnknown option '\''%s'\'' in section '\''%s'\''  (try: hyprconf get %s)%s\n' "$_y" "$key" "$section" "$section" "$_r" >&2; return 1; }
 
   local type default _desc
   IFS='|' read -r type default _desc <<<"$meta"
@@ -1025,11 +1027,11 @@ cmd_set_keyword() {
   # Basic type validation
   case "$type" in
     int)
-      [[ "$value" =~ ^-?[0-9]+$ ]] || die "Value must be an integer, got: $value" ;;
+      [[ "$value" =~ ^-?[0-9]+$ ]] || { printf '%sValue must be an integer, got: %s%s\n' "$_y" "$value" "$_r" >&2; return 1; } ;;
     float)
-      [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || die "Value must be a number, got: $value" ;;
+      [[ "$value" =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || { printf '%sValue must be a number, got: %s%s\n' "$_y" "$value" "$_r" >&2; return 1; } ;;
     bool)
-      case "${value,,}" in true|false|yes|no|on|off|0|1) ;; *) die "Value must be true/false, got: $value" ;; esac ;;
+      case "${value,,}" in true|false|yes|no|on|off|0|1) ;; *) printf '%sValue must be true/false, got: %s%s\n' "$_y" "$value" "$_r" >&2; return 1 ;; esac ;;
     enum:*)
       local choices="${type#enum:}"
       local valid=0
@@ -1037,7 +1039,7 @@ cmd_set_keyword() {
       for opt in "${opts[@]}"; do
         [[ "$value" == "$opt" ]] && valid=1 && break
       done
-      (( valid == 1 )) || die "Invalid value '$value'. Choices: $(echo "$choices" | tr ',' ' ')" ;;
+      (( valid == 1 )) || { printf '%sInvalid value '\''%s'\''. Choices: %s%s\n' "$_y" "$value" "$(echo "$choices" | tr ',' ' ')" "$_r" >&2; return 1; } ;;
   esac
 
   local hkey; hkey="$(_hyprctl_key "$section" "$key")"
@@ -1284,6 +1286,10 @@ _hw_has_touchscreen() {
   # Standard udev-tagged touchscreens (ELAN HID, etc.)
   grep -rql "^ID_INPUT_TOUCHSCREEN=1" /sys/class/input/*/device/uevent 2>/dev/null \
     && return 0
+  # Generic touch devices (e.g. ASUS ROG Ally, AMD-based handhelds) that use
+  # ID_INPUT_TOUCH=1 instead of ID_INPUT_TOUCHSCREEN.
+  grep -rql "^ID_INPUT_TOUCH=1" /sys/class/input/*/device/uevent 2>/dev/null \
+    && return 0
   # Wacom I2C pen+touch digitizers (e.g. ThinkPad X13 Yoga): touch component is
   # named "Wacom HID * Finger" on an i2c bus, but udev never sets
   # ID_INPUT_TOUCHSCREEN=1 because the wacom driver bypasses generic HID rules.
@@ -1355,9 +1361,11 @@ cmd_hardware() {
           fi
           ;;
         off)
-          local _osk_pid; _osk_pid="$(pgrep -x wvkbd-mobintl 2>/dev/null || true)"
-          if [[ -n "$_osk_pid" ]]; then
-            kill "$_osk_pid"
+          local _osk_pid _osk_killed=0
+          while read -r _osk_pid; do
+            kill "$_osk_pid" 2>/dev/null && _osk_killed=1
+          done < <(pgrep -x wvkbd-mobintl 2>/dev/null || true)
+          if (( _osk_killed )); then
             printf "${_g}OSK stopped.${_r}\n"
           else
             printf "OSK is not running.\n"
@@ -1385,9 +1393,11 @@ cmd_hardware() {
           fi
           ;;
         off)
-          local _rot_pid; _rot_pid="$(pgrep -x autorotate 2>/dev/null || true)"
-          if [[ -n "$_rot_pid" ]]; then
-            kill "$_rot_pid"
+          local _rot_pid _rot_killed=0
+          while read -r _rot_pid; do
+            kill "$_rot_pid" 2>/dev/null && _rot_killed=1
+          done < <(pgrep -x autorotate 2>/dev/null || true)
+          if (( _rot_killed )); then
             printf "${_g}Auto-rotation stopped.${_r}\n"
           else
             printf "autorotate is not running.\n"
@@ -1724,7 +1734,7 @@ cmd_power() {
       printf "Choice [1-%d]: " "${#choices[@]}"
       local choice
       read -r choice
-      (( choice >= 1 && choice <= ${#choices[@]} )) || { printf "${_y}Cancelled.${_r}\n"; return; }
+      [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#choices[@]} )) || { printf "${_y}Cancelled.${_r}\n"; return; }
       action="${choices[$((choice - 1))]}"
     fi
   fi

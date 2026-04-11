@@ -341,6 +341,7 @@ def update_dunst(theme: Dict[str, str]) -> None:
                 os.kill(int(pid), 15)  # SIGTERM
             except (ProcessLookupError, ValueError):
                 pass
+        time.sleep(0.3)
         subprocess.Popen(
             ["dunst"],
             stdin=subprocess.DEVNULL,
@@ -391,10 +392,14 @@ def get_all_themes() -> list:
 
 def load_theme_json(name: str) -> Dict:
     """Load and return the parsed JSON for *name*, or {} on failure."""
+    path = os.path.join(THEMES_DIR, f"{name}.json")
     try:
-        with open(os.path.join(THEMES_DIR, f"{name}.json")) as fh:
+        with open(path) as fh:
             return json.load(fh)
-    except Exception:
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:
+        print(f"Warning: failed to load theme '{name}': {exc}", file=sys.stderr)
         return {}
 
 
@@ -1927,6 +1932,10 @@ def list_themes() -> None:
         accent     = d.get("accent", d.get("purple", ""))
         appearance = d.get("appearance", "")
         themes.append((name, bg, fg, accent, appearance))
+
+    if not themes:
+        print("No themes found.")
+        return
 
     col_name   = max(len("THEME"),  max(len(t[0]) for t in themes))
     col_appear = max(len("TYPE"),   max(len(t[4]) for t in themes))

@@ -436,10 +436,14 @@ def validate_value(type_str: str, value: str) -> tuple[bool, str]:
         return False, f"expected one of [{', '.join(choices)}], got: {v!r}"
 
     if type_str == "color":
-        # Accept 0xAARRGGBB or #rrggbb
+        # Accept 0xAARRGGBB, #rrggbb, rgb(), rgba(), or keywords like "unset"
         if _HEX_COLOR_RE.match(v) or _HASH_COLOR_RE.match(v):
             return True, ""
-        return False, f"expected 0xAARRGGBB or #rrggbb color, got: {v!r}"
+        if v.startswith("rgb(") or v.startswith("rgba("):
+            return True, ""
+        if v.lower() in ("unset",):
+            return True, ""
+        return False, f"expected color (hex, rgb(), rgba(), or 'unset'), got: {v!r}"
 
     # gradient, vec2, str — accept anything
     return True, ""

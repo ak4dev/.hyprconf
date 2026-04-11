@@ -489,7 +489,9 @@ def cmd_keybind(args: list[str]) -> int:
         key        = args[3]
         dispatcher = args[4]
         kbargs     = " ".join(args[5:]) if len(args) > 5 else ""
-        add_keybind(kind, mods, key, dispatcher, kbargs)
+        if not add_keybind(kind, mods, key, dispatcher, kbargs):
+            print(f"{_Y}Failed to write keybind{_R}", file=sys.stderr)
+            return 1
         print(f"  {_B}Added:{_R}  {kind} = {mods}, {key}, {dispatcher}{', ' + kbargs if kbargs else ''}")
         return 0
 
@@ -503,7 +505,9 @@ def cmd_keybind(args: list[str]) -> int:
             print(f"{_Y}Index {args[1]} out of range (1–{len(entries)}){_R}", file=sys.stderr)
             return 1
         e = entries[idx]
-        delete_keybind(e.file_path, e.line_idx)
+        if not delete_keybind(e.file_path, e.line_idx):
+            print(f"{_Y}Failed to delete keybind{_R}", file=sys.stderr)
+            return 1
         print(f"  {_B}Deleted:{_R}  {e.kind} = {e.mods!r}, {e.key!r}, {e.dispatcher!r}")
         return 0
 
@@ -526,7 +530,9 @@ def cmd_keybind(args: list[str]) -> int:
         key  = args[4]
         disp = args[5]
         kbargs = " ".join(args[6:]) if len(args) > 6 else ""
-        update_keybind(e.file_path, e.line_idx, kind, mods, key, disp, kbargs)
+        if not update_keybind(e.file_path, e.line_idx, kind, mods, key, disp, kbargs):
+            print(f"{_Y}Failed to update keybind{_R}", file=sys.stderr)
+            return 1
         print(f"  {_B}Updated:{_R}  [{args[1]}] → {kind} = {mods}, {key}, {disp}{', ' + kbargs if kbargs else ''}")
         return 0
 
@@ -605,7 +611,9 @@ def cmd_rule(args: list[str]) -> int:
                 print(f"{_Y}Index out of range{_R}", file=sys.stderr)
                 return 1
             e = entries[idx]
-            update_window_rule(e.file_path, e.line_idx, args[3], [args[4]])
+            if not update_window_rule(e.file_path, e.line_idx, args[3], [args[4]]):
+                print(f"{_Y}Failed to update window rule{_R}", file=sys.stderr)
+                return 1
             print(f"  {_B}Updated:{_R}  [{args[2]}] → windowrule = {args[3]}, {args[4]}")
             return 0
 
@@ -741,7 +749,9 @@ def cmd_monitor(args: list[str]) -> int:
         position   = args[3]
         scale      = args[4]
         extras     = " ".join(args[5:]) if len(args) > 5 else ""
-        upsert_monitor(name, resolution, position, scale, extras)
+        if not upsert_monitor(name, resolution, position, scale, extras):
+            print(f"{_Y}Failed to write monitor config{_R}", file=sys.stderr)
+            return 1
         print(f"  {_B}Set:{_R}  {name}  {resolution}  {position}  scale={scale}{', ' + extras if extras else ''}")
         return 0
 
@@ -755,7 +765,9 @@ def cmd_monitor(args: list[str]) -> int:
         if mc is None:
             print(f"{_Y}Monitor '{name}' not found in monitors.conf{_R}", file=sys.stderr)
             return 1
-        delete_monitor(mc.file_path, mc.line_idx)
+        if not delete_monitor(mc.file_path, mc.line_idx):
+            print(f"{_Y}Failed to delete monitor config{_R}", file=sys.stderr)
+            return 1
         print(f"  {_B}Deleted:{_R}  {name}")
         return 0
 

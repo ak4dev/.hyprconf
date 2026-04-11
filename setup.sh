@@ -314,6 +314,7 @@ update_zshrc() {
 
     local tmp
     tmp="$(mktemp)"
+    trap 'rm -f "$tmp"' RETURN
 
     # Rewrite OMZ / p10k bits into a single managed block at the first OMZ source line.
     awk '

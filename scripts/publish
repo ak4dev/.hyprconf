@@ -167,6 +167,13 @@ current_branch="$(git rev-parse --abbrev-ref HEAD)"
 
 ok "On dev, working tree clean"
 
+git fetch origin dev --quiet
+if [[ "$(git rev-parse HEAD)" != "$(git merge-base HEAD origin/dev)" \
+   || "$(git rev-parse HEAD)" != "$(git rev-parse origin/dev)" ]]; then
+  die "Local dev is behind or diverged from origin/dev — pull or rebase first."
+fi
+ok "Local dev is up-to-date with origin/dev"
+
 if [[ "$SKIP_BUMP" == false ]]; then
   step "Bumping ${BUMP_TYPE} version"
   version="$(_bump_version "$BUMP_TYPE")"
@@ -349,7 +356,7 @@ fi
 dev_sha="$(git rev-parse HEAD)"
 
 step "Promoting dev to origin/${STABLE_BRANCH}"
-git push origin HEAD:"${STABLE_BRANCH}"
+git push --force-with-lease origin HEAD:"${STABLE_BRANCH}"
 git branch -f "${STABLE_BRANCH}" HEAD
 ok "origin/${STABLE_BRANCH} updated → ${dev_sha:0:7}"
 
