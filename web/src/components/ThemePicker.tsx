@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, Palette } from 'lucide-react';
 import { useTheme } from '@/lib/theme-provider';
 import { themeNames, communityThemeNames, aiThemeNames } from '@/generated/themes';
@@ -11,6 +11,17 @@ export function ThemePicker() {
   const { themeName, setTheme, allThemes } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
   const [filter, setFilter] = useState<FilterValue>('all');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsOpen(false);
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    dropdownRef.current?.focus();
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   const filteredNames = (() => {
     switch (filter) {
@@ -42,7 +53,7 @@ export function ThemePicker() {
       {isOpen && (
         <>
           <div className={styles.backdrop} onClick={() => setIsOpen(false)} aria-hidden />
-          <div className={styles.dropdown} role="listbox" aria-label="Theme list">
+          <div ref={dropdownRef} className={styles.dropdown} role="listbox" aria-label="Theme list" tabIndex={-1}>
             <div className={styles.filters}>
               {(['all', 'dark', 'light', 'ai'] as const).map((f) => (
                 <button

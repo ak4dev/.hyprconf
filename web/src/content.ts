@@ -128,7 +128,7 @@ export const CLI_GROUPS: CliGroup[] = [
       { name: 'hyprconf schema list-sections', usage: 'hyprconf schema list-sections', description: 'List all config sections and key counts' },
       { name: 'hyprconf schema keys', usage: 'hyprconf schema keys <section>', description: 'List all keys in a config section with types and defaults' },
       { name: 'hyprconf schema validate', usage: 'hyprconf schema validate', description: 'Validate persisted config against the schema' },
-      { name: 'hyprconf show keybinds', usage: 'hyprconf show keybinds', description: 'Display all keybindings in a formatted table' },
+      { name: 'hyprconf show keybind', usage: 'hyprconf show keybind', description: 'Display all keybindings in a formatted table' },
     ],
   },
   {
@@ -238,6 +238,7 @@ export const KEYBINDINGS: KeybindCategory[] = [
     id: 'windows',
     bindings: [
       { keys: ['Super', 'Q'], action: 'Close active window' },
+      { keys: ['Super', 'Shift', 'Q'], action: 'Exit Hyprland session' },
       { keys: ['Super', 'V'], action: 'Toggle floating' },
       { keys: ['Super', 'Shift', 'Space'], action: 'Toggle floating (alternate)' },
       { keys: ['Super', 'Shift', 'F'], action: 'Toggle fullscreen' },

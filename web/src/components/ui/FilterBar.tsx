@@ -32,7 +32,7 @@ const FilterBar = React.forwardRef<HTMLDivElement, FilterBarProps>(
   ) => {
     return (
       <div ref={ref} className={cn(styles.bar, className)} {...props}>
-        <div className={styles.pills} role="radiogroup">
+        <div className={styles.pills} role="radiogroup" aria-label="Filter options">
           {options.map((opt) => (
             <button
               key={opt.value}

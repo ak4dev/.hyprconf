@@ -67,14 +67,16 @@ def read_persisted(section: str, key: str) -> Optional[str]:
         return None
 
     hkey = section_key_to_hyprctl(section, key)
-    prefix = hkey + " "
-    eq_prefix = hkey + "="
+    in_block = False
     for ln in path.read_text(encoding="utf-8").splitlines():
-        s = ln.strip()
-        if s.startswith(prefix) or s.startswith(eq_prefix):
-            m = _MANAGED_LINE_RE.match(s)
-            if m and m.group(1) == hkey:
-                return m.group(2).strip()
+        if MANAGED_MARKER in ln or _LEGACY_MARKER in ln:
+            in_block = True
+            continue
+        if not in_block:
+            continue
+        m = _MANAGED_LINE_RE.match(ln.strip())
+        if m and m.group(1) == hkey:
+            return m.group(2).strip()
     return None
 
 

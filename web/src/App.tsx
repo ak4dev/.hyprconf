@@ -6,6 +6,7 @@ import { Suspense } from 'react';
 import { ErrorBoundary } from '@/components/layout/ErrorBoundary';
 import { PageSkeleton } from '@/components/PageSkeleton';
 import Landing from '@/pages/Landing';
+import NotFound from '@/pages/NotFound';
 
 export function App() {
   return (
@@ -27,6 +28,7 @@ export function App() {
                 }
               />
             ))}
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
       </ThemeProvider>

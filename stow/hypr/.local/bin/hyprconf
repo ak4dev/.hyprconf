@@ -822,7 +822,7 @@ _option_meta() {
 # List keys for a given section
 _section_keys() {
   case "$1" in
-    general) echo "border_size gaps_in gaps_out float_gaps gaps_workspaces col.inactive_border col.active_border col.nogroup_border layout no_focus_fallback resize_on_border extend_border_grab_area hover_icon_on_border allow_tearing resize_corner modal_parent_blocking" ;;
+    general) echo "border_size gaps_in gaps_out float_gaps gaps_workspaces col.inactive_border col.active_border col.nogroup_border col.nogroup_border_active layout no_focus_fallback resize_on_border extend_border_grab_area hover_icon_on_border allow_tearing resize_corner modal_parent_blocking" ;;
     general.snap) echo "enabled window_gap monitor_gap border_overlap respect_gaps" ;;
     decoration) echo "rounding rounding_power active_opacity inactive_opacity fullscreen_opacity dim_modal dim_inactive dim_strength dim_special dim_around screen_shader border_part_of_window" ;;
     decoration.blur) echo "enabled size passes ignore_opacity new_optimizations xray noise contrast brightness vibrancy vibrancy_darkness special popups popups_ignorealpha" ;;
@@ -1022,7 +1022,7 @@ cmd_set_keyword() {
   [[ -n "$meta" ]] || { printf '%sUnknown option '\''%s'\'' in section '\''%s'\''  (try: hyprconf get %s)%s\n' "$_y" "$key" "$section" "$section" "$_r" >&2; return 1; }
 
   local type default _desc
-  IFS='|' read -r type default _desc <<<"$meta"
+  local IFS='|'; read -r type default _desc <<<"$meta"; unset IFS
 
   # Basic type validation
   case "$type" in
@@ -1034,7 +1034,7 @@ cmd_set_keyword() {
       case "${value,,}" in true|false|yes|no|on|off|0|1) ;; *) printf '%sValue must be true/false, got: %s%s\n' "$_y" "$value" "$_r" >&2; return 1 ;; esac ;;
     enum:*)
       local choices="${type#enum:}"
-      local valid=0
+      local valid=0 opts
       IFS=',' read -r -a opts <<<"$choices"
       for opt in "${opts[@]}"; do
         [[ "$value" == "$opt" ]] && valid=1 && break
@@ -1357,6 +1357,7 @@ cmd_hardware() {
             printf "OSK already running.\n"
           else
             wvkbd-launcher &
+            disown
             printf "${_g}OSK started.${_r}\n"
           fi
           ;;
@@ -1389,6 +1390,7 @@ cmd_hardware() {
             printf "autorotate already running.\n"
           else
             autorotate &
+            disown
             printf "${_g}Auto-rotation started.${_r}\n"
           fi
           ;;
@@ -1868,11 +1870,13 @@ _nightlight_on() {
   fi
   if command -v hyprsunset &>/dev/null; then
     hyprsunset -t "$temp" &
+    disown
     echo "$!" > "$_NIGHTLIGHT_PID"
     echo "$temp" > "$_NIGHTLIGHT_STATE"
     printf "${_g}✔${_r} Night light ${_b}ON${_r} (%sK)\n" "$temp"
   elif command -v wlsunset &>/dev/null; then
     wlsunset -T "$temp" &
+    disown
     echo "$!" > "$_NIGHTLIGHT_PID"
     echo "$temp" > "$_NIGHTLIGHT_STATE"
     printf "${_g}✔${_r} Night light ${_b}ON${_r} (%sK)\n" "$temp"
@@ -1960,10 +1964,12 @@ _record_start() {
 
   if command -v wf-recorder &>/dev/null; then
     wf-recorder -f "$filename" "$@" &
+    disown
     echo "$!" > "$_RECORD_PIDFILE"
     printf "${_g}✔${_r} Recording started → %s\n" "$filename"
   elif command -v gpu-screen-recorder &>/dev/null; then
     gpu-screen-recorder -w screen -f 60 -o "$filename" "$@" &
+    disown
     echo "$!" > "$_RECORD_PIDFILE"
     printf "${_g}✔${_r} Recording started → %s\n" "$filename"
   else
