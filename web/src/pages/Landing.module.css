@@ -15,14 +15,20 @@
   max-width: 720px;
 }
 
+.installBlock {
+  width: 100%;
+  max-width: 480px;
+  border-radius: var(--hc-radius-md);
+}
+
 @media (prefers-reduced-motion: no-preference) {
-  .heroGlow {
+  .installBlock {
     animation: glow-pulse 3s ease-in-out infinite;
   }
 }
 @keyframes glow-pulse {
-  0%, 100% { filter: drop-shadow(0 0 16px color-mix(in srgb, var(--hc-accent) 20%, transparent)); }
-  50% { filter: drop-shadow(0 0 32px color-mix(in srgb, var(--hc-accent) 35%, transparent)); }
+  0%, 100% { box-shadow: 0 0 16px color-mix(in srgb, var(--hc-accent) 20%, transparent); }
+  50% { box-shadow: 0 0 32px color-mix(in srgb, var(--hc-accent) 35%, transparent); }
 }
 
 .heroTitle {
@@ -57,11 +63,6 @@
   flex-direction: column;
   align-items: center;
   gap: var(--hc-space-4);
-}
-
-.installBlock {
-  width: 100%;
-  max-width: 480px;
 }
 
 .ghButton {
