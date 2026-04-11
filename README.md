@@ -7,7 +7,7 @@
   <img alt="arch linux" src="https://img.shields.io/badge/arch-linux-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" />
   <img alt="hyprland" src="https://img.shields.io/badge/hyprland-wayland-111827?style=for-the-badge&logo=wayland&logoColor=white" />
   <img alt="gnu stow" src="https://img.shields.io/badge/gnu%20stow-dotfiles-3a7f2e?style=for-the-badge&logo=gnu&logoColor=white" />
-  <img alt="themes" src="https://img.shields.io/badge/themes-67-8b5cf6?style=for-the-badge" />
+  <img alt="themes" src="https://img.shields.io/badge/themes-68-8b5cf6?style=for-the-badge" />
 </p>
 
 # .hyprconf
@@ -34,7 +34,7 @@
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
-- **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for any keyboard with vendor ID `0x3434`; enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `hyprconf sync`
+- **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `hyprconf sync`
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
@@ -86,7 +86,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
 9. Hardware feature detection: touchscreen → installs `wvkbd` (AUR) + writes `conf.d/60-hardware.conf`; accelerometer → installs + enables `iio-sensor-proxy`
 10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery
-11. Keychron / Lemokey HID permissions: installs udev rule (`70-keychron.rules`) for vendor `0x3434` → `TAG+="uaccess"` so `launcher.keychron.com` (WebHID) can remap keys
+11. Keychron / Lemokey HID permissions: installs udev rule (`70-keychron.rules`) for Keychron (`0x3434`) and Lemokey (`0x362d`) → `TAG+="uaccess"` so `launcher.keychron.com` (WebHID) can remap keys
 12. `ufw` deny-inbound / allow-outbound; enable + start
 12. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend
 13. Reload Hyprland
@@ -474,6 +474,7 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | File manager support | `gvfs` |
 | Icons & themes | `papirus-icon-theme`, `adw-gtk3` (AUR) |
 | GTK sync | `xsettingsd` |
+| Touch panel | `gtk-layer-shell` |
 | Fonts | `ttf-jetbrains-mono-nerd`, `noto-fonts-emoji` |
 | Power management | `power-profiles-daemon` |
 | Firewall | `ufw` |
@@ -521,9 +522,10 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 
 | Keybind | Action |
 |---|---|
-| `Super + 1–0` | Switch to workspace 1–10 |
-| `Super + F1 / F2` | Workspace 3 / 4 |
-| `Super + Shift + 1–0` | Move window to workspace |
+| `Super + 1, 2, 5–0` | Switch to workspace 1, 2, 5–10 |
+| `Super + F1 / F2` | Switch to workspace 3 / 4 |
+| `Super + Shift + 1, 2, 5–0` | Move window to workspace 1, 2, 5–10 |
+| `Super + Shift + F1 / F2` | Move window to workspace 3 / 4 |
 | `Super + M` | Toggle scratchpad |
 | `Super + Shift + M` | Move to scratchpad |
 | `Super + Scroll` | Cycle workspaces |
