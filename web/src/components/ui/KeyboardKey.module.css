@@ -1,0 +1,28 @@
+.combo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hc-space-1);
+}
+
+.key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  padding: var(--hc-space-1) var(--hc-space-2);
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-xs);
+  background: var(--hc-bg-elevated);
+  border: 1px solid var(--hc-border-color);
+  border-bottom-width: 2px;
+  border-radius: var(--hc-radius-sm);
+  color: var(--hc-fg);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.separator {
+  color: var(--hc-comment);
+  font-size: var(--hc-font-size-xs);
+  margin: 0 1px;
+}

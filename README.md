@@ -123,6 +123,28 @@ Key paths:
 | `setup.sh` | Bootstrap + sync entry point |
 | `packages` | Arch packages (one per line) |
 | `install/install.sh` | Self-contained installer (served from CloudFront) |
+| `web/` | React frontend for hyprconf.sh |
+| `infra/cdk/` | CDK stack for website deployment |
+
+---
+
+## Website
+
+The project website at **[hyprconf.sh](https://hyprconf.sh)** is a React SPA with a retro-futuristic design. Browser visitors see the full site; `curl`/`wget` requests still receive `install.sh`.
+
+| Page | Route | Content |
+|---|---|---|
+| Landing | `/` | Hero, feature overview, install command |
+| Themes | `/themes` | 68-theme gallery with live preview + filter |
+| Keybindings | `/keybindings` | Categorized keybinding reference with search |
+| CLI Reference | `/cli` | Accordion-based command reference |
+| Installation | `/install` | Three install modes with step-by-step guides |
+
+**Tech stack:** React 19, TypeScript, Vite, Radix UI, CSS Modules, Vitest + RTL.
+
+**Theme sync:** Themes are generated at build time from the same JSON files used by the desktop theme engine. Run `cd web && npm run generate-themes` after adding themes.
+
+**Deploy:** `web/deploy.sh` builds and deploys via CDK. Requires AWS credentials for the `390844779058` account.
 
 ---
 

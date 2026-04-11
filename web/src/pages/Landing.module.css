@@ -1,0 +1,94 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hc-space-16);
+}
+
+.hero {
+  display: flex;
+  justify-content: center;
+  padding: var(--hc-space-24) 0 var(--hc-space-12);
+}
+
+.heroGlow {
+  text-align: center;
+  max-width: 720px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .heroGlow {
+    animation: glow-pulse 3s ease-in-out infinite;
+  }
+}
+@keyframes glow-pulse {
+  0%, 100% { filter: drop-shadow(0 0 16px color-mix(in srgb, var(--hc-accent) 20%, transparent)); }
+  50% { filter: drop-shadow(0 0 32px color-mix(in srgb, var(--hc-accent) 35%, transparent)); }
+}
+
+.heroTitle {
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-3xl);
+  font-weight: 700;
+  color: var(--hc-fg);
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.tagline {
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-lg);
+  color: var(--hc-accent);
+  margin: var(--hc-space-2) 0;
+}
+
+.description {
+  font-family: var(--hc-font-body);
+  font-size: var(--hc-font-size-base);
+  color: var(--hc-fg-muted);
+  line-height: 1.6;
+  margin: var(--hc-space-4) 0 var(--hc-space-8);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--hc-space-4);
+}
+
+.installBlock {
+  width: 100%;
+  max-width: 480px;
+}
+
+.ghButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hc-space-2);
+  padding: var(--hc-space-2) var(--hc-space-4);
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-sm);
+  color: var(--hc-accent);
+  border: var(--hc-border-width) solid var(--hc-accent);
+  border-radius: var(--hc-radius-sm);
+  text-decoration: none;
+  transition:
+    background-color var(--hc-transition-fast),
+    box-shadow var(--hc-transition-fast);
+}
+.ghButton:hover {
+  background: var(--hc-accent-muted);
+  box-shadow: var(--hc-glow-sm);
+}
+
+.features {
+  max-width: var(--hc-content-max);
+  margin: 0 auto;
+  width: 100%;
+}
+
+.featureGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--hc-space-4);
+}

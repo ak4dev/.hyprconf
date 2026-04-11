@@ -1,0 +1,53 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hc-space-6);
+}
+
+.count {
+  color: var(--hc-fg-muted);
+  font-weight: 400;
+}
+
+.intro {
+  font-family: var(--hc-font-body);
+  font-size: var(--hc-font-size-sm);
+  color: var(--hc-fg-muted);
+  margin: 0;
+}
+.intro strong {
+  color: var(--hc-accent);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: var(--hc-space-4);
+  margin-top: var(--hc-space-4);
+}
+
+.empty {
+  grid-column: 1 / -1;
+  text-align: center;
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-sm);
+  color: var(--hc-fg-muted);
+  padding: var(--hc-space-8);
+}
+
+.prose {
+  font-family: var(--hc-font-body);
+  font-size: var(--hc-font-size-base);
+  color: var(--hc-fg);
+  line-height: 1.7;
+}
+.prose p {
+  margin: 0 0 var(--hc-space-4);
+}
+.prose code {
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-sm);
+  background: var(--hc-bg-elevated);
+  padding: 2px var(--hc-space-1);
+  border-radius: var(--hc-radius-sm);
+}

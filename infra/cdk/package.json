@@ -1,0 +1,16 @@
+{
+  "name": "hyprconf-cdk",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "aws-cdk": "^2",
+    "aws-cdk-lib": "^2",
+    "constructs": "^10",
+    "typescript": "~5.7",
+    "vitest": "^4"
+  }
+}

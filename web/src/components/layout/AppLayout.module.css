@@ -1,0 +1,23 @@
+.layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.body {
+  flex: 1;
+  max-width: var(--hc-content-max);
+  margin: 0 auto;
+  width: 100%;
+  padding: var(--hc-space-8) var(--hc-space-4);
+}
+
+.withSidebar {
+  display: flex;
+  gap: var(--hc-space-8);
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}

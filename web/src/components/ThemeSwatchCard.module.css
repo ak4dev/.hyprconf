@@ -1,0 +1,67 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hc-space-2);
+  padding: var(--hc-space-3);
+  background: var(--hc-bg-elevated);
+  border: var(--hc-border-width) solid var(--hc-border-color);
+  border-radius: var(--hc-radius-md);
+  cursor: pointer;
+  transition:
+    border-color var(--hc-transition-base),
+    box-shadow var(--hc-transition-base),
+    transform var(--hc-transition-base);
+  position: relative;
+  text-align: left;
+  width: 100%;
+}
+.card:hover {
+  transform: scale(1.02);
+  box-shadow: var(--hc-glow-md);
+  border-color: var(--hc-border-accent);
+}
+
+.active {
+  border-color: var(--hc-accent);
+  box-shadow: var(--hc-glow-md);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--hc-space-2);
+}
+
+.name {
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-xs);
+  color: var(--hc-fg);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swatches {
+  display: flex;
+  gap: 2px;
+  border-radius: var(--hc-radius-sm);
+  overflow: hidden;
+}
+
+.swatch {
+  flex: 1;
+  height: 20px;
+  min-width: 0;
+}
+
+.activeLabel {
+  position: absolute;
+  top: var(--hc-space-2);
+  right: var(--hc-space-2);
+  font-family: var(--hc-font-mono);
+  font-size: 10px;
+  color: var(--hc-accent);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

@@ -1,0 +1,29 @@
+.heading {
+  font-family: var(--hc-font-mono);
+  font-weight: 600;
+  color: var(--hc-fg);
+  margin-top: var(--hc-space-12);
+  margin-bottom: var(--hc-space-4);
+  padding-left: var(--hc-space-4);
+  position: relative;
+  scroll-margin-top: calc(var(--hc-nav-height) + var(--hc-space-4));
+}
+
+.heading::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 3px;
+  background: var(--hc-accent);
+  border-radius: 2px;
+}
+
+h2.heading {
+  font-size: var(--hc-font-size-xl);
+}
+
+h3.heading {
+  font-size: var(--hc-font-size-lg);
+}

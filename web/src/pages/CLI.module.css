@@ -1,0 +1,39 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hc-space-4);
+}
+
+.intro {
+  font-family: var(--hc-font-body);
+  font-size: var(--hc-font-size-sm);
+  color: var(--hc-fg-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+.intro code {
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-sm);
+  background: var(--hc-bg-elevated);
+  padding: 2px var(--hc-space-1);
+  border-radius: var(--hc-radius-sm);
+}
+
+.commands {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hc-space-4);
+}
+
+.command {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hc-space-2);
+}
+
+.cmdDesc {
+  font-family: var(--hc-font-body);
+  font-size: var(--hc-font-size-sm);
+  color: var(--hc-fg-muted);
+  margin: 0;
+}

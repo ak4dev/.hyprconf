@@ -1,0 +1,36 @@
+/* Glow pulse — hero accent border */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: var(--hc-glow-md); }
+  50% { box-shadow: var(--hc-glow-lg); }
+}
+.glow-pulse {
+  animation: glow-pulse 3s ease-in-out infinite;
+}
+
+/* Blinking cursor */
+@keyframes blink {
+  50% { opacity: 0; }
+}
+.cursor-blink::after {
+  content: '█';
+  color: var(--hc-accent);
+  animation: blink 1s step-end infinite;
+  margin-left: 2px;
+}
+
+/* Text glitch — sparingly used */
+@keyframes glitch {
+  0%, 100% { clip-path: inset(0); transform: none; }
+  20% { clip-path: inset(20% 0 60% 0); transform: translateX(-2px); }
+  40% { clip-path: inset(60% 0 10% 0); transform: translateX(2px); }
+  60% { clip-path: inset(40% 0 30% 0); transform: translateX(-1px); }
+}
+.glitch-text:hover {
+  animation: glitch 0.3s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .glow-pulse { animation: none; }
+  .cursor-blink::after { animation: none; opacity: 1; }
+  .glitch-text:hover { animation: none; }
+}

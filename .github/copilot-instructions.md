@@ -134,3 +134,88 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 
 - Monitor presets live in `stow/hypr/.config/hypr/` as `pcMonitors.<name>` files.
 - When adding a new preset, add a corresponding keybind in `keybinds.conf` and document it in `README.md`.
+
+---
+
+## Web Frontend (`web/`)
+
+The `web/` directory contains a React SPA served at `hyprconf.sh` for browser visitors (CLI tools like `curl`/`wget` still receive `install.sh`).
+
+### Tech Stack
+
+- **React 19** + **TypeScript** + **Vite** — fast builds, strict types
+- **React Router** — multi-page SPA (/, /themes, /keybindings, /cli, /install)
+- **Radix UI** — accessible primitives (icons)
+- **CSS Modules** — co-located per-component styles consuming design tokens
+- **Vitest** + **React Testing Library** — 236+ tests
+
+### Architecture Rules
+
+- **Route config** — `web/src/routes.ts` is the single source of truth for navigation. Adding a route entry auto-populates the top nav and footer. Every page is lazy-loaded via `React.lazy`.
+- **Theme system** — `web/scripts/generate-themes.ts` reads all 68 theme JSONs from `stow/hypr/.config/hypr/scripts/theme-switcher/themes/` at build time and generates `web/src/generated/themes.ts`. Do not edit `themes.ts` manually.
+- **CSS custom properties** — all components consume `var(--hc-*)` tokens. Never hardcode colour hex values in components or CSS modules.
+- **Content as data** — all user-facing text lives in `web/src/content.ts` as structured exports. Any README change affecting user-facing feature descriptions must also update `content.ts`.
+- **Component patterns** — all UI primitives use `forwardRef`, polymorphic `as` prop where applicable, CSS Modules, and design tokens only.
+
+### Content Sync Rule
+
+When updating features in the README, also update the corresponding data in `web/src/content.ts`:
+- Feature additions/removals → update `FEATURES` array
+- CLI command changes → update `CLI_GROUPS`
+- Keybinding changes → update `KEYBINDINGS`
+- Install flow changes → update `INSTALL_MODES`
+- Theme additions → re-run `npm run generate-themes` in `web/`
+
+### Deploy Process
+
+1. `cd web && npm run build` (includes theme generation via prebuild)
+2. `cd infra/cdk && npx cdk deploy`
+3. Or use the wrapper: `web/deploy.sh`
+
+### Adding a New Page
+
+1. Create page component in `web/src/pages/<Name>.tsx` + CSS module
+2. Add route entry in `web/src/routes.ts` — it auto-appears in nav
+3. Add structured content in `web/src/content.ts`
+
+---
+
+## CDK Infrastructure (`infra/cdk/`)
+
+The CDK stack manages website-specific AWS resources. It coexists with the existing `infra/deploy.sh` which owns the CloudFront distribution lifecycle, ACM certificates, and Route53 records.
+
+### What CDK manages
+
+- **CloudFront Function** (`hyprconf-ua-router`) — UA-based routing; curl/wget → `/install.sh`, browsers → React SPA
+- **S3 BucketDeployment** — uploads `web/dist/` to the `hyprconf-sh` bucket with cache invalidation
+- References existing resources by ID/ARN (does not recreate the distribution or bucket)
+
+### Key resource IDs (in `cdk.json` context)
+
+| Resource | Value |
+|---|---|
+| Distribution ID | `E3MPOPCWTB2GDM` |
+| S3 Bucket | `hyprconf-sh` |
+| ACM Certificate | `arn:aws:acm:us-east-1:390844779058:certificate/68ccbde3-...` |
+| AWS Account | `390844779058` |
+
+### Important constraints
+
+- **`DefaultRootObject` is `install.sh`** — must never change (curl support)
+- **`deploy.sh` and CDK coexist** — deploy.sh owns distribution/cert/DNS; CDK owns function/website assets
+- The CloudFront Function was originally created manually via AWS CLI — now managed by CDK
+
+---
+
+## Known Codebase Quirks
+
+These findings may help future agents avoid common pitfalls:
+
+- **Bash 5.3 `$(< file 2>/dev/null)` is broken** — the redirect breaks the `$(<)` special form, returning empty. Use `$(cat file 2>/dev/null)` instead.
+- **Number keys 3/4 are NOT bound to workspaces** — F1/F2 are used instead for workspaces 3/4.
+- **`iwd` package** is commented out in `packages` but referenced in `setup.sh` — guarded by `command -v iwctl` so systems without iwd don't fail.
+- **Theme count** must be updated in the README badge, theme tables, and `web/src/generated/themes.ts` (auto via `npm run generate-themes`) when adding themes.
+- **`lucide-react`** does not export `Github` — use `GitHubLogoIcon` from `@radix-ui/react-icons` instead.
+- **`npm create vite`** hangs in non-interactive terminals — scaffold Vite projects manually.
+- **`npx tsx`** works for ESM TypeScript scripts; `ts-node` does not work well with ESM + Node 22.
+- **ESM `__dirname`** — not available in ESM modules. Use `import { fileURLToPath } from 'url'` with `path.dirname(fileURLToPath(import.meta.url))`.

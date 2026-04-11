@@ -1,0 +1,28 @@
+:root {
+  /* Base theme colours — set dynamically by ThemeProvider */
+  --hc-bg: #1e1e2e;
+  --hc-fg: #cdd6f4;
+  --hc-accent: #f5c2e7;
+  --hc-comment: #6c7086;
+  --hc-red: #f38ba8;
+  --hc-green: #a6e3a1;
+  --hc-yellow: #f9e2af;
+  --hc-orange: #fab387;
+  --hc-pink: #f5c2e7;
+  --hc-purple: #cba6f7;
+  --hc-cyan: #89dceb;
+
+  /* Derived tokens */
+  --hc-bg-elevated: color-mix(in srgb, var(--hc-bg) 85%, var(--hc-fg));
+  --hc-bg-surface: color-mix(in srgb, var(--hc-bg) 92%, var(--hc-fg));
+  --hc-fg-muted: color-mix(in srgb, var(--hc-fg) 60%, var(--hc-bg));
+  --hc-accent-muted: color-mix(in srgb, var(--hc-accent) 20%, var(--hc-bg));
+  --hc-border-color: color-mix(in srgb, var(--hc-comment) 40%, transparent);
+  --hc-border-accent: color-mix(in srgb, var(--hc-accent) 50%, transparent);
+
+  /* Glow effects */
+  --hc-glow-sm: 0 0 8px color-mix(in srgb, var(--hc-accent) 30%, transparent);
+  --hc-glow-md: 0 0 16px color-mix(in srgb, var(--hc-accent) 40%, transparent);
+  --hc-glow-lg: 0 0 32px color-mix(in srgb, var(--hc-accent) 50%, transparent);
+  --hc-glow-hover: 0 0 20px color-mix(in srgb, var(--hc-accent) 60%, transparent);
+}

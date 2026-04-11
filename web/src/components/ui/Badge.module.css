@@ -1,0 +1,38 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--hc-font-mono);
+  font-size: var(--hc-font-size-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: var(--hc-space-1) var(--hc-space-2);
+  border-radius: var(--hc-radius-sm);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.default {
+  background: color-mix(in srgb, var(--hc-comment) 20%, transparent);
+  color: var(--hc-comment);
+}
+
+.accent {
+  background: color-mix(in srgb, var(--hc-accent) 20%, transparent);
+  color: var(--hc-accent);
+}
+
+.dark {
+  background: color-mix(in srgb, var(--hc-purple) 20%, transparent);
+  color: var(--hc-purple);
+}
+
+.light {
+  background: color-mix(in srgb, var(--hc-yellow) 20%, transparent);
+  color: var(--hc-yellow);
+}
+
+.ai {
+  background: color-mix(in srgb, var(--hc-cyan) 20%, transparent);
+  color: var(--hc-cyan);
+}

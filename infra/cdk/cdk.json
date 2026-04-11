@@ -1,0 +1,8 @@
+{
+  "app": "npx ts-node bin/app.ts",
+  "context": {
+    "distributionId": "E3MPOPCWTB2GDM",
+    "bucketName": "hyprconf-sh",
+    "certificateArn": "arn:aws:acm:us-east-1:390844779058:certificate/68ccbde3-1d9e-4939-8eeb-74d366da9d5d"
+  }
+}
