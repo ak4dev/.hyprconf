@@ -84,6 +84,31 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 - Do not manually create files under `~/.config/` — add them to the appropriate `stow/<package>/` directory instead.
 - Do not create new top-level stow packages without also adding any required binaries to the `packages` file.
 
+## Repository Layout
+
+This is a monorepo — all components (dotfiles, Python library, web frontend, deploy infra, tests) are tightly coupled and version-lock to each other. Splitting into separate repos would add coordination overhead with no benefit.
+
+| Directory | Purpose | Needed by end users |
+|---|---|---|
+| `stow/` | Dotfiles symlinked into `$HOME` by GNU Stow | ✔ |
+| `install/` | `install.sh` (also deployed to S3) | ✔ |
+| `assets/` | Banner SVG/script, screenshot | ✔ |
+| `theme/` | Vendor extension bundles (Firefox .xpi, VS Code .vsix) | ✔ |
+| `infra/` | AWS deploy pipeline (`deploy.sh`), CloudFront function, Firefox policies | ✔ (for `hyprconf deploy`) |
+| `web/` | React frontend for hyprconf.sh — **deploy-only, not user-facing** | ✗ |
+| `tests/` | All test tiers (unit/integration/tui/vm/install) | ✗ |
+| `scripts/` | `publish` script for releases | ✗ |
+| `docs/` | CONTRIBUTING.md, hyprland-reference.md | ✗ |
+| `.github/` | CI workflows, copilot instructions | ✗ |
+
+### Key layout rules
+
+- **`web/` stays at top-level** — it is a full React application with its own `package.json`, `src/`, and test suite. It does NOT belong inside `infra/`. `infra/deploy.sh` calls into `web/` to build, but that is a build dependency, not a structural coupling.
+- **`theme/` contains vendor extension bundles** — NOT hyprconf themes. Hyprconf theme JSONs live at `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`. The `theme/` name is legacy; do not add hyprconf theme JSONs here.
+- **`infra/firefox/policies.json`** is a system-level Firefox policy (goes to `/usr/lib/firefox/distribution/`). It belongs in `infra/`, not `stow/`, because it targets a system path, not `$HOME`.
+- **`.gitattributes` `export-ignore`** excludes dev-only directories from `git archive` tarballs: `tests/`, `scripts/`, `.github/`, `web/`, `docs/`, `pyproject.toml`, `Makefile`, `.editorconfig`, `AGENTS.md`.
+- **No dead code directories** — if a directory is unused, remove it. Git history preserves it.
+
 ## Package Management
 
 - All required Arch packages must be listed in the `packages` file.
@@ -217,7 +242,6 @@ All web assets are deployed via `aws s3 sync` (no CDK dependency). The CloudFron
 - **Bucket policy is enforced on every deploy path** — `_ensure_bucket_policy()` is idempotent and called by both the full deploy and web-only (`deploy web`) paths. Without it, S3 returns 403 (AccessDenied) for all web assets.
 - **CF function association is automated** — `_ensure_cf_function_association()` programmatically associates the function with the distribution's default cache behavior via `update-distribution`. Without this, browsers hit S3 directly, which returns 403 for non-existent SPA routes.
 - **`web/deploy.sh` is a thin wrapper** — delegates to `infra/deploy.sh web`
-- **`infra/cdk/` exists but is not used in the deploy pipeline** — kept for reference only
 - The CloudFront Function was originally created manually via AWS CLI — now managed by `_deploy_cf_function()`
 
 ---
@@ -238,12 +262,14 @@ Config files under `stow/` must use `~` or relative paths since they are stowed 
 
 These findings may help future agents avoid common pitfalls:
 
+- **Never use `git update-index --skip-worktree`** — this hides files from the working tree while keeping them tracked. If `.gitignore` or `.editorconfig` goes missing, editors and tools silently break. If a previous rebase sets skip-worktree flags, clear them immediately with `git update-index --no-skip-worktree <file> && git checkout -- <file>`.
 - **Branding: `.hyprconf` vs `hyprconf.sh`** — the project name is stylised as **`.hyprconf`** (with leading dot) everywhere except when referring to the domain/URL, which is **`hyprconf.sh`**. In the web frontend the dot is rendered with a `<span className={styles.dot}>` for accent colouring. Never write "hyprconf" without a leading dot unless it's the domain, a CLI binary name (`hyprconf theme`, `hyprconf sync`), or the install command.
 - **Default theme is `ai:circuit`** — the web frontend defaults to `ai:circuit` (set in `web/scripts/generate-themes.ts`). `setup.sh:reapply_current_theme()` also defaults to `ai:circuit`. If changing, update both.
 - **Bash 5.3 `$(< file 2>/dev/null)` is broken** — the redirect breaks the `$(<)` special form, returning empty. Use `$(cat file 2>/dev/null)` instead.
 - **Number keys 3/4 are NOT bound to workspaces** — F1/F2 are used instead for workspaces 3/4.
 - **`iwd` package** is commented out in `packages` but referenced in `setup.sh` — guarded by `command -v iwctl` so systems without iwd don't fail.
 - **Theme count** must be updated in the README badge, theme tables, and `web/src/generated/themes.ts` (auto via `npm run generate-themes`) when adding themes. `web/src/content.ts` uses `themeCount` from the generated file — no manual update needed there.
+- **`theme/` dir is vendor extensions** — NOT hyprconf themes. Firefox .xpi and VS Code .vsix bundles live here. Hyprconf theme JSONs are at `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`.
 - **`lucide-react`** does not export `Github` — use `GitHubLogoIcon` from `@radix-ui/react-icons` instead.
 - **`npm create vite`** hangs in non-interactive terminals — scaffold Vite projects manually.
 - **`npx tsx`** works for ESM TypeScript scripts; `ts-node` does not work well with ESM + Node 22.

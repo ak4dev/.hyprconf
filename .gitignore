@@ -17,6 +17,9 @@ stow/hypr/.config/hypr/monitors.conf
 *.swp
 *.swo
 
+# Node.js / web frontend
+node_modules/
+
 # Infrastructure — never commit credentials or runtime state
 infra/env.sh
 infra/deploy-state

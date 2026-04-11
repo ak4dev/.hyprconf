@@ -1,7 +1,0 @@
-{
-  "app": "npx tsx bin/app.ts",
-  "context": {
-    "distributionId": "E3MPOPCWTB2GDM",
-    "bucketName": "hyprconf-sh"
-  }
-}

@@ -1,8 +1,11 @@
 tests/ export-ignore
 scripts/ export-ignore
 .github/ export-ignore
+web/ export-ignore
+docs/ export-ignore
 AGENTS.md export-ignore
 Makefile export-ignore
+.editorconfig export-ignore
 **/__pycache__/ export-ignore
 *.pyc export-ignore
 pyproject.toml export-ignore
