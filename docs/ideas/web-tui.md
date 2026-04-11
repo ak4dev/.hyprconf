@@ -177,19 +177,108 @@ host = "0.0.0.0"
 port = 8000
 ```
 
-### entrypoint.sh
+### entrypoint.sh (container entrypoint)
 
 ```bash
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Each session gets an isolated HOME with default configs
-# textual-serve handles session isolation via subprocesses
-# We just need the default config templates in place
+# Clean stale sessions older than 30 minutes
+find /tmp/hyprconf-sessions -maxdepth 1 -mmin +30 -type d -exec rm -rf {} + 2>/dev/null || true
+mkdir -p /tmp/hyprconf-sessions
 
-export TEXTUAL_SERVE_HOME="/app"
 exec textual-serve --config /app/serve.toml
 ```
+
+### session-wrapper.sh (invoked by textual-serve per connection)
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Each WebSocket connection gets an isolated HOME with default configs.
+# The TUI reads/writes within this sandbox — it thinks it's a normal
+# ~/.config/hypr/ directory. On disconnect the trap cleans up.
+
+SESSION_DIR=$(mktemp -d /tmp/hyprconf-sessions/sess-XXXXXXXX)
+cp -r /app/defaults/.config "$SESSION_DIR/.config"
+
+export HOME="$SESSION_DIR"
+export HYPRCONF_WEB_MODE=1
+trap 'rm -rf "$SESSION_DIR"' EXIT
+
+exec python3 /app/main.py
+```
+
+### serve.toml (updated to use session wrapper)
+
+```toml
+[app]
+command = "/app/session-wrapper.sh"
+title = "hyprconf TUI"
+
+[server]
+host = "0.0.0.0"
+port = 8000
+```
+
+---
+
+## Session Model (config isolation)
+
+Every browser connection gets a fully isolated sandbox. No shared state,
+no database, no persistent storage.
+
+### Lifecycle
+
+```
+User connects (WebSocket)
+  │
+  ├─ textual-serve spawns subprocess → session-wrapper.sh
+  │    ├─ mktemp -d /tmp/hyprconf-sessions/sess-XXXXXXXX
+  │    ├─ cp -r /app/defaults/.config → session dir
+  │    ├─ HOME=$SESSION_DIR
+  │    └─ exec python3 main.py
+  │
+  ├─ User browses sections, edits options
+  │    └─ All reads/writes go to $HOME/.config/hypr/
+  │
+  ├─ User presses [s] → save_pending() writes to session sandbox
+  ├─ User presses [e] → export tarball, browser downloads it
+  │
+  └─ User disconnects (or timeout)
+       └─ trap fires → rm -rf $SESSION_DIR
+```
+
+### Storage math
+
+| Scenario | Sessions | Disk per session | Total |
+|---|---|---|---|
+| Quiet day | 10 | ~50 KB | ~500 KB |
+| Normal traffic | 100 | ~50 KB | ~5 MB |
+| Heavy traffic | 1,000 | ~50 KB | ~50 MB |
+
+A t3.micro has 8 GB of storage. Even at 1,000 concurrent sessions the
+disk usage is negligible. Stale session cleanup runs on every container
+start and can be cron'd for long-running instances.
+
+### Isolation guarantees
+
+- **Process isolation:** Each session is a separate OS process (textual-serve
+  spawns one per connection).
+- **Filesystem isolation:** Each process has a unique `HOME`. No process can
+  see another's config files.
+- **No persistence:** Session dirs are deleted on disconnect. Nothing survives.
+  If a user disconnects before exporting, the config is gone — this is by
+  design (the TUI is a config *builder*, not a storage service).
+- **No shared state:** No database, no S3, no Redis. Just temp directories on
+  local disk.
+
+### What if we want optional persistence later?
+
+Assign a session token (UUID) and keep the dir for 24 hours. Provide a
+resume URL: `tui.hyprconf.sh?session=UUID`. This adds complexity for
+marginal value — defer unless user demand warrants it.
 
 ---
 
