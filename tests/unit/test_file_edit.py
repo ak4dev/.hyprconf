@@ -337,3 +337,35 @@ def test_strip_comment_preserves_plain_line() -> None:
 def test_strip_comment_strips_surrounding_whitespace() -> None:
     from hyprconf.file_edit import strip_comment
     assert strip_comment("   key = value   ") == "key = value"
+
+
+def test_strip_comment_preserves_hex_color_6() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("col.active_border = #ff0000") == "col.active_border = #ff0000"
+
+
+def test_strip_comment_preserves_hex_color_8() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("col.active_border = #ff0000ee") == "col.active_border = #ff0000ee"
+
+
+def test_strip_comment_preserves_hex_with_trailing_comment() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("col = #ff0000 # red") == "col = #ff0000"
+
+
+def test_strip_comment_preserves_multiple_hex() -> None:
+    from hyprconf.file_edit import strip_comment
+    result = strip_comment("gradient = #aabbcc #ddeeff 45deg")
+    assert result == "gradient = #aabbcc #ddeeff 45deg"
+
+
+def test_strip_comment_on_hash_only_line() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("#") == ""
+
+
+def test_strip_comment_preserves_midline_hex_with_comment() -> None:
+    from hyprconf.file_edit import strip_comment
+    result = strip_comment("col = #112233 #445566  # gradient colors")
+    assert result == "col = #112233 #445566"

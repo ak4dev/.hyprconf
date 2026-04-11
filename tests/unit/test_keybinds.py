@@ -277,3 +277,48 @@ def test_read_follows_glob_source(hypr_dir: Path) -> None:
     dispatchers = {e.dispatcher for e in entries}
     assert "exec" in dispatchers
     assert len(entries) == 2
+
+
+# ---------------------------------------------------------------------------
+# Edge cases: malformed input
+# ---------------------------------------------------------------------------
+
+
+def test_read_keybinds_malformed_lines(hypr_dir: Path) -> None:
+    """Lines with wrong field count or no = are skipped gracefully."""
+    conf = hypr_dir / "keybinds.conf"
+    conf.write_text(
+        "$mainMod = SUPER\n"
+        "bind = $mainMod, T, exec, kitty\n"
+        "this is not a keybind line\n"
+        "bind = \n"
+        "bind $mainMod SHIFT Q killactive\n"
+        "bind = $mainMod, R, exec, rofi\n"
+    )
+    entries = read_keybinds(conf)
+    assert len(entries) == 2
+    # tuples: (kind, mods, key, dispatcher, args)
+    assert entries[0][2] == "T"
+    assert entries[1][2] == "R"
+
+
+def test_read_keybinds_blank_and_comment_lines(hypr_dir: Path) -> None:
+    """Blank lines and comments are ignored."""
+    conf = hypr_dir / "keybinds.conf"
+    conf.write_text(
+        "\n\n"
+        "# This is a comment\n"
+        "bind = SUPER, X, exec, xterm\n"
+        "   \n"
+        "# Another comment\n"
+    )
+    entries = read_keybinds(conf)
+    assert len(entries) == 1
+    assert entries[0][2] == "X"
+
+
+def test_read_keybinds_nonexistent_file(tmp_path: Path) -> None:
+    """Reading from a file that doesn't exist returns empty list."""
+    missing = tmp_path / "nonexistent.conf"
+    entries = read_keybinds(missing)
+    assert entries == []

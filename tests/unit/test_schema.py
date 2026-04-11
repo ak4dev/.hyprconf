@@ -217,6 +217,21 @@ def test_validate_color_invalid() -> None:
     assert ok is False
 
 
+def test_validate_color_rgb_format() -> None:
+    ok, _ = validate_value("color", "rgb(255, 128, 0)")
+    assert ok is True
+
+
+def test_validate_color_rgba_format() -> None:
+    ok, _ = validate_value("color", "rgba(255, 128, 0, 0.5)")
+    assert ok is True
+
+
+def test_validate_color_unset() -> None:
+    ok, _ = validate_value("color", "unset")
+    assert ok is True
+
+
 # ---------------------------------------------------------------------------
 # validate_value — gradient / vec2 / str (permissive)
 # ---------------------------------------------------------------------------

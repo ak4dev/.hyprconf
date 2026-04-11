@@ -4,6 +4,7 @@ import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from '@/lib/theme-provider';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Landing from '@/pages/Landing';
+import NotFound from '@/pages/NotFound';
 
 function renderWithRouter(route = '/') {
   return render(
@@ -12,6 +13,7 @@ function renderWithRouter(route = '/') {
         <Routes>
           <Route element={<AppLayout />}>
             <Route index element={<Landing />} />
+            <Route path="*" element={<NotFound />} />
           </Route>
         </Routes>
       </ThemeProvider>
@@ -55,5 +57,19 @@ describe('Landing page', () => {
     expect(img).toBeInTheDocument();
     expect(img).toHaveAttribute('src', '/images/hyprconf.webp');
     expect(img).toHaveAttribute('loading', 'lazy');
+  });
+});
+
+describe('404 page', () => {
+  it('renders NotFound for unknown routes', () => {
+    renderWithRouter('/nonexistent-page');
+    expect(screen.getByText('404')).toBeInTheDocument();
+  });
+
+  it('renders a link back to home', () => {
+    renderWithRouter('/does-not-exist');
+    const homeLink = screen.getByText(/back to home/i);
+    expect(homeLink).toBeInTheDocument();
+    expect(homeLink.closest('a')).toHaveAttribute('href', '/');
   });
 });
