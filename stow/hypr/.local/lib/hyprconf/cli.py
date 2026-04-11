@@ -390,12 +390,15 @@ def cmd_autodetect(args: list[str]) -> int:
 
     print(f"  Found: {result.found_config}")
     print(f"  Parsed {result.option_count} option(s)")
-    if result.warning_count:
-        print(f"  {result.warning_count} line(s) could not be parsed:")
+    if result.warnings:
+        for w in result.warnings:
+            print(f"  Warning: {w}")
+    if result.unknown_lines:
+        print(f"  {len(result.unknown_lines)} line(s) could not be parsed:")
         for w in result.unknown_lines[:10]:
             print(f"    {w}")
-        if result.warning_count > 10:
-            print(f"    … and {result.warning_count - 10} more")
+        if len(result.unknown_lines) > 10:
+            print(f"    … and {len(result.unknown_lines) - 10} more")
 
     n = migrate(result)
     from hyprconf.config import OVERRIDES_FILE

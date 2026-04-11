@@ -812,7 +812,7 @@ reapply_current_theme() {
 
     local theme_name=""
     [[ -f "$state_file" ]] && theme_name="$(tr -d '[:space:]' < "$state_file")"
-    [[ -z "$theme_name" ]] && theme_name="catppuccin-mocha"
+    [[ -z "$theme_name" ]] && theme_name="ai:circuit"
 
     log_step "Applying theme: $theme_name"
     python3 "$script" "$theme_name" --no-reload \
@@ -1023,6 +1023,14 @@ sync_services() {
             printf '[device]\nwifi.backend=iwd\n' | sudo tee "$_nm_wifi_conf" > /dev/null
             log_ok "NetworkManager wifi backend set to iwd."
         fi
+    fi
+
+    # Configure ufw defaults (idempotent — safe to run on every sync).
+    # enable_services sets these during full setup, but a dotfiles-only or
+    # sync-only user also needs them.
+    if command -v ufw &>/dev/null && ! _in_chroot; then
+        sudo ufw default deny incoming  2>/dev/null || log_warn "Could not set ufw default (deny incoming)."
+        sudo ufw default allow outgoing 2>/dev/null || log_warn "Could not set ufw default (allow outgoing)."
     fi
 
     if _in_chroot; then

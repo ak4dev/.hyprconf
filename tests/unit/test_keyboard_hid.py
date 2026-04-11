@@ -84,7 +84,7 @@ class TestSyncServicesCallsFunction:
         idx = text.index("sync_services()")
         # Find the function definition (not the call site)
         fn_idx = text.index("sync_services() {")
-        body = text[fn_idx : fn_idx + 2000]
+        body = text[fn_idx : fn_idx + 3000]
         assert "setup_keyboard_hid_permissions" in body
 
 

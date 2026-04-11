@@ -507,7 +507,7 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | System monitoring | `upower`, `lm_sensors`, `iio-sensor-proxy` |
 | Python | `python`, `python-textual` |
 | File manager support | `gvfs` |
-| Icons & themes | `papirus-icon-theme`, `adw-gtk3` (AUR) |
+| Icons & themes | `papirus-icon-theme` (+ optional `adw-gtk3` from AUR) |
 | GTK sync | `xsettingsd` |
 | Touch panel | `gtk-layer-shell` |
 | Fonts | `ttf-jetbrains-mono-nerd`, `noto-fonts-emoji` |

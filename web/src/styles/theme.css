@@ -1,16 +1,17 @@
 :root {
   /* Base theme colours — set dynamically by ThemeProvider */
-  --hc-bg: #1e1e2e;
-  --hc-fg: #cdd6f4;
-  --hc-accent: #f5c2e7;
-  --hc-comment: #6c7086;
-  --hc-red: #f38ba8;
-  --hc-green: #a6e3a1;
-  --hc-yellow: #f9e2af;
-  --hc-orange: #fab387;
-  --hc-pink: #f5c2e7;
-  --hc-purple: #cba6f7;
-  --hc-cyan: #89dceb;
+  /* Fallback values match the default theme (ai:circuit) */
+  --hc-bg: #010e0a;
+  --hc-fg: #a7f3d0;
+  --hc-accent: #00e5a0;
+  --hc-comment: #0a3d28;
+  --hc-red: #ff3030;
+  --hc-green: #00e5a0;
+  --hc-yellow: #ffd700;
+  --hc-orange: #ff8c00;
+  --hc-pink: #ff69b4;
+  --hc-purple: #9b59b6;
+  --hc-cyan: #00d4ff;
 
   /* Derived tokens */
   --hc-bg-elevated: color-mix(in srgb, var(--hc-bg) 85%, var(--hc-fg));

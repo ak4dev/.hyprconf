@@ -10,6 +10,7 @@ import {
   Cpu,
   Download,
 } from 'lucide-react';
+import { themeCount } from './generated/themes';
 
 export const GITHUB_REPO = 'https://github.com/ak4dev/.hyprconf';
 
@@ -17,7 +18,7 @@ export const PROJECT_TAGLINE = 'Hyprland Configuration Suite';
 
 export const PROJECT_DESCRIPTION =
   'A standalone CLI/TUI tool and curated dotfile collection for Arch Linux + Hyprland. ' +
-  '68 themes, hardware auto-detection, keybind management, and one-command install.';
+  `${themeCount} themes, hardware auto-detection, keybind management, and one-command install.`;
 
 export const INSTALL_COMMAND = 'bash <(curl -fsSL hyprconf.sh)';
 
@@ -34,7 +35,7 @@ export const FEATURES: Feature[] = [
   {
     title: 'Theme Engine',
     description:
-      '68 themes — community favourites and AI-originals. Switch instantly via CLI, TUI, or keybind. Themes cascade across Hyprland, Kitty, Waybar, VS Code, Firefox, and hyprlock.',
+      `${themeCount} themes — community favourites and AI-originals. Switch instantly via CLI, TUI, or keybind. Themes cascade across Hyprland, Kitty, Waybar, VS Code, Firefox, and hyprlock.`,
     icon: Palette,
     route: '/themes',
   },
@@ -106,37 +107,47 @@ export const CLI_GROUPS: CliGroup[] = [
   {
     title: 'Theme',
     commands: [
-      { name: 'hyprconf theme', usage: 'hyprconf theme [name]', description: 'Apply a theme by name' },
-      { name: 'hyprconf theme --current', usage: 'hyprconf theme --current', description: 'Show current theme' },
-      { name: 'hyprconf theme --next', usage: 'hyprconf theme --next', description: 'Cycle to next theme' },
-      { name: 'hyprconf theme --prev', usage: 'hyprconf theme --prev', description: 'Cycle to previous theme' },
-      { name: 'hyprconf theme --random', usage: 'hyprconf theme --random', description: 'Apply a random theme' },
-      { name: 'hyprconf theme --pick', usage: 'hyprconf theme --pick', description: 'Interactive theme picker (fzf)' },
-      { name: 'hyprconf theme --filter', usage: 'hyprconf theme --filter <dark|light>', description: 'Filter by appearance' },
+      { name: 'hyprconf theme set', usage: 'hyprconf theme set <name>', description: 'Apply a theme by name' },
+      { name: 'hyprconf theme current', usage: 'hyprconf theme current', description: 'Show current theme' },
+      { name: 'hyprconf theme next', usage: 'hyprconf theme next', description: 'Cycle to next theme' },
+      { name: 'hyprconf theme prev', usage: 'hyprconf theme prev', description: 'Cycle to previous theme' },
+      { name: 'hyprconf theme random', usage: 'hyprconf theme random', description: 'Apply a random theme' },
+      { name: 'hyprconf theme pick', usage: 'hyprconf theme pick', description: 'Interactive theme picker (fzf)' },
+      { name: 'hyprconf theme filter', usage: 'hyprconf theme filter <dark|light>', description: 'Filter by appearance' },
+      { name: 'hyprconf theme list', usage: 'hyprconf theme list', description: 'List all available themes' },
+      { name: 'hyprconf theme generate', usage: 'hyprconf theme generate <image>', description: 'Generate a theme from an image' },
     ],
   },
   {
     title: 'Options',
     commands: [
-      { name: 'hyprconf options', usage: 'hyprconf options', description: 'Show/edit Hyprland variables (gaps, borders, animations, etc.)' },
+      { name: 'hyprconf get', usage: 'hyprconf get <section> [key]', description: 'Show current value of Hyprland variables' },
+      { name: 'hyprconf set', usage: 'hyprconf set <section> <key> <value>', description: 'Set a Hyprland variable (applied live + persisted)' },
+      { name: 'hyprconf configure', usage: 'hyprconf configure', description: 'Interactive IOS-style REPL for editing options' },
+      { name: 'hyprconf schema', usage: 'hyprconf schema [section]', description: 'Dump the schema for Hyprland config sections' },
+      { name: 'hyprconf show', usage: 'hyprconf show <section>', description: 'Display all values for a config section' },
     ],
   },
   {
     title: 'Keybinds',
     commands: [
-      { name: 'hyprconf keybinds', usage: 'hyprconf keybinds', description: 'List, add, edit, or remove keybindings' },
+      { name: 'hyprconf keybind list', usage: 'hyprconf keybind list', description: 'List all keybindings' },
+      { name: 'hyprconf keybind set', usage: 'hyprconf keybind set <mods> <key> <action>', description: 'Add or update a keybinding' },
+      { name: 'hyprconf keybind config', usage: 'hyprconf keybind config', description: 'Interactive keybind editor' },
     ],
   },
   {
     title: 'Window Rules',
     commands: [
-      { name: 'hyprconf rules', usage: 'hyprconf rules', description: 'Manage window rules (float, size, workspace, opacity, etc.)' },
+      { name: 'hyprconf rule list', usage: 'hyprconf rule list', description: 'List all window rules' },
+      { name: 'hyprconf rule new', usage: 'hyprconf rule new', description: 'Create a new window rule interactively' },
     ],
   },
   {
     title: 'Monitor',
     commands: [
       { name: 'hyprconf monitor', usage: 'hyprconf monitor', description: 'Configure monitor layout, resolution, and scaling' },
+      { name: 'hyprconf display', usage: 'hyprconf display toggle', description: 'Toggle built-in display (laptops/handhelds)' },
     ],
   },
   {
@@ -159,9 +170,26 @@ export const CLI_GROUPS: CliGroup[] = [
     ],
   },
   {
-    title: 'Sync & Deploy',
+    title: 'System',
     commands: [
       { name: 'hyprconf sync', usage: 'hyprconf sync', description: 'Re-apply all configs, packages, services, and hardware detection' },
+      { name: 'hyprconf repair', usage: 'hyprconf repair', description: 'Run self-repair checks and fix common issues' },
+      { name: 'hyprconf hardware', usage: 'hyprconf hardware', description: 'Show detected hardware features and capabilities' },
+      { name: 'hyprconf doctor', usage: 'hyprconf doctor', description: 'Diagnose and report system health' },
+      { name: 'hyprconf autodetect', usage: 'hyprconf autodetect', description: 'Import existing Hyprland config into .hyprconf format' },
+    ],
+  },
+  {
+    title: 'Utilities',
+    commands: [
+      { name: 'hyprconf screenshot', usage: 'hyprconf screenshot', description: 'Capture screenshots (region, window, or full screen)' },
+      { name: 'hyprconf record', usage: 'hyprconf record', description: 'Screen recording controls' },
+      { name: 'hyprconf clipboard', usage: 'hyprconf clipboard', description: 'Clipboard history management' },
+      { name: 'hyprconf colorpicker', usage: 'hyprconf colorpicker', description: 'Pick a colour from anywhere on screen' },
+      { name: 'hyprconf nightlight', usage: 'hyprconf nightlight', description: 'Toggle blue-light filter (night mode)' },
+      { name: 'hyprconf gamemode', usage: 'hyprconf gamemode', description: 'Toggle gaming mode (disable animations, compositing tweaks)' },
+      { name: 'hyprconf power', usage: 'hyprconf power', description: 'Power management (shutdown, reboot, suspend, lock)' },
+      { name: 'hyprconf power-profile', usage: 'hyprconf power-profile', description: 'Switch power profiles (performance, balanced, power-saver)' },
     ],
   },
 ];

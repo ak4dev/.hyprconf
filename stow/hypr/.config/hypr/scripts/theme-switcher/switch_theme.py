@@ -593,7 +593,7 @@ def _kill_process_if_running(process_name: str) -> bool:
     for pid_str in result.stdout.strip().splitlines():
         try:
             os.kill(int(pid_str), signal.SIGTERM)
-        except (ProcessLookupError, ValueError):
+        except (ProcessLookupError, PermissionError, ValueError):
             pass
     print(f"Sent SIGTERM to running {process_name}; theme applies on next launch.")
     return True
@@ -1826,6 +1826,7 @@ def update_btop(theme: Dict[str, str], theme_name: str = "") -> None:
         new_content = _RE_BTOP_COLOR_THEME.sub(
             f'color_theme = "{theme_path}"',
             content,
+            count=1,
         )
         if new_content == content:
             # Key not present — append it

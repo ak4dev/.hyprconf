@@ -40,14 +40,27 @@ const THEME_KEY_MAP: Record<string, keyof Theme> = {
   cyan: 'cyan',
 };
 
+/**
+ * Derive a fallback for a missing optional colour from the theme's own palette.
+ * Uses accent for warm/neutral slots, comment for muted slots.
+ */
+const OPTIONAL_FALLBACK: Record<string, 'accent' | 'comment'> = {
+  red: 'accent', green: 'accent', yellow: 'accent',
+  orange: 'accent', pink: 'accent', purple: 'accent', cyan: 'accent',
+};
+
 function applyThemeToDOM(theme: Theme): void {
   const root = document.documentElement;
   for (const key of COLOUR_KEYS) {
     const themeKey = THEME_KEY_MAP[key];
     if (themeKey) {
       const value = theme[themeKey] as string | undefined;
-      if (value) {
-        root.style.setProperty(`--hc-${key}`, value);
+      const fallbackKey = OPTIONAL_FALLBACK[key];
+      const resolved = value || (fallbackKey ? theme[fallbackKey] : undefined);
+      if (resolved) {
+        root.style.setProperty(`--hc-${key}`, resolved as string);
+      } else {
+        root.style.removeProperty(`--hc-${key}`);
       }
     }
   }

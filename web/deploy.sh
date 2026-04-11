@@ -6,6 +6,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CF_FUNCTION_NAME="hyprconf-ua-router"
 CF_FUNCTION_FILE="$REPO_ROOT/infra/cloudfront-function.js"
 
+# Cleanup temp files on exit
+_tmp_files=()
+cleanup() { for f in "${_tmp_files[@]}"; do rm -f "$f"; done; }
+trap cleanup EXIT
+
 # ── 0. Resolve AWS account ─────────────────────────────────────────
 echo "▸ Resolving AWS identity…"
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -31,7 +36,9 @@ npx cdk deploy --require-approval never --outputs-file cdk-outputs.json
 # ── 4. Ensure bucket policy allows CloudFront to read all objects ──
 echo "▸ Updating S3 bucket policy…"
 BUCKET_NAME="hyprconf-sh"
-cat > /tmp/hyprconf-bucket-policy.json <<POLICY
+_policy_file=$(mktemp /tmp/hyprconf-bucket-policy.XXXXXX.json)
+_tmp_files+=("$_policy_file")
+cat > "$_policy_file" <<POLICY
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -45,8 +52,7 @@ cat > /tmp/hyprconf-bucket-policy.json <<POLICY
   ]
 }
 POLICY
-aws s3api put-bucket-policy --bucket "$BUCKET_NAME" --policy file:///tmp/hyprconf-bucket-policy.json --region "$CDK_REGION"
-rm -f /tmp/hyprconf-bucket-policy.json
+aws s3api put-bucket-policy --bucket "$BUCKET_NAME" --policy "file://$_policy_file" --region "$CDK_REGION"
 
 # ── 5. Update CloudFront Function ──────────────────────────────────
 echo "▸ Updating CloudFront Function ($CF_FUNCTION_NAME)…"
@@ -61,14 +67,16 @@ if [ -z "$ETAG" ] || [ "$ETAG" = "None" ]; then
   aws cloudfront create-function \
     --name "$CF_FUNCTION_NAME" \
     --function-config "Comment=UA routing for hyprconf.sh,Runtime=cloudfront-js-2.0" \
-    --function-code "fileb://$CF_FUNCTION_FILE"
+    --function-code "fileb://$CF_FUNCTION_FILE" \
+    || { echo "✗ Failed to create CloudFront Function"; exit 1; }
 else
   echo "  Updating existing function (ETag: $ETAG)…"
   aws cloudfront update-function \
     --name "$CF_FUNCTION_NAME" \
     --if-match "$ETAG" \
     --function-config "Comment=UA routing for hyprconf.sh,Runtime=cloudfront-js-2.0" \
-    --function-code "fileb://$CF_FUNCTION_FILE"
+    --function-code "fileb://$CF_FUNCTION_FILE" \
+    || { echo "✗ Failed to update CloudFront Function"; exit 1; }
 fi
 
 # Publish the function (move from DEVELOPMENT to LIVE stage)
@@ -79,6 +87,7 @@ DEV_ETAG=$(aws cloudfront describe-function \
 
 aws cloudfront publish-function \
   --name "$CF_FUNCTION_NAME" \
-  --if-match "$DEV_ETAG"
+  --if-match "$DEV_ETAG" \
+  || { echo "✗ Failed to publish CloudFront Function"; exit 1; }
 
 echo "✓ Deployed to https://hyprconf.sh"

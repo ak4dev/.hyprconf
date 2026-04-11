@@ -676,10 +676,10 @@ def test_reapply_current_theme_uses_state_file_when_present(tmp_path):
     assert "--no-reload" in out
 
 
-def test_reapply_current_theme_defaults_to_catppuccin_mocha_when_no_state(tmp_path):
+def test_reapply_current_theme_defaults_to_ai_circuit_when_no_state(tmp_path):
     rc, out, _ = _run_reapply_current_theme(tmp_path, state_content=None)
     assert rc == 0
-    assert "catppuccin-mocha" in out
+    assert "ai:circuit" in out
     assert "--no-reload" in out
 
 

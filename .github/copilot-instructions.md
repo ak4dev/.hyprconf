@@ -120,7 +120,8 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 - **Run `make test` after every change, before committing.** Do not commit code that fails tests. If tests fail, fix the failure before proceeding.
 - **Every commit must include both tests and README updates for the code it touches.** Tests protect the integrity of the change; the README keeps the project documentation in sync. A feature without tests is unverified. A feature without README coverage is invisible. Both are required, not optional — treat a missing test or README update the same as a failing test.
 - **All regular work is pushed to `dev` only.** Never push directly to `stable` or any other branch unless the user explicitly asks.
-- **Never run `scripts/publish` unless the user explicitly says to publish.** Publishing promotes `dev` to `stable` and creates a release tag — it is a deliberate, user-directed action, not a side-effect of regular development. When in doubt, commit and push to `dev`, then wait.
+- **Never push to any remote unless the user explicitly asks.** Commit locally, then wait for the user to say "push". Unsolicited pushes risk exposing unreviewed changes, PII, or broken code. The only exception is if the user's instruction unambiguously includes a push (e.g., "commit and push").
+- **Never run `scripts/publish` unless the user explicitly says to publish.** Publishing promotes `dev` to `stable` and creates a release tag — it is a deliberate, user-directed action, not a side-effect of regular development. When in doubt, commit locally and wait.
 - **Hardware detection and generated config changes must be sync-patchable.** Any change to hardware detection logic (touchscreen, keyboard, accelerometer, GPU) or to files generated at setup/sync time (e.g. `60-hardware.conf`) must land exclusively in code paths that `hyprconf sync` already calls — specifically `setup_hardware_features()`, `write_hardware_conf()`, and `stow_all_packages()`. This guarantees existing installs are fully patched by running `hyprconf sync` with no manual intervention. Never gate such logic behind install-only paths.
 - **All install-time fixes must also be applied by `hyprconf sync`.** Any bug fix or configuration that belongs in the install path (packages, services, system config files) must also be applied idempotently in the `hyprconf sync` code path — `sync_services()`, `setup_hardware_features()`, `write_hardware_conf()`, or a dedicated helper called from the sync block in `main()`. A user on an older install must be able to pick up the fix by running `hyprconf sync` with no manual steps. Never land a fix only in `install/install.sh` without a matching idempotent sync-time counterpart.
 
@@ -231,12 +232,16 @@ The CDK stack resolves the AWS account at deploy time via `CDK_DEFAULT_ACCOUNT`.
 These findings may help future agents avoid common pitfalls:
 
 - **Branding: `.hyprconf` vs `hyprconf.sh`** — the project name is stylised as **`.hyprconf`** (with leading dot) everywhere except when referring to the domain/URL, which is **`hyprconf.sh`**. In the web frontend the dot is rendered with a `<span className={styles.dot}>` for accent colouring. Never write "hyprconf" without a leading dot unless it's the domain, a CLI binary name (`hyprconf theme`, `hyprconf sync`), or the install command.
-- **Default theme is `ai:circuit`** — the web frontend defaults to `ai:circuit` (set in `web/scripts/generate-themes.ts`). If changing, update the generator template — the generated file is overwritten on every build.
+- **Default theme is `ai:circuit`** — the web frontend defaults to `ai:circuit` (set in `web/scripts/generate-themes.ts`). `setup.sh:reapply_current_theme()` also defaults to `ai:circuit`. If changing, update both.
 - **Bash 5.3 `$(< file 2>/dev/null)` is broken** — the redirect breaks the `$(<)` special form, returning empty. Use `$(cat file 2>/dev/null)` instead.
 - **Number keys 3/4 are NOT bound to workspaces** — F1/F2 are used instead for workspaces 3/4.
 - **`iwd` package** is commented out in `packages` but referenced in `setup.sh` — guarded by `command -v iwctl` so systems without iwd don't fail.
-- **Theme count** must be updated in the README badge, theme tables, and `web/src/generated/themes.ts` (auto via `npm run generate-themes`) when adding themes.
+- **Theme count** must be updated in the README badge, theme tables, and `web/src/generated/themes.ts` (auto via `npm run generate-themes`) when adding themes. `web/src/content.ts` uses `themeCount` from the generated file — no manual update needed there.
 - **`lucide-react`** does not export `Github` — use `GitHubLogoIcon` from `@radix-ui/react-icons` instead.
 - **`npm create vite`** hangs in non-interactive terminals — scaffold Vite projects manually.
 - **`npx tsx`** works for ESM TypeScript scripts; `ts-node` does not work well with ESM + Node 22.
 - **ESM `__dirname`** — not available in ESM modules. Use `import { fileURLToPath } from 'url'` with `path.dirname(fileURLToPath(import.meta.url))`.
+- **btop `color_theme` regex** — `switch_theme.py` uses `re.sub()` with `count=1` to replace the first `color_theme` line only. Without `count=1`, duplicate lines accumulate.
+- **`_kill_process_if_running`** catches `PermissionError` — multi-user systems may have processes owned by other users that `pgrep` finds but `os.kill` can't signal.
+- **`strip_comment()` in `file_edit.py`** uses `(^|\s)#.*$` regex — this can destroy `#hex` colour values. Hyprland generally uses `rgb()`/`0x` notation, but hyprlock/hyprpaper CAN use `#hex`.
+- **`adw-gtk3`** is commented out in `packages` (AUR-only, optional) — `_resolve_gtk_theme()` in `switch_theme.py` has a fallback when it's absent.

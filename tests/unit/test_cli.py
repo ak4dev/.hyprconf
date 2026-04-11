@@ -919,7 +919,7 @@ def test_autodetect_shows_warnings_for_unreadable_source(hypr_dir, capsys, monke
         rc = cli.cmd_autodetect([])
     assert rc == 0
     out = capsys.readouterr().out
-    assert "could not be parsed" in out or "line(s)" in out
+    assert "Warning:" in out or "Cannot read" in out
 
 
 # ---------------------------------------------------------------------------

@@ -37,7 +37,7 @@ def read_lines(path: Path) -> list[str]:
     Returns an empty list if the file does not exist.
     """
     try:
-        return path.read_text().splitlines()
+        return path.read_text(encoding="utf-8").splitlines()
     except OSError:
         return []
 
