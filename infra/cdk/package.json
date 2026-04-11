@@ -7,9 +7,11 @@
     "cdk": "cdk"
   },
   "devDependencies": {
+    "@types/node": "^22",
     "aws-cdk": "^2",
     "aws-cdk-lib": "^2",
     "constructs": "^10",
+    "tsx": "^4",
     "typescript": "~5.7",
     "vitest": "^4"
   }

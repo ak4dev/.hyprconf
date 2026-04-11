@@ -39,7 +39,7 @@ export function useScrollSpy(ids: string[]): string | null {
  */
 export function useCopyToClipboard(resetMs = 2000) {
   const [state, setState] = useState<'idle' | 'success' | 'error'>('idle');
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const copy = useCallback(
     async (text: string) => {

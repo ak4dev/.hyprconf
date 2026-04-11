@@ -80,4 +80,24 @@ describe('CloudFront Function (hyprconf-ua-router)', () => {
     });
     expect(result.uri).toBe('/index.html');
   });
+
+  it('browser UA on /install.sh → passes through (static file)', () => {
+    const result = handler(makeEvent('/install.sh', 'Mozilla/5.0'));
+    expect(result.uri).toBe('/install.sh');
+  });
+
+  it('browser UA on /favicon.ico → passes through', () => {
+    const result = handler(makeEvent('/favicon.ico', 'Mozilla/5.0'));
+    expect(result.uri).toBe('/favicon.ico');
+  });
+
+  it('browser UA on deeply nested SPA route → /index.html', () => {
+    const result = handler(makeEvent('/keybindings/movement', 'Mozilla/5.0'));
+    expect(result.uri).toBe('/index.html');
+  });
+
+  it('curl with custom UA string → /install.sh', () => {
+    const result = handler(makeEvent('/', 'curl/8.0.0 (custom build)'));
+    expect(result.uri).toBe('/install.sh');
+  });
 });

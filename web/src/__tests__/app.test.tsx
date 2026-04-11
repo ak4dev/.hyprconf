@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route, Outlet } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from '@/lib/theme-provider';
 import { AppLayout } from '@/components/layout/AppLayout';
 import Landing from '@/pages/Landing';

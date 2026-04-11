@@ -169,8 +169,11 @@ When updating features in the README, also update the corresponding data in `web
 ### Deploy Process
 
 1. `cd web && npm run build` (includes theme generation via prebuild)
-2. `cd infra/cdk && npx cdk deploy`
-3. Or use the wrapper: `web/deploy.sh`
+2. Run the full deploy: `web/deploy.sh`
+   - Builds web frontend
+   - CDK deploys assets to S3 with cache invalidation
+   - Updates the CloudFront Function code via AWS CLI
+   - Publishes the function to LIVE stage
 
 ### Adding a New Page
 
@@ -182,13 +185,17 @@ When updating features in the README, also update the corresponding data in `web
 
 ## CDK Infrastructure (`infra/cdk/`)
 
-The CDK stack manages website-specific AWS resources. It coexists with the existing `infra/deploy.sh` which owns the CloudFront distribution lifecycle, ACM certificates, and Route53 records.
+The CDK stack manages S3 asset deployment and cache invalidation. It coexists with the existing `infra/deploy.sh` which owns the CloudFront distribution lifecycle, ACM certificates, and Route53 records.
 
 ### What CDK manages
 
-- **CloudFront Function** (`hyprconf-ua-router`) — UA-based routing; curl/wget → `/install.sh`, browsers → React SPA
 - **S3 BucketDeployment** — uploads `web/dist/` to the `hyprconf-sh` bucket with cache invalidation
-- References existing resources by ID/ARN (does not recreate the distribution or bucket)
+- References existing bucket and distribution by name/ID (does not recreate them)
+
+### What the deploy script manages (via AWS CLI)
+
+- **CloudFront Function** (`hyprconf-ua-router`) — the function was created manually and is already associated with the distribution. CDK cannot modify imported distributions, so the deploy script updates/publishes the function code directly via `aws cloudfront update-function` / `publish-function`.
+- The function source lives at `infra/cloudfront-function.js`.
 
 ### Key resource IDs (in `cdk.json` context)
 
@@ -196,14 +203,14 @@ The CDK stack manages website-specific AWS resources. It coexists with the exist
 |---|---|
 | Distribution ID | `E3MPOPCWTB2GDM` |
 | S3 Bucket | `hyprconf-sh` |
-| ACM Certificate | `arn:aws:acm:us-east-1:390844779058:certificate/68ccbde3-...` |
 | AWS Account | `390844779058` |
 
 ### Important constraints
 
 - **`DefaultRootObject` is `install.sh`** — must never change (curl support)
-- **`deploy.sh` and CDK coexist** — deploy.sh owns distribution/cert/DNS; CDK owns function/website assets
-- The CloudFront Function was originally created manually via AWS CLI — now managed by CDK
+- **`deploy.sh` and CDK coexist** — deploy.sh owns distribution/cert/DNS; CDK owns S3 website assets
+- CDK cannot modify imported CloudFront distributions — function association is managed externally
+- The CloudFront Function was originally created manually via AWS CLI — updated via `web/deploy.sh`
 
 ---
 

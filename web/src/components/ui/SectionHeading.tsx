@@ -4,10 +4,12 @@ import styles from './SectionHeading.module.css';
 
 interface SectionHeadingProps extends React.HTMLAttributes<HTMLHeadingElement> {
   as?: 'h2' | 'h3' | 'h4';
+  level?: 2 | 3 | 4;
 }
 
 const SectionHeading = React.forwardRef<HTMLHeadingElement, SectionHeadingProps>(
-  ({ as: Tag = 'h2', className, id, ...props }, ref) => {
+  ({ as, level, className, id, ...props }, ref) => {
+    const Tag = as ?? (level ? (`h${level}` as 'h2' | 'h3' | 'h4') : 'h2');
     return (
       <Tag
         ref={ref}

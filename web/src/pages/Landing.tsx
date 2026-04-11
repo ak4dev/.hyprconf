@@ -1,5 +1,5 @@
 import { GitHubLogoIcon } from '@radix-ui/react-icons';
-import { Card, CodeBlock } from '@/components/ui';
+import { CodeBlock } from '@/components/ui';
 import { FeatureCard } from '@/components/FeatureCard';
 import {
   GITHUB_REPO,

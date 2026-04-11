@@ -144,7 +144,7 @@ The project website at **[hyprconf.sh](https://hyprconf.sh)** is a React SPA wit
 
 **Theme sync:** Themes are generated at build time from the same JSON files used by the desktop theme engine. Run `cd web && npm run generate-themes` after adding themes.
 
-**Deploy:** `web/deploy.sh` builds and deploys via CDK. Requires AWS credentials for the `390844779058` account.
+**Deploy:** `web/deploy.sh` builds the frontend, deploys assets via CDK, and updates the CloudFront Function. Requires AWS credentials for the `390844779058` account.
 
 ---
 
