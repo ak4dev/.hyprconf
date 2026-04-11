@@ -79,6 +79,11 @@ class TestCmdDeploy:
         text = _bin_text()
         assert "cmd_deploy_domain" in text
 
+    def test_deploy_web_subcommand(self) -> None:
+        text = _bin_text()
+        # The 'web' case in cmd_deploy passes "web" to DEPLOY_SCRIPT
+        assert 'web)' in text or '"web"' in text or "'web'" in text
+
     def test_uses_deploy_script(self) -> None:
         text = _bin_text()
         assert "DEPLOY_SCRIPT" in text

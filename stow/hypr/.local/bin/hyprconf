@@ -58,6 +58,7 @@ usage() {
   printf "\n${_b}Deploy${_r}\n"
   printf "  hyprconf deploy                  Deploy/refresh the default (legacy) domain\n"
   printf "                                   Config: ~/.config/hyprconf/infra.env\n"
+  printf "  hyprconf deploy web              Quick web frontend deploy (build + sync + invalidate)\n"
   printf "  hyprconf deploy list             List configured deployments\n"
   printf "  hyprconf deploy new              Add + deploy an additional domain\n"
   printf "  hyprconf deploy <domain>         Deploy/refresh a previously added domain\n"
@@ -302,6 +303,9 @@ cmd_deploy() {
   case "$sub" in
     "")
       bash "$DEPLOY_SCRIPT" "$@"
+      ;;
+    web)
+      bash "$DEPLOY_SCRIPT" web "$@"
       ;;
     list)
       cmd_deploy_list

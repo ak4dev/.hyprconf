@@ -169,12 +169,12 @@ When updating features in the README, also update the corresponding data in `web
 
 ### Deploy Process
 
-1. `cd web && npm run build` (includes theme generation via prebuild)
-2. Run the full deploy: `web/deploy.sh`
-   - Builds web frontend
-   - CDK deploys assets to S3 with cache invalidation
-   - Updates the CloudFront Function code via AWS CLI
-   - Publishes the function to LIVE stage
+The deploy pipeline is unified in `infra/deploy.sh`. `web/deploy.sh` is a thin wrapper.
+
+1. **Full deploy** (`hyprconf deploy`): S3 bucket → web build/sync → ACM cert → CloudFront dist + UA function → Route53 DNS
+2. **Web-only deploy** (`hyprconf deploy web`): web build/sync → CF function update → cache invalidation (requires prior full deploy)
+
+All web assets are deployed via `aws s3 sync` (no CDK dependency). The CloudFront Function is managed via `aws cloudfront` CLI.
 
 ### Adding a New Page
 
@@ -184,34 +184,39 @@ When updating features in the README, also update the corresponding data in `web
 
 ---
 
-## CDK Infrastructure (`infra/cdk/`)
+## Infrastructure (`infra/`)
 
-The CDK stack manages S3 asset deployment and cache invalidation. It coexists with the existing `infra/deploy.sh` which owns the CloudFront distribution lifecycle, ACM certificates, and Route53 records.
+`infra/deploy.sh` is the single deploy pipeline. It manages:
 
-### What CDK manages
+- **S3 bucket** — public-read policy for `/*` (install script + web assets)
+- **Web frontend** — `npm run build` in `web/`, `aws s3 sync` excluding `install.sh`
+- **CloudFront Function** (`hyprconf-ua-router`) — UA-based routing: curl→install.sh, browser→SPA
+- **CloudFront distribution** — HTTPS termination, caching, cache invalidation
+- **ACM certificate** — TLS for custom domains
+- **Route53** — DNS alias records
 
-- **S3 BucketDeployment** — uploads `web/dist/` to the `hyprconf-sh` bucket with cache invalidation
-- References existing bucket and distribution by name/ID (does not recreate them)
+### CloudFront Function routing
 
-### What the deploy script manages (via AWS CLI)
+| User-Agent | Request URI | Rewritten URI |
+|---|---|---|
+| curl/wget | any | `/install.sh` |
+| browser | `/` or non-file paths | `/index.html` |
+| browser | `/assets/foo.js` | passthrough |
 
-- **CloudFront Function** (`hyprconf-ua-router`) — the function was created manually and is already associated with the distribution. CDK cannot modify imported distributions, so the deploy script updates/publishes the function code directly via `aws cloudfront update-function` / `publish-function`.
-- The function source lives at `infra/cloudfront-function.js`.
+### Key resource IDs (stored in `~/.config/hyprconf/deploy-state`)
 
-### Key resource IDs (in `cdk.json` context)
-
-| Resource | Value |
+| Resource | Source |
 |---|---|
-| Distribution ID | `E3MPOPCWTB2GDM` |
-| S3 Bucket | `hyprconf-sh` |
-| AWS Account | resolved at deploy time via `aws sts get-caller-identity` |
+| Distribution ID | auto-detected or created by `deploy_cdn()` |
+| S3 Bucket | derived from domain name |
+| AWS Account | resolved at deploy time via `aws sts` |
 
 ### Important constraints
 
-- **`DefaultRootObject` is `install.sh`** — must never change (curl support)
-- **`deploy.sh` and CDK coexist** — deploy.sh owns distribution/cert/DNS; CDK owns S3 website assets
-- CDK cannot modify imported CloudFront distributions — function association is managed externally
-- The CloudFront Function was originally created manually via AWS CLI — updated via `web/deploy.sh`
+- **`DefaultRootObject` is `index.html`** on new distributions — the CF function handles curl→install.sh routing
+- **`web/deploy.sh` is a thin wrapper** — delegates to `infra/deploy.sh web`
+- **`infra/cdk/` exists but is not used in the deploy pipeline** — kept for reference only
+- The CloudFront Function was originally created manually via AWS CLI — now managed by `deploy_cdn()`
 
 ---
 
@@ -223,7 +228,7 @@ The CDK stack manages S3 asset deployment and cache invalidation. It coexists wi
 - AWS account IDs, access keys, or secrets — use environment variables or `aws sts get-caller-identity`
 - Real usernames, emails, or IPs — use `$USER`, generic placeholders, or resolve at runtime
 
-The CDK stack resolves the AWS account at deploy time via `CDK_DEFAULT_ACCOUNT`. Config files under `stow/` must use `~` or relative paths since they are stowed into any user's `$HOME`.
+Config files under `stow/` must use `~` or relative paths since they are stowed into any user's `$HOME`.
 
 ---
 

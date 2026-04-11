@@ -137,7 +137,7 @@ Key paths:
 | `packages` | Arch packages (one per line) |
 | `install/install.sh` | Self-contained installer (served from CloudFront) |
 | `web/` | React frontend for hyprconf.sh |
-| `infra/cdk/` | CDK stack for website deployment |
+| `infra/` | AWS deploy pipeline + CloudFront function |
 
 ---
 
@@ -157,7 +157,7 @@ The project website at **[hyprconf.sh](https://hyprconf.sh)** is a React SPA wit
 
 **Theme sync:** Themes are generated at build time from the same JSON files used by the desktop theme engine. Run `cd web && npm run generate-themes` after adding themes.
 
-**Deploy:** `web/deploy.sh` builds the frontend, deploys assets via CDK, and updates the CloudFront Function. Requires configured AWS credentials (`aws configure`).
+**Deploy:** `hyprconf deploy` handles the full pipeline (S3, CloudFront, DNS, and web frontend). For web-only updates: `hyprconf deploy web` (build + S3 sync + cache invalidation). `web/deploy.sh` is a thin wrapper around the same pipeline. Requires configured AWS credentials (`aws configure`).
 
 ---
 
@@ -229,7 +229,7 @@ hyprconf sync --full             Full dotfile restow (reset configs to defaults)
 hyprconf repair
 
 # Cloud deploy
-hyprconf deploy [list | new | <domain>]
+hyprconf deploy [list | new | web | <domain>]
 hyprconf teardown
 
 # Schema (for AI/tooling)
@@ -599,10 +599,11 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 
 ## Cloud Deploy
 
-`install/install.sh` is served over HTTPS at `https://hyprconf.sh` via S3 + CloudFront + ACM + Route53, managed in `infra/`.
+`hyprconf deploy` manages the full infrastructure pipeline: S3 bucket, web frontend, ACM certificate, CloudFront distribution (with UA-router function), and Route53 DNS.
 
 ```bash
-hyprconf deploy          # deploy/refresh default endpoint
+hyprconf deploy          # deploy/refresh default endpoint (infra + web)
+hyprconf deploy web      # quick web frontend deploy (build + S3 sync + invalidation)
 hyprconf deploy new      # add + deploy a new domain
 hyprconf deploy list     # list configured deployments
 hyprconf deploy <domain> # refresh an additional domain

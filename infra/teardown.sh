@@ -86,6 +86,21 @@ teardown_dns() {
 # ── Step 2: CloudFront distribution ──────────────────────────────────────────
 teardown_cdn() {
   local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
+
+  # Remove CloudFront Function first (before the distribution that uses it)
+  local cf_fn_name="hyprconf-ua-router"
+  local fn_etag
+  fn_etag=$(aws cloudfront describe-function \
+    --name "$cf_fn_name" --stage LIVE \
+    --query 'ETag' --output text 2>/dev/null || echo "")
+  if [[ -n "$fn_etag" ]] && [[ "$fn_etag" != "None" ]]; then
+    log_step "Deleting CloudFront Function $cf_fn_name ..."
+    aws cloudfront delete-function \
+      --name "$cf_fn_name" --if-match "$fn_etag" \
+      --output text > /dev/null 2>&1 \
+      || log_warn "Could not delete CloudFront Function (may still be associated with distribution)."
+    log_ok "CloudFront Function deleted."
+  fi
   if [[ -z "$dist_id" ]]; then
     log_warn "No distribution ID in state — skipping."
     return

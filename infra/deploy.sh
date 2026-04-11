@@ -345,7 +345,7 @@ deploy_bucket() {
     log_ok "Bucket exists."
   fi
 
-  # Allow bucket policy to grant public read on install.sh
+  # Allow public read on all objects (install.sh + web frontend assets)
   aws s3api put-public-access-block --bucket "$HYPRCONF_BUCKET" \
     --public-access-block-configuration \
     'BlockPublicAcls=false,IgnorePublicAcls=false,BlockPublicPolicy=false,RestrictPublicBuckets=false' \
@@ -354,11 +354,11 @@ deploy_bucket() {
   aws s3api put-bucket-policy --bucket "$HYPRCONF_BUCKET" --policy "{
     \"Version\": \"2012-10-17\",
     \"Statement\": [{
-      \"Sid\": \"PublicReadInstallScript\",
+      \"Sid\": \"PublicReadAllObjects\",
       \"Effect\": \"Allow\",
       \"Principal\": \"*\",
       \"Action\": \"s3:GetObject\",
-      \"Resource\": \"arn:aws:s3:::${HYPRCONF_BUCKET}/install.sh\"
+      \"Resource\": \"arn:aws:s3:::${HYPRCONF_BUCKET}/*\"
     }]
   }" > /dev/null
 
@@ -374,6 +374,51 @@ deploy_bucket() {
     --output text > /dev/null
   rm -f "$tmp"
   log_ok "install.sh uploaded → s3://$HYPRCONF_BUCKET/install.sh"
+}
+
+# ── Step 1b: Build + upload web frontend ──────────────────────────────────────
+deploy_web() {
+  log_head "Web Frontend"
+
+  local web_dir="$ROOT_DIR/web"
+  local dist_dir="$web_dir/dist"
+
+  if [[ ! -d "$web_dir" ]] || [[ ! -f "$web_dir/package.json" ]]; then
+    log_warn "web/ directory not found — skipping frontend deploy."
+    return 0
+  fi
+
+  # Check node/npm availability
+  if ! command -v npm &>/dev/null; then
+    log_warn "npm not found — skipping frontend build. Install Node.js to deploy the web UI."
+    return 0
+  fi
+
+  log_step "Installing web dependencies ..."
+  (cd "$web_dir" && npm install --silent)
+
+  log_step "Building web frontend ..."
+  (cd "$web_dir" && npm run build)
+
+  if [[ ! -d "$dist_dir" ]] || [[ ! -f "$dist_dir/index.html" ]]; then
+    log_warn "Build produced no output — skipping frontend upload."
+    return 0
+  fi
+
+  log_step "Syncing web assets to s3://$HYPRCONF_BUCKET/ ..."
+  aws s3 sync "$dist_dir" "s3://$HYPRCONF_BUCKET/" \
+    --exclude "install.sh" \
+    --delete \
+    --cache-control 'public, max-age=31536000, immutable' \
+    --output text > /dev/null
+
+  # index.html should never be cached aggressively (SPA entry point)
+  aws s3 cp "$dist_dir/index.html" "s3://$HYPRCONF_BUCKET/index.html" \
+    --content-type 'text/html; charset=utf-8' \
+    --cache-control 'no-cache, no-store' \
+    --output text > /dev/null
+
+  log_ok "Web frontend deployed to s3://$HYPRCONF_BUCKET/"
 }
 
 # ── Step 2: ACM certificate (us-east-1 only) ──────────────────────────────────
@@ -484,17 +529,8 @@ deploy_cdn() {
     if [[ -n "$dist_domain" ]]; then
       log_ok "Distribution exists: $dist_id ($dist_domain)"
       state_set DISTRIBUTION_DOMAIN "$dist_domain"
-      # Invalidate /* — covers both the explicit /install.sh path and the
-      # distribution root / (DefaultRootObject), which are separate cache entries.
-      log_step "Invalidating CloudFront cache (/* — root + install.sh) ..."
-      local inv_id
-      inv_id=$(aws cloudfront create-invalidation \
-        --distribution-id "$dist_id" --paths '/*' \
-        --query 'Invalidation.Id' --output text)
-      log_info "Invalidation $inv_id in progress — waiting for completion ..."
-      aws cloudfront wait invalidation-completed \
-        --distribution-id "$dist_id" --id "$inv_id"
-      log_ok "Cache cleared — updated install.sh is live at https://${HYPRCONF_DOMAIN}"
+      _deploy_cf_function "$dist_id"
+      _invalidate_cdn "$dist_id"
       return 0
     fi
   fi
@@ -512,15 +548,8 @@ deploy_cdn() {
     state_set DISTRIBUTION_ID     "$dist_id"
     state_set DISTRIBUTION_DOMAIN "$dist_domain_found"
     log_ok "Detected existing distribution for ${HYPRCONF_DOMAIN}: $dist_id"
-    log_step "Invalidating CloudFront cache (/* — root + install.sh) ..."
-    local inv_id
-    inv_id=$(aws cloudfront create-invalidation \
-      --distribution-id "$dist_id" --paths '/*' \
-      --query 'Invalidation.Id' --output text)
-    log_info "Invalidation $inv_id in progress — waiting for completion ..."
-    aws cloudfront wait invalidation-completed \
-      --distribution-id "$dist_id" --id "$inv_id"
-    log_ok "Cache cleared — updated install.sh is live at https://${HYPRCONF_DOMAIN}"
+    _deploy_cf_function "$dist_id"
+    _invalidate_cdn "$dist_id"
     return 0
   fi
 
@@ -529,7 +558,7 @@ deploy_cdn() {
   local result
   result=$(aws cloudfront create-distribution --distribution-config "{
     \"CallerReference\": \"hyprconf-$(date +%s)\",
-    \"Comment\": \"hyprconf install endpoint — ${HYPRCONF_DOMAIN}\",
+    \"Comment\": \"hyprconf install + web — ${HYPRCONF_DOMAIN}\",
     \"Origins\": {
       \"Quantity\": 1,
       \"Items\": [{
@@ -538,7 +567,7 @@ deploy_cdn() {
         \"S3OriginConfig\": { \"OriginAccessIdentity\": \"\" }
       }]
     },
-    \"DefaultRootObject\": \"install.sh\",
+    \"DefaultRootObject\": \"index.html\",
     \"DefaultCacheBehavior\": {
       \"TargetOriginId\": \"s3-origin\",
       \"ViewerProtocolPolicy\": \"redirect-to-https\",
@@ -568,6 +597,87 @@ deploy_cdn() {
   state_set DISTRIBUTION_DOMAIN "$dist_domain"
   log_ok "Distribution created: $dist_id"
   log_info "CloudFront domain: $dist_domain  (DNS propagation ~15 min)"
+
+  _deploy_cf_function "$dist_id"
+}
+
+# ── CloudFront Function: UA-based routing (curl→install.sh, browser→SPA) ─────
+_deploy_cf_function() {
+  local dist_id="$1"
+  local cf_fn_name="hyprconf-ua-router"
+  local cf_fn_file="$INFRA_DIR/cloudfront-function.js"
+
+  if [[ ! -f "$cf_fn_file" ]]; then
+    log_warn "CloudFront function source not found ($cf_fn_file) — skipping."
+    return 0
+  fi
+
+  log_step "Deploying CloudFront Function ($cf_fn_name) ..."
+
+  local etag
+  etag=$(aws cloudfront describe-function \
+    --name "$cf_fn_name" \
+    --query 'ETag' --output text 2>/dev/null || echo "")
+
+  if [[ -z "$etag" ]] || [[ "$etag" == "None" ]]; then
+    log_info "Creating new CloudFront Function ..."
+    aws cloudfront create-function \
+      --name "$cf_fn_name" \
+      --function-config "Comment=UA routing for ${HYPRCONF_DOMAIN},Runtime=cloudfront-js-2.0" \
+      --function-code "fileb://$cf_fn_file" \
+      > /dev/null \
+      || { log_warn "Could not create CloudFront Function — manual setup may be needed."; return 0; }
+  else
+    log_info "Updating existing function (ETag: $etag) ..."
+    aws cloudfront update-function \
+      --name "$cf_fn_name" \
+      --if-match "$etag" \
+      --function-config "Comment=UA routing for ${HYPRCONF_DOMAIN},Runtime=cloudfront-js-2.0" \
+      --function-code "fileb://$cf_fn_file" \
+      > /dev/null \
+      || { log_warn "Could not update CloudFront Function."; return 0; }
+  fi
+
+  # Publish the function (DEVELOPMENT → LIVE)
+  local dev_etag
+  dev_etag=$(aws cloudfront describe-function \
+    --name "$cf_fn_name" --stage DEVELOPMENT \
+    --query 'ETag' --output text 2>/dev/null || echo "")
+
+  if [[ -n "$dev_etag" ]] && [[ "$dev_etag" != "None" ]]; then
+    aws cloudfront publish-function \
+      --name "$cf_fn_name" \
+      --if-match "$dev_etag" \
+      > /dev/null \
+      || { log_warn "Could not publish CloudFront Function."; return 0; }
+    log_ok "CloudFront Function published."
+  fi
+
+  # Associate function with distribution if not already associated.
+  # This only runs on newly created distributions — existing ones are left alone
+  # because modifying their config requires the full distribution config JSON.
+  local current_fn
+  current_fn=$(aws cloudfront get-distribution-config --id "$dist_id" \
+    --query 'DistributionConfig.DefaultCacheBehavior.FunctionAssociations.Items[?EventType==`viewer-request`].FunctionARN | [0]' \
+    --output text 2>/dev/null || echo "")
+  if [[ -z "$current_fn" ]] || [[ "$current_fn" == "None" ]]; then
+    log_info "Note: Associate the '$cf_fn_name' function with distribution $dist_id via the AWS Console"
+    log_info "(viewer-request event on the default cache behavior)."
+  fi
+}
+
+# ── Cache invalidation helper ─────────────────────────────────────────────────
+_invalidate_cdn() {
+  local dist_id="$1"
+  log_step "Invalidating CloudFront cache ..."
+  local inv_id
+  inv_id=$(aws cloudfront create-invalidation \
+    --distribution-id "$dist_id" --paths '/*' \
+    --query 'Invalidation.Id' --output text)
+  log_info "Invalidation $inv_id in progress — waiting for completion ..."
+  aws cloudfront wait invalidation-completed \
+    --distribution-id "$dist_id" --id "$inv_id"
+  log_ok "Cache cleared — site live at https://${HYPRCONF_DOMAIN}"
 }
 
 # ── Step 4: Route53 alias record ──────────────────────────────────────────────
@@ -611,17 +721,34 @@ main() {
   source "$ROOT_DIR/assets/banner.sh" 2>/dev/null || true
   print_banner
 
+  local web_only=false
+  if [[ "${1:-}" == "web" ]]; then
+    web_only=true
+  fi
+
   configure_env
   _autodetect_infra
-  deploy_bucket
-  deploy_cert
-  deploy_cdn
-  deploy_dns
+
+  if $web_only; then
+    # Quick web-only deploy: build + sync + invalidate. Skips infra setup.
+    local dist_id; dist_id="$(state_get DISTRIBUTION_ID)"
+    [[ -z "$dist_id" ]] && log_die "No existing deployment found. Run a full deploy first."
+    deploy_web
+    _deploy_cf_function "$dist_id"
+    _invalidate_cdn "$dist_id"
+  else
+    deploy_bucket
+    deploy_web
+    deploy_cert
+    deploy_cdn
+    deploy_dns
+  fi
 
   printf '\n%s  ──────────────────────────────────────────────────────────────%s\n' "$GR" "$RS"
   printf '%s  ✔  Deploy complete!%s\n' "$GR" "$RS"
   printf '%s  ──────────────────────────────────────────────────────────────%s\n\n' "$GR" "$RS"
   printf '%s  Install URL:   %shttps://%s%s\n'                       "$DM" "$AM" "$HYPRCONF_DOMAIN" "$RS"
+  printf '%s  Web frontend:  %shttps://%s%s\n'                       "$DM" "$AM" "$HYPRCONF_DOMAIN" "$RS"
   printf '%s  One-liner:     %sbash <(curl -fsSL https://%s)%s\n'    "$DM" "$WH" "$HYPRCONF_DOMAIN" "$RS"
   printf '%s  Config file:   %s%s%s\n'                                "$DM" "$DM" "$CFG_FILE"        "$RS"
   printf '%s  State file:    %s%s%s\n\n'                              "$DM" "$DM" "$STATE_FILE"       "$RS"

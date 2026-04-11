@@ -180,6 +180,16 @@ export const CLI_GROUPS: CliGroup[] = [
     ],
   },
   {
+    title: 'Deploy',
+    commands: [
+      { name: 'hyprconf deploy', usage: 'hyprconf deploy', description: 'Deploy/refresh the default domain (S3, CloudFront, DNS, web frontend)' },
+      { name: 'hyprconf deploy web', usage: 'hyprconf deploy web', description: 'Quick web frontend deploy (build + S3 sync + cache invalidation)' },
+      { name: 'hyprconf deploy list', usage: 'hyprconf deploy list', description: 'List all configured deployments and their status' },
+      { name: 'hyprconf deploy new', usage: 'hyprconf deploy new', description: 'Add and deploy an additional domain' },
+      { name: 'hyprconf teardown', usage: 'hyprconf teardown', description: 'Destroy all AWS resources for a deployment' },
+    ],
+  },
+  {
     title: 'Utilities',
     commands: [
       { name: 'hyprconf screenshot', usage: 'hyprconf screenshot', description: 'Capture screenshots (region, window, or full screen)' },
