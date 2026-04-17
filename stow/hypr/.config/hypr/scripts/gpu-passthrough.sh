@@ -10,6 +10,10 @@ readonly _GPU_CONF_DIR="${HOME}/.config/hyprconf"
 readonly _GPU_CONF="${_GPU_CONF_DIR}/gpu-passthrough.conf"
 readonly _GPU_LOG="/tmp/hyprconf-gpu-passthrough.log"
 
+# GPU passthrough always uses system-level QEMU/KVM (qemu:///system).
+# Wrap virsh so every call targets the right URI.
+_gpu_virsh() { virsh -c qemu:///system "$@"; }
+
 # ── Logging ────────────────────────────────────────────────────────────────────
 
 _gpu_log() {
@@ -200,6 +204,7 @@ _gpu_bind_vfio() {
     # Ensure vfio-pci module is loaded
     if ! lsmod | grep -q "^vfio_pci"; then
         _gpu_log "INFO" "Loading vfio-pci module"
+        printf "  Loading vfio-pci module...\n"
         sudo modprobe vfio-pci || {
             _gpu_log "ERROR" "Failed to load vfio-pci module"
             return 1
@@ -213,36 +218,66 @@ _gpu_bind_vfio() {
         return 1
     }
 
-    local dev full_dev current_driver
-    while IFS= read -r dev; do
-        [[ -z "$dev" ]] && continue
-        full_dev="0000:${dev}"
-        current_driver=$(_gpu_current_driver "$dev")
-
-        if [[ "$current_driver" == "vfio-pci" ]]; then
-            _gpu_log "INFO" "${dev} already bound to vfio-pci"
-            continue
-        fi
-
-        # Unbind from current driver
-        if [[ "$current_driver" != "none" ]]; then
-            _gpu_log "INFO" "Unbinding ${dev} from ${current_driver}"
-            echo "$full_dev" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver/unbind" > /dev/null 2>&1 || true
-        fi
-
-        # Override driver to vfio-pci
-        _gpu_log "INFO" "Binding ${dev} to vfio-pci"
-        echo "vfio-pci" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver_override" > /dev/null
-        echo "$full_dev" | sudo tee /sys/bus/pci/drivers/vfio-pci/bind > /dev/null 2>&1 || {
-            # Try probing instead
-            echo "$full_dev" | sudo tee /sys/bus/pci/drivers_probe > /dev/null
-        }
-
-        _gpu_log "INFO" "Bound ${dev} to vfio-pci"
-    done <<< "$devs"
+    # Prefer virsh nodedev-detach — it handles NVIDIA FLR quirks and avoids
+    # raw sysfs writes that can hang on GPUs left in a bad state.
+    if command -v virsh &>/dev/null; then
+        local dev nodedev_name
+        while IFS= read -r dev; do
+            [[ -z "$dev" ]] && continue
+            if [[ "$(_gpu_current_driver "$dev")" == "vfio-pci" ]]; then
+                _gpu_log "INFO" "${dev} already bound to vfio-pci"
+                continue
+            fi
+            nodedev_name="pci_0000_$(echo "$dev" | tr ':.' '_')"
+            printf "  Detaching %s (%s)...\n" "$dev" "$nodedev_name"
+            _gpu_log "INFO" "_gpu_virsh nodedev-detach ${nodedev_name}"
+            _gpu_virsh nodedev-detach "$nodedev_name" 2>/dev/null || {
+                _gpu_log "WARN" "_gpu_virsh nodedev-detach failed for ${dev}, trying sysfs"
+                printf "  ⚠ virsh failed for %s — falling back to sysfs bind.\n" "$dev"
+                _gpu_sysfs_bind_one "$dev"
+            }
+        done <<< "$devs"
+    else
+        local dev
+        while IFS= read -r dev; do
+            [[ -z "$dev" ]] && continue
+            _gpu_sysfs_bind_one "$dev"
+        done <<< "$devs"
+    fi
 
     _gpu_log "SUCCESS" "All IOMMU group devices bound to vfio-pci"
     return 0
+}
+
+_gpu_sysfs_bind_one() {
+    # Bind a single PCI device to vfio-pci via direct sysfs writes.
+    local dev="$1"
+    local full_dev="0000:${dev}"
+    local current_driver
+    current_driver=$(_gpu_current_driver "$dev")
+
+    if [[ "$current_driver" == "vfio-pci" ]]; then
+        _gpu_log "INFO" "${dev} already bound to vfio-pci"
+        return 0
+    fi
+
+    # Unbind from current driver
+    if [[ "$current_driver" != "none" ]]; then
+        printf "  Unbinding %s from %s...\n" "$dev" "$current_driver"
+        _gpu_log "INFO" "Unbinding ${dev} from ${current_driver}"
+        echo "$full_dev" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver/unbind" > /dev/null 2>&1 || true
+    fi
+
+    # Override driver to vfio-pci
+    printf "  Binding %s to vfio-pci...\n" "$dev"
+    _gpu_log "INFO" "Binding ${dev} to vfio-pci"
+    echo "vfio-pci" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver_override" > /dev/null
+    echo "$full_dev" | sudo tee /sys/bus/pci/drivers/vfio-pci/bind > /dev/null 2>&1 || {
+        # Try probing instead
+        echo "$full_dev" | sudo tee /sys/bus/pci/drivers_probe > /dev/null
+    }
+
+    _gpu_log "INFO" "Bound ${dev} to vfio-pci"
 }
 
 _gpu_unbind_vfio() {
@@ -646,9 +681,9 @@ _gpu_attach_to_vm() {
     _gpu_log "INFO" "Attaching GPU at ${pci_addr} to VM ${vm_name}"
 
     # Verify VM exists
-    if ! virsh dominfo "$vm_name" &>/dev/null; then
+    if ! _gpu_virsh dominfo "$vm_name" &>/dev/null; then
         printf "VM '%s' not found. Available VMs:\n" "$vm_name" >&2
-        virsh list --all --name 2>/dev/null | grep -v '^$' | sed 's/^/  /' >&2
+        _gpu_virsh list --all --name 2>/dev/null | grep -v '^$' | sed 's/^/  /' >&2
         return 1
     fi
 
@@ -670,9 +705,9 @@ _gpu_attach_to_vm() {
         func="0x${slot_func##*.}"
 
         # Check if already attached
-        if virsh dumpxml "$vm_name" 2>/dev/null | grep -q "bus='${bus}'" && \
-           virsh dumpxml "$vm_name" 2>/dev/null | grep -q "slot='${slot}'" && \
-           virsh dumpxml "$vm_name" 2>/dev/null | grep -q "function='${func}'"; then
+        if _gpu_virsh dumpxml "$vm_name" 2>/dev/null | grep -q "bus='${bus}'" && \
+           _gpu_virsh dumpxml "$vm_name" 2>/dev/null | grep -q "slot='${slot}'" && \
+           _gpu_virsh dumpxml "$vm_name" 2>/dev/null | grep -q "function='${func}'"; then
             _gpu_log "INFO" "PCI ${dev} already attached to ${vm_name}"
             continue
         fi
@@ -682,8 +717,8 @@ _gpu_attach_to_vm() {
             "$domain" "$bus" "$slot" "$func")
 
         printf "  → Attaching PCI %s...\n" "$dev"
-        echo "$xml" | virsh attach-device "$vm_name" /dev/stdin --config 2>/dev/null \
-            || echo "$xml" | virsh attach-device "$vm_name" /dev/stdin --persistent 2>/dev/null \
+        echo "$xml" | _gpu_virsh attach-device "$vm_name" /dev/stdin --config 2>/dev/null \
+            || echo "$xml" | _gpu_virsh attach-device "$vm_name" /dev/stdin --persistent 2>/dev/null \
             || {
                 _gpu_log "WARN" "Failed to attach ${dev} via virsh, trying virt-xml"
                 virt-xml "$vm_name" --add-device --hostdev "$dev" 2>/dev/null || {
@@ -716,7 +751,7 @@ _gpu_configure_smbios() {
     _gpu_log "INFO" "Configuring SMBIOS passthrough for ${vm_name}"
 
     # Check if SMBIOS already configured
-    if virsh dumpxml "$vm_name" 2>/dev/null | grep -q '<sysinfo type="smbios"'; then
+    if _gpu_virsh dumpxml "$vm_name" 2>/dev/null | grep -q '<sysinfo type="smbios"'; then
         printf "  ✔ SMBIOS already configured on %s.\n" "$vm_name"
         return 0
     fi
@@ -750,7 +785,7 @@ _gpu_configure_smbios() {
     # Fallback: edit XML directly
     local tmp_xml
     tmp_xml=$(mktemp /tmp/hyprconf-smbios-XXXXXX.xml)
-    virsh dumpxml "$vm_name" > "$tmp_xml" 2>/dev/null || {
+    _gpu_virsh dumpxml "$vm_name" > "$tmp_xml" 2>/dev/null || {
         rm -f "$tmp_xml"
         printf "  ⚠ Could not dump VM XML. Add SMBIOS manually in virt-manager.\n"
         return 0
@@ -770,7 +805,7 @@ _gpu_configure_smbios() {
         sed -i 's|</os>|  <smbios mode="sysinfo"/>\n  </os>|' "$tmp_xml"
     fi
 
-    virsh define "$tmp_xml" > /dev/null 2>&1 && {
+    _gpu_virsh define "$tmp_xml" > /dev/null 2>&1 && {
         _gpu_log "INFO" "SMBIOS configured via XML edit"
         printf "  ✔ SMBIOS passthrough configured for OEM license activation.\n"
     } || {
@@ -804,7 +839,7 @@ _gpu_detach_from_vm() {
         xml=$(printf '<hostdev mode="subsystem" type="pci" managed="yes">\n  <source>\n    <address domain="0x0000" bus="%s" slot="%s" function="%s"/>\n  </source>\n</hostdev>\n' \
             "$bus" "$slot" "$func")
 
-        echo "$xml" | virsh detach-device "$vm_name" /dev/stdin --config 2>/dev/null && {
+        echo "$xml" | _gpu_virsh detach-device "$vm_name" /dev/stdin --config 2>/dev/null && {
             detached=$((detached + 1))
             _gpu_log "INFO" "Detached PCI ${dev} from ${vm_name}"
         } || true

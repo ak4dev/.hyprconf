@@ -287,6 +287,8 @@ LSMOD_EOF
     # virsh (fake VM manager)
     _make_executable(bin_dir / "virsh", textwrap.dedent("""\
         #!/usr/bin/env bash
+        # Skip connection URI args (-c qemu:///system) inserted by _gpu_virsh
+        while [[ "${1:-}" == "-c" ]]; do shift 2; done
         if [[ "$1" == "dominfo" && "$2" == "win11" ]]; then exit 0; fi
         if [[ "$1" == "dominfo" ]]; then exit 1; fi
         if [[ "$1" == "list" ]]; then echo "win11"; exit 0; fi
@@ -303,6 +305,8 @@ XML
         if [[ "$1" == "detach-device" ]]; then exit 0; fi
         if [[ "$1" == "define" ]]; then exit 0; fi
         if [[ "$1" == "start" ]]; then exit 0; fi
+        if [[ "$1" == "nodedev-detach" ]]; then exit 0; fi
+        if [[ "$1" == "nodedev-reattach" ]]; then exit 0; fi
         exit 0
     """))
 
@@ -1007,6 +1011,7 @@ class TestGpuConfigureSmbios:
         # Override virsh to return XML with sysinfo already present
         _make_executable(bin_dir / "virsh", textwrap.dedent("""\
             #!/usr/bin/env bash
+            while [[ "${1:-}" == "-c" ]]; do shift 2; done
             if [[ "$1" == "dominfo" ]]; then exit 0; fi
             if [[ "$1" == "dumpxml" ]]; then
                 cat << 'XML'
@@ -1145,6 +1150,111 @@ class TestGpuBindVfio:
         )
         assert r.returncode == 0
 
+    def test_bind_uses_virsh_nodedev_detach(self, tmp_path):
+        """When virsh is available, bind should use virsh nodedev-detach."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "02:00.0": {"driver": "nvidia", "iommu_group": "2",
+                             "vendor": "0x10de", "device": "0x2684"},
+                "02:00.1": {"driver": "snd_hda_intel", "iommu_group": "2",
+                             "vendor": "0x10de", "device": "0x22be"},
+            },
+        )
+        r = _source_and_run(
+            "_gpu_bind_vfio", ["02:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
+        assert "Detaching" in r.stdout
+
+    def test_bind_skips_already_bound_in_nodedev_path(self, tmp_path):
+        """nodedev-detach path skips devices already on vfio-pci."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "02:00.0": {"driver": "vfio-pci", "iommu_group": "2",
+                             "vendor": "0x10de", "device": "0x2684"},
+                "02:00.1": {"driver": "vfio-pci", "iommu_group": "2",
+                             "vendor": "0x10de", "device": "0x22be"},
+            },
+        )
+        r = _source_and_run(
+            "_gpu_bind_vfio", ["02:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
+        # Should not attempt detach — everything already bound
+        assert "Detaching" not in r.stdout
+
+
+class TestGpuSysfsBind:
+    def test_sysfs_bind_one_unbinds_current_driver(self, tmp_path):
+        """_gpu_sysfs_bind_one should unbind from current driver then bind vfio-pci."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "03:00.0": {"driver": "nvidia", "iommu_group": "3",
+                             "vendor": "0x10de", "device": "0x2684"},
+            },
+        )
+        r = _source_and_run(
+            "_gpu_sysfs_bind_one", ["03:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
+        assert "Unbinding" in r.stdout
+        assert "Binding" in r.stdout
+
+    def test_sysfs_bind_one_already_on_vfio(self, tmp_path):
+        """_gpu_sysfs_bind_one is a no-op when device already on vfio-pci."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "03:00.0": {"driver": "vfio-pci", "iommu_group": "3",
+                             "vendor": "0x10de", "device": "0x2684"},
+            },
+        )
+        r = _source_and_run(
+            "_gpu_sysfs_bind_one", ["03:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
+        assert "Unbinding" not in r.stdout
+
+    def test_sysfs_bind_one_no_driver(self, tmp_path):
+        """_gpu_sysfs_bind_one handles device with no current driver."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "03:00.0": {"driver": None, "iommu_group": "3",
+                             "vendor": "0x10de", "device": "0x2684"},
+            },
+        )
+        r = _source_and_run(
+            "_gpu_sysfs_bind_one", ["03:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
+        # Should skip unbind (no driver), go straight to bind
+        assert "Unbinding" not in r.stdout
+        assert "Binding" in r.stdout
+
 
 class TestGpuUnbindVfio:
     def test_unbind_not_on_vfio_is_noop(self, fake_env):
@@ -1254,13 +1364,13 @@ class TestCliDispatch:
         assert r.returncode != 0
 
     def test_gpu_pass_with_vm_name(self, fake_env):
-        """pass <gpu> <vm> should bind GPU and attach to VM."""
+        """pass <gpu> <vm> should attach GPU to VM and start it (no manual bind)."""
         r = self._run_hyprconf(
             ["pass", "3070", "win11"],
             fake_env["bin_dir"], fake_env["home_dir"],
         )
-        # May partially fail due to fake virsh but should at least attempt
-        assert "Binding" in r.stdout or "bound" in r.stdout or r.returncode == 0
+        # VM passthrough skips manual bind; libvirt manages it on virsh start
+        assert "Attaching" in r.stdout or "started" in r.stdout or r.returncode == 0
 
     def test_gpu_bind_force_flag_accepted(self, fake_env):
         """bind --force <gpu> should be accepted."""
@@ -1276,4 +1386,24 @@ class TestCliDispatch:
             ["pass", "--force", "3070", "win11"],
             fake_env["bin_dir"], fake_env["home_dir"],
         )
+        assert "Attaching" in r.stdout or "started" in r.stdout or r.returncode == 0
+
+    def test_gpu_pass_vm_skips_manual_bind(self, fake_env):
+        """pass <gpu> <vm> must NOT manually bind to vfio-pci."""
+        r = self._run_hyprconf(
+            ["pass", "3070", "win11"],
+            fake_env["bin_dir"], fake_env["home_dir"],
+        )
+        # The new flow skips _gpu_bind_vfio entirely when a VM is specified.
+        # It should NOT print sysfs bind messages.
+        assert "Binding GPU" not in r.stdout
+        assert "Loading vfio-pci" not in r.stdout
+
+    def test_gpu_pass_no_vm_does_manual_bind(self, fake_env):
+        """pass <gpu> without vm should bind GPU and launch virt-manager."""
+        r = self._run_hyprconf(
+            ["pass", "3070"],
+            fake_env["bin_dir"], fake_env["home_dir"],
+        )
+        # Without a VM name, the flow calls _gpu_bind_vfio
         assert "Binding" in r.stdout or "bound" in r.stdout or r.returncode == 0

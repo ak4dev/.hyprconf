@@ -1482,20 +1482,28 @@ cmd_hardware() {
           local vm_name="${1:-}"
           local pci_addr
           pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
-          printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
-          _gpu_bind_vfio "$pci_addr" "$force" \
-            || die "Failed to bind GPU ${pci_addr} to vfio-pci."
-          printf "${_g}✔${_r} GPU bound to vfio-pci.\n"
+
+          # Safety check for display GPU
+          if [[ "$force" != "force" ]] && _gpu_is_display_gpu "$pci_addr"; then
+            die "Refusing to pass GPU at ${pci_addr} — it has an active display connector.\nUnbinding this GPU will freeze your desktop.\nUse --force to override."
+          fi
 
           if [[ -n "$vm_name" ]]; then
-            printf "${_b}→${_r} Attaching GPU to VM '%s'...\n" "$vm_name"
+            # VM passthrough: attach hostdev with managed="yes" and let
+            # libvirt handle the VFIO bind on virsh start.  This avoids
+            # raw sysfs writes that can hang on NVIDIA GPUs.
+            printf "${_b}→${_r} Attaching GPU at %s to VM '%s'...\n" "$pci_addr" "$vm_name"
             _gpu_attach_to_vm "$pci_addr" "$vm_name" \
               || printf "${_y}⚠${_r} GPU attach had warnings — check above. You can add devices manually in virt-manager.\n"
-            printf "\n${_b}→${_r} Starting VM '%s'...\n" "$vm_name"
-            virsh start "$vm_name" 2>/dev/null \
+            printf "${_b}→${_r} Starting VM '%s' (libvirt will bind GPU to vfio-pci)...\n" "$vm_name"
+            _gpu_virsh start "$vm_name" 2>/dev/null \
               && printf "${_g}✔${_r} VM '%s' started with GPU passthrough.\n" "$vm_name" \
               || printf "${_y}⚠${_r} Could not auto-start VM. Start it with: virsh start %s\n" "$vm_name"
           else
+            printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
+            _gpu_bind_vfio "$pci_addr" "$force" \
+              || die "Failed to bind GPU ${pci_addr} to vfio-pci."
+            printf "${_g}✔${_r} GPU %s bound to vfio-pci — ready for VM passthrough.\n" "$pci_addr"
             printf "${_g}✔${_r} GPU ready. Launching virt-manager...\n"
             if command -v virt-manager &>/dev/null; then
               virt-manager &
