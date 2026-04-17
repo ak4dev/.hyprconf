@@ -110,9 +110,10 @@ LSMOD_EOF
     # modprobe (no-op)
     _make_executable(bin_dir / "modprobe", "#!/usr/bin/env bash\nexit 0\n")
 
-    # sudo (pass-through)
+    # sudo (pass-through — strip flags like -n before exec)
     _make_executable(bin_dir / "sudo", textwrap.dedent("""\
         #!/usr/bin/env bash
+        while [[ "${1:-}" == -* ]]; do shift; done
         exec "$@"
     """))
 
@@ -426,6 +427,9 @@ def _source_and_run(
     overrides = ""
     if sysfs_root:
         overrides = textwrap.dedent(f"""\
+            # Override sysfs root for mode functions
+            export _GPU_SYSFS="{sysfs_root}"
+
             # Override sysfs path references
             _gpu_current_driver() {{
                 local pci_addr="$1"
@@ -1126,6 +1130,38 @@ class TestGpuModeVm:
         r = _source_and_run("_gpu_mode_vm", bin_dir=bin_dir, home_dir=home_dir)
         assert r.returncode != 0
 
+    def test_mode_vm_sets_driver_override(self, tmp_path):
+        """Mode vm sets driver_override to vfio-pci for each IOMMU device."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1",
+                         "vendor": "0x10de", "device": "0x2484"},
+            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1",
+                         "vendor": "0x10de", "device": "0x228b"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
+        )
+
+        r = _source_and_run(
+            "_gpu_mode_vm", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+        )
+        # The bind may "fail" (no real kernel) but driver_override must be set
+        override_0 = (sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.0" / "driver_override").read_text().strip()
+        override_1 = (sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.1" / "driver_override").read_text().strip()
+        assert override_0 == "vfio-pci", f"GPU driver_override: {override_0!r}"
+        assert override_1 == "vfio-pci", f"Audio driver_override: {override_1!r}"
+
 
 class TestGpuModeHost:
     """Test _gpu_mode_host (restore GPU to host driver)."""
@@ -1159,6 +1195,43 @@ class TestGpuModeHost:
         _make_fake_bins(bin_dir)
         r = _source_and_run("_gpu_mode_host", bin_dir=bin_dir, home_dir=home_dir)
         assert r.returncode != 0
+
+    def test_mode_host_clears_driver_override(self, tmp_path):
+        """Mode host clears driver_override so native driver can reclaim."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1",
+                         "vendor": "0x10de", "device": "0x2484"},
+            "01:00.1": {"driver": "vfio-pci", "iommu_group": "1",
+                         "vendor": "0x10de", "device": "0x228b"},
+        })
+        # Pre-set driver_override to vfio-pci (simulates prior mode_vm)
+        dev0 = sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.0"
+        dev1 = sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.1"
+        (dev0 / "driver_override").write_text("vfio-pci")
+        (dev1 / "driver_override").write_text("vfio-pci")
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
+        )
+
+        _source_and_run(
+            "_gpu_mode_host", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+        )
+        # driver_override must be cleared (empty)
+        override_0 = (dev0 / "driver_override").read_text().strip()
+        override_1 = (dev1 / "driver_override").read_text().strip()
+        assert override_0 == "", f"GPU driver_override not cleared: {override_0!r}"
+        assert override_1 == "", f"Audio driver_override not cleared: {override_1!r}"
 
 
 class TestGpuModeNone:
