@@ -140,3 +140,12 @@ ufw
 # Nvidia GPU is detected.  Listed here for reference only.
 # nvidia-open
 # egl-wayland
+
+# GPU passthrough / VFIO (for VM GPU passthrough; install via `hyprconf addon vfio`)
+# libvirt
+# virt-manager
+# qemu-desktop
+# edk2-ovmf
+# dnsmasq
+# iptables-nft
+# swtpm

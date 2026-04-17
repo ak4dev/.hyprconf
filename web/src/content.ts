@@ -64,7 +64,7 @@ export const FEATURES: Feature[] = [
   {
     title: 'Hardware Detection',
     description:
-      'Automatic detection and configuration for touchscreens, convertible laptops, accelerometers, mechanical keyboards, and Nvidia GPUs. Applied at install and kept current through sync.',
+      'Automatic detection and configuration for touchscreens, convertible laptops, accelerometers, mechanical keyboards, Nvidia GPUs, and GPU passthrough (VFIO) with SMBIOS passthrough for OEM license activation. Applied at install and kept current through sync.',
     icon: Cpu,
   },
   {
@@ -233,6 +233,12 @@ export const CLI_GROUPS: CliGroup[] = [
       },
       { name: 'hyprconf hardware osk', usage: 'hyprconf hardware osk', description: 'Toggle the on-screen keyboard (wvkbd).' },
       { name: 'hyprconf hardware rotate', usage: 'hyprconf hardware rotate', description: 'Toggle auto-rotation for accelerometer-equipped devices.' },
+      {
+        name: 'hyprconf hardware gpu',
+        usage: 'hyprconf hardware gpu [detect|setup|audit|bind|unbind|pass|diagnose]',
+        description: 'GPU passthrough management — dynamic VFIO binding, auto-attach to VM with SMBIOS passthrough.',
+        example: 'GPU Passthrough Status\n══════════════════════\n\nIOMMU: enabled ✔\nlibvirtd: running ✔\n\nGPUs:\n  01:00.0  NVIDIA GeForce RTX 3070  🖥  host (nvidia)\n  02:00.0  NVIDIA GeForce RTX 5090  🖥  host (nvidia)',
+      },
       {
         name: 'hyprconf doctor',
         usage: 'hyprconf doctor',

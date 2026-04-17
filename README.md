@@ -40,6 +40,7 @@
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
 - **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `hyprconf sync`
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
+- **GPU passthrough (VFIO)** — dynamic multi-GPU passthrough: `hyprconf hardware gpu pass 5090 win11` binds the GPU to vfio-pci, attaches it to the VM with SMBIOS passthrough (for OEM license activation), and starts it; `unbind` returns the GPU to the host with no reboot; setup wizard auto-applies IOMMU kernel params and VFIO modprobe options; installed via `hyprconf addon vfio`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
@@ -240,6 +241,14 @@ hyprconf autodetect              Detect + migrate existing config
 hyprconf hardware status         Show detected hardware and daemon status
 hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)
 hyprconf hardware rotate [on|off]      Control auto-rotation (autorotate)
+hyprconf hardware gpu                  GPU passthrough status overview
+hyprconf hardware gpu detect           List GPUs with PCI addresses, IOMMU groups, drivers
+hyprconf hardware gpu setup            Interactive VFIO setup wizard
+hyprconf hardware gpu audit            Full system readiness check
+hyprconf hardware gpu bind <gpu>       Bind GPU + IOMMU group to vfio-pci
+hyprconf hardware gpu unbind <gpu>     Unbind from vfio-pci, restore host driver
+hyprconf hardware gpu pass <gpu> [vm]  Bind GPU + attach to VM (with SMBIOS)
+hyprconf hardware gpu diagnose         Detailed diagnostic dump
 
 # Utilities
 hyprconf doctor                  System health check (packages, services, configs, symlinks)
@@ -254,7 +263,7 @@ hyprconf record [start|stop|toggle|status]  Screen recording (wf-recorder)
 
 # Addons
 hyprconf addon                   List available addons and their status
-hyprconf addon <name>            Install a named addon (e.g. dev)
+hyprconf addon <name>            Install a named addon (e.g. dev, vfio)
 
 # Developer
 hyprconf dev                     Show developer pipeline commands
@@ -469,6 +478,30 @@ Hyprland transform to the built-in display (`eDP-*`):
 | left-up | 1 (90°) |
 | bottom-up | 2 (180°) |
 | right-up | 3 (270°) |
+
+### GPU Passthrough (VFIO)
+
+Dynamic GPU passthrough for multi-GPU desktops. Either GPU can be passed to a VM at runtime and returned to the host when done — no reboot required.
+
+**Install:** `hyprconf addon vfio` (installs libvirt, virt-manager, QEMU, OVMF, and enables services).
+
+**Setup:** `hyprconf hardware gpu setup` — detects CPU vendor, auto-applies IOMMU kernel params, writes VFIO modprobe options (`disable_vga=1`, `disable_idle_d3=1`), installs packages, and configures user groups.
+
+`<gpu>` accepts: PCI address (`01:00.0`), model name (`3070`, `5090`), or ordinal (`nvidia0`, `nvidia1`).
+
+| Command | Action |
+|---|---|
+| `hyprconf hardware gpu` | Status overview — IOMMU, libvirt, GPU drivers |
+| `hyprconf hardware gpu detect` | List all GPUs with PCI addresses, IOMMU groups, current drivers |
+| `hyprconf hardware gpu audit` | Full system readiness check (IOMMU, modules, packages, services, groups) |
+| `hyprconf hardware gpu bind <gpu>` | Bind GPU + all IOMMU group devices to vfio-pci |
+| `hyprconf hardware gpu unbind <gpu>` | Unbind from vfio-pci, restore original driver |
+| `hyprconf hardware gpu pass <gpu> [vm]` | Bind GPU → attach to VM with SMBIOS; omit `vm` to launch virt-manager |
+| `hyprconf hardware gpu diagnose` | Detailed diagnostic dump (dmesg, IOMMU groups, modules, config) |
+
+When a VM name is given, `pass` auto-attaches all IOMMU group PCI devices, configures SMBIOS passthrough (manufacturer, product, serial from the host motherboard) for Windows OEM license activation, and starts the VM.
+
+Config stored at `~/.config/hyprconf/gpu-passthrough.conf`. Doctor checks IOMMU, libvirtd, vfio modules, and user groups when the `vfio` addon is installed.
 
 ---
 

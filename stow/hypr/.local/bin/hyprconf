@@ -15,6 +15,7 @@ readonly HYPRCONF_CFG_DIR="$HOME/.config/hyprconf"
 readonly DEPLOYMENTS_DIR="$HYPRCONF_CFG_DIR/deployments"
 readonly TUI_SCRIPT="$HOME/.config/hypr/scripts/hyprconf-tui/main.py"
 readonly CLI_LIB="$HOME/.local/lib/hyprconf"
+readonly GPU_PT_SCRIPT="$HOME/.config/hypr/scripts/gpu-passthrough.sh"
 
 if [[ -t 1 ]]; then
   _b=$'\e[1m'; _c=$'\e[36m'; _g=$'\e[32m'; _y=$'\e[33m'; _r=$'\e[0m'
@@ -114,10 +115,19 @@ usage() {
   printf "  hyprconf hardware status         Show detected hardware and daemon status\n"
   printf "  hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)\n"
   printf "  hyprconf hardware rotate [on|off]      Control auto-rotation (autorotate)\n"
+  printf "  hyprconf hardware gpu                  GPU passthrough overview\n"
+  printf "  hyprconf hardware gpu detect           List GPUs with PCI / IOMMU / driver info\n"
+  printf "  hyprconf hardware gpu setup            Interactive VFIO setup wizard\n"
+  printf "  hyprconf hardware gpu audit            System readiness check for passthrough\n"
+  printf "  hyprconf hardware gpu bind <gpu>       Bind GPU to vfio-pci (prepare for VM)\n"
+  printf "  hyprconf hardware gpu unbind <gpu>     Return GPU to host driver\n"
+  printf "  hyprconf hardware gpu pass <gpu> [vm]  Bind GPU + attach to VM (with SMBIOS)\n"
+  printf "  hyprconf hardware gpu diagnose         Detailed diagnostic dump\n"
   printf "\n${_b}Addons${_r}\n"
   printf "  hyprconf addon                   List available addons and their status\n"
   printf "  hyprconf addon <name>            Install a named addon\n"
   printf "  Available: dev  (full test-suite deps + GitHub Copilot CLI)\n"
+  printf "             vfio (GPU passthrough: libvirt, virt-manager, QEMU, OVMF)\n"
   printf "\n${_b}Developer${_r}\n"
   printf "  hyprconf dev                     Show developer pipeline commands\n"
   printf "  hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]\n"
@@ -1412,9 +1422,99 @@ cmd_hardware() {
       esac
       ;;
 
+    gpu)
+      # Source the GPU passthrough library
+      if [[ ! -f "$GPU_PT_SCRIPT" ]]; then
+        die "GPU passthrough script not found: $GPU_PT_SCRIPT\nRun 'hyprconf sync' to restore."
+      fi
+      # shellcheck source=/dev/null
+      source "$GPU_PT_SCRIPT"
+
+      local gpu_sub="${1:-}"
+      shift || true
+      case "$gpu_sub" in
+        ""|status)
+          _gpu_status
+          ;;
+        detect)
+          _gpu_detect
+          ;;
+        setup)
+          local setup_output
+          setup_output=$(_gpu_setup)
+          # If the setup wizard requests the vfio addon, install it
+          if echo "$setup_output" | grep -q "__NEED_ADDON_VFIO__"; then
+            echo "$setup_output" | grep -v "__NEED_ADDON_VFIO__"
+            _addon_install vfio
+          else
+            echo "$setup_output"
+          fi
+          printf "\n${_g}✔${_r} Setup complete. Run 'hyprconf hardware gpu audit' to verify.\n"
+          ;;
+        audit)
+          _gpu_audit
+          ;;
+        bind)
+          local target="${1:?Usage: hyprconf hardware gpu bind <gpu>}"
+          local pci_addr
+          pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
+          printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
+          _gpu_bind_vfio "$pci_addr" \
+            && printf "${_g}✔${_r} GPU %s bound to vfio-pci — ready for VM passthrough.\n" "$pci_addr" \
+            || die "Failed to bind GPU ${pci_addr} to vfio-pci."
+          ;;
+        unbind)
+          local target="${1:?Usage: hyprconf hardware gpu unbind <gpu>}"
+          local pci_addr
+          pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
+          printf "${_b}→${_r} Unbinding GPU at %s from vfio-pci...\n" "$pci_addr"
+          _gpu_unbind_vfio "$pci_addr" \
+            && printf "${_g}✔${_r} GPU %s returned to host.\n" "$pci_addr" \
+            || die "Failed to unbind GPU ${pci_addr} from vfio-pci."
+          ;;
+        pass)
+          local target="${1:?Usage: hyprconf hardware gpu pass <gpu> [vm-name]}"
+          shift
+          local vm_name="${1:-}"
+          local pci_addr
+          pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
+          printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
+          _gpu_bind_vfio "$pci_addr" \
+            || die "Failed to bind GPU ${pci_addr} to vfio-pci."
+          printf "${_g}✔${_r} GPU bound to vfio-pci.\n"
+
+          if [[ -n "$vm_name" ]]; then
+            printf "${_b}→${_r} Attaching GPU to VM '%s'...\n" "$vm_name"
+            _gpu_attach_to_vm "$pci_addr" "$vm_name" \
+              || printf "${_y}⚠${_r} GPU attach had warnings — check above. You can add devices manually in virt-manager.\n"
+            printf "\n${_b}→${_r} Starting VM '%s'...\n" "$vm_name"
+            virsh start "$vm_name" 2>/dev/null \
+              && printf "${_g}✔${_r} VM '%s' started with GPU passthrough.\n" "$vm_name" \
+              || printf "${_y}⚠${_r} Could not auto-start VM. Start it with: virsh start %s\n" "$vm_name"
+          else
+            printf "${_g}✔${_r} GPU ready. Launching virt-manager...\n"
+            if command -v virt-manager &>/dev/null; then
+              virt-manager &
+              disown
+            else
+              die "virt-manager not found. Install it with: hyprconf addon vfio"
+            fi
+          fi
+          ;;
+        diagnose)
+          _gpu_diagnose
+          ;;
+        *)
+          printf "${_y}Unknown gpu subcommand: %s${_r}\n\n" "$gpu_sub" >&2
+          printf "Usage: hyprconf hardware gpu [detect|setup|audit|bind|unbind|pass|diagnose]\n" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+
     *)
       printf "${_y}Unknown hardware subcommand: %s${_r}\n\n" "$sub" >&2
-      printf "Usage: hyprconf hardware [status|osk|rotate]\n" >&2
+      printf "Usage: hyprconf hardware [status|osk|rotate|gpu]\n" >&2
       exit 1
       ;;
   esac
@@ -1551,6 +1651,33 @@ _doctor_check_hardware() {
       _doctor_pass "hyprconf-power-monitor installed"
     else
       _doctor_warn "hyprconf-power-monitor not found — run 'hyprconf sync'"
+    fi
+  fi
+
+  # GPU passthrough (only check if vfio addon is installed)
+  if pacman -Qi libvirt &>/dev/null 2>&1; then
+    printf "\n${_b}GPU Passthrough${_r}\n"
+    if grep -qE '(intel_iommu|amd_iommu)=on' /proc/cmdline 2>/dev/null; then
+      _doctor_pass "IOMMU enabled in kernel cmdline"
+    else
+      _doctor_warn "IOMMU not enabled — GPU passthrough requires intel_iommu=on or amd_iommu=on"
+    fi
+    if systemctl is-active --quiet libvirtd 2>/dev/null; then
+      _doctor_pass "libvirtd running"
+    else
+      _doctor_warn "libvirtd not running — start with: sudo systemctl enable --now libvirtd"
+    fi
+    if id -nG "$USER" | grep -qw libvirt; then
+      _doctor_pass "$USER in libvirt group"
+    else
+      _doctor_warn "$USER not in libvirt group — run: sudo usermod -aG libvirt $USER"
+    fi
+    if lsmod | grep -q "^vfio_pci" 2>/dev/null; then
+      _doctor_pass "vfio_pci module loaded"
+    elif modinfo vfio_pci &>/dev/null 2>&1; then
+      _doctor_pass "vfio_pci module available (not loaded — loads on demand)"
+    else
+      _doctor_warn "vfio_pci module not available"
     fi
   fi
 }
@@ -2153,28 +2280,31 @@ cmd_dev() {
 #    2. Add a matching case branch to each of the five _addon_* functions below
 # ════════════════════════════════════════════════════════════════════════════
 
-readonly -a _ADDON_NAMES=(dev)
+readonly -a _ADDON_NAMES=(dev vfio)
 
 _addon_description() {
   case "$1" in
-    dev) printf "Developer tools: full test-suite deps (pytest-xdist, QEMU/KVM, Packer) + GitHub Copilot CLI" ;;
-    *)   printf "" ;;
+    dev)  printf "Developer tools: full test-suite deps (pytest-xdist, QEMU/KVM, Packer) + GitHub Copilot CLI" ;;
+    vfio) printf "GPU passthrough: libvirt, virt-manager, QEMU, OVMF, swtpm (for VFIO VM passthrough)" ;;
+    *)    printf "" ;;
   esac
 }
 
 # Space-separated pacman packages for the addon (empty string = none).
 _addon_packages() {
   case "$1" in
-    dev) printf "python-pytest-xdist qemu-full edk2-ovmf aws-cli" ;;
-    *)   printf "" ;;
+    dev)  printf "python-pytest-xdist qemu-full edk2-ovmf aws-cli" ;;
+    vfio) printf "libvirt virt-manager qemu-desktop edk2-ovmf dnsmasq iptables-nft swtpm" ;;
+    *)    printf "" ;;
   esac
 }
 
 # Space-separated AUR packages for the addon (installed via yay; empty = none).
 _addon_aur_packages() {
   case "$1" in
-    dev) printf "packer" ;;
-    *)   printf "" ;;
+    dev)  printf "packer" ;;
+    vfio) printf "" ;;
+    *)    printf "" ;;
   esac
 }
 
@@ -2207,6 +2337,76 @@ _addon_post_install() {
         && printf "${_g}✓${_r} GitHub Copilot CLI installed.\n" \
         || printf "${_y}⚠${_r} Copilot install failed — run manually: curl -fsSL https://gh.io/copilot-install | bash\n"
       ;;
+    vfio)
+      # Load VFIO kernel modules
+      local vfio_mod
+      for vfio_mod in vfio_pci vfio_iommu_type1; do
+        sudo modprobe "$vfio_mod" 2>/dev/null \
+          && printf "${_g}✓${_r} Module %s loaded.\n" "$vfio_mod" \
+          || printf "${_y}⚠${_r} modprobe %s failed — reboot may be required.\n" "$vfio_mod"
+      done
+
+      # Persist VFIO modules for boot
+      local vfio_conf="/etc/modules-load.d/vfio.conf"
+      if [[ ! -f "$vfio_conf" ]]; then
+        printf "${_b}→${_r} Registering VFIO modules for auto-load...\n"
+        printf 'vfio_pci\nvfio_iommu_type1\n' | sudo tee "$vfio_conf" > /dev/null \
+          && printf "${_g}✓${_r} VFIO modules registered in %s.\n" "$vfio_conf" \
+          || printf "${_y}⚠${_r} Could not write %s.\n" "$vfio_conf"
+      else
+        printf "${_g}✓${_r} VFIO module autoload already configured.\n"
+      fi
+
+      # KVM module (shared logic with dev addon)
+      local kvm_mod
+      if grep -q "AMD" /proc/cpuinfo 2>/dev/null; then
+        kvm_mod="kvm_amd"
+      else
+        kvm_mod="kvm_intel"
+      fi
+      local kvm_conf="/etc/modules-load.d/kvm.conf"
+      if [[ ! -f "$kvm_conf" ]] || ! grep -q "^${kvm_mod}$" "$kvm_conf" 2>/dev/null; then
+        printf "${_b}→${_r} Enabling KVM module (%s)...\n" "$kvm_mod"
+        printf '%s\n' "$kvm_mod" | sudo tee -a "$kvm_conf" > /dev/null \
+          && printf "${_g}✓${_r} KVM module %s registered.\n" "$kvm_mod" \
+          || printf "${_y}⚠${_r} Could not register KVM module.\n"
+      else
+        printf "${_g}✓${_r} KVM module %s already registered.\n" "$kvm_mod"
+      fi
+      sudo modprobe "$kvm_mod" 2>/dev/null \
+        && printf "${_g}✓${_r} KVM module %s loaded.\n" "$kvm_mod" \
+        || printf "${_y}⚠${_r} modprobe %s failed — reboot may be required.\n" "$kvm_mod"
+
+      # Add user to libvirt and kvm groups
+      local grp
+      for grp in libvirt kvm; do
+        if id -nG "$USER" | grep -qw "$grp"; then
+          printf "${_g}✓${_r} %s already in '%s' group.\n" "$USER" "$grp"
+        else
+          printf "${_b}→${_r} Adding %s to '%s' group...\n" "$USER" "$grp"
+          sudo usermod -aG "$grp" "$USER" \
+            && printf "${_g}✓${_r} Added to '%s'. Log out and back in to apply.\n" "$grp" \
+            || printf "${_y}⚠${_r} Could not add to '%s' group.\n" "$grp"
+        fi
+      done
+
+      # Enable and start libvirt services
+      local svc
+      for svc in libvirtd virtlogd; do
+        if systemctl is-active --quiet "$svc" 2>/dev/null; then
+          printf "${_g}✓${_r} %s already running.\n" "$svc"
+        else
+          printf "${_b}→${_r} Enabling and starting %s...\n" "$svc"
+          sudo systemctl enable --now "$svc" 2>/dev/null \
+            && printf "${_g}✓${_r} %s enabled and started.\n" "$svc" \
+            || printf "${_y}⚠${_r} Could not start %s.\n" "$svc"
+        fi
+      done
+
+      printf "\n${_g}✓${_r} VFIO addon setup complete.\n"
+      printf "  Run 'hyprconf hardware gpu audit' to verify system readiness.\n"
+      printf "  Run 'hyprconf hardware gpu setup' for IOMMU kernel param guidance.\n"
+      ;;
   esac
 }
 
@@ -2216,6 +2416,12 @@ _addon_is_installed() {
     dev)
       pacman -Qi python-pytest-xdist &>/dev/null \
         && pacman -Qi qemu-full &>/dev/null \
+        && pacman -Qi edk2-ovmf &>/dev/null
+      ;;
+    vfio)
+      pacman -Qi libvirt &>/dev/null \
+        && pacman -Qi virt-manager &>/dev/null \
+        && pacman -Qi qemu-desktop &>/dev/null \
         && pacman -Qi edk2-ovmf &>/dev/null
       ;;
     *) return 1 ;;
