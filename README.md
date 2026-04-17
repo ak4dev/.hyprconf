@@ -40,7 +40,7 @@
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
 - **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `hyprconf sync`
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
-- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` unbinds the NVIDIA driver and binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver with no reboot; setup wizard auto-applies IOMMU kernel params and NVIDIA driver blacklisting; installed via `hyprconf addon vfio`
+- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` unbinds the NVIDIA driver and binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver with no reboot; setup wizard auto-applies IOMMU kernel params and NVIDIA driver blacklisting; includes a Docker-based Windows VM launcher (`hyprconf hardware gpu vm`) using `dockurr/windows` with RDP via `xfreerdp`; installed via `hyprconf addon vfio`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
@@ -249,6 +249,11 @@ hyprconf hardware gpu mode             Show current GPU mode (vm/host/none)
 hyprconf hardware gpu mode vm [gpu]    Bind GPU to vfio-pci for VM passthrough (--force to override safety)
 hyprconf hardware gpu mode host [gpu]  Restore GPU to host driver
 hyprconf hardware gpu mode none [gpu]  Unbind GPU from all drivers
+hyprconf hardware gpu vm install       Interactive Windows VM setup wizard
+hyprconf hardware gpu vm launch [-k]   Bind GPU + start VM + connect RDP (-k keeps VM on disconnect)
+hyprconf hardware gpu vm stop          Stop the Windows VM container
+hyprconf hardware gpu vm status        Show VM config, GPU state, container status
+hyprconf hardware gpu vm remove        Remove VM container, image, and config (preserves ~/Windows/)
 hyprconf hardware gpu report           Detailed hardware report
 hyprconf hardware gpu diagnose         Detailed diagnostic dump
 
@@ -500,12 +505,19 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 | `hyprconf hardware gpu mode vm [--force] [gpu]` | Unbind NVIDIA driver → bind GPU + IOMMU group to vfio-pci |
 | `hyprconf hardware gpu mode host [gpu]` | Unbind from vfio-pci → reload native driver (`modprobe -i`) |
 | `hyprconf hardware gpu mode none [gpu]` | Unbind GPU from all drivers (idle state) |
+| `hyprconf hardware gpu vm install` | Interactive wizard — set RAM, CPU, disk, Windows version, credentials |
+| `hyprconf hardware gpu vm launch [-k]` | Auto-bind GPU → start Docker container → connect RDP (`-k` keeps VM alive on disconnect) |
+| `hyprconf hardware gpu vm stop` | Stop the Windows VM container |
+| `hyprconf hardware gpu vm status` | Show VM config, GPU binding state, container status |
+| `hyprconf hardware gpu vm remove` | Remove container, image, and config (preserves `~/Windows/` shared folder) |
 | `hyprconf hardware gpu report` | Comprehensive hardware report (system, motherboard, GPUs, IOMMU groups, drivers) |
 | `hyprconf hardware gpu diagnose` | Detailed diagnostic dump (dmesg, IOMMU groups, modules, config) |
 
-**Workflow:** After setup, switch to VM mode before starting your VM: `hyprconf hardware gpu mode vm`. Start the VM with QEMU/libvirt as usual — the GPU is already bound to vfio-pci. After shutting down the VM, return the GPU: `hyprconf hardware gpu mode host`.
+**Windows VM:** Uses `dockurr/windows` Docker image (QEMU internally) with GPU forwarded via vfio-pci. First run: `hyprconf hardware gpu vm install` to configure resources. Then `hyprconf hardware gpu vm launch` to bind the GPU, start the container, and connect via RDP. First boot installs Windows via web viewer at `http://localhost:8006`. Shared folder at `~/Windows/` is mounted as a network drive. Requires `docker-compose` and `freerdp` packages.
 
-Config stored at `~/.config/hyprconf/gpu-passthrough.conf`. Doctor checks IOMMU, VFIO modules, and user groups when the `vfio` addon is installed.
+**Workflow:** `hyprconf hardware gpu vm launch` handles the full flow — bind GPU to vfio-pci, start the Docker container, wait for Windows to boot, then connect via `xfreerdp`. On disconnect the VM stops automatically (use `-k` to keep it running). To manually stop: `hyprconf hardware gpu vm stop`. Return GPU to host: `hyprconf hardware gpu mode host`.
+
+Config stored at `~/.config/hyprconf/gpu-passthrough.conf` (GPU) and `~/.config/hyprconf/gpu-vm.conf` (VM). Doctor checks IOMMU, VFIO modules, and user groups when the `vfio` addon is installed.
 
 ---
 

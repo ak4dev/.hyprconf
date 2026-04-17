@@ -2248,3 +2248,263 @@ class TestGpuSetupLimine:
         )
         assert r.returncode == 0
         assert "ALREADY_CONFIGURED" in r.stdout
+
+
+# ── Windows VM Tests ───────────────────────────────────────────────────────────
+
+
+class TestGpuVmGenerateCompose:
+    """Tests for _gpu_vm_generate_compose."""
+
+    def test_compose_generated_with_gpu_devices(self, tmp_path):
+        """Compose file includes vfio-pci QEMU args and correct IOMMU group."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+            "01:00.1": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
+            'GPU_AUDIO_PCI="01:00.1"\nGPU_AUDIO_IDS="10de:228b"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="16G"\nVM_CPU="6"\nVM_DISK="128G"\n'
+            'VM_USERNAME="testuser"\nVM_PASSWORD="testpass"\n'
+            'VM_VERSION="11"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_vm_generate_compose
+            cat "$_GPU_VM_COMPOSE"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+
+        compose = r.stdout
+        assert "dockurr/windows" in compose
+        assert "RAM_SIZE: \"16G\"" in compose
+        assert "CPU_CORES: \"6\"" in compose
+        assert "DISK_SIZE: \"128G\"" in compose
+        assert "USERNAME: \"testuser\"" in compose
+        assert "vfio-pci,host=01:00.0" in compose
+        assert "vfio-pci,host=01:00.1" in compose
+        assert "/dev/vfio/1:/dev/vfio/1" in compose
+        assert "/dev/vfio/vfio:/dev/vfio/vfio" in compose
+        assert "privileged: true" in compose
+
+    def test_compose_skips_pci_bridges(self, tmp_path):
+        """PCI bridges (class 0604) are excluded from QEMU device args."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "00:01.0": {"driver": "pcieport", "iommu_group": "1", "vendor": "0x8086", "device": "0x1901", "class": "0604"},
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="00:01.0 01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_get_pci_class() {{
+                local pci="$1"
+                local full="0000:$pci"
+                local class_file="{sysfs_root}/bus/pci/devices/$full/class"
+                if [[ -f "$class_file" ]]; then
+                    local raw
+                    raw=$(cat "$class_file")
+                    echo "${{raw:2:4}}"
+                else
+                    echo "0300"
+                fi
+            }}
+            _gpu_vm_generate_compose
+            cat "$_GPU_VM_COMPOSE"
+        """)
+
+        # Write class files for the fake sysfs
+        pci_bridge = sysfs_root / "bus" / "pci" / "devices" / "0000:00:01.0"
+        (pci_bridge / "class").write_text("0x060400")
+        gpu_dev = sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.0"
+        (gpu_dev / "class").write_text("0x030000")
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        compose = r.stdout
+        assert "vfio-pci,host=01:00.0" in compose
+        assert "vfio-pci,host=00:01.0" not in compose
+
+    def test_compose_fails_without_gpu_config(self, tmp_path):
+        """Compose generation fails if GPU passthrough not configured."""
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_generate_compose
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode != 0
+        assert "not configured" in r.stderr
+
+
+class TestGpuVmConfig:
+    """Tests for _gpu_vm_save_config and _gpu_vm_load_config."""
+
+    def test_save_and_load_config(self, tmp_path):
+        """Config round-trips correctly through save/load."""
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            VM_RAM="16G"
+            VM_CPU="8"
+            VM_DISK="256G"
+            VM_USERNAME="testuser"
+            VM_PASSWORD="secret123"
+            VM_VERSION="10"
+            _gpu_vm_save_config
+            # Clear and reload
+            unset VM_RAM VM_CPU VM_DISK VM_USERNAME VM_PASSWORD VM_VERSION
+            _gpu_vm_load_config
+            echo "RAM=$VM_RAM CPU=$VM_CPU DISK=$VM_DISK USER=$VM_USERNAME VER=$VM_VERSION"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "RAM=16G" in r.stdout
+        assert "CPU=8" in r.stdout
+        assert "DISK=256G" in r.stdout
+        assert "USER=testuser" in r.stdout
+        assert "VER=10" in r.stdout
+
+
+class TestGpuVmStatus:
+    """Tests for _gpu_vm_status."""
+
+    def test_status_unconfigured_gpu(self, tmp_path):
+        """Status shows 'not configured' if no GPU config exists."""
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_status
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0
+        assert "not configured" in r.stdout
+
+    def test_status_with_config_no_docker(self, tmp_path):
+        """Status shows VM config when GPU and VM are configured but container isn't running."""
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+        )
+
+        # Mock docker to report container not found
+        _make_executable(bin_dir / "docker", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "inspect" ]]; then
+                echo "" >&2
+                exit 1
+            fi
+            exit 0
+        """))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_vm_status
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0
+        output = r.stdout
+        assert "RTX 3070" in output
+        assert "8G RAM" in output or "8G" in output
+        assert "not created" in output

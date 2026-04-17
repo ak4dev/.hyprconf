@@ -149,3 +149,7 @@ ufw
 # dnsmasq
 # iptables-nft
 # swtpm
+
+# Windows VM (Docker-based GPU passthrough VM; requires docker)
+docker-compose
+freerdp

@@ -1538,9 +1538,35 @@ cmd_hardware() {
         report)
           _gpu_report
           ;;
+        vm)
+          local vm_sub="${1:-}"
+          shift || true
+          case "$vm_sub" in
+            ""|status)
+              _gpu_vm_status
+              ;;
+            install)
+              _gpu_vm_install
+              ;;
+            launch|start)
+              _gpu_vm_launch "$@"
+              ;;
+            stop)
+              _gpu_vm_stop
+              ;;
+            remove)
+              _gpu_vm_remove
+              ;;
+            *)
+              printf "${_y}Unknown vm subcommand: %s${_r}\n\n" "$vm_sub" >&2
+              printf "Usage: hyprconf hardware gpu vm [install|launch|stop|status|remove]\n" >&2
+              exit 1
+              ;;
+          esac
+          ;;
         *)
           printf "${_y}Unknown gpu subcommand: %s${_r}\n\n" "$gpu_sub" >&2
-          printf "Usage: hyprconf hardware gpu [detect|setup|audit|report|mode|diagnose]\n" >&2
+          printf "Usage: hyprconf hardware gpu [detect|setup|audit|report|mode|vm|diagnose]\n" >&2
           exit 1
           ;;
       esac
