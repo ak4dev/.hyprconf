@@ -40,7 +40,7 @@
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
 - **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `hyprconf sync`
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
-- **GPU passthrough (VFIO)** — dynamic multi-GPU passthrough: `hyprconf hardware gpu pass 5090 win11` binds the GPU to vfio-pci, attaches it to the VM with SMBIOS passthrough (for OEM license activation), and starts it; `unbind` returns the GPU to the host with no reboot; setup wizard auto-applies IOMMU kernel params and VFIO modprobe options; installed via `hyprconf addon vfio`
+- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` unbinds the NVIDIA driver and binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver with no reboot; setup wizard auto-applies IOMMU kernel params and NVIDIA driver blacklisting; installed via `hyprconf addon vfio`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
@@ -245,9 +245,11 @@ hyprconf hardware gpu                  GPU passthrough status overview
 hyprconf hardware gpu detect           List GPUs with PCI addresses, IOMMU groups, drivers
 hyprconf hardware gpu setup            Interactive VFIO setup wizard
 hyprconf hardware gpu audit            Full system readiness check
-hyprconf hardware gpu bind <gpu>       Bind GPU + IOMMU group to vfio-pci
-hyprconf hardware gpu unbind <gpu>     Unbind from vfio-pci, restore host driver
-hyprconf hardware gpu pass <gpu> [vm]  Bind GPU + attach to VM (with SMBIOS)
+hyprconf hardware gpu mode             Show current GPU mode (vm/host/none)
+hyprconf hardware gpu mode vm [gpu]    Bind GPU to vfio-pci for VM passthrough
+hyprconf hardware gpu mode host [gpu]  Restore GPU to host driver
+hyprconf hardware gpu mode none [gpu]  Unbind GPU from all drivers
+hyprconf hardware gpu report           Detailed hardware report
 hyprconf hardware gpu diagnose         Detailed diagnostic dump
 
 # Utilities
@@ -481,28 +483,29 @@ Hyprland transform to the built-in display (`eDP-*`):
 
 ### GPU Passthrough (VFIO)
 
-Dynamic GPU passthrough for multi-GPU desktops. Either GPU can be passed to a VM at runtime and returned to the host when done — no reboot required.
+Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no libvirt). Switch a GPU between VM and host modes at runtime — no reboot required. The NVIDIA driver is blacklisted at boot so the passthrough GPU stays unbound until explicitly claimed.
 
-**Install:** `hyprconf addon vfio` (installs libvirt, virt-manager, QEMU, OVMF, and enables services).
+**Install:** `hyprconf addon vfio` (installs QEMU, OVMF, dmidecode, and loads VFIO modules).
 
-**Setup:** `hyprconf hardware gpu setup` — interactive wizard that detects CPU vendor, auto-applies IOMMU kernel params (systemd-boot, GRUB, or Limine), writes VFIO modprobe options (`disable_vga=1`, `disable_idle_d3=1`), installs packages, configures user groups, and prompts you to choose which GPU to reserve for passthrough.
+**Setup:** `hyprconf hardware gpu setup` — interactive wizard that detects CPU vendor, auto-applies IOMMU kernel params (systemd-boot, GRUB, or Limine), configures NVIDIA driver blacklisting (`install nvidia /bin/false`), and prompts you to choose which GPU to reserve for passthrough.
 
 `[gpu]` accepts: PCI address (`01:00.0`), model name (`3070`, `5090`), or ordinal (`nvidia0`, `nvidia1`). When omitted, uses the GPU saved during `setup`.
 
 | Command | Action |
 |---|---|
-| `hyprconf hardware gpu` | Status overview — IOMMU, libvirt, GPU drivers, configured GPU |
+| `hyprconf hardware gpu` | Status overview — IOMMU, GPU modes, configured GPU |
 | `hyprconf hardware gpu detect` | List all GPUs with PCI addresses, IOMMU groups, audio devices, current drivers |
-| `hyprconf hardware gpu audit` | Full system readiness check (IOMMU, modules, packages, services, groups) |
-| `hyprconf hardware gpu bind [gpu]` | Bind GPU + all IOMMU group devices to vfio-pci |
-| `hyprconf hardware gpu unbind <gpu>` | Unbind from vfio-pci, restore original driver |
-| `hyprconf hardware gpu pass [gpu] [vm]` | Bind GPU → attach to VM with SMBIOS; omit `vm` to launch virt-manager |
+| `hyprconf hardware gpu audit` | Full system readiness check (IOMMU, modules, packages, blacklist, groups) |
+| `hyprconf hardware gpu mode` | Show current GPU mode (`vm`, `host`, or `none`) |
+| `hyprconf hardware gpu mode vm [gpu]` | Unbind NVIDIA driver → bind GPU + IOMMU group to vfio-pci |
+| `hyprconf hardware gpu mode host [gpu]` | Unbind from vfio-pci → reload native driver (`modprobe -i`) |
+| `hyprconf hardware gpu mode none [gpu]` | Unbind GPU from all drivers (idle state) |
 | `hyprconf hardware gpu report` | Comprehensive hardware report (system, motherboard, GPUs, IOMMU groups, drivers) |
 | `hyprconf hardware gpu diagnose` | Detailed diagnostic dump (dmesg, IOMMU groups, modules, config) |
 
-When a VM name is given, `pass` auto-attaches all IOMMU group PCI devices, configures SMBIOS passthrough (manufacturer, product, serial from the host motherboard) for Windows OEM license activation, and starts the VM.
+**Workflow:** After setup, switch to VM mode before starting your VM: `hyprconf hardware gpu mode vm`. Start the VM with QEMU/libvirt as usual — the GPU is already bound to vfio-pci. After shutting down the VM, return the GPU: `hyprconf hardware gpu mode host`.
 
-Config stored at `~/.config/hyprconf/gpu-passthrough.conf`. Doctor checks IOMMU, libvirtd, vfio modules, and user groups when the `vfio` addon is installed.
+Config stored at `~/.config/hyprconf/gpu-passthrough.conf`. Doctor checks IOMMU, VFIO modules, and user groups when the `vfio` addon is installed.
 
 ---
 

@@ -1,24 +1,69 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# gpu-passthrough.sh — GPU detection, VFIO binding, and passthrough management
+# gpu-passthrough.sh — GPU detection, VFIO mode management, and passthrough
 #
 # Sourced by the hyprconf binary (hyprconf hardware gpu …).
 # All functions prefixed with _gpu_ to avoid namespace collisions.
+#
+# Mode system (mirrors omarchy approach):
+#   mode vm   — bind GPU + IOMMU group to vfio-pci (ready for VM)
+#   mode host — unbind from vfio-pci, reload native driver
+#   mode none — unbind from all drivers (power saving)
+#
+# No libvirt dependency — all binding via direct sysfs writes.
 
 readonly _GPU_CONF_DIR="${HOME}/.config/hyprconf"
 readonly _GPU_CONF="${_GPU_CONF_DIR}/gpu-passthrough.conf"
 readonly _GPU_LOG="/tmp/hyprconf-gpu-passthrough.log"
-
-# GPU passthrough always uses system-level QEMU/KVM (qemu:///system).
-# Wrap virsh so every call targets the right URI.
-_gpu_virsh() { virsh -c qemu:///system "$@"; }
+: "${_GPU_BLACKLIST_CONF:=/etc/modprobe.d/blacklist-gpu-passthrough.conf}"
+readonly _GPU_VFIO_CONF="/etc/modprobe.d/vfio.conf"
+readonly _GPU_STATE_MARKER="/var/run/hyprconf-gpu-mode"
+: "${_GPU_SYSFS:=/sys}"
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
 _gpu_log() {
     local level="$1"; shift
     printf '[%s] [%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$level" "$*" >> "$_GPU_LOG" 2>/dev/null || true
+}
+
+# ── PCI Helpers (mirrors omarchy utils) ────────────────────────────────────────
+
+_gpu_normalize_pci() {
+    # Normalize a PCI address to 0000:XX:XX.X form.
+    local pci="$1"
+    [[ -z "$pci" ]] && return 1
+    [[ ! "$pci" =~ ^[0-9a-fA-F]{4}: ]] && pci="0000:${pci}"
+    if [[ ! "$pci" =~ ^[0-9a-fA-F]{4}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}\.[0-7]$ ]]; then
+        return 1
+    fi
+    echo "$pci"
+}
+
+_gpu_get_pci_driver() {
+    # Read current driver (empty string if none). Delegates to sysfs-based lookup.
+    local d; d=$(_gpu_current_driver "$1")
+    [[ "$d" == "none" ]] && d=""
+    echo "$d"
+}
+
+_gpu_get_pci_class() {
+    # Read PCI device class code (e.g. 0300 for VGA, 0604 for bridge).
+    local pci_addr="$1"
+    lspci -Dn -s "$pci_addr" 2>/dev/null | awk '{print $2}' | cut -d: -f1 || true
+}
+
+_gpu_get_pci_device_id() {
+    # Read vendor:device ID (e.g. 10de:2684).
+    local pci_addr="$1"
+    lspci -nn -s "$pci_addr" 2>/dev/null | grep -oP '\[\K[0-9a-f]{4}:[0-9a-f]{4}(?=\])' | tail -1 || true
+}
+
+_gpu_is_module_loaded() {
+    local module="$1"
+    [[ -z "$module" ]] && return 1
+    lsmod 2>/dev/null | grep -q "^${module}[[:space:]]"
 }
 
 # ── GPU Detection ──────────────────────────────────────────────────────────────
@@ -92,6 +137,9 @@ _gpu_detect() {
         pci_addr=$(echo "$line" | awk '{print $1}')
         vendor_device=$(echo "$line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
         name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
+        driver=$(_gpu_current_driver "$pci_addr")
+        type=$(_gpu_classify "$pci_addr" "$name")
+        iommu_grp=$(_gpu_iommu_group "$pci_addr")
 
         printf "GPU %d: %s\n" "$idx" "$name"
         printf "  PCI Address:    %s\n" "$pci_addr"
@@ -162,6 +210,17 @@ _gpu_current_driver() {
     else
         echo "none"
     fi
+}
+
+_gpu_detect_mode() {
+    # Detect the current GPU mode from its driver.
+    local driver="$1"
+    case "$driver" in
+        vfio-pci) echo "vm" ;;
+        nvidia|nvidia_drm|amdgpu|i915) echo "host" ;;
+        none|"") echo "none" ;;
+        *) echo "unknown" ;;
+    esac
 }
 
 _gpu_iommu_group() {
@@ -244,144 +303,410 @@ _gpu_resolve() {
     fi
 }
 
-# ── VFIO Bind / Unbind ────────────────────────────────────────────────────────
+# ── NVIDIA Module Management ───────────────────────────────────────────────────
 
-_gpu_bind_vfio() {
-    # Bind all devices in the GPU's IOMMU group to vfio-pci.
-    # Pass "force" as $2 to skip the display-GPU safety check.
-    local pci_addr="$1"
-    local force="${2:-}"
-    local full_addr="0000:${pci_addr}"
+_gpu_unload_nvidia_modules() {
+    # Unload NVIDIA modules in dependency order (drm → modeset → uvm → nvidia).
+    printf "  Unloading NVIDIA modules...\n"
+    _gpu_log "INFO" "Unloading NVIDIA modules..."
 
-    if [[ "$force" != "force" ]] && _gpu_is_display_gpu "$pci_addr"; then
-        echo "Refusing to unbind GPU at ${pci_addr} — it has an active display connector." >&2
-        echo "Unbinding this GPU will freeze your desktop." >&2
-        echo "Use --force to override: hyprconf hardware gpu bind --force ${pci_addr}" >&2
-        return 1
-    fi
-
-    _gpu_log "INFO" "Binding GPU at ${pci_addr} to vfio-pci"
-
-    # Ensure vfio-pci module is loaded
-    if ! lsmod | grep -q "^vfio_pci"; then
-        _gpu_log "INFO" "Loading vfio-pci module"
-        printf "  Loading vfio-pci module...\n"
-        sudo modprobe vfio-pci || {
-            _gpu_log "ERROR" "Failed to load vfio-pci module"
-            return 1
-        }
-    fi
-
-    # Bind all devices in the IOMMU group
-    local devs
-    devs=$(_gpu_iommu_devices "$pci_addr") || {
-        echo "Cannot determine IOMMU group for ${pci_addr}." >&2
-        return 1
-    }
-
-    # Prefer virsh nodedev-detach — it handles NVIDIA FLR quirks and avoids
-    # raw sysfs writes that can hang on GPUs left in a bad state.
-    if command -v virsh &>/dev/null; then
-        local dev nodedev_name
-        while IFS= read -r dev; do
-            [[ -z "$dev" ]] && continue
-            if [[ "$(_gpu_current_driver "$dev")" == "vfio-pci" ]]; then
-                _gpu_log "INFO" "${dev} already bound to vfio-pci"
-                continue
+    local mod
+    for mod in nvidia_drm nvidia_modeset nvidia_uvm nvidia; do
+        if _gpu_is_module_loaded "$mod"; then
+            if sudo -n modprobe -r "$mod" 2>/dev/null; then
+                _gpu_log "INFO" "$mod unloaded"
+            else
+                _gpu_log "WARN" "$mod: in use (will retry during unbind)"
             fi
-            nodedev_name="pci_0000_$(echo "$dev" | tr ':.' '_')"
-            printf "  Detaching %s (%s)...\n" "$dev" "$nodedev_name"
-            _gpu_log "INFO" "_gpu_virsh nodedev-detach ${nodedev_name}"
-            _gpu_virsh nodedev-detach "$nodedev_name" 2>/dev/null || {
-                _gpu_log "WARN" "_gpu_virsh nodedev-detach failed for ${dev}, trying sysfs"
-                printf "  ⚠ virsh failed for %s — falling back to sysfs bind.\n" "$dev"
-                _gpu_sysfs_bind_one "$dev"
-            }
-        done <<< "$devs"
-    else
-        local dev
-        while IFS= read -r dev; do
-            [[ -z "$dev" ]] && continue
-            _gpu_sysfs_bind_one "$dev"
-        done <<< "$devs"
-    fi
-
-    _gpu_log "SUCCESS" "All IOMMU group devices bound to vfio-pci"
+        fi
+    done
     return 0
 }
 
-_gpu_sysfs_bind_one() {
-    # Bind a single PCI device to vfio-pci via direct sysfs writes.
-    local dev="$1"
-    local full_dev="0000:${dev}"
+# ── Safety Checks (mirrors omarchy) ───────────────────────────────────────────
+
+_gpu_check_processes() {
+    # Abort if the GPU is actively in use.
+    local current_driver="$1"
+
+    [[ -z "$current_driver" || "$current_driver" == "none" ]] && return 0
+
+    _gpu_log "INFO" "Checking for processes using GPU..."
+
+    if [[ "$current_driver" == "nvidia" ]]; then
+        local gpu_mem=0
+        if command -v nvidia-smi &>/dev/null; then
+            gpu_mem=$(nvidia-smi --query-compute-apps=used_memory --format=csv,noheader,nounits 2>/dev/null \
+                | awk '{sum+=$1} END {print sum+0}' || echo 0)
+        fi
+        if (( gpu_mem > 10 )); then
+            printf "  ✘ GPU actively in use (%d MiB memory). Close GPU apps first.\n" "$gpu_mem" >&2
+            _gpu_log "ERROR" "GPU in use: ${gpu_mem} MiB"
+            return 1
+        fi
+    elif [[ "$current_driver" == "vfio-pci" ]]; then
+        # Check for QEMU/VM processes
+        if pgrep -f 'qemu.*vfio' &>/dev/null; then
+            printf "  ✘ GPU in use by a VM. Stop the VM first.\n" >&2
+            _gpu_log "ERROR" "GPU in use by VM (qemu)"
+            return 1
+        fi
+    fi
+    return 0
+}
+
+_gpu_check_display_safety() {
+    # Abort if a monitor is connected to the passthrough GPU.
+    local pci_addr="$1"
+    if _gpu_is_display_gpu "$pci_addr"; then
+        printf "  ✘ Monitor connected to GPU at %s — unbinding will cause a blackscreen!\n" "$pci_addr" >&2
+        printf "    Move your monitor cable to the iGPU (motherboard) port first.\n" >&2
+        _gpu_log "ERROR" "Display connected to passthrough GPU ${pci_addr}"
+        return 1
+    fi
+    return 0
+}
+
+# ── State Marker ───────────────────────────────────────────────────────────────
+
+_gpu_update_state_marker() {
+    local mode="$1"
+    echo "$mode" | sudo -n tee "$_GPU_STATE_MARKER" > /dev/null 2>&1 || true
+}
+
+_gpu_read_state_marker() {
+    [[ -r "$_GPU_STATE_MARKER" ]] && cat "$_GPU_STATE_MARKER" 2>/dev/null || echo ""
+}
+
+# ── Mode System (mirrors omarchy mode vm/host/none) ───────────────────────────
+
+_gpu_mode_get() {
+    # Show current GPU mode.
+    if ! _gpu_load_config 2>/dev/null; then
+        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n"
+        return 1
+    fi
+
+    local driver mode
+    driver=$(_gpu_current_driver "$GPU_PCI_ADDR")
+    mode=$(_gpu_detect_mode "$driver")
+
+    printf "GPU:    %s [%s]\n" "${GPU_NAME:-unknown}" "${GPU_PCI_ADDR:-unknown}"
+    printf "Driver: %s\n" "${driver:-none}"
+    printf "Mode:   %s\n" "$mode"
+
+    _gpu_update_state_marker "$mode"
+}
+
+_gpu_mode_vm() {
+    # Bind GPU + all IOMMU group devices to vfio-pci (mirrors omarchy cmd_bind).
+    local force="${1:-}"
+
+    if ! _gpu_load_config; then
+        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        return 1
+    fi
+
+    local gpu_pci_full
+    gpu_pci_full=$(_gpu_normalize_pci "$GPU_PCI_ADDR") || {
+        printf "Invalid GPU PCI address: %s\n" "$GPU_PCI_ADDR" >&2
+        return 1
+    }
+
     local current_driver
-    current_driver=$(_gpu_current_driver "$dev")
+    current_driver=$(_gpu_get_pci_driver "$GPU_PCI_ADDR")
+
+    _gpu_log "INFO" "=== MODE VM START === GPU: ${GPU_NAME} (${GPU_PCI_ADDR}), driver: ${current_driver:-none}"
 
     if [[ "$current_driver" == "vfio-pci" ]]; then
-        _gpu_log "INFO" "${dev} already bound to vfio-pci"
+        printf "✔ GPU already bound to vfio-pci (ready for VM).\n"
+        _gpu_update_state_marker "vm"
         return 0
     fi
 
-    # Unbind from current driver
-    if [[ "$current_driver" != "none" ]]; then
-        printf "  Unbinding %s from %s...\n" "$dev" "$current_driver"
-        _gpu_log "INFO" "Unbinding ${dev} from ${current_driver}"
-        echo "$full_dev" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver/unbind" > /dev/null 2>&1 || true
+    # Safety checks
+    _gpu_check_processes "$current_driver" || return 1
+    if [[ "$force" != "force" ]]; then
+        _gpu_check_display_safety "$GPU_PCI_ADDR" || return 1
     fi
 
-    # Override driver to vfio-pci
-    printf "  Binding %s to vfio-pci...\n" "$dev"
-    _gpu_log "INFO" "Binding ${dev} to vfio-pci"
-    echo "vfio-pci" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver_override" > /dev/null
-    echo "$full_dev" | sudo tee /sys/bus/pci/drivers/vfio-pci/bind > /dev/null 2>&1 || {
-        # Try probing instead
-        echo "$full_dev" | sudo tee /sys/bus/pci/drivers_probe > /dev/null
-    }
+    # Unload NVIDIA modules before unbinding
+    [[ "$current_driver" == "nvidia" ]] && _gpu_unload_nvidia_modules
 
-    _gpu_log "INFO" "Bound ${dev} to vfio-pci"
+    # Unbind GPU from current driver
+    if [[ -n "$current_driver" && "$current_driver" != "none" ]]; then
+        if [[ -f "/sys/bus/pci/devices/${gpu_pci_full}/driver/unbind" ]]; then
+            printf "  Unbinding from %s...\n" "$current_driver"
+            if ! echo "$gpu_pci_full" | sudo -n tee "/sys/bus/pci/devices/${gpu_pci_full}/driver/unbind" > /dev/null 2>&1; then
+                printf "  ✘ Failed to unbind GPU from %s.\n" "$current_driver" >&2
+                return 1
+            fi
+        fi
+    fi
+
+    # Ensure vfio-pci module is loaded
+    if ! _gpu_is_module_loaded vfio_pci; then
+        if ! sudo -n modprobe vfio-pci 2>/dev/null; then
+            printf "  ✘ Failed to load vfio-pci module.\n" >&2
+            return 1
+        fi
+    fi
+
+    # Get all IOMMU group devices
+    local iommu_devs
+    iommu_devs="${GPU_IOMMU_DEVICES:-}"
+    if [[ -z "$iommu_devs" ]]; then
+        iommu_devs=$(_gpu_iommu_devices "$GPU_PCI_ADDR" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+    fi
+    _gpu_log "INFO" "IOMMU devices: ${iommu_devs}"
+
+    # Register GPU vendor:device with vfio-pci
+    local vendor_id device_id
+    vendor_id="${GPU_VENDOR_DEVICE%%:*}"
+    device_id="${GPU_VENDOR_DEVICE##*:}"
+    echo "${vendor_id} ${device_id}" | sudo -n tee /sys/bus/pci/drivers/vfio-pci/new_id > /dev/null 2>&1 || true
+
+    # Bind each IOMMU group device to vfio-pci
+    local dev_pci dev_pci_full
+    for dev_pci in $iommu_devs; do
+        dev_pci_full=$(_gpu_normalize_pci "$dev_pci") || continue
+
+        [[ ! -e "/sys/bus/pci/devices/${dev_pci_full}" ]] && continue
+
+        # Skip PCI bridges (class 0604)
+        local dev_class
+        dev_class=$(_gpu_get_pci_class "$dev_pci")
+        [[ "$dev_class" == "0604" ]] && continue
+
+        # Unbind from current driver
+        if [[ -f "/sys/bus/pci/devices/${dev_pci_full}/driver/unbind" ]]; then
+            echo "$dev_pci_full" | sudo -n tee "/sys/bus/pci/devices/${dev_pci_full}/driver/unbind" > /dev/null 2>&1 || true
+        fi
+
+        # Register device ID with vfio-pci
+        local dev_ids
+        dev_ids=$(_gpu_get_pci_device_id "$dev_pci")
+        if [[ -n "$dev_ids" ]]; then
+            echo "${dev_ids/:/ }" | sudo -n tee /sys/bus/pci/drivers/vfio-pci/new_id > /dev/null 2>&1 || true
+        fi
+
+        # Bind to vfio-pci
+        if [[ ! -d "/sys/bus/pci/drivers/vfio-pci/${dev_pci_full}" ]]; then
+            echo "$dev_pci_full" | sudo -n tee /sys/bus/pci/drivers/vfio-pci/bind > /dev/null 2>&1 || true
+        fi
+        _gpu_log "INFO" "Bound $dev_pci to vfio-pci"
+    done
+
+    # Verify
+    sleep 1
+    current_driver=$(_gpu_get_pci_driver "$GPU_PCI_ADDR")
+    if [[ "$current_driver" == "vfio-pci" ]]; then
+        printf "✔ GPU bound to vfio-pci (ready for VM).\n"
+        _gpu_log "SUCCESS" "=== MODE VM SUCCESS ==="
+        _gpu_update_state_marker "vm"
+        return 0
+    else
+        printf "✘ Failed to bind GPU (driver: %s).\n" "${current_driver:-none}" >&2
+        _gpu_log "ERROR" "=== MODE VM FAILED: driver ${current_driver:-none} ==="
+        return 1
+    fi
 }
 
-_gpu_unbind_vfio() {
-    # Unbind all devices in the GPU's IOMMU group from vfio-pci
-    # and restore them to their original drivers.
-    local pci_addr="$1"
+_gpu_mode_host() {
+    # Unbind from vfio-pci, restore native driver (mirrors omarchy cmd_unbind).
 
-    _gpu_log "INFO" "Unbinding GPU at ${pci_addr} from vfio-pci"
+    if ! _gpu_load_config; then
+        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        return 1
+    fi
 
-    local devs
-    devs=$(_gpu_iommu_devices "$pci_addr") || {
-        echo "Cannot determine IOMMU group for ${pci_addr}." >&2
+    local gpu_pci_full
+    gpu_pci_full=$(_gpu_normalize_pci "$GPU_PCI_ADDR") || {
+        printf "Invalid GPU PCI address: %s\n" "$GPU_PCI_ADDR" >&2
         return 1
     }
 
-    local dev full_dev current_driver
-    while IFS= read -r dev; do
-        [[ -z "$dev" ]] && continue
-        full_dev="0000:${dev}"
-        current_driver=$(_gpu_current_driver "$dev")
+    local current_driver native_driver
+    current_driver=$(_gpu_get_pci_driver "$GPU_PCI_ADDR")
+    native_driver="${GPU_DRIVER_ORIGINAL:-}"
 
-        if [[ "$current_driver" != "vfio-pci" ]]; then
-            _gpu_log "INFO" "${dev} not bound to vfio-pci (driver: ${current_driver}), skipping"
-            continue
+    # Infer native driver from vendor ID if config is missing it
+    if [[ -z "$native_driver" || "$native_driver" == "none" ]]; then
+        local vid="${GPU_VENDOR_DEVICE%%:*}"
+        case "$vid" in
+            10de) native_driver="nvidia" ;;
+            1002) native_driver="amdgpu" ;;
+            8086) native_driver="i915" ;;
+            *) printf "Cannot determine native driver for vendor: %s\n" "$vid" >&2; return 1 ;;
+        esac
+    fi
+
+    _gpu_log "INFO" "=== MODE HOST START === GPU: ${GPU_NAME} (${GPU_PCI_ADDR}), driver: ${current_driver:-none}, target: ${native_driver}"
+
+    if [[ "$current_driver" == "$native_driver" ]]; then
+        printf "✔ GPU already using %s.\n" "$native_driver"
+        _gpu_update_state_marker "host"
+        return 0
+    fi
+
+    # Safety check
+    _gpu_check_processes "$current_driver" || return 1
+
+    if [[ "$current_driver" == "vfio-pci" ]]; then
+        # Get all IOMMU group devices
+        local iommu_devs
+        iommu_devs="${GPU_IOMMU_DEVICES:-}"
+        if [[ -z "$iommu_devs" ]]; then
+            iommu_devs=$(_gpu_iommu_devices "$GPU_PCI_ADDR" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
         fi
 
-        # Unbind from vfio-pci
-        _gpu_log "INFO" "Unbinding ${dev} from vfio-pci"
-        echo "$full_dev" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver/unbind" > /dev/null 2>&1 || true
+        # Unbind all IOMMU group devices from vfio-pci
+        local dev_pci dev_pci_full
+        for dev_pci in $iommu_devs; do
+            dev_pci_full=$(_gpu_normalize_pci "$dev_pci") || continue
+            if [[ -d "/sys/bus/pci/drivers/vfio-pci/${dev_pci_full}" ]]; then
+                echo "$dev_pci_full" | sudo -n tee /sys/bus/pci/drivers/vfio-pci/unbind > /dev/null 2>&1 || true
+            fi
+        done
 
-        # Clear driver override so the original driver can claim the device
-        echo "" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver_override" > /dev/null
+        # Remove vfio-pci device IDs
+        for dev_pci in $iommu_devs; do
+            local dev_ids
+            dev_ids=$(_gpu_get_pci_device_id "$dev_pci")
+            if [[ -n "$dev_ids" ]]; then
+                echo "${dev_ids/:/ }" | sudo -n tee /sys/bus/pci/drivers/vfio-pci/remove_id > /dev/null 2>&1 || true
+            fi
+        done
 
-        # Trigger driver probe to re-bind the original driver
-        echo "$full_dev" | sudo tee /sys/bus/pci/drivers_probe > /dev/null
+        # Rebind USB controllers to xhci_hcd
+        if [[ -d "/sys/bus/pci/drivers/xhci_hcd" ]]; then
+            for dev_pci in $iommu_devs; do
+                dev_pci_full=$(_gpu_normalize_pci "$dev_pci") || continue
+                local dev_class
+                dev_class=$(_gpu_get_pci_class "$dev_pci")
+                if [[ "$dev_class" == "0c03" ]]; then
+                    echo "$dev_pci_full" | sudo -n tee /sys/bus/pci/drivers/xhci_hcd/bind > /dev/null 2>&1 || true
+                fi
+            done
+        fi
 
-        local new_driver
-        new_driver=$(_gpu_current_driver "$dev")
-        _gpu_log "INFO" "${dev} now bound to ${new_driver}"
-    done <<< "$devs"
+        _gpu_log "INFO" "All IOMMU devices unbound from vfio-pci"
+    fi
 
-    _gpu_log "SUCCESS" "GPU at ${pci_addr} returned to host"
-    return 0
+    # Load native driver (use -i to bypass blacklist)
+    printf "  Loading %s driver...\n" "$native_driver"
+    if [[ "$native_driver" == "nvidia" ]]; then
+        local mod
+        for mod in nvidia nvidia_uvm nvidia_modeset nvidia_drm; do
+            sudo -n modprobe -i "$mod" 2>/dev/null || true
+        done
+    else
+        sudo -n modprobe -i "$native_driver" 2>/dev/null || true
+    fi
+
+    # Trigger PCI rescan
+    echo 1 | sudo -n tee /sys/bus/pci/rescan > /dev/null 2>&1 || true
+
+    # Bind via sysfs
+    if [[ -d "/sys/bus/pci/drivers/$native_driver" ]]; then
+        echo "$gpu_pci_full" | sudo -n tee "/sys/bus/pci/drivers/$native_driver/bind" > /dev/null 2>&1 || true
+    fi
+
+    sleep 2
+    current_driver=$(_gpu_get_pci_driver "$GPU_PCI_ADDR")
+
+    if [[ "$current_driver" == "$native_driver" || ( -n "$current_driver" && "$current_driver" != "vfio-pci" ) ]]; then
+        printf "✔ GPU restored to %s (available to host).\n" "${current_driver:-$native_driver}"
+        _gpu_log "SUCCESS" "=== MODE HOST SUCCESS ==="
+        _gpu_update_state_marker "host"
+        return 0
+    else
+        printf "⚠ Unbound but driver not auto-loaded (current: %s).\n" "${current_driver:-none}"
+        printf "  Manual reload: sudo modprobe -i %s\n" "$native_driver"
+        _gpu_log "WARN" "=== MODE HOST PARTIAL: driver ${current_driver:-none} ==="
+        _gpu_update_state_marker "host"
+        return 0
+    fi
+}
+
+_gpu_mode_none() {
+    # Unbind GPU from all drivers (mirrors omarchy cmd_set_none).
+
+    if ! _gpu_load_config; then
+        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        return 1
+    fi
+
+    local gpu_pci_full
+    gpu_pci_full=$(_gpu_normalize_pci "$GPU_PCI_ADDR") || {
+        printf "Invalid GPU PCI address: %s\n" "$GPU_PCI_ADDR" >&2
+        return 1
+    }
+
+    local current_driver
+    current_driver=$(_gpu_get_pci_driver "$GPU_PCI_ADDR")
+
+    _gpu_log "INFO" "=== MODE NONE START === GPU: ${GPU_NAME} (${GPU_PCI_ADDR}), driver: ${current_driver:-none}"
+
+    if [[ -z "$current_driver" || "$current_driver" == "none" ]]; then
+        printf "✔ GPU already in none mode (no driver).\n"
+        _gpu_update_state_marker "none"
+        return 0
+    fi
+
+    _gpu_check_processes "$current_driver" || return 1
+    [[ "$current_driver" == "nvidia" ]] && _gpu_unload_nvidia_modules
+
+    # Get all IOMMU group devices
+    local iommu_devs
+    iommu_devs="${GPU_IOMMU_DEVICES:-}"
+    if [[ -z "$iommu_devs" ]]; then
+        iommu_devs=$(_gpu_iommu_devices "$GPU_PCI_ADDR" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+    fi
+
+    # Unbind each IOMMU group device
+    local dev_pci dev_pci_full
+    for dev_pci in $iommu_devs; do
+        dev_pci_full=$(_gpu_normalize_pci "$dev_pci") || continue
+        if [[ -f "/sys/bus/pci/devices/${dev_pci_full}/driver/unbind" ]]; then
+            echo "$dev_pci_full" | sudo -n tee "/sys/bus/pci/devices/${dev_pci_full}/driver/unbind" > /dev/null 2>&1 || true
+        fi
+    done
+
+    # If was vfio-pci, remove device IDs and rebind USB
+    if [[ "$current_driver" == "vfio-pci" ]]; then
+        for dev_pci in $iommu_devs; do
+            local dev_ids
+            dev_ids=$(_gpu_get_pci_device_id "$dev_pci")
+            if [[ -n "$dev_ids" ]]; then
+                echo "${dev_ids/:/ }" | sudo -n tee /sys/bus/pci/drivers/vfio-pci/remove_id > /dev/null 2>&1 || true
+            fi
+        done
+        if [[ -d "/sys/bus/pci/drivers/xhci_hcd" ]]; then
+            for dev_pci in $iommu_devs; do
+                dev_pci_full=$(_gpu_normalize_pci "$dev_pci") || continue
+                local dev_class
+                dev_class=$(_gpu_get_pci_class "$dev_pci")
+                if [[ "$dev_class" == "0c03" ]]; then
+                    echo "$dev_pci_full" | sudo -n tee /sys/bus/pci/drivers/xhci_hcd/bind > /dev/null 2>&1 || true
+                fi
+            done
+        fi
+    fi
+
+    sleep 1
+    current_driver=$(_gpu_get_pci_driver "$GPU_PCI_ADDR")
+
+    if [[ -z "$current_driver" || "$current_driver" == "none" ]]; then
+        printf "✔ GPU set to none mode (no driver loaded).\n"
+        _gpu_log "SUCCESS" "=== MODE NONE SUCCESS ==="
+        _gpu_update_state_marker "none"
+        return 0
+    else
+        printf "✘ Failed to unbind (current: %s).\n" "$current_driver" >&2
+        _gpu_log "ERROR" "=== MODE NONE FAILED: driver ${current_driver} ==="
+        return 1
+    fi
 }
 
 # ── Audit ──────────────────────────────────────────────────────────────────────
@@ -437,34 +762,28 @@ _gpu_audit() {
     # 3. Packages
     printf "\nPackages\n"
     local pkg
-    for pkg in libvirt virt-manager qemu-desktop edk2-ovmf dnsmasq swtpm; do
+    for pkg in qemu-desktop edk2-ovmf dmidecode; do
         if pacman -Qi "$pkg" &>/dev/null; then
             printf "  ✔ %s installed\n" "$pkg"
         else
-            printf "  ✘ %s not installed\n" "$pkg"
-            errors=$((errors + 1))
+            printf "  ⚠ %s not installed\n" "$pkg"
+            warnings=$((warnings + 1))
         fi
     done
 
-    # 4. Services
-    printf "\nServices\n"
-    local svc
-    for svc in libvirtd virtlogd; do
-        if systemctl is-active --quiet "$svc" 2>/dev/null; then
-            printf "  ✔ %s running\n" "$svc"
-        elif systemctl is-enabled --quiet "$svc" 2>/dev/null; then
-            printf "  ⚠ %s enabled but not running\n" "$svc"
-            warnings=$((warnings + 1))
-        else
-            printf "  ✘ %s not enabled\n" "$svc"
-            errors=$((errors + 1))
-        fi
-    done
+    # 4. Driver blacklist
+    printf "\nDriver Blacklist\n"
+    if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
+        printf "  ✔ GPU driver blacklist configured (%s)\n" "$_GPU_BLACKLIST_CONF"
+    else
+        printf "  ⚠ No driver blacklist (GPU loads native driver at boot)\n"
+        warnings=$((warnings + 1))
+    fi
 
     # 5. User groups
     printf "\nUser Groups\n"
     local grp
-    for grp in libvirt kvm; do
+    for grp in kvm; do
         if id -nG "$USER" | grep -qw "$grp"; then
             printf "  ✔ %s in '%s' group\n" "$USER" "$grp"
         else
@@ -609,12 +928,52 @@ _gpu_setup() {
     # to avoid circular sourcing. We just signal what's needed.
     printf "__NEED_ADDON_VFIO__\n"
 
-    # 5. Detect GPUs and let user choose
+    # 5. Driver blacklisting (mirrors omarchy: install nvidia /bin/false)
+    _gpu_configure_blacklist
+
+    # 6. Detect GPUs and let user choose
     printf "\nDetected GPUs:\n\n"
     _gpu_detect
 
-    printf "Run 'hyprconf hardware gpu pass <gpu> <vm>' to pass a GPU to a VM.\n"
+    printf "Run 'hyprconf hardware gpu mode vm' to bind the GPU to vfio-pci.\n"
+    printf "Run 'hyprconf hardware gpu mode host' to restore to host driver.\n"
     printf "Run 'hyprconf hardware gpu audit' to verify system readiness.\n"
+}
+
+_gpu_configure_blacklist() {
+    # Write GPU driver blacklist to modprobe.d (mirrors omarchy configure_gpu_blacklist).
+    # Prevents the GPU driver from loading at boot so the GPU stays unbound.
+    local vendor_device="${GPU_VENDOR_DEVICE:-}"
+
+    if [[ -z "$vendor_device" ]]; then
+        # Try to determine from config
+        _gpu_load_config 2>/dev/null || true
+        vendor_device="${GPU_VENDOR_DEVICE:-}"
+    fi
+
+    if [[ -z "$vendor_device" ]]; then
+        printf "  ⚠ No GPU configured — skipping driver blacklist.\n"
+        return 0
+    fi
+
+    local vendor_id="${vendor_device%%:*}"
+
+    if [[ "$vendor_id" == "10de" ]]; then
+        printf "\n→ Configuring NVIDIA driver blacklist...\n"
+        sudo tee "$_GPU_BLACKLIST_CONF" > /dev/null <<'EOF'
+# GPU Passthrough — prevent NVIDIA auto-load at boot
+# Display handled by iGPU, NVIDIA used only for VM passthrough
+# Use modprobe -i nvidia to bypass this blacklist (mode host)
+install nvidia /bin/false
+EOF
+        printf "  ✔ NVIDIA blacklist: %s\n" "$_GPU_BLACKLIST_CONF"
+    else
+        # AMD/Intel: cannot easily blacklist (iGPU may share driver)
+        if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
+            sudo rm -f "$_GPU_BLACKLIST_CONF"
+        fi
+        printf "  ℹ Non-NVIDIA GPU — driver blacklist not needed.\n"
+    fi
 }
 
 _gpu_setup_select() {
@@ -631,6 +990,9 @@ _gpu_setup_select() {
         pci_addr=$(echo "$line" | awk '{print $1}')
         vendor_device=$(echo "$line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
         name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
+        driver=$(_gpu_current_driver "$pci_addr")
+        iommu_grp=$(_gpu_iommu_group "$pci_addr")
+        gpu_addrs+=("$pci_addr")
         gpu_names+=("$name")
         gpu_vdevs+=("$vendor_device")
         gpu_drivers+=("$driver")
@@ -681,15 +1043,31 @@ _gpu_setup_select() {
 _gpu_save_config() {
     local pci_addr="$1" name="$2" vendor_device="$3" driver="$4" iommu_group="$5" iommu_devs="$6"
 
+    local vendor_id="${vendor_device%%:*}"
+    local device_id="${vendor_device##*:}"
+
+    # Audio device detection
+    local audio_info
+    audio_info=$(_gpu_audio_device "$pci_addr") || true
+    local audio_pci="" audio_ids=""
+    if [[ -n "$audio_info" ]]; then
+        audio_pci=$(echo "$audio_info" | awk '{print $1}')
+        audio_ids=$(echo "$audio_info" | grep -oP '\(\K[^)]+' || true)
+    fi
+
     mkdir -p "$_GPU_CONF_DIR"
     {
         printf '# Generated by hyprconf hardware gpu setup — %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
         printf 'GPU_PCI_ADDR="%s"\n' "$pci_addr"
+        printf 'GPU_VENDOR_ID="%s"\n' "$vendor_id"
+        printf 'GPU_DEVICE_ID="%s"\n' "$device_id"
         printf 'GPU_NAME="%s"\n' "$name"
         printf 'GPU_VENDOR_DEVICE="%s"\n' "$vendor_device"
         printf 'GPU_DRIVER_ORIGINAL="%s"\n' "$driver"
         printf 'GPU_IOMMU_GROUP="%s"\n' "$iommu_group"
         printf 'GPU_IOMMU_DEVICES="%s"\n' "$iommu_devs"
+        printf 'GPU_AUDIO_PCI="%s"\n' "$audio_pci"
+        printf 'GPU_AUDIO_IDS="%s"\n' "$audio_ids"
     } > "$_GPU_CONF"
 
     _gpu_log "INFO" "Config saved: ${_GPU_CONF}"
@@ -766,8 +1144,12 @@ _gpu_diagnose() {
         lsmod | grep -iE '(nvidia|nouveau|amdgpu|radeon|i915)' 2>/dev/null || printf "None\n"
         printf "\n"
 
-        printf "[LIBVIRT STATUS]\n"
-        systemctl status libvirtd 2>/dev/null | head -5 || printf "libvirtd not found\n"
+        printf "[DRIVER BLACKLIST]\n"
+        if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
+            cat "$_GPU_BLACKLIST_CONF"
+        else
+            printf "No blacklist configured\n"
+        fi
         printf "\n"
 
         printf "[DMESG — IOMMU]\n"
@@ -831,6 +1213,10 @@ _gpu_report() {
         pci_addr=$(echo "$line" | awk '{print $1}')
         vendor_device=$(echo "$line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
         name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
+        driver=$(_gpu_current_driver "$pci_addr")
+        type=$(_gpu_classify "$pci_addr" "$name")
+        iommu_grp=$(_gpu_iommu_group "$pci_addr")
+        printf "  GPU %d: %s\n" "$gpu_idx" "$name"
         printf "    PCI:        %s\n" "$pci_addr"
         printf "    IDs:        %s\n" "$vendor_device"
         printf "    Type:       %s\n" "$type"
@@ -935,204 +1321,45 @@ _gpu_report() {
         _gpu_load_config
         printf "  Configured:  %s [%s]\n" "${GPU_NAME:-unknown}" "${GPU_PCI_ADDR:-unknown}"
         if [[ -n "${GPU_PCI_ADDR:-}" ]]; then
-            local cfg_driver
+            local cfg_driver mode
             cfg_driver=$(_gpu_current_driver "$GPU_PCI_ADDR")
-            if [[ "$cfg_driver" == "vfio-pci" ]]; then
-                printf "  Binding:     active (vfio-pci)\n"
-            else
-                printf "  Binding:     host (%s)\n" "$cfg_driver"
-            fi
+            mode=$(_gpu_detect_mode "$cfg_driver")
+            printf "  Mode:        %s (%s)\n" "$mode" "$cfg_driver"
         fi
     else
         printf "  Configured:  none (run: hyprconf hardware gpu setup)\n"
     fi
+
+    # Blacklist status
+    printf "\n[DRIVER BLACKLIST]\n"
+    if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
+        printf "  Status:      active\n"
+        printf "  File:        %s\n" "$_GPU_BLACKLIST_CONF"
+    else
+        printf "  Status:      not configured\n"
+    fi
 }
 
-# ── VM GPU Attach / SMBIOS ─────────────────────────────────────────────────────
+# ── SMBIOS (sysfs-based, no dmidecode dependency) ─────────────────────────────
 
 _gpu_host_smbios() {
-    # Read host SMBIOS system info via dmidecode.
+    # Read host SMBIOS system info via sysfs (no root needed).
     # Returns manufacturer, product, serial as tab-separated values.
-    local mfg product serial
-    mfg=$(sudo dmidecode -t system 2>/dev/null | grep 'Manufacturer:' | head -1 | sed 's/.*Manufacturer:\s*//')
-    product=$(sudo dmidecode -t system 2>/dev/null | grep 'Product Name:' | head -1 | sed 's/.*Product Name:\s*//')
-    serial=$(sudo dmidecode -t system 2>/dev/null | grep 'Serial Number:' | head -1 | sed 's/.*Serial Number:\s*//')
+    local dmi="/sys/devices/virtual/dmi/id"
+    local mfg="" product="" serial=""
+
+    [[ -r "$dmi/sys_vendor" ]] && mfg=$(cat "$dmi/sys_vendor" 2>/dev/null)
+    [[ -r "$dmi/product_name" ]] && product=$(cat "$dmi/product_name" 2>/dev/null)
+    [[ -r "$dmi/product_serial" ]] && serial=$(cat "$dmi/product_serial" 2>/dev/null)
+
+    # Fallback to dmidecode if sysfs is empty
+    if [[ -z "$mfg" ]] && command -v dmidecode &>/dev/null; then
+        mfg=$(sudo -n dmidecode -s system-manufacturer 2>/dev/null | head -1 || true)
+        product=$(sudo -n dmidecode -s system-product-name 2>/dev/null | head -1 || true)
+        serial=$(sudo -n dmidecode -s system-serial-number 2>/dev/null | head -1 || true)
+    fi
+
     printf '%s\t%s\t%s\n' "$mfg" "$product" "$serial"
-}
-
-_gpu_attach_to_vm() {
-    # Attach a GPU and its IOMMU group devices to a libvirt VM.
-    # Also configures SMBIOS passthrough for OEM license activation.
-    local pci_addr="$1" vm_name="$2"
-
-    _gpu_log "INFO" "Attaching GPU at ${pci_addr} to VM ${vm_name}"
-
-    # Verify VM exists
-    if ! _gpu_virsh dominfo "$vm_name" &>/dev/null; then
-        printf "VM '%s' not found. Available VMs:\n" "$vm_name" >&2
-        _gpu_virsh list --all --name 2>/dev/null | grep -v '^$' | sed 's/^/  /' >&2
-        return 1
-    fi
-
-    # Attach all IOMMU group PCI devices
-    local devs
-    devs=$(_gpu_iommu_devices "$pci_addr") || {
-        echo "Cannot determine IOMMU group for ${pci_addr}." >&2
-        return 1
-    }
-
-    local dev attached=0
-    while IFS= read -r dev; do
-        [[ -z "$dev" ]] && continue
-        local domain bus slot func
-        domain="0x0000"
-        bus="0x${dev%%:*}"
-        local slot_func="${dev#*:}"
-        slot="0x${slot_func%%.*}"
-        func="0x${slot_func##*.}"
-
-        # Check if already attached
-        if _gpu_virsh dumpxml "$vm_name" 2>/dev/null | grep -q "bus='${bus}'" && \
-           _gpu_virsh dumpxml "$vm_name" 2>/dev/null | grep -q "slot='${slot}'" && \
-           _gpu_virsh dumpxml "$vm_name" 2>/dev/null | grep -q "function='${func}'"; then
-            _gpu_log "INFO" "PCI ${dev} already attached to ${vm_name}"
-            continue
-        fi
-
-        local xml
-        xml=$(printf '<hostdev mode="subsystem" type="pci" managed="yes">\n  <source>\n    <address domain="%s" bus="%s" slot="%s" function="%s"/>\n  </source>\n</hostdev>\n' \
-            "$domain" "$bus" "$slot" "$func")
-
-        printf "  → Attaching PCI %s...\n" "$dev"
-        echo "$xml" | _gpu_virsh attach-device "$vm_name" /dev/stdin --config 2>/dev/null \
-            || echo "$xml" | _gpu_virsh attach-device "$vm_name" /dev/stdin --persistent 2>/dev/null \
-            || {
-                _gpu_log "WARN" "Failed to attach ${dev} via virsh, trying virt-xml"
-                virt-xml "$vm_name" --add-device --hostdev "$dev" 2>/dev/null || {
-                    printf "  ⚠ Could not attach %s — add manually in virt-manager.\n" "$dev"
-                    _gpu_log "WARN" "Could not attach ${dev} to ${vm_name}"
-                    continue
-                }
-            }
-
-        attached=$((attached + 1))
-        _gpu_log "INFO" "Attached PCI ${dev} to ${vm_name}"
-    done <<< "$devs"
-
-    # Configure SMBIOS passthrough for OEM license activation
-    _gpu_configure_smbios "$vm_name"
-
-    if (( attached > 0 )); then
-        printf "  ✔ Attached %d PCI device(s) to %s.\n" "$attached" "$vm_name"
-    else
-        printf "  ℹ All IOMMU group devices already attached to %s.\n" "$vm_name"
-    fi
-
-    return 0
-}
-
-_gpu_configure_smbios() {
-    # Configure SMBIOS passthrough on a VM for OEM Windows license activation.
-    local vm_name="$1"
-
-    _gpu_log "INFO" "Configuring SMBIOS passthrough for ${vm_name}"
-
-    # Check if SMBIOS already configured
-    if _gpu_virsh dumpxml "$vm_name" 2>/dev/null | grep -q '<sysinfo type="smbios"'; then
-        printf "  ✔ SMBIOS already configured on %s.\n" "$vm_name"
-        return 0
-    fi
-
-    # Read host SMBIOS
-    local smbios_data mfg product serial
-    smbios_data=$(_gpu_host_smbios)
-    mfg=$(echo "$smbios_data" | cut -f1)
-    product=$(echo "$smbios_data" | cut -f2)
-    serial=$(echo "$smbios_data" | cut -f3)
-
-    if [[ -z "$mfg" || "$mfg" == "Not Specified" ]]; then
-        printf "  ⚠ Could not read host SMBIOS data. Skipping SMBIOS passthrough.\n"
-        _gpu_log "WARN" "Empty SMBIOS data, skipping"
-        return 0
-    fi
-
-    printf "  → Configuring SMBIOS: %s %s\n" "$mfg" "$product"
-
-    # Use virt-xml to add sysinfo if available
-    if command -v virt-xml &>/dev/null; then
-        virt-xml "$vm_name" --edit --sysinfo type=smbios,bios.vendor="$mfg",system.manufacturer="$mfg",system.product="$product",system.serial="$serial" 2>/dev/null && {
-            # Also set smbios mode
-            virt-xml "$vm_name" --edit --os-info smbios_mode=sysinfo 2>/dev/null || true
-            _gpu_log "INFO" "SMBIOS configured via virt-xml"
-            printf "  ✔ SMBIOS passthrough configured for OEM license activation.\n"
-            return 0
-        }
-    fi
-
-    # Fallback: edit XML directly
-    local tmp_xml
-    tmp_xml=$(mktemp /tmp/hyprconf-smbios-XXXXXX.xml)
-    _gpu_virsh dumpxml "$vm_name" > "$tmp_xml" 2>/dev/null || {
-        rm -f "$tmp_xml"
-        printf "  ⚠ Could not dump VM XML. Add SMBIOS manually in virt-manager.\n"
-        return 0
-    }
-
-    # Insert sysinfo block before </domain>
-    local sysinfo_xml
-    sysinfo_xml=$(printf '  <sysinfo type="smbios">\n    <system>\n      <entry name="manufacturer">%s</entry>\n      <entry name="product">%s</entry>\n      <entry name="serial">%s</entry>\n    </system>\n  </sysinfo>' \
-        "$mfg" "$product" "$serial")
-
-    if ! grep -q '<sysinfo' "$tmp_xml"; then
-        sed -i "/<\/domain>/i\\${sysinfo_xml}" "$tmp_xml"
-    fi
-
-    # Set smbios mode on <os>
-    if ! grep -q 'smbios mode' "$tmp_xml"; then
-        sed -i 's|</os>|  <smbios mode="sysinfo"/>\n  </os>|' "$tmp_xml"
-    fi
-
-    _gpu_virsh define "$tmp_xml" > /dev/null 2>&1 && {
-        _gpu_log "INFO" "SMBIOS configured via XML edit"
-        printf "  ✔ SMBIOS passthrough configured for OEM license activation.\n"
-    } || {
-        printf "  ⚠ Could not apply SMBIOS XML. Add manually in virt-manager.\n"
-        _gpu_log "WARN" "Failed to define SMBIOS XML"
-    }
-
-    rm -f "$tmp_xml"
-    return 0
-}
-
-_gpu_detach_from_vm() {
-    # Remove GPU PCI devices from a libvirt VM.
-    local pci_addr="$1" vm_name="$2"
-
-    _gpu_log "INFO" "Detaching GPU at ${pci_addr} from VM ${vm_name}"
-
-    local devs
-    devs=$(_gpu_iommu_devices "$pci_addr") || return 1
-
-    local dev detached=0
-    while IFS= read -r dev; do
-        [[ -z "$dev" ]] && continue
-        local bus slot func
-        bus="0x${dev%%:*}"
-        local slot_func="${dev#*:}"
-        slot="0x${slot_func%%.*}"
-        func="0x${slot_func##*.}"
-
-        local xml
-        xml=$(printf '<hostdev mode="subsystem" type="pci" managed="yes">\n  <source>\n    <address domain="0x0000" bus="%s" slot="%s" function="%s"/>\n  </source>\n</hostdev>\n' \
-            "$bus" "$slot" "$func")
-
-        echo "$xml" | _gpu_virsh detach-device "$vm_name" /dev/stdin --config 2>/dev/null && {
-            detached=$((detached + 1))
-            _gpu_log "INFO" "Detached PCI ${dev} from ${vm_name}"
-        } || true
-    done <<< "$devs"
-
-    printf "Detached %d PCI device(s) from %s.\n" "$detached" "$vm_name"
 }
 
 # ── Status (default view) ─────────────────────────────────────────────────────
@@ -1150,13 +1377,20 @@ _gpu_status() {
         printf "IOMMU: not enabled ✘\n"
     fi
 
-    # libvirt status
-    if systemctl is-active --quiet libvirtd 2>/dev/null; then
-        printf "libvirtd: running ✔\n"
-    elif pacman -Qi libvirt &>/dev/null; then
-        printf "libvirtd: installed but not running\n"
+    # Blacklist status
+    if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
+        printf "Blacklist: active ✔\n"
     else
-        printf "libvirtd: not installed (run: hyprconf addon vfio)\n"
+        printf "Blacklist: not configured\n"
+    fi
+
+    # Configured GPU mode
+    if [[ -f "$_GPU_CONF" ]]; then
+        _gpu_load_config
+        local cfg_driver mode
+        cfg_driver=$(_gpu_current_driver "$GPU_PCI_ADDR")
+        mode=$(_gpu_detect_mode "$cfg_driver")
+        printf "Mode: %s\n" "$mode"
     fi
 
     printf "\nGPUs:\n"
@@ -1164,13 +1398,14 @@ _gpu_status() {
         [[ -z "$line" ]] && continue
         gpu_count=$((gpu_count + 1))
 
-        local pci_addr name driver
+        local pci_addr name driver status_icon
         pci_addr=$(echo "$line" | awk '{print $1}')
         name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
+        driver=$(_gpu_current_driver "$pci_addr")
         if [[ "$driver" == "vfio-pci" ]]; then
-            status_icon="🔒 VM-ready"
+            status_icon="🔒 vm (vfio-pci)"
         elif [[ "$driver" == "none" ]]; then
-            status_icon="⚪ unbound"
+            status_icon="⚪ none"
         else
             status_icon="🖥  host (${driver})"
         fi

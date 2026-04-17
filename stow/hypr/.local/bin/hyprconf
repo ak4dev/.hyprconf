@@ -120,15 +120,16 @@ usage() {
   printf "  hyprconf hardware gpu setup            Interactive VFIO setup wizard\n"
   printf "  hyprconf hardware gpu audit            System readiness check for passthrough\n"
   printf "  hyprconf hardware gpu report           Detailed hardware report for passthrough\n"
-  printf "  hyprconf hardware gpu bind [--force] [gpu]      Bind GPU to vfio-pci (prepare for VM)\n"
-  printf "  hyprconf hardware gpu unbind <gpu>     Return GPU to host driver\n"
-  printf "  hyprconf hardware gpu pass [--force] [gpu] [vm] Bind GPU + attach to VM (with SMBIOS)\n"
+  printf "  hyprconf hardware gpu mode             Show current GPU mode (vm/host/none)\n"
+  printf "  hyprconf hardware gpu mode vm [gpu]    Bind GPU to vfio-pci for VM passthrough\n"
+  printf "  hyprconf hardware gpu mode host [gpu]  Restore GPU to host driver\n"
+  printf "  hyprconf hardware gpu mode none [gpu]  Unbind GPU from all drivers\n"
   printf "  hyprconf hardware gpu diagnose         Detailed diagnostic dump\n"
   printf "\n${_b}Addons${_r}\n"
   printf "  hyprconf addon                   List available addons and their status\n"
   printf "  hyprconf addon <name>            Install a named addon\n"
   printf "  Available: dev  (full test-suite deps + GitHub Copilot CLI)\n"
-  printf "             vfio (GPU passthrough: libvirt, virt-manager, QEMU, OVMF)\n"
+  printf "             vfio (GPU passthrough: QEMU, OVMF, VFIO modules)\n"
   printf "\n${_b}Developer${_r}\n"
   printf "  hyprconf dev                     Show developer pipeline commands\n"
   printf "  hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]\n"
@@ -1457,83 +1458,79 @@ cmd_hardware() {
         audit)
           _gpu_audit
           ;;
-        bind)
-          local force=""
-          if [[ "${1:-}" == "--force" ]]; then force="force"; shift; fi
-          local target="${1:-}"
-          if [[ -z "$target" ]]; then
-            # Try loading from config
-            if _gpu_load_config && [[ -n "${GPU_PCI_ADDR:-}" ]]; then
-              target="$GPU_PCI_ADDR"
-              printf "${_b}→${_r} Using configured GPU: %s\n" "${GPU_NAME:-$target}"
-            else
-              die "Usage: hyprconf hardware gpu bind [--force] <gpu>\n  (or run 'hyprconf hardware gpu setup' to configure a default GPU)"
-            fi
-          fi
-          local pci_addr
-          pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
-          printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
-          _gpu_bind_vfio "$pci_addr" "$force" \
-            && printf "${_g}✔${_r} GPU %s bound to vfio-pci — ready for VM passthrough.\n" "$pci_addr" \
-            || die "Failed to bind GPU ${pci_addr} to vfio-pci."
-          ;;
-        unbind)
-          local target="${1:?Usage: hyprconf hardware gpu unbind <gpu>}"
-          local pci_addr
-          pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
-          printf "${_b}→${_r} Unbinding GPU at %s from vfio-pci...\n" "$pci_addr"
-          _gpu_unbind_vfio "$pci_addr" \
-            && printf "${_g}✔${_r} GPU %s returned to host.\n" "$pci_addr" \
-            || die "Failed to unbind GPU ${pci_addr} from vfio-pci."
-          ;;
-        pass)
-          local force=""
-          if [[ "${1:-}" == "--force" ]]; then force="force"; shift; fi
-          local target="${1:-}"
-          if [[ -z "$target" ]]; then
-            # Try loading from config
-            if _gpu_load_config && [[ -n "${GPU_PCI_ADDR:-}" ]]; then
-              target="$GPU_PCI_ADDR"
-              printf "${_b}→${_r} Using configured GPU: %s\n" "${GPU_NAME:-$target}"
-            else
-              die "Usage: hyprconf hardware gpu pass [--force] <gpu> [vm-name]\n  (or run 'hyprconf hardware gpu setup' to configure a default GPU)"
-            fi
-          else
-            shift
-          fi
-          local vm_name="${1:-}"
-          local pci_addr
-          pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
+        mode)
+          local mode_target="${1:-}"
+          shift || true
+          case "$mode_target" in
+            "")
+              # Show current mode
+              _gpu_mode_get
+              ;;
+            vm)
+              local force=""
+              if [[ "${1:-}" == "--force" ]]; then force="force"; shift; fi
+              local target="${1:-}"
+              if [[ -z "$target" ]]; then
+                if _gpu_load_config && [[ -n "${GPU_PCI_ADDR:-}" ]]; then
+                  target="$GPU_PCI_ADDR"
+                  printf "${_b}→${_r} Using configured GPU: %s\n" "${GPU_NAME:-$target}"
+                else
+                  die "Usage: hyprconf hardware gpu mode vm [--force] [gpu]\n  Run 'hyprconf hardware gpu setup' first to configure a default GPU."
+                fi
+              fi
+              local pci_addr
+              pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
 
-          # Safety check for display GPU
-          if [[ "$force" != "force" ]] && _gpu_is_display_gpu "$pci_addr"; then
-            die "Refusing to pass GPU at ${pci_addr} — it has an active display connector.\nUnbinding this GPU will freeze your desktop.\nUse --force to override."
-          fi
+              # Safety check for display GPU
+              if [[ "$force" != "force" ]] && _gpu_is_display_gpu "$pci_addr"; then
+                die "Refusing to bind GPU at ${pci_addr} — it has an active display connector.\nUnbinding this GPU will freeze your desktop.\nUse --force to override."
+              fi
 
-          if [[ -n "$vm_name" ]]; then
-            # VM passthrough: attach hostdev with managed="yes" and let
-            # libvirt handle the VFIO bind on virsh start.  This avoids
-            # raw sysfs writes that can hang on NVIDIA GPUs.
-            printf "${_b}→${_r} Attaching GPU at %s to VM '%s'...\n" "$pci_addr" "$vm_name"
-            _gpu_attach_to_vm "$pci_addr" "$vm_name" \
-              || printf "${_y}⚠${_r} GPU attach had warnings — check above. You can add devices manually in virt-manager.\n"
-            printf "${_b}→${_r} Starting VM '%s' (libvirt will bind GPU to vfio-pci)...\n" "$vm_name"
-            _gpu_virsh start "$vm_name" 2>/dev/null \
-              && printf "${_g}✔${_r} VM '%s' started with GPU passthrough.\n" "$vm_name" \
-              || printf "${_y}⚠${_r} Could not auto-start VM. Start it with: virsh start %s\n" "$vm_name"
-          else
-            printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
-            _gpu_bind_vfio "$pci_addr" "$force" \
-              || die "Failed to bind GPU ${pci_addr} to vfio-pci."
-            printf "${_g}✔${_r} GPU %s bound to vfio-pci — ready for VM passthrough.\n" "$pci_addr"
-            printf "${_g}✔${_r} GPU ready. Launching virt-manager...\n"
-            if command -v virt-manager &>/dev/null; then
-              virt-manager &
-              disown
-            else
-              die "virt-manager not found. Install it with: hyprconf addon vfio"
-            fi
-          fi
+              printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
+              _gpu_mode_vm "$pci_addr" "$force" \
+                && printf "${_g}✔${_r} GPU %s bound to vfio-pci — ready for VM passthrough.\n" "$pci_addr" \
+                || die "Failed to bind GPU ${pci_addr} to vfio-pci."
+              ;;
+            host)
+              local target="${1:-}"
+              if [[ -z "$target" ]]; then
+                if _gpu_load_config && [[ -n "${GPU_PCI_ADDR:-}" ]]; then
+                  target="$GPU_PCI_ADDR"
+                  printf "${_b}→${_r} Using configured GPU: %s\n" "${GPU_NAME:-$target}"
+                else
+                  die "Usage: hyprconf hardware gpu mode host [gpu]\n  Run 'hyprconf hardware gpu setup' first."
+                fi
+              fi
+              local pci_addr
+              pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
+              printf "${_b}→${_r} Restoring GPU at %s to host driver...\n" "$pci_addr"
+              _gpu_mode_host "$pci_addr" \
+                && printf "${_g}✔${_r} GPU %s returned to host.\n" "$pci_addr" \
+                || die "Failed to restore GPU ${pci_addr} to host."
+              ;;
+            none)
+              local target="${1:-}"
+              if [[ -z "$target" ]]; then
+                if _gpu_load_config && [[ -n "${GPU_PCI_ADDR:-}" ]]; then
+                  target="$GPU_PCI_ADDR"
+                  printf "${_b}→${_r} Using configured GPU: %s\n" "${GPU_NAME:-$target}"
+                else
+                  die "Usage: hyprconf hardware gpu mode none [gpu]\n  Run 'hyprconf hardware gpu setup' first."
+                fi
+              fi
+              local pci_addr
+              pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
+              printf "${_b}→${_r} Unbinding GPU at %s from all drivers...\n" "$pci_addr"
+              _gpu_mode_none "$pci_addr" \
+                && printf "${_g}✔${_r} GPU %s unbound from all drivers.\n" "$pci_addr" \
+                || die "Failed to unbind GPU ${pci_addr}."
+              ;;
+            *)
+              printf "${_y}Unknown mode: %s${_r}\n\n" "$mode_target" >&2
+              printf "Usage: hyprconf hardware gpu mode [vm|host|none]\n" >&2
+              exit 1
+              ;;
+          esac
           ;;
         diagnose)
           _gpu_diagnose
@@ -1543,7 +1540,7 @@ cmd_hardware() {
           ;;
         *)
           printf "${_y}Unknown gpu subcommand: %s${_r}\n\n" "$gpu_sub" >&2
-          printf "Usage: hyprconf hardware gpu [detect|setup|audit|report|bind|unbind|pass|diagnose]\n" >&2
+          printf "Usage: hyprconf hardware gpu [detect|setup|audit|report|mode|diagnose]\n" >&2
           exit 1
           ;;
       esac
@@ -2322,7 +2319,7 @@ readonly -a _ADDON_NAMES=(dev vfio)
 _addon_description() {
   case "$1" in
     dev)  printf "Developer tools: full test-suite deps (pytest-xdist, QEMU/KVM, Packer) + GitHub Copilot CLI" ;;
-    vfio) printf "GPU passthrough: libvirt, virt-manager, QEMU, OVMF, swtpm (for VFIO VM passthrough)" ;;
+    vfio) printf "GPU passthrough: QEMU, OVMF, VFIO modules (for GPU VM passthrough)" ;;
     *)    printf "" ;;
   esac
 }
@@ -2331,7 +2328,7 @@ _addon_description() {
 _addon_packages() {
   case "$1" in
     dev)  printf "python-pytest-xdist qemu-full edk2-ovmf aws-cli" ;;
-    vfio) printf "libvirt virt-manager qemu-desktop edk2-ovmf dnsmasq iptables-nft swtpm" ;;
+    vfio) printf "qemu-desktop edk2-ovmf dmidecode" ;;
     *)    printf "" ;;
   esac
 }
@@ -2414,35 +2411,19 @@ _addon_post_install() {
         && printf "${_g}✓${_r} KVM module %s loaded.\n" "$kvm_mod" \
         || printf "${_y}⚠${_r} modprobe %s failed — reboot may be required.\n" "$kvm_mod"
 
-      # Add user to libvirt and kvm groups
-      local grp
-      for grp in libvirt kvm; do
-        if id -nG "$USER" | grep -qw "$grp"; then
-          printf "${_g}✓${_r} %s already in '%s' group.\n" "$USER" "$grp"
-        else
-          printf "${_b}→${_r} Adding %s to '%s' group...\n" "$USER" "$grp"
-          sudo usermod -aG "$grp" "$USER" \
-            && printf "${_g}✓${_r} Added to '%s'. Log out and back in to apply.\n" "$grp" \
-            || printf "${_y}⚠${_r} Could not add to '%s' group.\n" "$grp"
-        fi
-      done
-
-      # Enable and start libvirt services
-      local svc
-      for svc in libvirtd virtlogd; do
-        if systemctl is-active --quiet "$svc" 2>/dev/null; then
-          printf "${_g}✓${_r} %s already running.\n" "$svc"
-        else
-          printf "${_b}→${_r} Enabling and starting %s...\n" "$svc"
-          sudo systemctl enable --now "$svc" 2>/dev/null \
-            && printf "${_g}✓${_r} %s enabled and started.\n" "$svc" \
-            || printf "${_y}⚠${_r} Could not start %s.\n" "$svc"
-        fi
-      done
+      # Add user to kvm group
+      if id -nG "$USER" | grep -qw kvm; then
+        printf "${_g}✓${_r} %s already in 'kvm' group.\n" "$USER"
+      else
+        printf "${_b}→${_r} Adding %s to 'kvm' group...\n" "$USER"
+        sudo usermod -aG kvm "$USER" \
+          && printf "${_g}✓${_r} Added to 'kvm'. Log out and back in to apply.\n" \
+          || printf "${_y}⚠${_r} Could not add to 'kvm' group.\n"
+      fi
 
       printf "\n${_g}✓${_r} VFIO addon setup complete.\n"
       printf "  Run 'hyprconf hardware gpu audit' to verify system readiness.\n"
-      printf "  Run 'hyprconf hardware gpu setup' for IOMMU kernel param guidance.\n"
+      printf "  Run 'hyprconf hardware gpu setup' to configure GPU and driver blacklist.\n"
       ;;
   esac
 }
@@ -2456,9 +2437,7 @@ _addon_is_installed() {
         && pacman -Qi edk2-ovmf &>/dev/null
       ;;
     vfio)
-      pacman -Qi libvirt &>/dev/null \
-        && pacman -Qi virt-manager &>/dev/null \
-        && pacman -Qi qemu-desktop &>/dev/null \
+      pacman -Qi qemu-desktop &>/dev/null \
         && pacman -Qi edk2-ovmf &>/dev/null
       ;;
     *) return 1 ;;
