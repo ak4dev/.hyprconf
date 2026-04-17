@@ -91,11 +91,7 @@ _gpu_detect() {
         local pci_addr vendor_device name driver type iommu_grp
         pci_addr=$(echo "$line" | awk '{print $1}')
         vendor_device=$(echo "$line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
-        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[.*$//')
-
-        driver=$(_gpu_current_driver "$pci_addr")
-        type=$(_gpu_classify "$pci_addr" "$name")
-        iommu_grp=$(_gpu_iommu_group "$pci_addr")
+        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
 
         printf "GPU %d: %s\n" "$idx" "$name"
         printf "  PCI Address:    %s\n" "$pci_addr"
@@ -483,9 +479,7 @@ _gpu_audit() {
         [[ -z "$line" ]] && continue
         local pci_addr name driver
         pci_addr=$(echo "$line" | awk '{print $1}')
-        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[.*$//')
-        driver=$(_gpu_current_driver "$pci_addr")
-        printf "  %s  %-50s  driver: %s\n" "$pci_addr" "$name" "$driver"
+        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
     done < <(_gpu_list_raw)
 
     printf "\n"
@@ -636,11 +630,7 @@ _gpu_setup_select() {
         local pci_addr vendor_device name driver iommu_grp
         pci_addr=$(echo "$line" | awk '{print $1}')
         vendor_device=$(echo "$line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
-        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[.*$//')
-        driver=$(_gpu_current_driver "$pci_addr")
-        iommu_grp=$(_gpu_iommu_group "$pci_addr")
-
-        gpu_addrs+=("$pci_addr")
+        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
         gpu_names+=("$name")
         gpu_vdevs+=("$vendor_device")
         gpu_drivers+=("$driver")
@@ -840,12 +830,7 @@ _gpu_report() {
         local pci_addr vendor_device name driver type iommu_grp
         pci_addr=$(echo "$line" | awk '{print $1}')
         vendor_device=$(echo "$line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
-        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[.*$//')
-        driver=$(_gpu_current_driver "$pci_addr")
-        type=$(_gpu_classify "$pci_addr" "$name")
-        iommu_grp=$(_gpu_iommu_group "$pci_addr")
-
-        printf "  GPU %d: %s\n" "$gpu_idx" "$name"
+        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
         printf "    PCI:        %s\n" "$pci_addr"
         printf "    IDs:        %s\n" "$vendor_device"
         printf "    Type:       %s\n" "$type"
@@ -1181,10 +1166,7 @@ _gpu_status() {
 
         local pci_addr name driver
         pci_addr=$(echo "$line" | awk '{print $1}')
-        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[.*$//')
-        driver=$(_gpu_current_driver "$pci_addr")
-
-        local status_icon
+        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
         if [[ "$driver" == "vfio-pci" ]]; then
             status_icon="🔒 VM-ready"
         elif [[ "$driver" == "none" ]]; then
