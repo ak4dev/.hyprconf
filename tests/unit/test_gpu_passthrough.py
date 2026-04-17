@@ -494,6 +494,7 @@ def _source_and_run(
             _gpu_unbind_vtconsoles() {{ return 0; }}
             _gpu_is_module_loaded() {{ return 0; }}
             _gpu_update_state_marker() {{ return 0; }}
+            _gpu_ensure_sudo() {{ return 0; }}
             _gpu_get_pci_class() {{ echo "0300"; }}
             _gpu_get_pci_device_id() {{
                 local pci_addr="$1"
@@ -1586,6 +1587,7 @@ class TestGpuUnloadNvidiaModulesFailure:
             _gpu_check_display_safety() {{ return 0; }}
             _gpu_unbind_vtconsoles() {{ return 0; }}
             _gpu_update_state_marker() {{ return 0; }}
+            _gpu_ensure_sudo() {{ return 0; }}
             _gpu_mode_vm
         """)
 
@@ -1596,13 +1598,68 @@ class TestGpuUnloadNvidiaModulesFailure:
         assert r.returncode != 0
         assert "Cannot unload" in r.stderr or "still loaded" in r.stderr
 
+    def test_mode_vm_zombie_state_unloads_nvidia(self, tmp_path):
+        """When driver is 'none' but nvidia modules are loaded (zombie state),
+        mode_vm should still try to unload nvidia modules."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
 
-# ---------------------------------------------------------------------------
-# CLI --force flag passthrough
-# ---------------------------------------------------------------------------
+        # nvidia modules loaded with refs (will fail to unload)
+        _make_fake_bins(
+            bin_dir,
+            lsmod_output="nvidia_drm       12345  1\nnvidia         98765  1\n",
+        )
+        # GPU has NO driver (zombie state from previous failed attempt)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": None, "iommu_group": "1",
+                         "vendor": "0x10de", "device": "0x2484"},
+        })
 
-class TestCliForceFlag:
-    """Test that --force is properly passed to _gpu_mode_vm."""
+        # modprobe -r fails (modules in use)
+        _make_executable(bin_dir / "modprobe", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "-r" ]]; then exit 1; fi
+            exit 0
+        """))
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_current_driver() {{
+                local pci_addr="$1"
+                local full_addr="0000:${{pci_addr}}"
+                local driver_link="{sysfs_root}/bus/pci/devices/${{full_addr}}/driver"
+                if [[ -L "$driver_link" ]]; then
+                    basename "$(readlink "$driver_link")"
+                else
+                    echo "none"
+                fi
+            }}
+            _gpu_check_processes() {{ return 0; }}
+            _gpu_check_display_safety() {{ return 0; }}
+            _gpu_unbind_vtconsoles() {{ return 0; }}
+            _gpu_update_state_marker() {{ return 0; }}
+            _gpu_ensure_sudo() {{ return 0; }}
+            _gpu_mode_vm
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        # Should fail because nvidia modules can't be unloaded
+        assert r.returncode != 0
+        assert "Cannot unload" in r.stderr or "still loaded" in r.stderr
 
     def test_force_flag_bypasses_display_safety(self, tmp_path):
         """--force skips the display GPU safety check inside the function."""

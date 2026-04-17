@@ -66,6 +66,25 @@ _gpu_is_module_loaded() {
     lsmod 2>/dev/null | grep -q "^${module}[[:space:]]"
 }
 
+_gpu_ensure_sudo() {
+    # Validate sudo credentials (prompts for password if needed).
+    # All subsequent sudo -n calls will use the cached credential.
+    if ! sudo -v 2>/dev/null; then
+        printf "  ✘ Root privileges required. Run with: sudo hyprconf hardware gpu mode ...\n" >&2
+        return 1
+    fi
+}
+
+_gpu_sysfs_write() {
+    # Write a value to a sysfs path with a timeout to prevent kernel hangs.
+    # Usage: _gpu_sysfs_write <value> <sysfs_path>
+    local value="$1" path="$2"
+    if ! timeout 5 bash -c 'echo "$1" | sudo -n tee "$2" > /dev/null 2>&1' _ "$value" "$path"; then
+        _gpu_log "WARN" "sysfs write timed out or failed: $path"
+        return 1
+    fi
+}
+
 # ── GPU Detection ──────────────────────────────────────────────────────────────
 
 _gpu_list_raw() {
@@ -316,14 +335,14 @@ _gpu_unbind_vtconsoles() {
         [[ -f "$vtcon/bind" ]] || continue
         if [[ "$(cat "$vtcon/bind" 2>/dev/null)" == "1" ]]; then
             printf "  Unbinding %s...\n" "$(basename "$vtcon")"
-            echo 0 | sudo -n tee "$vtcon/bind" > /dev/null 2>&1 || true
+            _gpu_sysfs_write 0 "$vtcon/bind" || true
         fi
     done
 
     # Unbind EFI framebuffer if bound to the GPU
     if [[ -e "${_GPU_SYSFS}/bus/platform/drivers/efi-framebuffer/efi-framebuffer.0" ]]; then
         printf "  Unbinding EFI framebuffer...\n"
-        echo efi-framebuffer.0 | sudo -n tee "${_GPU_SYSFS}/bus/platform/drivers/efi-framebuffer/unbind" > /dev/null 2>&1 || true
+        _gpu_sysfs_write efi-framebuffer.0 "${_GPU_SYSFS}/bus/platform/drivers/efi-framebuffer/unbind" || true
     fi
 }
 
@@ -448,6 +467,8 @@ _gpu_mode_vm() {
         return 1
     fi
 
+    _gpu_ensure_sudo || return 1
+
     local gpu_pci_full
     gpu_pci_full=$(_gpu_normalize_pci "$GPU_PCI_ADDR") || {
         printf "Invalid GPU PCI address: %s\n" "$GPU_PCI_ADDR" >&2
@@ -471,8 +492,10 @@ _gpu_mode_vm() {
         _gpu_check_display_safety "$GPU_PCI_ADDR" || return 1
     fi
 
-    # Unload NVIDIA modules before unbinding (abort if they can't be unloaded)
-    if [[ "$current_driver" == "nvidia" ]]; then
+    # Unload NVIDIA modules if any are loaded — not just when driver is "nvidia".
+    # A previous failed attempt may have unbound the driver but left modules
+    # loaded, creating a zombie state where sysfs writes hang indefinitely.
+    if _gpu_is_module_loaded nvidia; then
         _gpu_unload_nvidia_modules || return 1
     fi
 
@@ -480,10 +503,10 @@ _gpu_mode_vm() {
     _gpu_unbind_vtconsoles
 
     # Unbind GPU from current driver
-    if [[ -n "$current_driver" && "$current_driver" != "none" ]]; then
+    if [[ -n "$current_driver" ]]; then
         if [[ -f "${_GPU_SYSFS}/bus/pci/devices/${gpu_pci_full}/driver/unbind" ]]; then
             printf "  Unbinding from %s...\n" "$current_driver"
-            if ! echo "$gpu_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/devices/${gpu_pci_full}/driver/unbind" > /dev/null 2>&1; then
+            if ! _gpu_sysfs_write "$gpu_pci_full" "${_GPU_SYSFS}/bus/pci/devices/${gpu_pci_full}/driver/unbind"; then
                 printf "  ✘ Failed to unbind GPU from %s.\n" "$current_driver" >&2
                 return 1
             fi
@@ -510,7 +533,7 @@ _gpu_mode_vm() {
     local vendor_id device_id
     vendor_id="${GPU_VENDOR_DEVICE%%:*}"
     device_id="${GPU_VENDOR_DEVICE##*:}"
-    echo "${vendor_id} ${device_id}" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/new_id" > /dev/null 2>&1 || true
+    _gpu_sysfs_write "${vendor_id} ${device_id}" "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/new_id" || true
 
     # Bind each IOMMU group device to vfio-pci via driver_override + drivers_probe
     local dev_pci dev_pci_full
@@ -525,17 +548,17 @@ _gpu_mode_vm() {
         [[ "$dev_class" == "0604" ]] && continue
 
         # Set driver_override to vfio-pci (tells kernel which driver to use)
-        if ! echo "vfio-pci" | sudo -n tee "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver_override" > /dev/null 2>&1; then
+        if ! _gpu_sysfs_write "vfio-pci" "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver_override"; then
             _gpu_log "WARN" "$dev_pci: failed to set driver_override"
         fi
 
         # Unbind from current driver
         if [[ -f "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver/unbind" ]]; then
-            echo "$dev_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver/unbind" > /dev/null 2>&1 || true
+            _gpu_sysfs_write "$dev_pci_full" "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver/unbind" || true
         fi
 
         # Probe to bind with the overridden driver
-        echo "$dev_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers_probe" > /dev/null 2>&1 || true
+        _gpu_sysfs_write "$dev_pci_full" "${_GPU_SYSFS}/bus/pci/drivers_probe" || true
 
         _gpu_log "INFO" "Bound $dev_pci to vfio-pci"
     done
@@ -562,6 +585,8 @@ _gpu_mode_host() {
         printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
         return 1
     fi
+
+    _gpu_ensure_sudo || return 1
 
     local gpu_pci_full
     gpu_pci_full=$(_gpu_normalize_pci "$GPU_PCI_ADDR") || {
@@ -608,10 +633,10 @@ _gpu_mode_host() {
         for dev_pci in $iommu_devs; do
             dev_pci_full=$(_gpu_normalize_pci "$dev_pci") || continue
             if [[ -d "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/${dev_pci_full}" ]]; then
-                echo "$dev_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/unbind" > /dev/null 2>&1 || true
+                _gpu_sysfs_write "$dev_pci_full" "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/unbind" || true
             fi
             # Clear driver_override so the native driver can reclaim
-            echo "" | sudo -n tee "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver_override" > /dev/null 2>&1 || true
+            _gpu_sysfs_write "" "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver_override" || true
         done
 
         # Remove vfio-pci device IDs
@@ -619,7 +644,7 @@ _gpu_mode_host() {
             local dev_ids
             dev_ids=$(_gpu_get_pci_device_id "$dev_pci")
             if [[ -n "$dev_ids" ]]; then
-                echo "${dev_ids/:/ }" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/remove_id" > /dev/null 2>&1 || true
+                _gpu_sysfs_write "${dev_ids/:/ }" "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/remove_id" || true
             fi
         done
 
@@ -630,7 +655,7 @@ _gpu_mode_host() {
                 local dev_class
                 dev_class=$(_gpu_get_pci_class "$dev_pci")
                 if [[ "$dev_class" == "0c03" ]]; then
-                    echo "$dev_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers/xhci_hcd/bind" > /dev/null 2>&1 || true
+                    _gpu_sysfs_write "$dev_pci_full" "${_GPU_SYSFS}/bus/pci/drivers/xhci_hcd/bind" || true
                 fi
             done
         fi
@@ -650,13 +675,13 @@ _gpu_mode_host() {
     fi
 
     # Trigger PCI rescan + drivers_probe for reliable rebinding
-    echo 1 | sudo -n tee "${_GPU_SYSFS}/bus/pci/rescan" > /dev/null 2>&1 || true
-    echo "$gpu_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers_probe" > /dev/null 2>&1 || true
+    _gpu_sysfs_write 1 "${_GPU_SYSFS}/bus/pci/rescan" || true
+    _gpu_sysfs_write "$gpu_pci_full" "${_GPU_SYSFS}/bus/pci/drivers_probe" || true
 
     # Fallback: direct bind if drivers_probe didn't claim the device
     if [[ -d "${_GPU_SYSFS}/bus/pci/drivers/$native_driver" ]] && \
        [[ ! -d "${_GPU_SYSFS}/bus/pci/drivers/$native_driver/$gpu_pci_full" ]]; then
-        echo "$gpu_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers/$native_driver/bind" > /dev/null 2>&1 || true
+        _gpu_sysfs_write "$gpu_pci_full" "${_GPU_SYSFS}/bus/pci/drivers/$native_driver/bind" || true
     fi
 
     sleep 2
@@ -684,6 +709,8 @@ _gpu_mode_none() {
         return 1
     fi
 
+    _gpu_ensure_sudo || return 1
+
     local gpu_pci_full
     gpu_pci_full=$(_gpu_normalize_pci "$GPU_PCI_ADDR") || {
         printf "Invalid GPU PCI address: %s\n" "$GPU_PCI_ADDR" >&2
@@ -702,7 +729,9 @@ _gpu_mode_none() {
     fi
 
     _gpu_check_processes "$current_driver" || return 1
-    if [[ "$current_driver" == "nvidia" ]]; then
+
+    # Unload NVIDIA modules if loaded (even when driver is already "none")
+    if _gpu_is_module_loaded nvidia; then
         _gpu_unload_nvidia_modules || return 1
     fi
 
@@ -721,10 +750,10 @@ _gpu_mode_none() {
     for dev_pci in $iommu_devs; do
         dev_pci_full=$(_gpu_normalize_pci "$dev_pci") || continue
         if [[ -f "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver/unbind" ]]; then
-            echo "$dev_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver/unbind" > /dev/null 2>&1 || true
+            _gpu_sysfs_write "$dev_pci_full" "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver/unbind" || true
         fi
         # Clear driver_override so no driver auto-claims the device
-        echo "" | sudo -n tee "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver_override" > /dev/null 2>&1 || true
+        _gpu_sysfs_write "" "${_GPU_SYSFS}/bus/pci/devices/${dev_pci_full}/driver_override" || true
     done
 
     # If was vfio-pci, remove device IDs and rebind USB
@@ -733,7 +762,7 @@ _gpu_mode_none() {
             local dev_ids
             dev_ids=$(_gpu_get_pci_device_id "$dev_pci")
             if [[ -n "$dev_ids" ]]; then
-                echo "${dev_ids/:/ }" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/remove_id" > /dev/null 2>&1 || true
+                _gpu_sysfs_write "${dev_ids/:/ }" "${_GPU_SYSFS}/bus/pci/drivers/vfio-pci/remove_id" || true
             fi
         done
         if [[ -d "${_GPU_SYSFS}/bus/pci/drivers/xhci_hcd" ]]; then
@@ -742,7 +771,7 @@ _gpu_mode_none() {
                 local dev_class
                 dev_class=$(_gpu_get_pci_class "$dev_pci")
                 if [[ "$dev_class" == "0c03" ]]; then
-                    echo "$dev_pci_full" | sudo -n tee "${_GPU_SYSFS}/bus/pci/drivers/xhci_hcd/bind" > /dev/null 2>&1 || true
+                    _gpu_sysfs_write "$dev_pci_full" "${_GPU_SYSFS}/bus/pci/drivers/xhci_hcd/bind" || true
                 fi
             done
         fi
