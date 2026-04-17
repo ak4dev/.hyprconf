@@ -235,9 +235,9 @@ export const CLI_GROUPS: CliGroup[] = [
       { name: 'hyprconf hardware rotate', usage: 'hyprconf hardware rotate', description: 'Toggle auto-rotation for accelerometer-equipped devices.' },
       {
         name: 'hyprconf hardware gpu',
-        usage: 'hyprconf hardware gpu [detect|setup|audit|bind|unbind|pass|diagnose]',
-        description: 'GPU passthrough management — dynamic VFIO binding, auto-attach to VM with SMBIOS passthrough.',
-        example: 'GPU Passthrough Status\n══════════════════════\n\nIOMMU: enabled ✔\nlibvirtd: running ✔\n\nGPUs:\n  01:00.0  NVIDIA GeForce RTX 3070  🖥  host (nvidia)\n  02:00.0  NVIDIA GeForce RTX 5090  🖥  host (nvidia)',
+        usage: 'hyprconf hardware gpu [detect|setup|audit|bind|unbind|pass|report|diagnose]',
+        description: 'GPU passthrough management — dynamic VFIO binding, auto-attach to VM with SMBIOS passthrough, hardware report.',
+        example: 'GPU Passthrough Status\n══════════════════════\n\nIOMMU: enabled ✔\nlibvirtd: running ✔\nConfigured: NVIDIA GeForce RTX 5090 [02:00.0]\n\nGPUs:\n  01:00.0  NVIDIA GeForce RTX 3070  🖥  host (nvidia)\n  02:00.0  NVIDIA GeForce RTX 5090  🖥  host (nvidia)',
       },
       {
         name: 'hyprconf doctor',

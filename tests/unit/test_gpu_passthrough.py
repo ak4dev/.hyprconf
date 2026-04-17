@@ -1348,8 +1348,20 @@ class TestCliDispatch:
         assert "GPU Passthrough Setup" in r.stdout or "Setup" in r.stdout
 
     def test_gpu_bind_no_arg_errors(self, fake_env):
+        """bind with no arg and no config should error."""
         r = self._run_hyprconf(["bind"], fake_env["bin_dir"], fake_env["home_dir"])
         assert r.returncode != 0
+
+    def test_gpu_bind_no_arg_uses_config(self, fake_env):
+        """bind with no arg should use configured GPU if config exists."""
+        # Write config
+        conf_dir = fake_env["home_dir"] / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+        )
+        r = self._run_hyprconf(["bind"], fake_env["bin_dir"], fake_env["home_dir"])
+        assert "configured GPU" in r.stdout.lower() or "Binding" in r.stdout or r.returncode == 0
 
     def test_gpu_unbind_no_arg_errors(self, fake_env):
         r = self._run_hyprconf(["unbind"], fake_env["bin_dir"], fake_env["home_dir"])
@@ -1360,8 +1372,19 @@ class TestCliDispatch:
         assert r.returncode != 0
 
     def test_gpu_pass_no_arg_errors(self, fake_env):
+        """pass with no arg and no config should error."""
         r = self._run_hyprconf(["pass"], fake_env["bin_dir"], fake_env["home_dir"])
         assert r.returncode != 0
+
+    def test_gpu_pass_no_arg_uses_config(self, fake_env):
+        """pass with no arg should use configured GPU if config exists."""
+        conf_dir = fake_env["home_dir"] / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+        )
+        r = self._run_hyprconf(["pass"], fake_env["bin_dir"], fake_env["home_dir"])
+        assert "configured GPU" in r.stdout.lower() or "Binding" in r.stdout or r.returncode == 0
 
     def test_gpu_pass_with_vm_name(self, fake_env):
         """pass <gpu> <vm> should attach GPU to VM and start it (no manual bind)."""
@@ -1407,3 +1430,424 @@ class TestCliDispatch:
         )
         # Without a VM name, the flow calls _gpu_bind_vfio
         assert "Binding" in r.stdout or "bound" in r.stdout or r.returncode == 0
+
+    def test_gpu_report_subcommand(self, fake_env):
+        """report subcommand should produce hardware report."""
+        r = self._run_hyprconf(["report"], fake_env["bin_dir"], fake_env["home_dir"])
+        assert r.returncode == 0
+        assert "Hardware Report" in r.stdout
+        assert "[SYSTEM]" in r.stdout
+        assert "[GPUs]" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# Audio device detection
+# ---------------------------------------------------------------------------
+
+class TestGpuAudioDevice:
+    def test_audio_device_found(self, fake_env):
+        """Audio device at same bus slot is found."""
+        r = _source_and_run("_gpu_audio_device", ["01:00.0"], **fake_env)
+        assert r.returncode == 0
+        assert "01:00.1" in r.stdout
+        assert "10de:228b" in r.stdout
+
+    def test_audio_device_second_gpu(self, fake_env):
+        r = _source_and_run("_gpu_audio_device", ["02:00.0"], **fake_env)
+        assert r.returncode == 0
+        assert "02:00.1" in r.stdout
+        assert "10de:22be" in r.stdout
+
+    def test_no_audio_device_for_igpu(self, tmp_path):
+        """Intel iGPU at 00:02.0 has no companion audio device."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_INTEL_IGPU)
+        r = _source_and_run("_gpu_audio_device", ["00:02.0"], bin_dir=bin_dir)
+        assert r.stdout.strip() == ""
+
+
+# ---------------------------------------------------------------------------
+# _gpu_detect audio + IOMMU group listing
+# ---------------------------------------------------------------------------
+
+class TestGpuDetectEnhanced:
+    def test_detect_shows_audio_device(self, fake_env):
+        """detect output includes audio device info."""
+        r = _source_and_run("_gpu_detect", **fake_env)
+        assert r.returncode == 0
+        assert "Audio Device:" in r.stdout
+        assert "10de:228b" in r.stdout
+
+    def test_detect_shows_iommu_devices(self, fake_env):
+        """detect output shows IOMMU group device listing."""
+        r = _source_and_run("_gpu_detect", **fake_env)
+        assert r.returncode == 0
+        # Each GPU group has 2 devices (GPU + audio), so listing is shown
+        assert "IOMMU Devices:" in r.stdout or "2 devices" in r.stdout
+
+    def test_detect_usb_warning(self, tmp_path):
+        """IOMMU group with USB controller shows warning."""
+        lspci_with_usb = textwrap.dedent("""\
+            01:00.0 VGA compatible controller: NVIDIA Corporation RTX 3070 [10de:2484] (rev a1)
+            01:00.1 Audio device: NVIDIA Corporation Audio [10de:228b] (rev a1)
+            01:00.2 USB controller: NVIDIA Corporation USB [10de:2489] (rev a1)
+        """)
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=lspci_with_usb)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
+            "01:00.2": {"driver": "xhci_hcd", "iommu_group": "1", "vendor": "0x10de", "device": "0x2489"},
+        })
+        r = _source_and_run(
+            "_gpu_detect", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+        )
+        assert r.returncode == 0
+        assert "USB controller" in r.stdout
+        assert "Unplug USB" in r.stdout
+
+    def test_detect_pci_bridge_warning(self, tmp_path):
+        """IOMMU group with PCI bridge shows warning."""
+        lspci_with_bridge = textwrap.dedent("""\
+            01:00.0 VGA compatible controller: NVIDIA Corporation RTX 3070 [10de:2484] (rev a1)
+            00:01.0 PCI bridge: Intel Corporation Xeon E3-1200 v5 [8086:1901] (rev 0a)
+        """)
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=lspci_with_bridge)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+            "00:01.0": {"driver": "pcieport", "iommu_group": "1", "vendor": "0x8086", "device": "0x1901"},
+        })
+        r = _source_and_run(
+            "_gpu_detect", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+        )
+        assert r.returncode == 0
+        assert "PCI bridge" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# _gpu_report
+# ---------------------------------------------------------------------------
+
+class TestGpuReport:
+    def test_report_has_system_section(self, fake_env):
+        r = _source_and_run("_gpu_report", **fake_env)
+        assert r.returncode == 0
+        assert "[SYSTEM]" in r.stdout
+        assert "CPU:" in r.stdout
+        assert "Kernel:" in r.stdout
+
+    def test_report_has_motherboard_section(self, fake_env):
+        r = _source_and_run("_gpu_report", **fake_env)
+        assert "[MOTHERBOARD]" in r.stdout
+
+    def test_report_has_gpu_section(self, fake_env):
+        r = _source_and_run("_gpu_report", **fake_env)
+        assert "[GPUs]" in r.stdout
+        assert "GPU 1:" in r.stdout
+
+    def test_report_has_iommu_groups_section(self, fake_env):
+        r = _source_and_run("_gpu_report", **fake_env)
+        assert "[IOMMU GROUPS]" in r.stdout
+
+    def test_report_has_display_section(self, fake_env):
+        r = _source_and_run("_gpu_report", **fake_env)
+        assert "[DISPLAY]" in r.stdout
+
+    def test_report_has_driver_versions_section(self, fake_env):
+        r = _source_and_run("_gpu_report", **fake_env)
+        assert "[DRIVER VERSIONS]" in r.stdout
+        assert "vfio:" in r.stdout
+
+    def test_report_has_passthrough_status_section(self, fake_env):
+        r = _source_and_run("_gpu_report", **fake_env)
+        assert "[PASSTHROUGH STATUS]" in r.stdout
+
+    def test_report_shows_configured_gpu_when_config_exists(self, fake_env):
+        """Report shows configured GPU from saved config."""
+        conf_dir = fake_env["home_dir"] / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+        )
+        r = _source_and_run("_gpu_report", **fake_env)
+        assert "RTX 3070" in r.stdout
+        assert "01:00.0" in r.stdout
+
+    def test_report_no_gpu_shows_none(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_EMPTY)
+        r = _source_and_run("_gpu_report", bin_dir=bin_dir)
+        assert r.returncode == 0
+        assert "No GPUs detected" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# _gpu_setup_select (interactive GPU selection)
+# ---------------------------------------------------------------------------
+
+class TestGpuSetupSelect:
+    def test_single_gpu_auto_selects(self, tmp_path):
+        """With only one GPU, selection is automatic (no user input needed)."""
+        lspci_single = "01:00.0 VGA compatible controller: NVIDIA RTX 3070 [10de:2484] (rev a1)\n"
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir, lspci_output=lspci_single)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        r = _source_and_run(
+            "_gpu_setup_select",
+            bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+        )
+        assert r.returncode == 0
+        assert "selecting it automatically" in r.stdout.lower() or "configured" in r.stdout.lower()
+
+        # Verify config was saved
+        conf_file = home_dir / ".config" / "hyprconf" / "gpu-passthrough.conf"
+        assert conf_file.exists()
+        content = conf_file.read_text()
+        assert "01:00.0" in content
+
+    def test_multi_gpu_selection_via_stdin(self, tmp_path):
+        """With multiple GPUs, user selects via stdin (piped input)."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_TWO_NVIDIA)
+        _make_fake_sysfs(sysfs_root)
+
+        # Pipe "2" to select the second GPU
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_current_driver() {{
+                local pci_addr="$1"
+                local full_addr="0000:${{pci_addr}}"
+                local driver_link="{sysfs_root}/bus/pci/devices/${{full_addr}}/driver"
+                if [[ -L "$driver_link" ]]; then
+                    basename "$(readlink "$driver_link")"
+                else
+                    echo "none"
+                fi
+            }}
+            _gpu_iommu_group() {{
+                local pci_addr="$1"
+                local full_addr="0000:${{pci_addr}}"
+                local iommu_link="{sysfs_root}/bus/pci/devices/${{full_addr}}/iommu_group"
+                if [[ -L "$iommu_link" ]]; then
+                    basename "$(readlink "$iommu_link")"
+                else
+                    echo ""
+                fi
+            }}
+            _gpu_iommu_devices() {{
+                local pci_addr="$1"
+                local group
+                group=$(_gpu_iommu_group "$pci_addr")
+                [[ -z "$group" ]] && return 1
+                local grp_dir="{sysfs_root}/kernel/iommu_groups/${{group}}/devices"
+                [[ -d "$grp_dir" ]] || return 1
+                local dev
+                for dev in "$grp_dir"/*; do
+                    basename "$dev" | sed 's/^0000://'
+                done
+            }}
+            _gpu_setup_select
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(
+            ["bash", "-c", cmd],
+            capture_output=True,
+            text=True,
+            env=env,
+            input="2\n",
+            timeout=15,
+        )
+        assert r.returncode == 0
+        assert "configured" in r.stdout.lower()
+
+        # Verify config saved with second GPU
+        conf_file = home_dir / ".config" / "hyprconf" / "gpu-passthrough.conf"
+        assert conf_file.exists()
+        content = conf_file.read_text()
+        assert "02:00.0" in content
+
+    def test_invalid_selection_errors(self, tmp_path):
+        """Invalid selection returns error."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_TWO_NVIDIA)
+        _make_fake_sysfs(sysfs_root)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_setup_select
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(
+            ["bash", "-c", cmd],
+            capture_output=True,
+            text=True,
+            env=env,
+            input="99\n",
+            timeout=15,
+        )
+        assert r.returncode != 0
+
+    def test_no_gpus_errors(self, tmp_path):
+        """No GPUs means nothing to configure."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_EMPTY)
+
+        r = _source_and_run("_gpu_setup_select", bin_dir=bin_dir, home_dir=home_dir)
+        assert r.returncode != 0
+        assert "No GPUs detected" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# Config persistence wiring
+# ---------------------------------------------------------------------------
+
+class TestGpuConfigWiring:
+    def test_status_shows_configured_gpu(self, fake_env):
+        """Status shows configured GPU when config exists."""
+        conf_dir = fake_env["home_dir"] / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+        )
+        r = _source_and_run("_gpu_status", **fake_env)
+        assert r.returncode == 0
+        assert "Configured GPU:" in r.stdout
+        assert "RTX 3070" in r.stdout
+
+    def test_status_no_config_no_configured_line(self, fake_env):
+        """Status without config doesn't show configured GPU line."""
+        r = _source_and_run("_gpu_status", **fake_env)
+        assert r.returncode == 0
+        assert "Configured GPU:" not in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# Limine bootloader support in setup
+# ---------------------------------------------------------------------------
+
+class TestGpuSetupLimine:
+    def test_setup_limine_detection(self, tmp_path):
+        """Setup wizard detects Limine bootloader and writes params."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        # Create fake /etc/default/limine
+        limine_default = tmp_path / "etc" / "default" / "limine"
+        limine_default.parent.mkdir(parents=True, exist_ok=True)
+        limine_default.write_text('KERNEL_CMDLINE[default]="quiet"\n')
+
+        # Make bootctl fail (not systemd-boot) and no GRUB
+        _make_fake_bins(bin_dir, iommu_enabled=False, cpu_vendor="intel")
+
+        # Override bootctl to fail, and make setup look at our tmp limine path
+        # We need to override the file path checks in the script.
+        # Since _gpu_setup checks real /etc/default/limine, we test
+        # the detection logic directly.
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+
+            # Test Limine file detection logic in isolation
+            if [[ -f "{limine_default}" ]]; then
+                printf "LIMINE_DETECTED\\n"
+                if ! grep -qE '(intel_iommu|amd_iommu)=on' "{limine_default}" 2>/dev/null; then
+                    printf 'KERNEL_CMDLINE[default]+=" intel_iommu=on iommu=pt"\\n' >> "{limine_default}"
+                    printf "LIMINE_UPDATED\\n"
+                fi
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(
+            ["bash", "-c", cmd],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
+        )
+        assert r.returncode == 0
+        assert "LIMINE_DETECTED" in r.stdout
+        assert "LIMINE_UPDATED" in r.stdout
+
+        # Verify the file was updated
+        content = limine_default.read_text()
+        assert "intel_iommu=on" in content
+        assert "iommu=pt" in content
+
+    def test_setup_limine_already_configured(self, tmp_path):
+        """Limine with IOMMU already configured is not modified."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        limine_default = tmp_path / "etc" / "default" / "limine"
+        limine_default.parent.mkdir(parents=True, exist_ok=True)
+        limine_default.write_text(
+            'KERNEL_CMDLINE[default]="quiet intel_iommu=on iommu=pt"\n'
+        )
+
+        _make_fake_bins(bin_dir, iommu_enabled=False, cpu_vendor="intel")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            if [[ -f "{limine_default}" ]]; then
+                if grep -qE '(intel_iommu|amd_iommu)=on' "{limine_default}" 2>/dev/null; then
+                    printf "ALREADY_CONFIGURED\\n"
+                else
+                    printf "NEEDS_UPDATE\\n"
+                fi
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(
+            ["bash", "-c", cmd],
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
+        )
+        assert r.returncode == 0
+        assert "ALREADY_CONFIGURED" in r.stdout

@@ -119,9 +119,10 @@ usage() {
   printf "  hyprconf hardware gpu detect           List GPUs with PCI / IOMMU / driver info\n"
   printf "  hyprconf hardware gpu setup            Interactive VFIO setup wizard\n"
   printf "  hyprconf hardware gpu audit            System readiness check for passthrough\n"
-  printf "  hyprconf hardware gpu bind [--force] <gpu>       Bind GPU to vfio-pci (prepare for VM)\n"
+  printf "  hyprconf hardware gpu report           Detailed hardware report for passthrough\n"
+  printf "  hyprconf hardware gpu bind [--force] [gpu]      Bind GPU to vfio-pci (prepare for VM)\n"
   printf "  hyprconf hardware gpu unbind <gpu>     Return GPU to host driver\n"
-  printf "  hyprconf hardware gpu pass [--force] <gpu> [vm]  Bind GPU + attach to VM (with SMBIOS)\n"
+  printf "  hyprconf hardware gpu pass [--force] [gpu] [vm] Bind GPU + attach to VM (with SMBIOS)\n"
   printf "  hyprconf hardware gpu diagnose         Detailed diagnostic dump\n"
   printf "\n${_b}Addons${_r}\n"
   printf "  hyprconf addon                   List available addons and their status\n"
@@ -1449,6 +1450,8 @@ cmd_hardware() {
           else
             echo "$setup_output"
           fi
+          # Interactive GPU selection (runs in main shell for terminal input)
+          _gpu_setup_select
           printf "\n${_g}✔${_r} Setup complete. Run 'hyprconf hardware gpu audit' to verify.\n"
           ;;
         audit)
@@ -1457,7 +1460,16 @@ cmd_hardware() {
         bind)
           local force=""
           if [[ "${1:-}" == "--force" ]]; then force="force"; shift; fi
-          local target="${1:?Usage: hyprconf hardware gpu bind [--force] <gpu>}"
+          local target="${1:-}"
+          if [[ -z "$target" ]]; then
+            # Try loading from config
+            if _gpu_load_config && [[ -n "${GPU_PCI_ADDR:-}" ]]; then
+              target="$GPU_PCI_ADDR"
+              printf "${_b}→${_r} Using configured GPU: %s\n" "${GPU_NAME:-$target}"
+            else
+              die "Usage: hyprconf hardware gpu bind [--force] <gpu>\n  (or run 'hyprconf hardware gpu setup' to configure a default GPU)"
+            fi
+          fi
           local pci_addr
           pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
           printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
@@ -1477,8 +1489,18 @@ cmd_hardware() {
         pass)
           local force=""
           if [[ "${1:-}" == "--force" ]]; then force="force"; shift; fi
-          local target="${1:?Usage: hyprconf hardware gpu pass [--force] <gpu> [vm-name]}"
-          shift
+          local target="${1:-}"
+          if [[ -z "$target" ]]; then
+            # Try loading from config
+            if _gpu_load_config && [[ -n "${GPU_PCI_ADDR:-}" ]]; then
+              target="$GPU_PCI_ADDR"
+              printf "${_b}→${_r} Using configured GPU: %s\n" "${GPU_NAME:-$target}"
+            else
+              die "Usage: hyprconf hardware gpu pass [--force] <gpu> [vm-name]\n  (or run 'hyprconf hardware gpu setup' to configure a default GPU)"
+            fi
+          else
+            shift
+          fi
           local vm_name="${1:-}"
           local pci_addr
           pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
@@ -1516,9 +1538,12 @@ cmd_hardware() {
         diagnose)
           _gpu_diagnose
           ;;
+        report)
+          _gpu_report
+          ;;
         *)
           printf "${_y}Unknown gpu subcommand: %s${_r}\n\n" "$gpu_sub" >&2
-          printf "Usage: hyprconf hardware gpu [detect|setup|audit|bind|unbind|pass|diagnose]\n" >&2
+          printf "Usage: hyprconf hardware gpu [detect|setup|audit|report|bind|unbind|pass|diagnose]\n" >&2
           exit 1
           ;;
       esac

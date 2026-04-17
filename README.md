@@ -485,18 +485,19 @@ Dynamic GPU passthrough for multi-GPU desktops. Either GPU can be passed to a VM
 
 **Install:** `hyprconf addon vfio` (installs libvirt, virt-manager, QEMU, OVMF, and enables services).
 
-**Setup:** `hyprconf hardware gpu setup` — detects CPU vendor, auto-applies IOMMU kernel params, writes VFIO modprobe options (`disable_vga=1`, `disable_idle_d3=1`), installs packages, and configures user groups.
+**Setup:** `hyprconf hardware gpu setup` — interactive wizard that detects CPU vendor, auto-applies IOMMU kernel params (systemd-boot, GRUB, or Limine), writes VFIO modprobe options (`disable_vga=1`, `disable_idle_d3=1`), installs packages, configures user groups, and prompts you to choose which GPU to reserve for passthrough.
 
-`<gpu>` accepts: PCI address (`01:00.0`), model name (`3070`, `5090`), or ordinal (`nvidia0`, `nvidia1`).
+`[gpu]` accepts: PCI address (`01:00.0`), model name (`3070`, `5090`), or ordinal (`nvidia0`, `nvidia1`). When omitted, uses the GPU saved during `setup`.
 
 | Command | Action |
 |---|---|
-| `hyprconf hardware gpu` | Status overview — IOMMU, libvirt, GPU drivers |
-| `hyprconf hardware gpu detect` | List all GPUs with PCI addresses, IOMMU groups, current drivers |
+| `hyprconf hardware gpu` | Status overview — IOMMU, libvirt, GPU drivers, configured GPU |
+| `hyprconf hardware gpu detect` | List all GPUs with PCI addresses, IOMMU groups, audio devices, current drivers |
 | `hyprconf hardware gpu audit` | Full system readiness check (IOMMU, modules, packages, services, groups) |
-| `hyprconf hardware gpu bind <gpu>` | Bind GPU + all IOMMU group devices to vfio-pci |
+| `hyprconf hardware gpu bind [gpu]` | Bind GPU + all IOMMU group devices to vfio-pci |
 | `hyprconf hardware gpu unbind <gpu>` | Unbind from vfio-pci, restore original driver |
-| `hyprconf hardware gpu pass <gpu> [vm]` | Bind GPU → attach to VM with SMBIOS; omit `vm` to launch virt-manager |
+| `hyprconf hardware gpu pass [gpu] [vm]` | Bind GPU → attach to VM with SMBIOS; omit `vm` to launch virt-manager |
+| `hyprconf hardware gpu report` | Comprehensive hardware report (system, motherboard, GPUs, IOMMU groups, drivers) |
 | `hyprconf hardware gpu diagnose` | Detailed diagnostic dump (dmesg, IOMMU groups, modules, config) |
 
 When a VM name is given, `pass` auto-attaches all IOMMU group PCI devices, configures SMBIOS passthrough (manufacturer, product, serial from the host motherboard) for Windows OEM license activation, and starts the VM.

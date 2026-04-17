@@ -28,6 +28,59 @@ _gpu_list_raw() {
     lspci -nn 2>/dev/null | grep -iE '(VGA compatible controller|3D controller|Display controller)' || true
 }
 
+_gpu_audio_device() {
+    # Find the companion audio device at the same PCI bus slot.
+    local pci_addr="$1"
+    local bus_slot="${pci_addr%.*}"
+    local audio_line
+    audio_line=$(lspci -nn 2>/dev/null | grep "^${bus_slot}\." | grep -i "audio" | head -1)
+    if [[ -n "$audio_line" ]]; then
+        local audio_addr audio_ids
+        audio_addr=$(echo "$audio_line" | awk '{print $1}')
+        audio_ids=$(echo "$audio_line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
+        printf "%s (%s)" "$audio_addr" "$audio_ids"
+    fi
+}
+
+_gpu_iommu_group_details() {
+    # Print all devices in the given IOMMU group with descriptions and warnings.
+    local pci_addr="$1"
+    local iommu_grp="$2"
+
+    [[ -z "$iommu_grp" ]] && return
+
+    local devs
+    devs=$(_gpu_iommu_devices "$pci_addr") || return 0
+    [[ -z "$devs" ]] && return
+
+    local dev_count
+    dev_count=$(echo "$devs" | wc -l)
+    (( dev_count > 1 )) || return 0
+
+    printf "  IOMMU Devices:  (%d devices)\n" "$dev_count"
+    local dev
+    while IFS= read -r dev; do
+        [[ -z "$dev" ]] && continue
+        local desc
+        desc=$(lspci -nn 2>/dev/null | grep "^${dev} " | sed 's/^[0-9a-f:.]* //' || true)
+        printf "    %s: %s\n" "$dev" "${desc:-unknown}"
+    done <<< "$devs"
+
+    # Warnings for problematic device types in the group
+    while IFS= read -r dev; do
+        [[ -z "$dev" ]] && continue
+        local dev_desc
+        dev_desc=$(lspci -nn 2>/dev/null | grep "^${dev} " || true)
+        if echo "$dev_desc" | grep -qi "USB controller"; then
+            printf "    ⚠ USB controller in IOMMU group (GPU has USB-C port)\n"
+            printf "    ⚠ Unplug USB devices from GPU's USB-C before VM start\n"
+        fi
+        if echo "$dev_desc" | grep -qi "PCI bridge"; then
+            printf "    ⚠ PCI bridge in IOMMU group\n"
+        fi
+    done <<< "$devs"
+}
+
 _gpu_detect() {
     # Print detected GPUs in a structured format.
     local idx=0
@@ -49,7 +102,19 @@ _gpu_detect() {
         printf "  Vendor:Device:  %s\n" "$vendor_device"
         printf "  Type:           %s\n" "$type"
         printf "  Driver:         %s\n" "${driver:-none}"
+
+        # Audio device at same bus slot
+        local audio_info
+        audio_info=$(_gpu_audio_device "$pci_addr")
+        if [[ -n "$audio_info" ]]; then
+            printf "  Audio Device:   %s\n" "$audio_info"
+        fi
+
         printf "  IOMMU Group:    %s\n" "${iommu_grp:-unknown}"
+
+        # List all IOMMU group devices with warnings
+        _gpu_iommu_group_details "$pci_addr" "$iommu_grp"
+
         printf "\n"
     done < <(_gpu_list_raw)
 
@@ -510,6 +575,17 @@ _gpu_setup() {
                 sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null
                 applied=true
             fi
+        elif [[ -f /etc/default/limine ]]; then
+            local limine_default="/etc/default/limine"
+            if ! grep -qE '(intel_iommu|amd_iommu)=on' "$limine_default" 2>/dev/null; then
+                printf "→ Updating %s\n" "$limine_default"
+                printf 'KERNEL_CMDLINE[default]+=" %s"\n' "$iommu_param" | sudo tee -a "$limine_default" > /dev/null
+                if command -v limine-mkinitcpio &>/dev/null; then
+                    printf "→ Rebuilding boot entries...\n"
+                    sudo limine-mkinitcpio 2>/dev/null || true
+                fi
+                applied=true
+            fi
         fi
 
         if [[ "$applied" == "true" ]]; then
@@ -545,6 +621,69 @@ _gpu_setup() {
 
     printf "Run 'hyprconf hardware gpu pass <gpu> <vm>' to pass a GPU to a VM.\n"
     printf "Run 'hyprconf hardware gpu audit' to verify system readiness.\n"
+}
+
+_gpu_setup_select() {
+    # Interactive GPU selection — must run in the main shell (not a subshell)
+    # so that read works from the terminal.
+    local gpu_lines=() gpu_addrs=() gpu_names=() gpu_vdevs=() gpu_drivers=() gpu_iommus=()
+    local idx=0
+
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        idx=$((idx + 1))
+
+        local pci_addr vendor_device name driver iommu_grp
+        pci_addr=$(echo "$line" | awk '{print $1}')
+        vendor_device=$(echo "$line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
+        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[.*$//')
+        driver=$(_gpu_current_driver "$pci_addr")
+        iommu_grp=$(_gpu_iommu_group "$pci_addr")
+
+        gpu_addrs+=("$pci_addr")
+        gpu_names+=("$name")
+        gpu_vdevs+=("$vendor_device")
+        gpu_drivers+=("$driver")
+        gpu_iommus+=("$iommu_grp")
+
+        printf "  %d) %s [%s] (driver: %s, IOMMU group: %s)\n" "$idx" "$name" "$pci_addr" "${driver:-none}" "${iommu_grp:-?}"
+    done < <(_gpu_list_raw)
+
+    if (( idx == 0 )); then
+        printf "No GPUs detected — nothing to configure.\n"
+        return 1
+    fi
+
+    if (( idx == 1 )); then
+        printf "\nOnly one GPU detected — selecting it automatically.\n"
+        local sel=0
+    else
+        printf "\nSelect GPU for passthrough [1-%d]: " "$idx"
+        local choice
+        read -r choice
+        if ! [[ "$choice" =~ ^[0-9]+$ ]] || (( choice < 1 || choice > idx )); then
+            printf "Invalid selection.\n"
+            return 1
+        fi
+        local sel=$((choice - 1))
+    fi
+
+    local sel_addr="${gpu_addrs[$sel]}"
+    local sel_name="${gpu_names[$sel]}"
+    local sel_vdev="${gpu_vdevs[$sel]}"
+    local sel_driver="${gpu_drivers[$sel]}"
+    local sel_iommu="${gpu_iommus[$sel]}"
+
+    # Collect IOMMU group devices
+    local iommu_devs=""
+    if [[ -n "$sel_iommu" ]]; then
+        iommu_devs=$(_gpu_iommu_devices "$sel_addr" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')
+    fi
+
+    _gpu_save_config "$sel_addr" "$sel_name" "$sel_vdev" "$sel_driver" "$sel_iommu" "$iommu_devs"
+
+    printf "\n✔ GPU configured for passthrough: %s [%s]\n" "$sel_name" "$sel_addr"
+    printf "  Config saved to %s\n" "$_GPU_CONF"
 }
 
 # ── Config Management ──────────────────────────────────────────────────────────
@@ -659,6 +798,169 @@ _gpu_diagnose() {
 
     cat "$report"
     printf "\n✔ Report saved: %s\n" "$report"
+}
+
+# ── Hardware Report ────────────────────────────────────────────────────────────
+
+_gpu_report() {
+    printf "GPU Passthrough — Hardware Report\n"
+    printf "═════════════════════════════════\n\n"
+
+    # SYSTEM
+    printf "[SYSTEM]\n"
+    printf "  CPU:     %s\n" "$(grep 'model name' /proc/cpuinfo 2>/dev/null | head -1 | cut -d: -f2 | xargs)"
+    printf "  Kernel:  %s\n" "$(uname -r)"
+    printf "  OS:      %s\n" "$(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2 | tr -d '"')"
+
+    local mem_total
+    mem_total=$(awk '/MemTotal/ {printf "%.1f GB", $2/1024/1024}' /proc/meminfo 2>/dev/null)
+    printf "  RAM:     %s\n\n" "${mem_total:-unknown}"
+
+    # MOTHERBOARD
+    printf "[MOTHERBOARD]\n"
+    local smbios
+    smbios=$(_gpu_host_smbios 2>/dev/null) || true
+    if [[ -n "$smbios" ]]; then
+        local mfg product serial
+        IFS=$'\t' read -r mfg product serial <<< "$smbios"
+        printf "  Vendor:  %s\n" "${mfg:-unknown}"
+        printf "  Model:   %s\n" "${product:-unknown}"
+        printf "  Serial:  %s\n\n" "${serial:-unknown}"
+    else
+        printf "  (dmidecode unavailable)\n\n"
+    fi
+
+    # GPUs
+    printf "[GPUs]\n"
+    local gpu_idx=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        gpu_idx=$((gpu_idx + 1))
+
+        local pci_addr vendor_device name driver type iommu_grp
+        pci_addr=$(echo "$line" | awk '{print $1}')
+        vendor_device=$(echo "$line" | grep -oP '\[\w{4}:\w{4}\]' | tr -d '[]')
+        name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[.*$//')
+        driver=$(_gpu_current_driver "$pci_addr")
+        type=$(_gpu_classify "$pci_addr" "$name")
+        iommu_grp=$(_gpu_iommu_group "$pci_addr")
+
+        printf "  GPU %d: %s\n" "$gpu_idx" "$name"
+        printf "    PCI:        %s\n" "$pci_addr"
+        printf "    IDs:        %s\n" "$vendor_device"
+        printf "    Type:       %s\n" "$type"
+        printf "    Driver:     %s\n" "${driver:-none}"
+        printf "    IOMMU:      group %s\n" "${iommu_grp:-unknown}"
+
+        local audio_info
+        audio_info=$(_gpu_audio_device "$pci_addr")
+        if [[ -n "$audio_info" ]]; then
+            printf "    Audio:      %s\n" "$audio_info"
+        fi
+
+        # DRM card + display connectors
+        local full_addr="0000:${pci_addr}"
+        local drm_dir="/sys/bus/pci/devices/${full_addr}/drm"
+        if [[ -d "$drm_dir" ]]; then
+            local card
+            for card in "$drm_dir"/card*; do
+                [[ -d "$card" ]] || continue
+                printf "    DRM:        %s\n" "$(basename "$card")"
+            done
+        fi
+
+        # vRAM (NVIDIA via nvidia-smi, fallback to sysfs)
+        local vram=""
+        if command -v nvidia-smi &>/dev/null && [[ "$driver" == "nvidia" ]]; then
+            vram=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i "$pci_addr" 2>/dev/null | head -1 || true)
+            [[ -n "$vram" ]] && vram="${vram} MiB"
+        fi
+        if [[ -z "$vram" ]] && [[ -f "/sys/bus/pci/devices/${full_addr}/mem_info_vram_total" ]]; then
+            local vram_bytes
+            vram_bytes=$(cat "/sys/bus/pci/devices/${full_addr}/mem_info_vram_total" 2>/dev/null)
+            if [[ -n "$vram_bytes" ]] && (( vram_bytes > 0 )); then
+                vram="$(( vram_bytes / 1024 / 1024 )) MiB"
+            fi
+        fi
+        [[ -n "$vram" ]] && printf "    VRAM:       %s\n" "$vram"
+
+        printf "\n"
+    done < <(_gpu_list_raw)
+
+    if (( gpu_idx == 0 )); then
+        printf "  No GPUs detected.\n\n"
+    fi
+
+    # IOMMU GROUPS (only for groups containing GPUs)
+    printf "[IOMMU GROUPS]\n"
+    local seen_groups=()
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local pci_addr iommu_grp
+        pci_addr=$(echo "$line" | awk '{print $1}')
+        iommu_grp=$(_gpu_iommu_group "$pci_addr")
+        [[ -z "$iommu_grp" ]] && continue
+
+        # Skip already-printed groups
+        local already=false
+        local g; for g in "${seen_groups[@]:-}"; do
+            [[ "$g" == "$iommu_grp" ]] && already=true
+        done
+        $already && continue
+        seen_groups+=("$iommu_grp")
+
+        printf "  Group %s:\n" "$iommu_grp"
+        local devs
+        devs=$(_gpu_iommu_devices "$pci_addr") || true
+        local dev
+        while IFS= read -r dev; do
+            [[ -z "$dev" ]] && continue
+            local desc
+            desc=$(lspci -nn 2>/dev/null | grep "^${dev} " | sed 's/^[0-9a-f:.]* //' || true)
+            printf "    %s: %s\n" "$dev" "${desc:-unknown}"
+        done <<< "$devs"
+        printf "\n"
+    done < <(_gpu_list_raw)
+
+    # DISPLAY
+    printf "[DISPLAY]\n"
+    printf "  Session:     %s\n" "${XDG_SESSION_TYPE:-unknown}"
+    printf "  Compositor:  %s\n\n" "${XDG_CURRENT_DESKTOP:-unknown}"
+
+    # DRIVER VERSIONS
+    printf "[DRIVER VERSIONS]\n"
+    if command -v nvidia-smi &>/dev/null; then
+        local nv_ver
+        nv_ver=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || true)
+        printf "  nvidia:  %s\n" "${nv_ver:-not loaded}"
+    fi
+    if lsmod 2>/dev/null | grep -q amdgpu; then
+        printf "  amdgpu:  loaded\n"
+    fi
+    if lsmod 2>/dev/null | grep -q vfio_pci; then
+        printf "  vfio:    loaded\n"
+    else
+        printf "  vfio:    not loaded\n"
+    fi
+    printf "\n"
+
+    # PASSTHROUGH STATUS
+    printf "[PASSTHROUGH STATUS]\n"
+    if [[ -f "$_GPU_CONF" ]]; then
+        _gpu_load_config
+        printf "  Configured:  %s [%s]\n" "${GPU_NAME:-unknown}" "${GPU_PCI_ADDR:-unknown}"
+        if [[ -n "${GPU_PCI_ADDR:-}" ]]; then
+            local cfg_driver
+            cfg_driver=$(_gpu_current_driver "$GPU_PCI_ADDR")
+            if [[ "$cfg_driver" == "vfio-pci" ]]; then
+                printf "  Binding:     active (vfio-pci)\n"
+            else
+                printf "  Binding:     host (%s)\n" "$cfg_driver"
+            fi
+        fi
+    else
+        printf "  Configured:  none (run: hyprconf hardware gpu setup)\n"
+    fi
 }
 
 # ── VM GPU Attach / SMBIOS ─────────────────────────────────────────────────────
@@ -896,5 +1198,11 @@ _gpu_status() {
 
     if (( gpu_count == 0 )); then
         printf "  No GPUs detected.\n"
+    fi
+
+    # Show configured GPU (if any)
+    if [[ -f "$_GPU_CONF" ]]; then
+        _gpu_load_config
+        printf "\nConfigured GPU: %s [%s]\n" "${GPU_NAME:-unknown}" "${GPU_PCI_ADDR:-unknown}"
     fi
 }
