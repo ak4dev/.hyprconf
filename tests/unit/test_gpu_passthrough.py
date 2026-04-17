@@ -330,8 +330,14 @@ DMI
 def _make_fake_sysfs(
     sysfs_root: Path,
     gpus: dict[str, dict] | None = None,
+    display_connectors: dict[str, list[str]] | None = None,
 ) -> None:
-    """Create a fake /sys/bus/pci + /sys/kernel/iommu_groups tree."""
+    """Create a fake /sys/bus/pci + /sys/kernel/iommu_groups tree.
+
+    ``display_connectors`` maps PCI address → list of connector status
+    strings (e.g. ``{"01:00.0": ["connected"]}``) so
+    ``_gpu_is_display_gpu`` can be tested with the fake sysfs.
+    """
     if gpus is None:
         gpus = {
             "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
@@ -383,6 +389,23 @@ def _make_fake_sysfs(
         # unbind file (writable)
         if driver:
             (drivers_dir / driver / "unbind").touch()
+
+    # DRM / display connector entries
+    if display_connectors:
+        class_drm_dir = sysfs_root / "class" / "drm"
+        class_drm_dir.mkdir(parents=True, exist_ok=True)
+        card_idx = 0
+        for pci_addr, statuses in display_connectors.items():
+            full_addr = f"0000:{pci_addr}"
+            dev_dir = pci_dir / full_addr
+            drm_dir = dev_dir / "drm"
+            card_name = f"card{card_idx}"
+            (drm_dir / card_name).mkdir(parents=True, exist_ok=True)
+            for conn_idx, st in enumerate(statuses):
+                conn_dir = class_drm_dir / f"{card_name}-DP-{conn_idx + 1}"
+                conn_dir.mkdir(parents=True, exist_ok=True)
+                (conn_dir / "status").write_text(st)
+            card_idx += 1
 
 
 def _source_and_run(
@@ -439,6 +462,26 @@ def _source_and_run(
                 for dev in "$grp_dir"/*; do
                     basename "$dev" | sed 's/^0000://'
                 done
+            }}
+
+            _gpu_is_display_gpu() {{
+                local pci_addr="$1"
+                local full_addr="0000:${{pci_addr}}"
+                local drm_dir="{sysfs_root}/bus/pci/devices/${{full_addr}}/drm"
+                [[ -d "$drm_dir" ]] || return 1
+                local card status_file
+                for card in "$drm_dir"/card*; do
+                    [[ -d "$card" ]] || continue
+                    local card_name
+                    card_name=$(basename "$card")
+                    for status_file in {sysfs_root}/class/drm/"${{card_name}}"-*/status; do
+                        [[ -f "$status_file" ]] || continue
+                        if [[ "$(cat "$status_file" 2>/dev/null)" == "connected" ]]; then
+                            return 0
+                        fi
+                    done
+                done
+                return 1
             }}
         """)
 
@@ -537,6 +580,87 @@ class TestGpuClassify:
     def test_classify_integrated_keyword(self, fake_env):
         r = _source_and_run("_gpu_classify", ["05:00.0", "AMD Integrated Graphics"], **fake_env)
         assert r.stdout.strip() == "integrated"
+
+
+# ---------------------------------------------------------------------------
+# _gpu_is_display_gpu
+# ---------------------------------------------------------------------------
+
+class TestGpuIsDisplayGpu:
+    def test_display_gpu_detected(self, tmp_path):
+        """GPU with a connected DRM connector is identified as display GPU."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
+                             "vendor": "0x10de", "device": "0x2484"},
+            },
+            display_connectors={"01:00.0": ["connected"]},
+        )
+        r = _source_and_run(
+            "_gpu_is_display_gpu", ["01:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
+
+    def test_non_display_gpu_returns_false(self, tmp_path):
+        """GPU with no DRM directory is not a display GPU."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "02:00.0": {"driver": "nvidia", "iommu_group": "2",
+                             "vendor": "0x10de", "device": "0x2684"},
+            },
+        )
+        r = _source_and_run(
+            "_gpu_is_display_gpu", ["02:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode != 0
+
+    def test_disconnected_connectors_returns_false(self, tmp_path):
+        """GPU whose connectors are all disconnected is not a display GPU."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
+                             "vendor": "0x10de", "device": "0x2484"},
+            },
+            display_connectors={"01:00.0": ["disconnected", "disconnected"]},
+        )
+        r = _source_and_run(
+            "_gpu_is_display_gpu", ["01:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode != 0
+
+    def test_mixed_connectors_detected(self, tmp_path):
+        """At least one connected connector → display GPU."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
+                             "vendor": "0x10de", "device": "0x2484"},
+            },
+            display_connectors={"01:00.0": ["disconnected", "connected"]},
+        )
+        r = _source_and_run(
+            "_gpu_is_display_gpu", ["01:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
 
 
 # ---------------------------------------------------------------------------
@@ -958,6 +1082,69 @@ class TestGpuBindVfio:
         r = _source_and_run("_gpu_bind_vfio", ["01:00.0"], bin_dir=bin_dir, sysfs_root=sysfs_root)
         assert r.returncode == 0
 
+    def test_bind_refuses_display_gpu(self, tmp_path):
+        """Binding the active display GPU must fail with a safety message."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
+                             "vendor": "0x10de", "device": "0x2484"},
+                "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1",
+                             "vendor": "0x10de", "device": "0x228b"},
+            },
+            display_connectors={"01:00.0": ["connected"]},
+        )
+        r = _source_and_run(
+            "_gpu_bind_vfio", ["01:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode != 0
+        assert "active display" in r.stderr or "Refusing" in r.stderr
+
+    def test_bind_display_gpu_with_force(self, tmp_path):
+        """--force overrides the display GPU safety check."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
+                             "vendor": "0x10de", "device": "0x2484"},
+                "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1",
+                             "vendor": "0x10de", "device": "0x228b"},
+            },
+            display_connectors={"01:00.0": ["connected"]},
+        )
+        r = _source_and_run(
+            "_gpu_bind_vfio", ["01:00.0", "force"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
+
+    def test_bind_non_display_gpu_no_force_needed(self, tmp_path):
+        """Binding a GPU with no display connector works without force."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "02:00.0": {"driver": "nvidia", "iommu_group": "2",
+                             "vendor": "0x10de", "device": "0x2684"},
+                "02:00.1": {"driver": "snd_hda_intel", "iommu_group": "2",
+                             "vendor": "0x10de", "device": "0x22be"},
+            },
+        )
+        r = _source_and_run(
+            "_gpu_bind_vfio", ["02:00.0"],
+            bin_dir=bin_dir, sysfs_root=sysfs_root,
+        )
+        assert r.returncode == 0
+
 
 class TestGpuUnbindVfio:
     def test_unbind_not_on_vfio_is_noop(self, fake_env):
@@ -1073,4 +1260,20 @@ class TestCliDispatch:
             fake_env["bin_dir"], fake_env["home_dir"],
         )
         # May partially fail due to fake virsh but should at least attempt
+        assert "Binding" in r.stdout or "bound" in r.stdout or r.returncode == 0
+
+    def test_gpu_bind_force_flag_accepted(self, fake_env):
+        """bind --force <gpu> should be accepted."""
+        r = self._run_hyprconf(
+            ["bind", "--force", "3070"],
+            fake_env["bin_dir"], fake_env["home_dir"],
+        )
+        assert "Binding" in r.stdout or "bound" in r.stdout or r.returncode == 0
+
+    def test_gpu_pass_force_flag_accepted(self, fake_env):
+        """pass --force <gpu> <vm> should be accepted."""
+        r = self._run_hyprconf(
+            ["pass", "--force", "3070", "win11"],
+            fake_env["bin_dir"], fake_env["home_dir"],
+        )
         assert "Binding" in r.stdout or "bound" in r.stdout or r.returncode == 0

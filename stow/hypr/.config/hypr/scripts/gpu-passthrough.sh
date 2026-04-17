@@ -65,6 +65,29 @@ _gpu_classify() {
     fi
 }
 
+_gpu_is_display_gpu() {
+    # Return 0 if the GPU at pci_addr has an active display connector.
+    local pci_addr="$1"
+    local full_addr="0000:${pci_addr}"
+    local drm_dir="/sys/bus/pci/devices/${full_addr}/drm"
+
+    [[ -d "$drm_dir" ]] || return 1
+
+    local card status_file
+    for card in "$drm_dir"/card*; do
+        [[ -d "$card" ]] || continue
+        local card_name
+        card_name=$(basename "$card")
+        for status_file in /sys/class/drm/"${card_name}"-*/status; do
+            [[ -f "$status_file" ]] || continue
+            if [[ "$(cat "$status_file" 2>/dev/null)" == "connected" ]]; then
+                return 0
+            fi
+        done
+    done
+    return 1
+}
+
 _gpu_current_driver() {
     local pci_addr="$1"
     local full_addr="0000:${pci_addr}"
@@ -160,8 +183,17 @@ _gpu_resolve() {
 
 _gpu_bind_vfio() {
     # Bind all devices in the GPU's IOMMU group to vfio-pci.
+    # Pass "force" as $2 to skip the display-GPU safety check.
     local pci_addr="$1"
+    local force="${2:-}"
     local full_addr="0000:${pci_addr}"
+
+    if [[ "$force" != "force" ]] && _gpu_is_display_gpu "$pci_addr"; then
+        echo "Refusing to unbind GPU at ${pci_addr} — it has an active display connector." >&2
+        echo "Unbinding this GPU will freeze your desktop." >&2
+        echo "Use --force to override: hyprconf hardware gpu bind --force ${pci_addr}" >&2
+        return 1
+    fi
 
     _gpu_log "INFO" "Binding GPU at ${pci_addr} to vfio-pci"
 
@@ -181,7 +213,7 @@ _gpu_bind_vfio() {
         return 1
     }
 
-    local dev full_dev current_driver vendor_device
+    local dev full_dev current_driver
     while IFS= read -r dev; do
         [[ -z "$dev" ]] && continue
         full_dev="0000:${dev}"
@@ -197,10 +229,6 @@ _gpu_bind_vfio() {
             _gpu_log "INFO" "Unbinding ${dev} from ${current_driver}"
             echo "$full_dev" | sudo tee "/sys/bus/pci/devices/${full_dev}/driver/unbind" > /dev/null 2>&1 || true
         fi
-
-        # Get vendor:device for vfio-pci binding
-        vendor_device=$(cat "/sys/bus/pci/devices/${full_dev}/vendor" 2>/dev/null | sed 's/^0x//')
-        vendor_device="${vendor_device} $(cat "/sys/bus/pci/devices/${full_dev}/device" 2>/dev/null | sed 's/^0x//')"
 
         # Override driver to vfio-pci
         _gpu_log "INFO" "Binding ${dev} to vfio-pci"

@@ -119,9 +119,9 @@ usage() {
   printf "  hyprconf hardware gpu detect           List GPUs with PCI / IOMMU / driver info\n"
   printf "  hyprconf hardware gpu setup            Interactive VFIO setup wizard\n"
   printf "  hyprconf hardware gpu audit            System readiness check for passthrough\n"
-  printf "  hyprconf hardware gpu bind <gpu>       Bind GPU to vfio-pci (prepare for VM)\n"
+  printf "  hyprconf hardware gpu bind [--force] <gpu>       Bind GPU to vfio-pci (prepare for VM)\n"
   printf "  hyprconf hardware gpu unbind <gpu>     Return GPU to host driver\n"
-  printf "  hyprconf hardware gpu pass <gpu> [vm]  Bind GPU + attach to VM (with SMBIOS)\n"
+  printf "  hyprconf hardware gpu pass [--force] <gpu> [vm]  Bind GPU + attach to VM (with SMBIOS)\n"
   printf "  hyprconf hardware gpu diagnose         Detailed diagnostic dump\n"
   printf "\n${_b}Addons${_r}\n"
   printf "  hyprconf addon                   List available addons and their status\n"
@@ -1455,11 +1455,13 @@ cmd_hardware() {
           _gpu_audit
           ;;
         bind)
-          local target="${1:?Usage: hyprconf hardware gpu bind <gpu>}"
+          local force=""
+          if [[ "${1:-}" == "--force" ]]; then force="force"; shift; fi
+          local target="${1:?Usage: hyprconf hardware gpu bind [--force] <gpu>}"
           local pci_addr
           pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
           printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
-          _gpu_bind_vfio "$pci_addr" \
+          _gpu_bind_vfio "$pci_addr" "$force" \
             && printf "${_g}✔${_r} GPU %s bound to vfio-pci — ready for VM passthrough.\n" "$pci_addr" \
             || die "Failed to bind GPU ${pci_addr} to vfio-pci."
           ;;
@@ -1473,13 +1475,15 @@ cmd_hardware() {
             || die "Failed to unbind GPU ${pci_addr} from vfio-pci."
           ;;
         pass)
-          local target="${1:?Usage: hyprconf hardware gpu pass <gpu> [vm-name]}"
+          local force=""
+          if [[ "${1:-}" == "--force" ]]; then force="force"; shift; fi
+          local target="${1:?Usage: hyprconf hardware gpu pass [--force] <gpu> [vm-name]}"
           shift
           local vm_name="${1:-}"
           local pci_addr
           pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
           printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
-          _gpu_bind_vfio "$pci_addr" \
+          _gpu_bind_vfio "$pci_addr" "$force" \
             || die "Failed to bind GPU ${pci_addr} to vfio-pci."
           printf "${_g}✔${_r} GPU bound to vfio-pci.\n"
 
