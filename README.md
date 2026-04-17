@@ -246,7 +246,7 @@ hyprconf hardware gpu detect           List GPUs with PCI addresses, IOMMU group
 hyprconf hardware gpu setup            Interactive VFIO setup wizard
 hyprconf hardware gpu audit            Full system readiness check
 hyprconf hardware gpu mode             Show current GPU mode (vm/host/none)
-hyprconf hardware gpu mode vm [gpu]    Bind GPU to vfio-pci for VM passthrough
+hyprconf hardware gpu mode vm [gpu]    Bind GPU to vfio-pci for VM passthrough (--force to override safety)
 hyprconf hardware gpu mode host [gpu]  Restore GPU to host driver
 hyprconf hardware gpu mode none [gpu]  Unbind GPU from all drivers
 hyprconf hardware gpu report           Detailed hardware report
@@ -497,7 +497,7 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 | `hyprconf hardware gpu detect` | List all GPUs with PCI addresses, IOMMU groups, audio devices, current drivers |
 | `hyprconf hardware gpu audit` | Full system readiness check (IOMMU, modules, packages, blacklist, groups) |
 | `hyprconf hardware gpu mode` | Show current GPU mode (`vm`, `host`, or `none`) |
-| `hyprconf hardware gpu mode vm [gpu]` | Unbind NVIDIA driver → bind GPU + IOMMU group to vfio-pci |
+| `hyprconf hardware gpu mode vm [--force] [gpu]` | Unbind NVIDIA driver → bind GPU + IOMMU group to vfio-pci |
 | `hyprconf hardware gpu mode host [gpu]` | Unbind from vfio-pci → reload native driver (`modprobe -i`) |
 | `hyprconf hardware gpu mode none [gpu]` | Unbind GPU from all drivers (idle state) |
 | `hyprconf hardware gpu report` | Comprehensive hardware report (system, motherboard, GPUs, IOMMU groups, drivers) |

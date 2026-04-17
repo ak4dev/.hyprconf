@@ -1487,7 +1487,7 @@ cmd_hardware() {
               fi
 
               printf "${_b}→${_r} Binding GPU at %s to vfio-pci...\n" "$pci_addr"
-              _gpu_mode_vm "$pci_addr" "$force" \
+              _gpu_mode_vm "$force" \
                 && printf "${_g}✔${_r} GPU %s bound to vfio-pci — ready for VM passthrough.\n" "$pci_addr" \
                 || die "Failed to bind GPU ${pci_addr} to vfio-pci."
               ;;
@@ -1504,7 +1504,7 @@ cmd_hardware() {
               local pci_addr
               pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
               printf "${_b}→${_r} Restoring GPU at %s to host driver...\n" "$pci_addr"
-              _gpu_mode_host "$pci_addr" \
+              _gpu_mode_host \
                 && printf "${_g}✔${_r} GPU %s returned to host.\n" "$pci_addr" \
                 || die "Failed to restore GPU ${pci_addr} to host."
               ;;
@@ -1521,7 +1521,7 @@ cmd_hardware() {
               local pci_addr
               pci_addr=$(_gpu_resolve "$target") || die "Cannot resolve GPU: $target"
               printf "${_b}→${_r} Unbinding GPU at %s from all drivers...\n" "$pci_addr"
-              _gpu_mode_none "$pci_addr" \
+              _gpu_mode_none \
                 && printf "${_g}✔${_r} GPU %s unbound from all drivers.\n" "$pci_addr" \
                 || die "Failed to unbind GPU ${pci_addr}."
               ;;

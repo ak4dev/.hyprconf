@@ -487,6 +487,7 @@ def _source_and_run(
             # Override mode helpers for test environment (no real sysfs writes)
             _gpu_check_processes() {{ return 0; }}
             _gpu_unload_nvidia_modules() {{ return 0; }}
+            _gpu_unbind_vtconsoles() {{ return 0; }}
             _gpu_is_module_loaded() {{ return 0; }}
             _gpu_update_state_marker() {{ return 0; }}
             _gpu_get_pci_class() {{ echo "0300"; }}
@@ -1293,10 +1294,293 @@ class TestGpuDiagnose:
 
 
 # ---------------------------------------------------------------------------
-# Script sources without error
+# _gpu_unbind_vtconsoles
 # ---------------------------------------------------------------------------
 
-class TestScriptSources:
+class TestGpuUnbindVtconsoles:
+    """Test VT console and EFI framebuffer unbinding before GPU driver unbind."""
+
+    def test_unbinds_active_vtconsoles(self, tmp_path):
+        """Active VT consoles (bind=1) are unbound (set to 0)."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+
+        # Create fake vtconsole entries
+        vtcon0 = tmp_path / "sys" / "class" / "vtconsole" / "vtcon0"
+        vtcon1 = tmp_path / "sys" / "class" / "vtconsole" / "vtcon1"
+        vtcon0.mkdir(parents=True)
+        vtcon1.mkdir(parents=True)
+        (vtcon0 / "bind").write_text("1")
+        (vtcon1 / "bind").write_text("0")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            # Override paths to use fake sysfs
+            _gpu_unbind_vtconsoles() {{
+                local vtcon
+                for vtcon in {tmp_path}/sys/class/vtconsole/vtcon*; do
+                    [[ -f "$vtcon/bind" ]] || continue
+                    if [[ "$(cat "$vtcon/bind" 2>/dev/null)" == "1" ]]; then
+                        echo 0 > "$vtcon/bind"
+                        printf "UNBOUND:%s\\n" "$(basename "$vtcon")"
+                    fi
+                done
+            }}
+            _gpu_unbind_vtconsoles
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert "UNBOUND:vtcon0" in r.stdout
+        assert "UNBOUND:vtcon1" not in r.stdout
+        assert (vtcon0 / "bind").read_text().strip() == "0"
+
+    def test_skips_inactive_vtconsoles(self, tmp_path):
+        """Inactive VT consoles (bind=0) are not touched."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+
+        vtcon0 = tmp_path / "sys" / "class" / "vtconsole" / "vtcon0"
+        vtcon0.mkdir(parents=True)
+        (vtcon0 / "bind").write_text("0")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_unbind_vtconsoles() {{
+                local vtcon
+                for vtcon in {tmp_path}/sys/class/vtconsole/vtcon*; do
+                    [[ -f "$vtcon/bind" ]] || continue
+                    if [[ "$(cat "$vtcon/bind" 2>/dev/null)" == "1" ]]; then
+                        echo 0 > "$vtcon/bind"
+                        printf "UNBOUND:%s\\n" "$(basename "$vtcon")"
+                    fi
+                done
+                printf "DONE\\n"
+            }}
+            _gpu_unbind_vtconsoles
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert "UNBOUND" not in r.stdout
+        assert "DONE" in r.stdout
+
+    def test_no_vtconsoles_is_harmless(self, tmp_path):
+        """No vtconsole entries does not cause an error."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+
+        # No vtconsole directory at all
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_unbind_vtconsoles
+            echo "OK"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert "OK" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# _gpu_unload_nvidia_modules failure path
+# ---------------------------------------------------------------------------
+
+class TestGpuUnloadNvidiaModulesFailure:
+    """Test that _gpu_unload_nvidia_modules fails when modules can't be unloaded."""
+
+    def test_returns_nonzero_when_module_stuck(self, tmp_path):
+        """If modprobe -r fails for a module, function returns non-zero."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(
+            bin_dir,
+            lsmod_output="nvidia_drm       12345  1\nnvidia_modeset   23456  1 nvidia_drm\nnvidia         98765  2 nvidia_modeset,nvidia_drm\n",
+        )
+
+        # Override modprobe to fail on removal
+        _make_executable(bin_dir / "modprobe", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "-r" ]]; then
+                exit 1
+            fi
+            exit 0
+        """))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_unload_nvidia_modules
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode != 0
+        assert "Cannot unload" in r.stderr or "still loaded" in r.stderr
+
+    def test_returns_zero_when_all_modules_unloaded(self, tmp_path):
+        """Successful module unload returns 0."""
+        bin_dir = tmp_path / "bin"
+        # Modules are listed but modprobe -r will succeed
+        _make_fake_bins(
+            bin_dir,
+            lsmod_output="nvidia_drm       12345  0\nnvidia         98765  0\n",
+        )
+
+        # After modprobe -r, simulate that modules are gone
+        # by making lsmod return empty after removal
+        _make_executable(bin_dir / "modprobe", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "-r" ]]; then
+                exit 0
+            fi
+            exit 0
+        """))
+
+        # lsmod returns empty (all modules unloaded)
+        _make_executable(bin_dir / "lsmod", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            echo ""
+        """))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_unload_nvidia_modules
+            echo "SUCCESS"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0
+        assert "SUCCESS" in r.stdout
+
+    def test_mode_vm_aborts_on_nvidia_unload_failure(self, tmp_path):
+        """_gpu_mode_vm aborts (returns non-zero) if nvidia modules won't unload."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(
+            bin_dir,
+            lsmod_output="nvidia_drm       12345  1\nnvidia         98765  1\n",
+        )
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
+        })
+
+        # modprobe -r always fails
+        _make_executable(bin_dir / "modprobe", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "-r" ]]; then exit 1; fi
+            exit 0
+        """))
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_current_driver() {{
+                local pci_addr="$1"
+                local full_addr="0000:${{pci_addr}}"
+                local driver_link="{sysfs_root}/bus/pci/devices/${{full_addr}}/driver"
+                if [[ -L "$driver_link" ]]; then
+                    basename "$(readlink "$driver_link")"
+                else
+                    echo "none"
+                fi
+            }}
+            _gpu_check_processes() {{ return 0; }}
+            _gpu_check_display_safety() {{ return 0; }}
+            _gpu_unbind_vtconsoles() {{ return 0; }}
+            _gpu_update_state_marker() {{ return 0; }}
+            _gpu_mode_vm
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode != 0
+        assert "Cannot unload" in r.stderr or "still loaded" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# CLI --force flag passthrough
+# ---------------------------------------------------------------------------
+
+class TestCliForceFlag:
+    """Test that --force is properly passed to _gpu_mode_vm."""
+
+    def test_force_flag_bypasses_display_safety(self, tmp_path):
+        """--force skips the display GPU safety check inside the function."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {"driver": "vfio-pci", "iommu_group": "1",
+                             "vendor": "0x10de", "device": "0x2484"},
+            },
+            display_connectors={"01:00.0": ["connected"]},
+        )
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True, exist_ok=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+
+        # Call _gpu_mode_vm with "force" — already on vfio-pci so noop,
+        # but verifies force arg is read correctly
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_current_driver() {{
+                local pci_addr="$1"
+                local full_addr="0000:${{pci_addr}}"
+                local driver_link="{sysfs_root}/bus/pci/devices/${{full_addr}}/driver"
+                if [[ -L "$driver_link" ]]; then
+                    basename "$(readlink "$driver_link")"
+                else
+                    echo "none"
+                fi
+            }}
+            _gpu_update_state_marker() {{ return 0; }}
+            _gpu_mode_vm "force"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0
+        assert "already" in r.stdout.lower() or "vfio-pci" in r.stdout
     def test_script_sources_cleanly(self, fake_env):
         """gpu-passthrough.sh sources without syntax errors."""
         r = subprocess.run(

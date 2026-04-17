@@ -303,10 +303,35 @@ _gpu_resolve() {
     fi
 }
 
+# ── VT Console / Framebuffer Unbind ────────────────────────────────────────────
+
+_gpu_unbind_vtconsoles() {
+    # Unbind VT consoles and EFI framebuffer before GPU driver unbind.
+    # Without this, the kernel blocks sysfs unbind writes because the
+    # boot console or EFI framebuffer still holds a reference to the GPU.
+    _gpu_log "INFO" "Unbinding VT consoles and framebuffer..."
+
+    local vtcon
+    for vtcon in /sys/class/vtconsole/vtcon*; do
+        [[ -f "$vtcon/bind" ]] || continue
+        if [[ "$(cat "$vtcon/bind" 2>/dev/null)" == "1" ]]; then
+            printf "  Unbinding %s...\n" "$(basename "$vtcon")"
+            echo 0 | sudo -n tee "$vtcon/bind" > /dev/null 2>&1 || true
+        fi
+    done
+
+    # Unbind EFI framebuffer if bound to the GPU
+    if [[ -e /sys/bus/platform/drivers/efi-framebuffer/efi-framebuffer.0 ]]; then
+        printf "  Unbinding EFI framebuffer...\n"
+        echo efi-framebuffer.0 | sudo -n tee /sys/bus/platform/drivers/efi-framebuffer/unbind > /dev/null 2>&1 || true
+    fi
+}
+
 # ── NVIDIA Module Management ───────────────────────────────────────────────────
 
 _gpu_unload_nvidia_modules() {
     # Unload NVIDIA modules in dependency order (drm → modeset → uvm → nvidia).
+    # Returns non-zero if modules cannot be unloaded (GPU still in use).
     printf "  Unloading NVIDIA modules...\n"
     _gpu_log "INFO" "Unloading NVIDIA modules..."
 
@@ -316,10 +341,26 @@ _gpu_unload_nvidia_modules() {
             if sudo -n modprobe -r "$mod" 2>/dev/null; then
                 _gpu_log "INFO" "$mod unloaded"
             else
-                _gpu_log "WARN" "$mod: in use (will retry during unbind)"
+                _gpu_log "WARN" "$mod: in use — retrying after 1s..."
+                sleep 1
+                if sudo -n modprobe -r "$mod" 2>/dev/null; then
+                    _gpu_log "INFO" "$mod unloaded on retry"
+                else
+                    printf "  ✘ Cannot unload %s — GPU still in use.\n" "$mod" >&2
+                    printf "    Close GPU applications (games, browsers with HW accel, etc.) first.\n" >&2
+                    _gpu_log "ERROR" "$mod: cannot unload after retry"
+                    return 1
+                fi
             fi
         fi
     done
+
+    # Final verification — catch any leftover nvidia modules
+    if lsmod 2>/dev/null | grep -q "^nvidia"; then
+        printf "  ✘ NVIDIA modules still loaded. Close all GPU applications first.\n" >&2
+        _gpu_log "ERROR" "NVIDIA modules still present after unload attempt"
+        return 1
+    fi
     return 0
 }
 
@@ -430,8 +471,13 @@ _gpu_mode_vm() {
         _gpu_check_display_safety "$GPU_PCI_ADDR" || return 1
     fi
 
-    # Unload NVIDIA modules before unbinding
-    [[ "$current_driver" == "nvidia" ]] && _gpu_unload_nvidia_modules
+    # Unload NVIDIA modules before unbinding (abort if they can't be unloaded)
+    if [[ "$current_driver" == "nvidia" ]]; then
+        _gpu_unload_nvidia_modules || return 1
+    fi
+
+    # Unbind VT consoles / EFI framebuffer to release GPU references
+    _gpu_unbind_vtconsoles
 
     # Unbind GPU from current driver
     if [[ -n "$current_driver" && "$current_driver" != "none" ]]; then
@@ -655,7 +701,12 @@ _gpu_mode_none() {
     fi
 
     _gpu_check_processes "$current_driver" || return 1
-    [[ "$current_driver" == "nvidia" ]] && _gpu_unload_nvidia_modules
+    if [[ "$current_driver" == "nvidia" ]]; then
+        _gpu_unload_nvidia_modules || return 1
+    fi
+
+    # Unbind VT consoles / EFI framebuffer to release GPU references
+    _gpu_unbind_vtconsoles
 
     # Get all IOMMU group devices
     local iommu_devs
