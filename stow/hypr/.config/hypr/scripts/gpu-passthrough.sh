@@ -2501,22 +2501,25 @@ _gpu_vm_generate_compose() {
         qemu_args+=" -device vfio-pci,host=${dev_pci}"
     done
 
-    # SPICE: audio output via intel-hda
-    qemu_args+=" -audiodev spice,id=spice"
-    qemu_args+=" -device intel-hda"
-    qemu_args+=" -device hda-duplex,audiodev=spice"
+    # SPICE + Looking Glass input devices (only when kvmfr is available)
+    if [[ "$has_kvmfr" == true ]]; then
+        # Audio output via intel-hda over SPICE
+        qemu_args+=" -audiodev spice,id=spice"
+        qemu_args+=" -device intel-hda"
+        qemu_args+=" -device hda-duplex,audiodev=spice"
 
-    # SPICE: display socket (Looking Glass connects here for input)
-    qemu_args+=" -spice unix=on,addr=/tmp/spice/spice.sock,disable-ticketing=on,agent-mouse=off"
+        # SPICE display socket (Looking Glass connects here for input)
+        qemu_args+=" -spice unix=on,addr=/tmp/spice/spice.sock,disable-ticketing=on,agent-mouse=off"
 
-    # SPICE: clipboard channel (vdagent)
-    qemu_args+=" -device virtio-serial-pci"
-    qemu_args+=" -device virtserialport,chardev=spicechannel0,name=com.redhat.spice.0"
-    qemu_args+=" -chardev spicevmc,id=spicechannel0,name=vdagent"
+        # SPICE clipboard channel (vdagent)
+        qemu_args+=" -device virtio-serial-pci"
+        qemu_args+=" -device virtserialport,chardev=spicechannel0,name=com.redhat.spice.0"
+        qemu_args+=" -chardev spicevmc,id=spicechannel0,name=vdagent"
 
-    # Input: mouse and keyboard via virtio (works without USB controller)
-    qemu_args+=" -device virtio-mouse-pci"
-    qemu_args+=" -device virtio-keyboard-pci"
+        # Input: mouse and keyboard via virtio
+        qemu_args+=" -device virtio-mouse-pci"
+        qemu_args+=" -device virtio-keyboard-pci"
+    fi
 
     # Power: disable S3/S4 (suspend/hibernate breaks GPU passthrough)
     qemu_args+=" -global ICH9-LPC.disable_s3=1"
