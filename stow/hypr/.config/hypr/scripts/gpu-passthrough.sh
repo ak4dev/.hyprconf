@@ -2455,7 +2455,7 @@ EOF
 }
 
 _gpu_vm_generate_oem() {
-    # Generate OEM install.bat that auto-installs Steam and Epic Games Launcher.
+    # Generate OEM install.bat that auto-installs gaming platforms and Firefox.
     # Dockurr copies /oem → C:\OEM and runs install.bat at the end of unattended setup.
     mkdir -p "$_GPU_VM_OEM_DIR"
     cat > "$_GPU_VM_OEM_DIR/install.bat" <<'OEMEOF'
@@ -2464,26 +2464,48 @@ setlocal
 
 echo === hyprconf OEM: Installing gaming platforms ===
 
-echo [1/2] Downloading Steam...
+echo [1/4] Downloading Steam...
 powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe' -OutFile '%TEMP%\SteamSetup.exe'"
 if exist "%TEMP%\SteamSetup.exe" (
-    echo [1/2] Installing Steam silently...
+    echo [1/4] Installing Steam silently...
     start /wait "" "%TEMP%\SteamSetup.exe" /S
     del "%TEMP%\SteamSetup.exe"
-    echo [1/2] Steam installed.
+    echo [1/4] Steam installed.
 ) else (
-    echo [1/2] Steam download failed, skipping.
+    echo [1/4] Steam download failed, skipping.
 )
 
-echo [2/2] Downloading Epic Games Launcher...
+echo [2/4] Downloading Epic Games Launcher...
 powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi' -OutFile '%TEMP%\EpicInstaller.msi'"
 if exist "%TEMP%\EpicInstaller.msi" (
-    echo [2/2] Installing Epic Games Launcher silently...
+    echo [2/4] Installing Epic Games Launcher silently...
     msiexec /i "%TEMP%\EpicInstaller.msi" /quiet /norestart
     del "%TEMP%\EpicInstaller.msi"
-    echo [2/2] Epic Games Launcher installed.
+    echo [2/4] Epic Games Launcher installed.
 ) else (
-    echo [2/2] Epic download failed, skipping.
+    echo [2/4] Epic download failed, skipping.
+)
+
+echo [3/4] Downloading Battle.net...
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://www.battle.net/download/getInstallerForGame?os=win&gameProgram=BATTLENET_APP&version=Live' -OutFile '%TEMP%\Battle.net-Setup.exe'"
+if exist "%TEMP%\Battle.net-Setup.exe" (
+    echo [3/4] Installing Battle.net silently...
+    start /wait "" "%TEMP%\Battle.net-Setup.exe" --lang=enUS --installpath="C:\Program Files (x86)\Battle.net" --productinstall
+    del "%TEMP%\Battle.net-Setup.exe"
+    echo [3/4] Battle.net installed.
+) else (
+    echo [3/4] Battle.net download failed, skipping.
+)
+
+echo [4/4] Downloading Firefox...
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US' -OutFile '%TEMP%\FirefoxSetup.exe'"
+if exist "%TEMP%\FirefoxSetup.exe" (
+    echo [4/4] Installing Firefox silently...
+    start /wait "" "%TEMP%\FirefoxSetup.exe" /S
+    del "%TEMP%\FirefoxSetup.exe"
+    echo [4/4] Firefox installed.
+) else (
+    echo [4/4] Firefox download failed, skipping.
 )
 
 echo === OEM install complete ===

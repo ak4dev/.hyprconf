@@ -1726,6 +1726,8 @@ class TestGpuVmOem:
         assert "SteamSetup.exe" in bat
         assert "EpicInstaller.msi" in bat
         assert "EpicGamesLauncherInstaller.msi" in bat
+        assert "Battle.net-Setup.exe" in bat
+        assert "FirefoxSetup.exe" in bat
         assert "/S" in bat
         assert "/quiet" in bat
 
