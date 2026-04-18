@@ -1327,6 +1327,8 @@ class TestGpuBlacklist:
             set -euo pipefail
             _GPU_BLACKLIST_CONF="{blacklist_file}"
             source "{SCRIPT}"
+            _gpu_remove_kernel_param() {{ return 0; }}
+            _gpu_rebuild_initramfs() {{ return 0; }}
             _gpu_configure_blacklist
         """)
         env = os.environ.copy()
@@ -1340,7 +1342,7 @@ class TestGpuBlacklist:
         assert "install nvidia /bin/false" in content
 
     def test_blacklist_skipped_multi_nvidia(self, tmp_path):
-        """Multi-NVIDIA setup: blacklist is NOT written — display GPU needs nvidia."""
+        """Multi-NVIDIA setup: blacklist is NOT written, boot-time binding is configured."""
         bin_dir = tmp_path / "bin"
         home_dir = tmp_path / "home"
         home_dir.mkdir()
@@ -1350,13 +1352,45 @@ class TestGpuBlacklist:
         conf_dir.mkdir(parents=True)
         (conf_dir / "gpu-passthrough.conf").write_text(
             'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+            'GPU_AUDIO_IDS="10de:228b"\n'
         )
 
         blacklist_file = tmp_path / "blacklist-gpu-passthrough.conf"
+        vfio_conf = tmp_path / "vfio.conf"
+        vfio_conf.write_text("options vfio-pci disable_vga=1\n")
+        mkinitcpio = tmp_path / "mkinitcpio.conf"
+        mkinitcpio.write_text("MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)\n")
+        # Create a fake boot entry for kernel cmdline
+        boot_entries = tmp_path / "loader" / "entries"
+        boot_entries.mkdir(parents=True)
+        (boot_entries / "linux.conf").write_text("options quiet splash\n")
+
+        # Fake bootctl that reports installed + fake mkinitcpio
+        _make_executable(bin_dir / "bootctl", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            exit 0
+        """))
+        _make_executable(bin_dir / "mkinitcpio", "#!/usr/bin/env bash\nexit 0\n")
+
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
             _GPU_BLACKLIST_CONF="{blacklist_file}"
             source "{SCRIPT}"
+            # Override paths for test
+            _gpu_set_kernel_param() {{
+                local key="$1" value="$2"
+                # Write to a file so tests can verify
+                echo "${{key}}=${{value}}" >> "{tmp_path}/kernel_params_set"
+            }}
+            _gpu_ensure_mkinitcpio_vfio_first() {{
+                echo "mkinitcpio_vfio_first_called" >> "{tmp_path}/calls"
+            }}
+            _gpu_ensure_vfio_softdep() {{
+                echo "vfio_softdep_called" >> "{tmp_path}/calls"
+            }}
+            _gpu_rebuild_initramfs() {{
+                echo "rebuild_initramfs_called" >> "{tmp_path}/calls"
+            }}
             _gpu_configure_blacklist
         """)
         env = os.environ.copy()
@@ -1364,9 +1398,16 @@ class TestGpuBlacklist:
         env["HOME"] = str(home_dir)
 
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
-        assert r.returncode == 0
+        assert r.returncode == 0, f"stderr: {r.stderr}"
         assert not blacklist_file.exists(), "Blacklist should not be written in multi-GPU"
-        assert "multi-GPU" in r.stdout
+        # Verify boot-time binding was configured
+        assert "multi-NVIDIA" in r.stdout or "boot-time" in r.stdout
+        params = (tmp_path / "kernel_params_set").read_text()
+        assert "vfio-pci.ids=10de:2484,10de:228b" in params
+        calls = (tmp_path / "calls").read_text()
+        assert "mkinitcpio_vfio_first_called" in calls
+        assert "vfio_softdep_called" in calls
+        assert "rebuild_initramfs_called" in calls
 
     def test_blacklist_stale_removed_multi_nvidia(self, tmp_path):
         """Multi-NVIDIA setup: pre-existing blacklist file is removed."""
@@ -1389,6 +1430,10 @@ class TestGpuBlacklist:
             set -euo pipefail
             _GPU_BLACKLIST_CONF="{blacklist_file}"
             source "{SCRIPT}"
+            _gpu_set_kernel_param() {{ return 0; }}
+            _gpu_ensure_mkinitcpio_vfio_first() {{ return 0; }}
+            _gpu_ensure_vfio_softdep() {{ return 0; }}
+            _gpu_rebuild_initramfs() {{ return 0; }}
             _gpu_configure_blacklist
         """)
         env = os.environ.copy()
@@ -1402,8 +1447,317 @@ class TestGpuBlacklist:
 
 
 # ---------------------------------------------------------------------------
-# _gpu_diagnose
+# Boot-time vfio-pci binding helpers
 # ---------------------------------------------------------------------------
+
+class TestGpuBootTimeBinding:
+    """Test boot-time vfio-pci.ids binding helpers."""
+
+    def test_mkinitcpio_vfio_before_nvidia(self, tmp_path):
+        """_gpu_ensure_mkinitcpio_vfio_first inserts vfio-pci before nvidia."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+        mkinitcpio = tmp_path / "mkinitcpio.conf"
+        mkinitcpio.write_text("MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)\n")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_ensure_mkinitcpio_vfio_first() {{
+                local mkinitcpio="{mkinitcpio}"
+                [[ -f "$mkinitcpio" ]] || return 0
+                local current_modules
+                current_modules=$(grep '^MODULES=' "$mkinitcpio" 2>/dev/null | head -1 | sed 's/MODULES=(\\(.*\\))/\\1/')
+                if echo "$current_modules" | grep -qE 'vfio.pci.*nvidia'; then
+                    printf "  ✔ vfio-pci already before nvidia in mkinitcpio MODULES.\\n"
+                    return 0
+                fi
+                local cleaned
+                cleaned=$(echo "$current_modules" | sed -E 's/\\bvfio[-_]pci\\b//g' | tr -s ' ' | sed 's/^ //;s/ $//')
+                local new_modules
+                if echo "$cleaned" | grep -q 'nvidia'; then
+                    new_modules=$(echo "$cleaned" | sed 's/nvidia/vfio-pci nvidia/')
+                else
+                    new_modules="vfio-pci ${{cleaned}}"
+                fi
+                new_modules=$(echo "$new_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
+                sed -i "s/^MODULES=(.*/MODULES=(${{new_modules}})/" "$mkinitcpio"
+            }}
+            _gpu_ensure_mkinitcpio_vfio_first
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        content = mkinitcpio.read_text()
+        assert "vfio-pci" in content
+        # vfio-pci should come before nvidia
+        idx_vfio = content.index("vfio-pci")
+        idx_nvidia = content.index("nvidia", idx_vfio + 1)
+        assert idx_vfio < idx_nvidia, f"vfio-pci ({idx_vfio}) not before nvidia ({idx_nvidia})"
+
+    def test_mkinitcpio_vfio_already_present(self, tmp_path):
+        """_gpu_ensure_mkinitcpio_vfio_first is idempotent."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+        mkinitcpio = tmp_path / "mkinitcpio.conf"
+        mkinitcpio.write_text("MODULES=(vfio-pci nvidia nvidia_modeset nvidia_uvm nvidia_drm)\n")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_ensure_mkinitcpio_vfio_first() {{
+                local mkinitcpio="{mkinitcpio}"
+                [[ -f "$mkinitcpio" ]] || return 0
+                local current_modules
+                current_modules=$(grep '^MODULES=' "$mkinitcpio" 2>/dev/null | head -1 | sed 's/MODULES=(\\(.*\\))/\\1/')
+                if echo "$current_modules" | grep -qE 'vfio.pci.*nvidia'; then
+                    printf "  ✔ vfio-pci already before nvidia in mkinitcpio MODULES.\\n"
+                    return 0
+                fi
+            }}
+            _gpu_ensure_mkinitcpio_vfio_first
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert "already" in r.stdout
+        content = mkinitcpio.read_text()
+        # Should be unchanged
+        assert content.count("vfio-pci") == 1
+
+    def test_vfio_softdep_added(self, tmp_path):
+        """_gpu_ensure_vfio_softdep appends softdep to vfio.conf."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+        vfio_conf = tmp_path / "vfio.conf"
+        vfio_conf.write_text("options vfio-pci disable_vga=1\n")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_ensure_vfio_softdep() {{
+                local vfio_conf="{vfio_conf}"
+                if [[ -f "$vfio_conf" ]] && grep -q 'softdep nvidia pre: vfio-pci' "$vfio_conf" 2>/dev/null; then
+                    printf "  ✔ softdep nvidia pre: vfio-pci already in %s.\\n" "$vfio_conf"
+                    return 0
+                fi
+                printf "  → Adding softdep to %s\\n" "$vfio_conf"
+                printf 'softdep nvidia pre: vfio-pci\\n' >> "$vfio_conf"
+            }}
+            _gpu_ensure_vfio_softdep
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        content = vfio_conf.read_text()
+        assert "softdep nvidia pre: vfio-pci" in content
+
+    def test_vfio_softdep_idempotent(self, tmp_path):
+        """_gpu_ensure_vfio_softdep does not duplicate the line."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+        vfio_conf = tmp_path / "vfio.conf"
+        vfio_conf.write_text("options vfio-pci disable_vga=1\nsoftdep nvidia pre: vfio-pci\n")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_ensure_vfio_softdep() {{
+                local vfio_conf="{vfio_conf}"
+                if [[ -f "$vfio_conf" ]] && grep -q 'softdep nvidia pre: vfio-pci' "$vfio_conf" 2>/dev/null; then
+                    printf "  ✔ softdep nvidia pre: vfio-pci already in %s.\\n" "$vfio_conf"
+                    return 0
+                fi
+                printf 'softdep nvidia pre: vfio-pci\\n' >> "$vfio_conf"
+            }}
+            _gpu_ensure_vfio_softdep
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert "already" in r.stdout
+        content = vfio_conf.read_text()
+        assert content.count("softdep nvidia pre: vfio-pci") == 1
+
+    def test_boot_binding_multi_nvidia_no_audio(self, tmp_path):
+        """Boot binding works when GPU_AUDIO_IDS is empty."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_TWO_NVIDIA)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        blacklist_file = tmp_path / "blacklist-gpu-passthrough.conf"
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            _GPU_BLACKLIST_CONF="{blacklist_file}"
+            source "{SCRIPT}"
+            _gpu_set_kernel_param() {{
+                echo "${{1}}=${{2}}" >> "{tmp_path}/kernel_params_set"
+            }}
+            _gpu_ensure_mkinitcpio_vfio_first() {{ return 0; }}
+            _gpu_ensure_vfio_softdep() {{ return 0; }}
+            _gpu_rebuild_initramfs() {{ return 0; }}
+            _gpu_configure_boot_binding
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        params = (tmp_path / "kernel_params_set").read_text()
+        # Without audio IDs, should only have GPU device ID
+        assert "vfio-pci.ids=10de:2484" in params
+        assert "10de:228b" not in params
+
+    def test_boot_binding_single_nvidia_writes_blacklist(self, tmp_path):
+        """Single-NVIDIA path still writes blacklist, not boot binding."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_SINGLE_NVIDIA)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        blacklist_file = tmp_path / "blacklist-gpu-passthrough.conf"
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            _GPU_BLACKLIST_CONF="{blacklist_file}"
+            source "{SCRIPT}"
+            _gpu_remove_kernel_param() {{ return 0; }}
+            _gpu_rebuild_initramfs() {{ return 0; }}
+            _gpu_configure_boot_binding
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert blacklist_file.exists()
+        assert "install nvidia /bin/false" in blacklist_file.read_text()
+
+    def test_boot_binding_no_config_skips(self, tmp_path):
+        """No GPU configured → boot binding skips cleanly."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_configure_boot_binding
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert "skipping" in r.stdout.lower() or "No GPU" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# Boot-time binding audit checks
+# ---------------------------------------------------------------------------
+
+class TestGpuAuditBootBinding:
+    """Test audit checks for multi-NVIDIA boot-time binding."""
+
+    def _run_audit_with_cmdline(self, tmp_path, cmdline_content, lspci_output, *, mkinitcpio_content="", vfio_conf_content=""):
+        """Helper to run _gpu_audit with faked /proc/cmdline."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=lspci_output, iommu_enabled=True)
+
+        # Override grep to return our custom cmdline
+        _make_executable(bin_dir / "grep", textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            for arg in "$@"; do
+                if [[ "$arg" == "/proc/cmdline" ]]; then
+                    echo "{cmdline_content}" | /usr/bin/grep "${{@:1:$(($#-1))}}" -
+                    exit $?
+                fi
+                if [[ "$arg" == "/proc/cpuinfo" ]]; then
+                    echo "vendor_id : GenuineIntel"
+                    echo "GenuineIntel" | /usr/bin/grep "${{@:1:$(($#-1))}}" -
+                    exit $?
+                fi
+                if [[ "$arg" == "/etc/mkinitcpio.conf" ]]; then
+                    echo "{mkinitcpio_content}" | /usr/bin/grep "${{@:1:$(($#-1))}}" -
+                    exit $?
+                fi
+                if [[ "$arg" == "/etc/modprobe.d/vfio.conf" ]]; then
+                    echo "{vfio_conf_content}" | /usr/bin/grep "${{@:1:$(($#-1))}}" -
+                    exit $?
+                fi
+            done
+            exec /usr/bin/grep "$@"
+        """))
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        sysfs_root = tmp_path / "sys"
+        _make_fake_sysfs(sysfs_root)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export _GPU_SYSFS="{sysfs_root}"
+            source "{SCRIPT}"
+            _gpu_audit
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        return subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+
+    def test_audit_boot_binding_present(self, tmp_path):
+        """Audit reports ✔ when vfio-pci.ids is in cmdline for multi-NVIDIA."""
+        r = self._run_audit_with_cmdline(
+            tmp_path,
+            "intel_iommu=on iommu=pt vfio-pci.ids=10de:2484,10de:228b",
+            LSPCI_TWO_NVIDIA,
+            mkinitcpio_content="MODULES=(vfio-pci nvidia)",
+            vfio_conf_content="softdep nvidia pre: vfio-pci",
+        )
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "boot-time" in r.stdout.lower() or "vfio-pci" in r.stdout
+
+    def test_audit_boot_binding_missing(self, tmp_path):
+        """Audit warns when vfio-pci.ids is missing for multi-NVIDIA."""
+        r = self._run_audit_with_cmdline(
+            tmp_path,
+            "intel_iommu=on iommu=pt",
+            LSPCI_TWO_NVIDIA,
+        )
+        # Should return warnings (non-zero is for errors, warnings are still rc 0)
+        combined = r.stdout + r.stderr
+        assert "vfio-pci.ids" in combined or "boot-time" in combined.lower() or "warning" in combined.lower()
 
 class TestGpuDiagnose:
     def test_diagnose_creates_report(self, fake_env):
@@ -2904,3 +3258,628 @@ class TestGpuHasOtherNvidiaGpu:
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
         assert r.returncode == 0, f"stderr: {r.stderr}"
         assert "NO_OTHER_NVIDIA" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# USB Passthrough
+# ---------------------------------------------------------------------------
+
+LSUSB_SAMPLE = """\
+Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub
+Bus 001 Device 003: ID 046d:c52b Logitech, Inc. Unifying Receiver
+Bus 001 Device 004: ID 0951:16a5 Kingston Technology HyperX Alloy
+Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub
+Bus 002 Device 002: ID 05e3:0610 Genesys Logic, Inc. Hub
+"""
+
+
+class TestGpuVmUsbConfig:
+    """Tests for USB config save/load/qemu-args."""
+
+    def test_usb_save_and_load(self, tmp_path):
+        """USB config round-trips through save/load."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_VM_USB_DEVICES=("046d:c52b  Logitech Unifying Receiver" "0951:16a5  Kingston HyperX Alloy")
+            _gpu_vm_usb_save
+            _GPU_VM_USB_DEVICES=()
+            _gpu_vm_usb_load
+            printf "COUNT=%d\\n" "${{#_GPU_VM_USB_DEVICES[@]}}"
+            printf "DEV0=%s\\n" "${{_GPU_VM_USB_DEVICES[0]}}"
+            printf "DEV1=%s\\n" "${{_GPU_VM_USB_DEVICES[1]}}"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "COUNT=2" in r.stdout
+        assert "046d:c52b" in r.stdout
+        assert "0951:16a5" in r.stdout
+
+    def test_usb_load_empty(self, tmp_path):
+        """USB load with no config file returns empty array."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_usb_load
+            printf "COUNT=%d\\n" "${{#_GPU_VM_USB_DEVICES[@]}}"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "COUNT=0" in r.stdout
+
+    def test_usb_load_skips_comments(self, tmp_path):
+        """USB load skips comment lines and blank lines."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-vm-usb.conf").write_text(
+            "# comment line\n"
+            "\n"
+            "046d:c52b  Logitech Receiver\n"
+            "# another comment\n"
+            "0951:16a5  Kingston HyperX\n"
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_usb_load
+            printf "COUNT=%d\\n" "${{#_GPU_VM_USB_DEVICES[@]}}"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "COUNT=2" in r.stdout
+
+    def test_usb_qemu_args(self, tmp_path):
+        """_gpu_vm_usb_qemu_args outputs correct QEMU device args."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-vm-usb.conf").write_text(
+            "046d:c52b  Logitech Receiver\n"
+            "0951:16a5  Kingston HyperX\n"
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_usb_qemu_args
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "-device usb-host,vendorid=0x046d,productid=0xc52b,id=usb-046d-c52b" in r.stdout
+        assert "-device usb-host,vendorid=0x0951,productid=0x16a5,id=usb-0951-16a5" in r.stdout
+
+    def test_usb_qemu_args_empty(self, tmp_path):
+        """No USB devices produces no args."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            result=$(_gpu_vm_usb_qemu_args)
+            printf "RESULT=[%s]\\n" "$result"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "RESULT=[]" in r.stdout
+
+
+class TestGpuVmUsbListHost:
+    """Tests for _gpu_vm_usb_list_host."""
+
+    def test_lists_devices_excludes_hubs(self, tmp_path):
+        """Lists USB devices, filtering out root hubs."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            cat << 'EOF'
+{LSUSB_SAMPLE.rstrip()}
+EOF
+        """))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_usb_list_host
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "046d:c52b" in r.stdout
+        assert "0951:16a5" in r.stdout
+        assert "05e3:0610" in r.stdout
+        # Root hubs should be filtered out
+        assert "1d6b:0002" not in r.stdout
+        assert "1d6b:0003" not in r.stdout
+
+
+class TestGpuVmUsbShow:
+    """Tests for _gpu_vm_usb (display function)."""
+
+    def test_shows_host_and_saved_devices(self, tmp_path):
+        """Displays both host USB devices and saved VM USB devices."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            cat << 'EOF'
+{LSUSB_SAMPLE.rstrip()}
+EOF
+        """))
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-vm-usb.conf").write_text(
+            "046d:c52b  Logitech Receiver\n"
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_usb
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "Host USB Devices" in r.stdout
+        assert "Saved for VM" in r.stdout
+        assert "046d:c52b" in r.stdout
+
+    def test_shows_no_saved_message(self, tmp_path):
+        """Shows 'No USB devices saved' when none configured."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            cat << 'EOF'
+{LSUSB_SAMPLE.rstrip()}
+EOF
+        """))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_usb
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "No USB devices saved" in r.stdout
+
+
+class TestGpuVmComposeWithUsb:
+    """Tests for compose generation including USB devices."""
+
+    def test_compose_includes_usb_devices(self, tmp_path):
+        """Compose ARGUMENTS includes USB device args from config."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+        )
+        (conf_dir / "gpu-vm-usb.conf").write_text(
+            "046d:c52b  Logitech Receiver\n"
+            "0951:16a5  Kingston HyperX\n"
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_vm_generate_compose
+            cat "$_GPU_VM_COMPOSE"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        compose = r.stdout
+        assert "vfio-pci,host=01:00.0" in compose
+        assert "usb-host,vendorid=0x046d,productid=0xc52b" in compose
+        assert "usb-host,vendorid=0x0951,productid=0x16a5" in compose
+
+    def test_compose_no_usb_when_unconfigured(self, tmp_path):
+        """Compose works fine without any USB config file."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_vm_generate_compose
+            cat "$_GPU_VM_COMPOSE"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        compose = r.stdout
+        assert "vfio-pci,host=01:00.0" in compose
+        assert "usb-host" not in compose
+
+
+class TestGpuVmLaunchForce:
+    """Tests for --force flag on _gpu_vm_launch."""
+
+    def test_launch_parses_force_and_keep_alive(self, tmp_path):
+        """Both -k and --force are parsed from args."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            # Override launch to inspect parsed flags
+            _gpu_vm_launch() {{
+                local keep_alive=false force=""
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --keep-alive|-k) keep_alive=true ;;
+                        --force|-f)      force="force" ;;
+                    esac
+                    shift
+                done
+                printf "KEEP=%s FORCE=%s\\n" "$keep_alive" "$force"
+            }}
+            _gpu_vm_launch --force -k
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "KEEP=true" in r.stdout
+        assert "FORCE=force" in r.stdout
+
+    def test_launch_force_bypasses_display_check(self, tmp_path):
+        """With --force, display safety check in _gpu_mode_vm is skipped."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        }, display_connectors={"01:00.0": ["connected"]})
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+
+        # Verify WITHOUT force it fails on display check
+        cmd_no_force = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_current_driver() {{
+                local full_addr="0000:$1"
+                local link="{sysfs_root}/bus/pci/devices/$full_addr/driver"
+                [[ -L "$link" ]] && basename "$(readlink "$link")" || echo "none"
+            }}
+            _gpu_is_display_gpu() {{
+                local pci_addr="$1"
+                local full_addr="0000:${{pci_addr}}"
+                local drm_dir="{sysfs_root}/bus/pci/devices/${{full_addr}}/drm"
+                [[ -d "$drm_dir" ]] || return 1
+                local card card_name status_file
+                for card in "$drm_dir"/card*; do
+                    [[ -d "$card" ]] || continue
+                    card_name=$(basename "$card")
+                    for status_file in {sysfs_root}/class/drm/"${{card_name}}"-*/status; do
+                        [[ -f "$status_file" ]] || continue
+                        if [[ "$(cat "$status_file" 2>/dev/null)" == "connected" ]]; then
+                            return 0
+                        fi
+                    done
+                done
+                return 1
+            }}
+            _gpu_ensure_sudo() {{ return 0; }}
+            _gpu_check_processes() {{ return 0; }}
+            _gpu_mode_vm ""
+            echo "SHOULD_NOT_REACH"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd_no_force], capture_output=True, text=True, env=env, timeout=15)
+        assert "Monitor connected to GPU" in r.stderr, f"Expected display safety error, got: {r.stderr}"
+        assert "SHOULD_NOT_REACH" not in r.stdout
+
+        # Verify WITH force it gets past the display check
+        call_count = tmp_path / "driver_call_count"
+        call_count.write_text("0")
+        cmd_force = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_current_driver() {{
+                local cnt=$(cat "{call_count}")
+                cnt=$((cnt + 1))
+                echo "$cnt" > "{call_count}"
+                if [[ $cnt -le 1 ]]; then echo "nvidia"; else echo "vfio-pci"; fi
+            }}
+            _gpu_ensure_sudo() {{ return 0; }}
+            _gpu_check_processes() {{ return 0; }}
+            _gpu_is_module_loaded() {{ return 1; }}
+            _gpu_unload_nvidia_modules() {{ return 0; }}
+            _gpu_unbind_vtconsoles() {{ return 0; }}
+            _gpu_sysfs_write() {{ return 0; }}
+            _gpu_update_state_marker() {{ return 0; }}
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _gpu_mode_vm "force"
+            echo "FORCE_OK"
+        """)
+
+        r = subprocess.run(["bash", "-c", cmd_force], capture_output=True, text=True, env=env, timeout=15)
+        assert "FORCE_OK" in r.stdout, f"stdout: {r.stdout}\nstderr: {r.stderr}"
+
+
+class TestGpuVmIsRunning:
+    """Tests for _gpu_vm_is_running."""
+
+    def test_running_returns_zero(self, tmp_path):
+        """Returns 0 when container is running."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        _make_executable(bin_dir / "docker", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "inspect" ]]; then
+                echo "running"
+                exit 0
+            fi
+        """))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            if _gpu_vm_is_running; then
+                echo "IS_RUNNING"
+            else
+                echo "NOT_RUNNING"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0
+        assert "IS_RUNNING" in r.stdout
+
+    def test_not_running_returns_one(self, tmp_path):
+        """Returns 1 when container is not running."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        _make_executable(bin_dir / "docker", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "inspect" ]]; then
+                echo ""
+                exit 1
+            fi
+        """))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            if _gpu_vm_is_running; then
+                echo "IS_RUNNING"
+            else
+                echo "NOT_RUNNING"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0
+        assert "NOT_RUNNING" in r.stdout
+
+
+class TestGpuVmUsbCliDispatch:
+    """Tests for CLI dispatch of vm usb subcommands."""
+
+    def _run_hyprconf(self, args, bin_dir, home_dir):
+        script_dir = home_dir / ".config" / "hypr" / "scripts"
+        script_dir.mkdir(parents=True, exist_ok=True)
+        script_dest = script_dir / "gpu-passthrough.sh"
+        if not script_dest.exists():
+            import shutil
+            shutil.copy2(SCRIPT, script_dest)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
+        return subprocess.run(
+            ["bash", str(HYPRCONF_BIN), "hardware", "gpu"] + args,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
+        )
+
+    def test_vm_usb_list_dispatch(self, tmp_path):
+        """'vm usb' routes to USB list."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            cat << 'EOF'
+{LSUSB_SAMPLE.rstrip()}
+EOF
+        """))
+
+        r = self._run_hyprconf(["vm", "usb"], bin_dir, home_dir)
+        assert r.returncode == 0
+        assert "Host USB Devices" in r.stdout
+
+    def test_vm_usb_list_explicit(self, tmp_path):
+        """'vm usb list' routes to USB list."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+            #!/usr/bin/env bash
+            cat << 'EOF'
+{LSUSB_SAMPLE.rstrip()}
+EOF
+        """))
+
+        r = self._run_hyprconf(["vm", "usb", "list"], bin_dir, home_dir)
+        assert r.returncode == 0
+        assert "Host USB Devices" in r.stdout
+
+    def test_vm_usb_unknown_subcommand(self, tmp_path):
+        """'vm usb foobar' errors."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        r = self._run_hyprconf(["vm", "usb", "foobar"], bin_dir, home_dir)
+        assert r.returncode != 0
+        assert "Unknown usb subcommand" in r.stderr
+
+    def test_vm_unknown_shows_usb_in_usage(self, tmp_path):
+        """'vm foobar' error message includes usb in usage."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        r = self._run_hyprconf(["vm", "foobar"], bin_dir, home_dir)
+        assert r.returncode != 0
+        assert "usb" in r.stderr

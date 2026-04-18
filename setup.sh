@@ -800,6 +800,27 @@ setup_hardware_features() {
     fi
 
     write_hardware_conf
+
+    # ── GPU passthrough boot-time binding (multi-NVIDIA idempotent sync) ──
+    # If the user has already configured GPU passthrough on a multi-NVIDIA system,
+    # ensure the boot-time vfio-pci binding stays in sync.  This is a no-op when
+    # GPU passthrough is not configured or on single-GPU setups.
+    local _gpu_conf="${HOME}/.config/hyprconf/gpu-passthrough.conf"
+    if [[ -f "$_gpu_conf" ]]; then
+        local _gpu_script="$HOME/.config/hypr/scripts/gpu-passthrough.sh"
+        if [[ -f "$_gpu_script" ]]; then
+            (
+                # shellcheck source=/dev/null
+                source "$_gpu_script"
+                if _gpu_load_config 2>/dev/null && _gpu_has_other_nvidia_gpu 2>/dev/null; then
+                    log_step "Syncing GPU passthrough boot-time binding..."
+                    _gpu_configure_boot_binding 2>/dev/null \
+                        && log_ok "GPU boot-time binding synced." \
+                        || log_warn "GPU boot-time binding sync failed — run 'hyprconf hardware gpu setup' manually."
+                fi
+            ) || true
+        fi
+    fi
 }
 
 # Re-apply the persisted theme so KDE (Dolphin), GTK (Bluetooth manager), and

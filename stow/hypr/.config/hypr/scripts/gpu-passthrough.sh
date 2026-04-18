@@ -542,16 +542,11 @@ _gpu_mode_vm() {
     # Unbind VT consoles / EFI framebuffer to release GPU references
     _gpu_unbind_vtconsoles
 
-    # Unbind GPU from current driver
-    if [[ -n "$current_driver" ]]; then
-        if [[ -f "${_GPU_SYSFS}/bus/pci/devices/${gpu_pci_full}/driver/unbind" ]]; then
-            printf "  Unbinding from %s...\n" "$current_driver"
-            if ! _gpu_sysfs_write "$gpu_pci_full" "${_GPU_SYSFS}/bus/pci/devices/${gpu_pci_full}/driver/unbind"; then
-                printf "  ✘ Failed to unbind GPU from %s.\n" "$current_driver" >&2
-                return 1
-            fi
-        fi
-    fi
+    # NOTE: GPU unbind is handled per-device in the IOMMU loop below.
+    # driver_override is set BEFORE unbinding so the kernel knows which
+    # driver to use on re-probe.  Doing a standalone unbind here (without
+    # driver_override) causes kernel hangs on multi-NVIDIA systems where
+    # the nvidia module is shared between the display and passthrough GPUs.
 
     # Ensure vfio-pci module is loaded
     if ! _gpu_is_module_loaded vfio_pci; then
@@ -731,6 +726,15 @@ _gpu_mode_host() {
         printf "✔ GPU restored to %s (available to host).\n" "${current_driver:-$native_driver}"
         _gpu_log "SUCCESS" "=== MODE HOST SUCCESS ==="
         _gpu_update_state_marker "host"
+
+        # Clean up boot-time binding if present (multi-NVIDIA)
+        if grep -q 'vfio-pci\.ids=' /proc/cmdline 2>/dev/null; then
+            printf "\n→ Removing boot-time vfio-pci binding...\n"
+            _gpu_remove_kernel_param "vfio-pci.ids"
+            _gpu_rebuild_initramfs
+            printf "  ⚠ Reboot to complete: the GPU will use the host driver at next boot.\n"
+        fi
+
         return 0
     else
         printf "⚠ Unbound but driver not auto-loaded (current: %s).\n" "${current_driver:-none}"
@@ -899,12 +903,47 @@ _gpu_audit() {
         fi
     done
 
-    # 4. Driver blacklist
-    printf "\nDriver Blacklist\n"
-    if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
+    # 4. Driver isolation
+    printf "\nDriver Isolation\n"
+    if _gpu_has_other_nvidia_gpu 2>/dev/null; then
+        # Multi-NVIDIA: check for boot-time vfio-pci.ids binding
+        if grep -qE 'vfio-pci\.ids=' /proc/cmdline 2>/dev/null; then
+            local boot_ids
+            boot_ids=$(sed -E 's/.*vfio-pci\.ids=([^ ]+).*/\1/' /proc/cmdline 2>/dev/null)
+            printf "  ✔ Boot-time vfio-pci binding active: %s\n" "$boot_ids"
+        else
+            printf "  ⚠ Multi-NVIDIA detected — no boot-time vfio-pci.ids in cmdline.\n"
+            printf "    Run 'hyprconf hardware gpu setup' to configure boot-time binding.\n"
+            warnings=$((warnings + 1))
+        fi
+
+        # Check mkinitcpio module order
+        local mkinit_modules=""
+        if [[ -f /etc/mkinitcpio.conf ]]; then
+            mkinit_modules=$(grep '^MODULES=' /etc/mkinitcpio.conf 2>/dev/null | head -1)
+        fi
+        if echo "$mkinit_modules" | grep -qE 'vfio.pci.*nvidia'; then
+            printf "  ✔ vfio-pci before nvidia in mkinitcpio MODULES\n"
+        elif echo "$mkinit_modules" | grep -q 'nvidia'; then
+            printf "  ⚠ nvidia in mkinitcpio MODULES but vfio-pci not before it\n"
+            warnings=$((warnings + 1))
+        fi
+
+        # Check softdep
+        if grep -q 'softdep nvidia pre: vfio-pci' /etc/modprobe.d/vfio.conf 2>/dev/null; then
+            printf "  ✔ softdep nvidia pre: vfio-pci configured\n"
+        else
+            printf "  ⚠ Missing softdep nvidia pre: vfio-pci in /etc/modprobe.d/vfio.conf\n"
+            warnings=$((warnings + 1))
+        fi
+
+        # Warn if stale blacklist exists (shouldn't with multi-GPU)
+        if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
+            printf "  ⚠ Stale driver blacklist found (%s) — not needed for multi-GPU\n" "$_GPU_BLACKLIST_CONF"
+            warnings=$((warnings + 1))
+        fi
+    elif [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
         printf "  ✔ GPU driver blacklist configured (%s)\n" "$_GPU_BLACKLIST_CONF"
-    elif _gpu_has_other_nvidia_gpu 2>/dev/null; then
-        printf "  ✔ No blacklist needed (multi-GPU — per-device driver_override used)\n"
     else
         printf "  ⚠ No driver blacklist (GPU loads native driver at boot)\n"
         warnings=$((warnings + 1))
@@ -1058,8 +1097,8 @@ _gpu_setup() {
     # to avoid circular sourcing. We just signal what's needed.
     printf "__NEED_ADDON_VFIO__\n"
 
-    # 5. Driver blacklisting (mirrors omarchy: install nvidia /bin/false)
-    _gpu_configure_blacklist
+    # 5. Driver blacklisting / boot-time binding is configured AFTER GPU
+    # selection (see _gpu_configure_boot_binding called from the CLI dispatch).
 
     # 6. Detect GPUs and let user choose
     printf "\nDetected GPUs:\n\n"
@@ -1071,54 +1110,238 @@ _gpu_setup() {
 }
 
 _gpu_configure_blacklist() {
-    # Write GPU driver blacklist to modprobe.d (mirrors omarchy configure_gpu_blacklist).
-    # Prevents the GPU driver from loading at boot so the GPU stays unbound.
+    # Legacy wrapper — delegates to _gpu_configure_boot_binding.
+    _gpu_configure_boot_binding "$@"
+}
+
+_gpu_configure_boot_binding() {
+    # Configure GPU driver isolation at boot time.
     #
-    # In multi-NVIDIA-GPU setups the blacklist is SKIPPED — the display GPU
-    # needs nvidia at boot. Per-device driver_override handles the passthrough
-    # GPU without a blanket module blacklist.
+    # Single-NVIDIA + iGPU:  install nvidia /bin/false (blacklist)
+    # Multi-NVIDIA:           vfio-pci.ids=VENDOR:DEVICE in kernel cmdline
+    #                         + vfio-pci before nvidia in mkinitcpio MODULES
+    #                         + softdep nvidia pre: vfio-pci in modprobe.d
+    #                         → passthrough GPU claimed by vfio-pci at boot
     local vendor_device="${GPU_VENDOR_DEVICE:-}"
 
     if [[ -z "$vendor_device" ]]; then
-        # Try to determine from config
         _gpu_load_config 2>/dev/null || true
         vendor_device="${GPU_VENDOR_DEVICE:-}"
     fi
 
     if [[ -z "$vendor_device" ]]; then
-        printf "  ⚠ No GPU configured — skipping driver blacklist.\n"
+        printf "  ⚠ No GPU configured — skipping boot binding.\n"
         return 0
     fi
 
     local vendor_id="${vendor_device%%:*}"
+    local device_id="${vendor_device##*:}"
 
     if [[ "$vendor_id" == "10de" ]]; then
         if _gpu_has_other_nvidia_gpu; then
-            # Multi-NVIDIA: blacklisting nvidia would block ALL GPUs.
-            # Remove stale blacklist if one exists from a previous config.
+            # ── Multi-NVIDIA: boot-time vfio-pci.ids binding ──────────
+            # Remove stale blacklist if present from a previous single-GPU config.
             if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
                 sudo rm -f "$_GPU_BLACKLIST_CONF"
-                printf "  ✔ Removed stale NVIDIA blacklist (multi-GPU — not needed)\n"
-            else
-                printf "  ✔ NVIDIA blacklist skipped (multi-GPU — display GPU needs nvidia)\n"
+                printf "  ✔ Removed stale NVIDIA blacklist (multi-GPU)\n"
             fi
-            return 0
-        fi
 
-        printf "\n→ Configuring NVIDIA driver blacklist...\n"
-        sudo tee "$_GPU_BLACKLIST_CONF" > /dev/null <<'EOF'
+            # Collect passthrough GPU + companion audio device IDs
+            local vfio_ids="$vendor_device"
+            local audio_ids="${GPU_AUDIO_IDS:-}"
+            if [[ -n "$audio_ids" ]]; then
+                vfio_ids="${vfio_ids},${audio_ids}"
+            fi
+
+            printf "\n→ Configuring boot-time vfio-pci binding (multi-NVIDIA)...\n"
+            printf "  Passthrough IDs: %s\n" "$vfio_ids"
+
+            # 1. Add vfio-pci.ids to kernel cmdline
+            _gpu_set_kernel_param "vfio-pci.ids" "$vfio_ids"
+
+            # 2. Ensure vfio-pci loads before nvidia in mkinitcpio
+            _gpu_ensure_mkinitcpio_vfio_first
+
+            # 3. Add softdep to modprobe.d (ensures module load order at runtime)
+            _gpu_ensure_vfio_softdep
+
+            # 4. Rebuild initramfs
+            _gpu_rebuild_initramfs
+
+            printf "  ✔ Boot-time binding configured — vfio-pci will claim the passthrough GPU at boot.\n"
+            printf "  ⚠ A reboot is required for boot-time binding to take effect.\n"
+        else
+            # ── Single-NVIDIA + iGPU: blacklist nvidia entirely ───────
+            printf "\n→ Configuring NVIDIA driver blacklist...\n"
+            sudo tee "$_GPU_BLACKLIST_CONF" > /dev/null <<'EOF'
 # GPU Passthrough — prevent NVIDIA auto-load at boot
 # Display handled by iGPU, NVIDIA used only for VM passthrough
 # Use modprobe -i nvidia to bypass this blacklist (mode host)
 install nvidia /bin/false
 EOF
-        printf "  ✔ NVIDIA blacklist: %s\n" "$_GPU_BLACKLIST_CONF"
+            printf "  ✔ NVIDIA blacklist: %s\n" "$_GPU_BLACKLIST_CONF"
+
+            # Remove any stale vfio-pci.ids from cmdline (switching from multi to single)
+            _gpu_remove_kernel_param "vfio-pci.ids"
+
+            _gpu_rebuild_initramfs
+        fi
     else
         # AMD/Intel: cannot easily blacklist (iGPU may share driver)
         if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
             sudo rm -f "$_GPU_BLACKLIST_CONF"
         fi
         printf "  ℹ Non-NVIDIA GPU — driver blacklist not needed.\n"
+    fi
+}
+
+# ── Kernel Command Line Helpers ────────────────────────────────────────────────
+
+_gpu_set_kernel_param() {
+    # Add or update a kernel cmdline parameter (key=value).
+    # Handles systemd-boot entries, /etc/kernel/cmdline, GRUB, and Limine.
+    local key="$1" value="$2"
+    local param="${key}=${value}"
+    local applied=false
+
+    # Check if already set correctly
+    if grep -q "${param}" /proc/cmdline 2>/dev/null; then
+        printf "  ✔ %s already in kernel cmdline.\n" "$param"
+        return 0
+    fi
+
+    # systemd-boot
+    if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
+        local entries_dir="/boot/loader/entries"
+        local entry
+        for entry in "$entries_dir"/*.conf; do
+            [[ -f "$entry" ]] || continue
+            if grep -q "^options " "$entry" 2>/dev/null; then
+                # Remove old value if present, then append new one
+                if grep -qE "${key}=" "$entry" 2>/dev/null; then
+                    sudo sed -i "s/ *${key}=[^ ]*//" "$entry"
+                fi
+                sudo sed -i "s/^options .*/& ${param}/" "$entry"
+                printf "  → Updated systemd-boot: %s\n" "$(basename "$entry")"
+                applied=true
+            fi
+        done
+
+        if [[ "$applied" == "false" ]]; then
+            local kernel_cmdline="/etc/kernel/cmdline"
+            if [[ -f "$kernel_cmdline" ]]; then
+                sudo sed -i "s/ *${key}=[^ ]*//" "$kernel_cmdline"
+                sudo sed -i "s/$/ ${param}/" "$kernel_cmdline"
+            else
+                printf '%s %s\n' "$(cat /proc/cmdline)" "$param" | sudo tee "$kernel_cmdline" > /dev/null
+            fi
+            printf "  → Updated %s\n" "$kernel_cmdline"
+            applied=true
+        fi
+    elif [[ -f /etc/default/grub ]]; then
+        local grub_default="/etc/default/grub"
+        sudo sed -i "s/ *${key}=[^ \"]*//g" "$grub_default"
+        sudo sed -i "s/^GRUB_CMDLINE_LINUX_DEFAULT=\"/&${param} /" "$grub_default"
+        sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null
+        printf "  → Updated GRUB: %s\n" "$param"
+        applied=true
+    elif [[ -f /etc/default/limine ]]; then
+        local limine_default="/etc/default/limine"
+        printf 'KERNEL_CMDLINE[default]+=" %s"\n' "$param" | sudo tee -a "$limine_default" > /dev/null
+        if command -v limine-mkinitcpio &>/dev/null; then
+            sudo limine-mkinitcpio 2>/dev/null || true
+        fi
+        printf "  → Updated Limine: %s\n" "$param"
+        applied=true
+    fi
+
+    if [[ "$applied" == "false" ]]; then
+        printf "  ⚠ Could not auto-apply %s. Add manually to kernel cmdline.\n" "$param"
+    fi
+}
+
+_gpu_remove_kernel_param() {
+    # Remove a kernel cmdline parameter by key prefix.
+    local key="$1"
+
+    if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
+        local entries_dir="/boot/loader/entries"
+        local entry
+        for entry in "$entries_dir"/*.conf; do
+            [[ -f "$entry" ]] || continue
+            if grep -qE "${key}=" "$entry" 2>/dev/null; then
+                sudo sed -i "s/ *${key}=[^ ]*//" "$entry"
+            fi
+        done
+        local kernel_cmdline="/etc/kernel/cmdline"
+        if [[ -f "$kernel_cmdline" ]] && grep -qE "${key}=" "$kernel_cmdline" 2>/dev/null; then
+            sudo sed -i "s/ *${key}=[^ ]*//" "$kernel_cmdline"
+        fi
+    elif [[ -f /etc/default/grub ]]; then
+        sudo sed -i "s/ *${key}=[^ \"]*//g" /etc/default/grub
+        sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+    fi
+    # Limine: appended lines can't be cleanly removed, but won't cause harm
+}
+
+# ── mkinitcpio / initramfs Helpers ─────────────────────────────────────────────
+
+_gpu_ensure_mkinitcpio_vfio_first() {
+    # Ensure vfio-pci appears BEFORE nvidia in mkinitcpio MODULES.
+    # Module load order in the initramfs determines which driver claims a
+    # device first.  vfio-pci + vfio-pci.ids must win the race vs nvidia.
+    local mkinitcpio="/etc/mkinitcpio.conf"
+    [[ -f "$mkinitcpio" ]] || return 0
+
+    local current_modules
+    current_modules=$(grep '^MODULES=' "$mkinitcpio" 2>/dev/null | head -1 | sed 's/MODULES=(\(.*\))/\1/')
+
+    # Already has vfio-pci before nvidia?
+    if echo "$current_modules" | grep -qE 'vfio.pci.*nvidia'; then
+        printf "  ✔ vfio-pci already before nvidia in mkinitcpio MODULES.\n"
+        return 0
+    fi
+
+    # Remove any existing vfio-pci/vfio_pci entries
+    local cleaned
+    cleaned=$(echo "$current_modules" | sed -E 's/\bvfio[-_]pci\b//g' | tr -s ' ' | sed 's/^ //;s/ $//')
+
+    # Prepend vfio-pci before nvidia modules
+    local new_modules
+    if echo "$cleaned" | grep -q 'nvidia'; then
+        new_modules=$(echo "$cleaned" | sed 's/nvidia/vfio-pci nvidia/')
+    else
+        new_modules="vfio-pci ${cleaned}"
+    fi
+    # Normalize whitespace
+    new_modules=$(echo "$new_modules" | tr -s ' ' | sed 's/^ //;s/ $//')
+
+    printf "  → Updating mkinitcpio MODULES: %s\n" "$new_modules"
+    sudo sed -i "s/^MODULES=(.*/MODULES=(${new_modules})/" "$mkinitcpio"
+}
+
+_gpu_ensure_vfio_softdep() {
+    # Add softdep nvidia pre: vfio-pci to vfio.conf so module-based loading
+    # respects the order even outside initramfs (e.g. systemd-modules-load).
+    local vfio_conf="/etc/modprobe.d/vfio.conf"
+    if [[ -f "$vfio_conf" ]] && grep -q 'softdep nvidia pre: vfio-pci' "$vfio_conf" 2>/dev/null; then
+        printf "  ✔ softdep nvidia pre: vfio-pci already in %s.\n" "$vfio_conf"
+        return 0
+    fi
+
+    printf "  → Adding softdep to %s\n" "$vfio_conf"
+    printf 'softdep nvidia pre: vfio-pci\n' | sudo tee -a "$vfio_conf" > /dev/null
+}
+
+_gpu_rebuild_initramfs() {
+    # Rebuild initramfs to pick up modprobe.d and mkinitcpio changes.
+    if command -v mkinitcpio &>/dev/null; then
+        printf "  → Rebuilding initramfs...\n"
+        sudo mkinitcpio -P 2>/dev/null || {
+            printf "  ⚠ mkinitcpio -P failed — rebuild manually: sudo mkinitcpio -P\n"
+            return 1
+        }
+        printf "  ✔ Initramfs rebuilt.\n"
     fi
 }
 
@@ -1577,6 +1800,234 @@ readonly _GPU_VM_COMPOSE="${_GPU_CONF_DIR}/gpu-vm.yml"
 readonly _GPU_VM_CONTAINER="hyprconf-windows"
 readonly _GPU_VM_STORAGE_DIR="${HOME}/.local/share/hyprconf/windows-vm"
 readonly _GPU_VM_SHARED_DIR="${HOME}/Windows"
+readonly _GPU_VM_USB_CONF="${_GPU_CONF_DIR}/gpu-vm-usb.conf"
+readonly _GPU_VM_QEMU_MONITOR="/run/qemu.monitor"
+
+# ── USB Passthrough ────────────────────────────────────────────────────────────
+
+_gpu_vm_usb_load() {
+    # Load saved USB devices from config. Sets _GPU_VM_USB_DEVICES array.
+    _GPU_VM_USB_DEVICES=()
+    [[ -f "$_GPU_VM_USB_CONF" ]] || return 0
+    local line
+    while IFS= read -r line; do
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        _GPU_VM_USB_DEVICES+=("$line")
+    done < "$_GPU_VM_USB_CONF"
+}
+
+_gpu_vm_usb_save() {
+    # Persist _GPU_VM_USB_DEVICES array to config file.
+    mkdir -p "$_GPU_CONF_DIR"
+    {
+        printf "# USB devices for VM passthrough — managed by hyprconf\n"
+        printf "# Format: vendor_id:product_id  description\n"
+        local entry
+        for entry in "${_GPU_VM_USB_DEVICES[@]}"; do
+            printf "%s\n" "$entry"
+        done
+    } > "$_GPU_VM_USB_CONF"
+}
+
+_gpu_vm_usb_list_host() {
+    # List USB devices on the host (excludes root hubs).
+    # Output: one line per device — "VID:PID  description"
+    if ! command -v lsusb &>/dev/null; then
+        printf "lsusb not found. Install: sudo pacman -S usbutils\n" >&2
+        return 1
+    fi
+    lsusb 2>/dev/null | grep -v 'root hub' | while IFS= read -r line; do
+        local vid_pid name
+        vid_pid=$(echo "$line" | grep -oP 'ID \K[0-9a-f]{4}:[0-9a-f]{4}')
+        name=$(echo "$line" | sed -E 's/^Bus [0-9]+ Device [0-9]+: ID [0-9a-f:]+\s*//')
+        [[ -z "$vid_pid" ]] && continue
+        printf "%s  %s\n" "$vid_pid" "$name"
+    done | sort -u
+}
+
+_gpu_vm_usb() {
+    # Show available USB devices and currently saved ones.
+    printf "── Host USB Devices ──\n"
+    local idx=0 devs=()
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        idx=$((idx + 1))
+        devs+=("$line")
+        printf "  %2d) %s\n" "$idx" "$line"
+    done < <(_gpu_vm_usb_list_host)
+
+    if (( idx == 0 )); then
+        printf "  No USB devices found.\n"
+    fi
+
+    _gpu_vm_usb_load
+    if (( ${#_GPU_VM_USB_DEVICES[@]} > 0 )); then
+        printf "\n── Saved for VM ──\n"
+        local entry
+        for entry in "${_GPU_VM_USB_DEVICES[@]}"; do
+            printf "  • %s\n" "$entry"
+        done
+    else
+        printf "\n  No USB devices saved for VM.\n"
+    fi
+    printf "\n  Add:    hyprconf hardware gpu vm usb add\n"
+    printf "  Remove: hyprconf hardware gpu vm usb remove\n"
+}
+
+_gpu_vm_usb_add() {
+    # Interactive picker to add USB device(s) for VM passthrough.
+    # If the VM is running, hot-adds immediately via QEMU monitor.
+    local devs=() idx=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        idx=$((idx + 1))
+        devs+=("$line")
+        printf "  %2d) %s\n" "$idx" "$line"
+    done < <(_gpu_vm_usb_list_host)
+
+    if (( idx == 0 )); then
+        printf "No USB devices found.\n"
+        return 1
+    fi
+
+    printf "\nSelect device(s) to add (e.g. 1 3 5 or 1,3,5): "
+    read -r selection
+    selection="${selection//,/ }"
+
+    _gpu_vm_usb_load
+    local added=0 num vid_pid dev_line
+    for num in $selection; do
+        if [[ ! "$num" =~ ^[0-9]+$ ]] || (( num < 1 || num > idx )); then
+            printf "  ⚠ Invalid selection: %s\n" "$num"
+            continue
+        fi
+        dev_line="${devs[$((num - 1))]}"
+        vid_pid="${dev_line%% *}"
+
+        # Skip if already saved
+        local existing
+        for existing in "${_GPU_VM_USB_DEVICES[@]}"; do
+            [[ "${existing%% *}" == "$vid_pid" ]] && { printf "  ℹ %s already saved.\n" "$vid_pid"; continue 2; }
+        done
+
+        _GPU_VM_USB_DEVICES+=("$dev_line")
+        added=$((added + 1))
+        printf "  ✔ Added %s\n" "$dev_line"
+
+        # Hot-add if VM is running
+        if _gpu_vm_is_running; then
+            _gpu_vm_usb_hotplug "add" "$vid_pid"
+        fi
+    done
+
+    if (( added > 0 )); then
+        _gpu_vm_usb_save
+        printf "\n✔ %d device(s) saved.\n" "$added"
+        if ! _gpu_vm_is_running; then
+            printf "  Devices will be passed on next VM launch.\n"
+        fi
+    fi
+}
+
+_gpu_vm_usb_remove() {
+    # Interactive picker to remove saved USB device(s) from VM passthrough.
+    _gpu_vm_usb_load
+    if (( ${#_GPU_VM_USB_DEVICES[@]} == 0 )); then
+        printf "No USB devices saved for VM.\n"
+        return 0
+    fi
+
+    printf "── Saved USB Devices ──\n"
+    local idx=0 entry
+    for entry in "${_GPU_VM_USB_DEVICES[@]}"; do
+        idx=$((idx + 1))
+        printf "  %2d) %s\n" "$idx" "$entry"
+    done
+
+    printf "\nSelect device(s) to remove (e.g. 1 3 or 1,3): "
+    read -r selection
+    selection="${selection//,/ }"
+
+    local removed=0 keep=() num
+    for (( i=0; i<${#_GPU_VM_USB_DEVICES[@]}; i++ )); do
+        local should_remove=false
+        for num in $selection; do
+            if [[ "$num" =~ ^[0-9]+$ ]] && (( num == i + 1 )); then
+                should_remove=true
+                break
+            fi
+        done
+        if [[ "$should_remove" == "true" ]]; then
+            local vid_pid="${_GPU_VM_USB_DEVICES[$i]%% *}"
+            printf "  ✔ Removed %s\n" "${_GPU_VM_USB_DEVICES[$i]}"
+            removed=$((removed + 1))
+            # Hot-remove if VM is running
+            if _gpu_vm_is_running; then
+                _gpu_vm_usb_hotplug "del" "$vid_pid"
+            fi
+        else
+            keep+=("${_GPU_VM_USB_DEVICES[$i]}")
+        fi
+    done
+
+    _GPU_VM_USB_DEVICES=("${keep[@]+"${keep[@]}"}")
+    _gpu_vm_usb_save
+    printf "\n✔ %d device(s) removed.\n" "$removed"
+}
+
+_gpu_vm_is_running() {
+    # Return 0 if the VM container is running.
+    local status
+    status=$(docker inspect --format='{{.State.Status}}' "$_GPU_VM_CONTAINER" 2>/dev/null || echo "")
+    [[ "$status" == "running" ]]
+}
+
+_gpu_vm_usb_hotplug() {
+    # Hot-add or hot-remove a USB device via the QEMU monitor socket.
+    # Usage: _gpu_vm_usb_hotplug add|del vendor_id:product_id
+    local action="$1" vid_pid="$2"
+    local vid="${vid_pid%%:*}" pid="${vid_pid##*:}"
+    local dev_id="usb-${vid}-${pid}"
+
+    local monitor_cmd
+    if [[ "$action" == "add" ]]; then
+        monitor_cmd="device_add usb-host,vendorid=0x${vid},productid=0x${pid},id=${dev_id}"
+    else
+        monitor_cmd="device_del ${dev_id}"
+    fi
+
+    printf "  → Hot-%s %s to VM...\n" "$action" "$vid_pid"
+    local result
+    if result=$(docker exec "$_GPU_VM_CONTAINER" bash -c \
+        "echo '${monitor_cmd}' | socat - UNIX-CONNECT:${_GPU_VM_QEMU_MONITOR}" 2>&1); then
+        printf "  ✔ USB %s hot-%s successful.\n" "$vid_pid" "${action/del/remove}d"
+        _gpu_log "INFO" "USB hot-${action}: ${vid_pid} (${monitor_cmd})"
+    else
+        # Fallback: try writing directly if socat unavailable
+        if docker exec "$_GPU_VM_CONTAINER" bash -c \
+            "printf '%s\n' '${monitor_cmd}' > ${_GPU_VM_QEMU_MONITOR}" 2>/dev/null; then
+            printf "  ✔ USB %s hot-%s successful.\n" "$vid_pid" "${action/del/remove}d"
+            _gpu_log "INFO" "USB hot-${action} (direct): ${vid_pid}"
+        else
+            printf "  ⚠ Hot-%s failed. Device will be applied on next VM restart.\n" "$action" >&2
+            _gpu_log "WARN" "USB hot-${action} failed: ${vid_pid}: ${result}"
+        fi
+    fi
+}
+
+_gpu_vm_usb_qemu_args() {
+    # Output QEMU -device args for all saved USB devices.
+    _gpu_vm_usb_load
+    local entry vid_pid vid pid
+    for entry in "${_GPU_VM_USB_DEVICES[@]}"; do
+        vid_pid="${entry%% *}"
+        vid="${vid_pid%%:*}"
+        pid="${vid_pid##*:}"
+        printf " -device usb-host,vendorid=0x%s,productid=0x%s,id=usb-%s-%s" "$vid" "$pid" "$vid" "$pid"
+    done
+}
+
+# ── VM Config ──────────────────────────────────────────────────────────────────
 
 _gpu_vm_load_config() {
     if [[ -f "$_GPU_VM_CONF" ]]; then
@@ -1625,6 +2076,11 @@ _gpu_vm_generate_compose() {
         [[ "$dev_class" == "0604" ]] && continue  # skip PCI bridges
         qemu_devices="${qemu_devices} -device vfio-pci,host=${dev_pci}"
     done
+
+    # Append saved USB device args
+    local usb_args
+    usb_args=$(_gpu_vm_usb_qemu_args)
+    qemu_devices="${qemu_devices}${usb_args}"
     qemu_devices="${qemu_devices# }"  # trim leading space
 
     local tz
@@ -1759,8 +2215,14 @@ _gpu_vm_install() {
 
 _gpu_vm_launch() {
     # Bind GPU to vfio-pci (if needed), start Docker container, connect via RDP.
-    local keep_alive=false
-    [[ "${1:-}" == "--keep-alive" || "${1:-}" == "-k" ]] && keep_alive=true
+    local keep_alive=false force=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --keep-alive|-k) keep_alive=true ;;
+            --force|-f)      force="force" ;;
+        esac
+        shift
+    done
 
     if ! _gpu_load_config; then
         printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
@@ -1776,7 +2238,7 @@ _gpu_vm_launch() {
     current_driver=$(_gpu_get_pci_driver "$GPU_PCI_ADDR")
     if [[ "$current_driver" != "vfio-pci" ]]; then
         printf "→ Binding GPU to vfio-pci...\n"
-        _gpu_mode_vm || return 1
+        _gpu_mode_vm "$force" || return 1
     fi
 
     # Regenerate compose (GPU config may have changed)
