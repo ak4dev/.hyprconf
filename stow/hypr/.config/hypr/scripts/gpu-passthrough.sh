@@ -519,6 +519,29 @@ _gpu_mode_vm() {
         return 0
     fi
 
+    # Multi-GPU safety: refuse runtime nvidia→vfio unbind.
+    # The nvidia kernel module shares state between GPUs — unbinding one
+    # while the other is rendering deadlocks in the .remove() callback.
+    # The correct approach is to reboot with the GPU Passthrough boot entry.
+    local _multi_gpu=false
+    if _gpu_is_module_loaded nvidia && _gpu_nvidia_used_by_other_gpu; then
+        _multi_gpu=true
+        if [[ "$force" != "force" ]]; then
+            if ! _gpu_booted_vm_mode; then
+                printf "✘ Runtime GPU unbind is unsafe in multi-NVIDIA setups.\n" >&2
+                printf "  The nvidia driver shares kernel state between GPUs —\n" >&2
+                printf "  unbinding one while the other renders causes a system freeze.\n\n" >&2
+                if _gpu_has_vm_boot_entry; then
+                    printf "  → Reboot and select the \"GPU Passthrough\" boot entry.\n" >&2
+                else
+                    printf "  → Run 'hyprconf hardware gpu setup' to create boot entries,\n" >&2
+                    printf "    then reboot and select the \"GPU Passthrough\" entry.\n" >&2
+                fi
+                return 1
+            fi
+        fi
+    fi
+
     # Safety checks
     _gpu_check_processes "$current_driver" || return 1
     if [[ "$force" != "force" ]]; then
@@ -528,10 +551,8 @@ _gpu_mode_vm() {
     # Unload NVIDIA modules if any are loaded — not just when driver is "nvidia".
     # A previous failed attempt may have unbound the driver but left modules
     # loaded, creating a zombie state where sysfs writes hang indefinitely.
-    # In multi-GPU setups (display GPU on nvidia), modules are shared and cannot
-    # be unloaded — driver_override works per-device without module unload.
     if _gpu_is_module_loaded nvidia; then
-        if _gpu_nvidia_used_by_other_gpu; then
+        if [[ "$_multi_gpu" == true ]]; then
             printf "  ℹ NVIDIA driver in use by display GPU — using per-device unbind.\n"
             _gpu_log "INFO" "Multi-GPU: skipping nvidia module unload"
         else
@@ -539,8 +560,12 @@ _gpu_mode_vm() {
         fi
     fi
 
-    # Unbind VT consoles / EFI framebuffer to release GPU references
-    _gpu_unbind_vtconsoles
+    # Unbind VT consoles / EFI framebuffer to release GPU references.
+    # In multi-GPU, the consoles and framebuffer belong to the display GPU —
+    # unbinding them destabilises the active display.
+    if [[ "$_multi_gpu" == false ]]; then
+        _gpu_unbind_vtconsoles
+    fi
 
     # NOTE: GPU unbind is handled per-device in the IOMMU loop below.
     # driver_override is set BEFORE unbinding so the kernel knows which
@@ -727,12 +752,11 @@ _gpu_mode_host() {
         _gpu_log "SUCCESS" "=== MODE HOST SUCCESS ==="
         _gpu_update_state_marker "host"
 
-        # Clean up boot-time binding if present (multi-NVIDIA)
-        if grep -q 'vfio-pci\.ids=' /proc/cmdline 2>/dev/null; then
-            printf "\n→ Removing boot-time vfio-pci binding...\n"
-            _gpu_remove_kernel_param "vfio-pci.ids"
-            _gpu_rebuild_initramfs
-            printf "  ⚠ Reboot to complete: the GPU will use the host driver at next boot.\n"
+        # Note: with dual boot entries, the VM entry is preserved.
+        # The user boots the normal entry next time for full desktop.
+        if _gpu_booted_vm_mode; then
+            printf "\n  ℹ You booted with the GPU Passthrough entry.\n"
+            printf "    Boot the normal entry next time for both GPUs on the host.\n"
         fi
 
         return 0
@@ -775,8 +799,10 @@ _gpu_mode_none() {
     _gpu_check_processes "$current_driver" || return 1
 
     # Unload NVIDIA modules if loaded (even when driver is already "none")
+    local _multi_gpu=false
     if _gpu_is_module_loaded nvidia; then
         if _gpu_nvidia_used_by_other_gpu; then
+            _multi_gpu=true
             printf "  ℹ NVIDIA driver in use by display GPU — using per-device unbind.\n"
             _gpu_log "INFO" "Multi-GPU: skipping nvidia module unload"
         else
@@ -784,8 +810,11 @@ _gpu_mode_none() {
         fi
     fi
 
-    # Unbind VT consoles / EFI framebuffer to release GPU references
-    _gpu_unbind_vtconsoles
+    # Unbind VT consoles / EFI framebuffer to release GPU references.
+    # In multi-GPU, skip — consoles belong to the display GPU.
+    if [[ "$_multi_gpu" == false ]]; then
+        _gpu_unbind_vtconsoles
+    fi
 
     # Get all IOMMU group devices
     local iommu_devs
@@ -906,14 +935,19 @@ _gpu_audit() {
     # 4. Driver isolation
     printf "\nDriver Isolation\n"
     if _gpu_has_other_nvidia_gpu 2>/dev/null; then
-        # Multi-NVIDIA: check for boot-time vfio-pci.ids binding
-        if grep -qE 'vfio-pci\.ids=' /proc/cmdline 2>/dev/null; then
-            local boot_ids
-            boot_ids=$(sed -E 's/.*vfio-pci\.ids=([^ ]+).*/\1/' /proc/cmdline 2>/dev/null)
-            printf "  ✔ Boot-time vfio-pci binding active: %s\n" "$boot_ids"
+        # Multi-NVIDIA: check for dual boot entries
+        if _gpu_has_vm_boot_entry; then
+            printf "  ✔ GPU Passthrough boot entry exists\n"
+            if _gpu_booted_vm_mode; then
+                local boot_ids
+                boot_ids=$(sed -E 's/.*vfio-pci\.ids=([^ ]+).*/\1/' /proc/cmdline 2>/dev/null)
+                printf "  ✔ Booted in passthrough mode (vfio-pci.ids=%s)\n" "$boot_ids"
+            else
+                printf "  ℹ Booted in normal mode (select \"GPU Passthrough\" entry for VM)\n"
+            fi
         else
-            printf "  ⚠ Multi-NVIDIA detected — no boot-time vfio-pci.ids in cmdline.\n"
-            printf "    Run 'hyprconf hardware gpu setup' to configure boot-time binding.\n"
+            printf "  ⚠ Multi-NVIDIA detected — no GPU Passthrough boot entry found.\n"
+            printf "    Run 'hyprconf hardware gpu setup' to create dual boot entries.\n"
             warnings=$((warnings + 1))
         fi
 
@@ -1141,7 +1175,11 @@ _gpu_configure_boot_binding() {
 
     if [[ "$vendor_id" == "10de" ]]; then
         if _gpu_has_other_nvidia_gpu; then
-            # ── Multi-NVIDIA: boot-time vfio-pci.ids binding ──────────
+            # ── Multi-NVIDIA: dual boot entries ───────────────────────
+            # Create a separate boot entry with vfio-pci.ids so the user
+            # picks "Normal" vs "GPU Passthrough" at the boot menu.
+            # This avoids runtime nvidia unbind which freezes multi-GPU.
+
             # Remove stale blacklist if present from a previous single-GPU config.
             if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
                 sudo rm -f "$_GPU_BLACKLIST_CONF"
@@ -1155,23 +1193,27 @@ _gpu_configure_boot_binding() {
                 vfio_ids="${vfio_ids},${audio_ids}"
             fi
 
-            printf "\n→ Configuring boot-time vfio-pci binding (multi-NVIDIA)...\n"
+            printf "\n→ Configuring dual boot entries (multi-NVIDIA)...\n"
             printf "  Passthrough IDs: %s\n" "$vfio_ids"
 
-            # 1. Add vfio-pci.ids to kernel cmdline
-            _gpu_set_kernel_param "vfio-pci.ids" "$vfio_ids"
+            # 1. Clean vfio-pci.ids from normal entries (undo old single-entry approach)
+            _gpu_clean_vfio_ids_from_entries
 
-            # 2. Ensure vfio-pci loads before nvidia in mkinitcpio
+            # 2. Create VM boot entry with vfio-pci.ids
+            _gpu_create_vm_boot_entry "$vfio_ids"
+
+            # 3. Ensure vfio-pci loads before nvidia in mkinitcpio
             _gpu_ensure_mkinitcpio_vfio_first
 
-            # 3. Add softdep to modprobe.d (ensures module load order at runtime)
+            # 4. Add softdep to modprobe.d (ensures module load order at runtime)
             _gpu_ensure_vfio_softdep
 
-            # 4. Rebuild initramfs
+            # 5. Rebuild initramfs
             _gpu_rebuild_initramfs
 
-            printf "  ✔ Boot-time binding configured — vfio-pci will claim the passthrough GPU at boot.\n"
-            printf "  ⚠ A reboot is required for boot-time binding to take effect.\n"
+            printf "  ✔ Dual boot entries configured.\n"
+            printf "    Boot \"GPU Passthrough\" entry to use the VM.\n"
+            printf "    Boot the normal entry for full desktop.\n"
         else
             # ── Single-NVIDIA + iGPU: blacklist nvidia entirely ───────
             printf "\n→ Configuring NVIDIA driver blacklist...\n"
@@ -1195,6 +1237,218 @@ EOF
         fi
         printf "  ℹ Non-NVIDIA GPU — driver blacklist not needed.\n"
     fi
+}
+
+# ── Boot Entry Management (dual entries for GPU passthrough) ───────────────────
+
+readonly _GPU_VM_ENTRY_NAME="hyprconf-vm"
+
+_gpu_create_vm_boot_entry() {
+    # Create a separate boot entry for GPU passthrough (VM mode).
+    # Duplicates the default entry and adds vfio-pci.ids to the cmdline.
+    # This avoids runtime nvidia driver unbind (which freezes multi-GPU systems).
+    local vfio_ids="$1"
+
+    if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
+        _gpu_create_vm_entry_systemdboot "$vfio_ids"
+    elif [[ -f /etc/default/grub ]]; then
+        _gpu_create_vm_entry_grub "$vfio_ids"
+    else
+        printf "  ⚠ Unsupported bootloader — create a VM boot entry manually.\n"
+        printf "    Add 'vfio-pci.ids=%s' to the kernel cmdline.\n" "$vfio_ids"
+        return 1
+    fi
+}
+
+_gpu_create_vm_entry_systemdboot() {
+    local vfio_ids="$1"
+    local entries_dir="/boot/loader/entries"
+    local vm_entry="${entries_dir}/${_GPU_VM_ENTRY_NAME}.conf"
+
+    # Find the source entry to duplicate (default or first non-VM entry)
+    local source_entry=""
+    local default_name
+    default_name=$(grep -E '^\s*default\s' /boot/loader/loader.conf 2>/dev/null \
+        | awk '{print $2}' | sed 's/\.conf$//' | sed 's/\*//')
+
+    if [[ -n "$default_name" ]]; then
+        # Default may be a glob pattern — find first match
+        local candidate
+        for candidate in "${entries_dir}/${default_name}"*.conf; do
+            [[ -f "$candidate" ]] || continue
+            [[ "$(basename "$candidate" .conf)" == "$_GPU_VM_ENTRY_NAME" ]] && continue
+            source_entry="$candidate"
+            break
+        done
+    fi
+
+    # Fallback: first non-VM entry
+    if [[ -z "$source_entry" ]]; then
+        local entry
+        for entry in "$entries_dir"/*.conf; do
+            [[ -f "$entry" ]] || continue
+            [[ "$(basename "$entry" .conf)" == "$_GPU_VM_ENTRY_NAME" ]] && continue
+            source_entry="$entry"
+            break
+        done
+    fi
+
+    # UKI fallback: if no type 1 entries, build one from /etc/kernel/cmdline
+    if [[ -z "$source_entry" ]]; then
+        _gpu_create_vm_entry_from_uki "$vfio_ids"
+        return $?
+    fi
+
+    printf "  → Creating VM boot entry: %s\n" "$(basename "$vm_entry")"
+
+    sudo cp "$source_entry" "$vm_entry"
+
+    # Set title: replace existing title with a passthrough variant
+    local orig_title
+    orig_title=$(grep '^title' "$source_entry" 2>/dev/null | sed 's/^title\s*//')
+    sudo sed -i "s/^title .*/title ${orig_title} (GPU Passthrough)/" "$vm_entry"
+
+    # Clean any existing vfio-pci.ids then append ours
+    sudo sed -i "s/ *vfio-pci\.ids=[^ ]*//" "$vm_entry"
+    sudo sed -i "s/^options .*/& vfio-pci.ids=${vfio_ids}/" "$vm_entry"
+
+    printf "  ✔ Boot entries configured.\n"
+    printf "    Normal:        %s\n" "$(basename "$source_entry")"
+    printf "    Passthrough:   %s\n" "$(basename "$vm_entry")"
+    printf "    Select at boot menu to switch GPU modes.\n"
+}
+
+_gpu_create_vm_entry_from_uki() {
+    # Create a type 1 boot entry when only UKI entries exist.
+    # Reads /etc/kernel/cmdline and builds a manual .conf entry.
+    local vfio_ids="$1"
+    local entries_dir="/boot/loader/entries"
+    local vm_entry="${entries_dir}/${_GPU_VM_ENTRY_NAME}.conf"
+
+    local cmdline_file="/etc/kernel/cmdline"
+    if [[ ! -f "$cmdline_file" ]]; then
+        printf "  ⚠ No boot entries or /etc/kernel/cmdline found.\n"
+        return 1
+    fi
+
+    local base_cmdline
+    base_cmdline=$(cat "$cmdline_file" 2>/dev/null | sed "s/ *vfio-pci\.ids=[^ ]*//")
+
+    # Find the kernel + initrd
+    local linux_path="" initrd_path=""
+    for kpath in /boot/vmlinuz-linux /boot/vmlinuz-linux-zen /boot/vmlinuz-linux-lts; do
+        if [[ -f "$kpath" ]]; then
+            linux_path="$kpath"
+            initrd_path="${kpath/vmlinuz/initramfs}.img"
+            break
+        fi
+    done
+
+    if [[ -z "$linux_path" ]]; then
+        printf "  ⚠ Cannot find kernel image in /boot/.\n"
+        return 1
+    fi
+
+    printf "  → Creating VM boot entry from UKI: %s\n" "$(basename "$vm_entry")"
+
+    sudo tee "$vm_entry" > /dev/null <<EOF
+# Generated by hyprconf — GPU Passthrough boot entry
+title   Arch Linux (GPU Passthrough)
+linux   ${linux_path}
+initrd  ${initrd_path}
+options ${base_cmdline} vfio-pci.ids=${vfio_ids}
+EOF
+
+    printf "  ✔ VM boot entry created: %s\n" "$(basename "$vm_entry")"
+}
+
+_gpu_remove_vm_boot_entry() {
+    # Remove the GPU passthrough boot entry.
+    if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
+        local vm_entry="/boot/loader/entries/${_GPU_VM_ENTRY_NAME}.conf"
+        if [[ -f "$vm_entry" ]]; then
+            sudo rm -f "$vm_entry"
+            printf "  ✔ Removed VM boot entry.\n"
+        fi
+    elif [[ -f /etc/default/grub ]]; then
+        local grub_custom="/etc/grub.d/99-hyprconf-vm"
+        if [[ -f "$grub_custom" ]]; then
+            sudo rm -f "$grub_custom"
+            sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+            printf "  ✔ Removed GRUB VM menu entry.\n"
+        fi
+    fi
+}
+
+_gpu_clean_vfio_ids_from_entries() {
+    # Strip vfio-pci.ids from all non-VM boot entries.
+    # Cleans up damage from the old _gpu_set_kernel_param approach that
+    # modified ALL entries (making every boot use passthrough mode).
+    if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
+        local entries_dir="/boot/loader/entries"
+        local entry
+        for entry in "$entries_dir"/*.conf; do
+            [[ -f "$entry" ]] || continue
+            [[ "$(basename "$entry" .conf)" == "$_GPU_VM_ENTRY_NAME" ]] && continue
+            if grep -qE 'vfio-pci\.ids=' "$entry" 2>/dev/null; then
+                sudo sed -i "s/ *vfio-pci\.ids=[^ ]*//" "$entry"
+                printf "  → Cleaned vfio-pci.ids from: %s\n" "$(basename "$entry")"
+            fi
+        done
+
+        local kernel_cmdline="/etc/kernel/cmdline"
+        if [[ -f "$kernel_cmdline" ]] && grep -qE 'vfio-pci\.ids=' "$kernel_cmdline" 2>/dev/null; then
+            sudo sed -i "s/ *vfio-pci\.ids=[^ ]*//" "$kernel_cmdline"
+            printf "  → Cleaned vfio-pci.ids from: %s\n" "$kernel_cmdline"
+        fi
+    elif [[ -f /etc/default/grub ]]; then
+        if grep -qE 'vfio-pci\.ids=' /etc/default/grub 2>/dev/null; then
+            sudo sed -i "s/ *vfio-pci\.ids=[^ \"]*//g" /etc/default/grub
+            sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+            printf "  → Cleaned vfio-pci.ids from GRUB config.\n"
+        fi
+    fi
+}
+
+_gpu_create_vm_entry_grub() {
+    # Create a GRUB menuentry for GPU passthrough.
+    local vfio_ids="$1"
+    local grub_custom="/etc/grub.d/99-hyprconf-vm"
+
+    printf "  → Creating GRUB VM menu entry...\n"
+
+    sudo tee "$grub_custom" > /dev/null <<'GRUBEOF'
+#!/bin/sh
+exec tail -n +3 $0
+menuentry "Arch Linux (GPU Passthrough)" --class arch --class gnu-linux {
+    search --no-floppy --set=root --fs-uuid $(grub-probe --target=fs_uuid /)
+    linux $(ls /boot/vmlinuz-linux* | head -1) root=UUID=$(findmnt -no UUID /) rw VFIO_IDS
+    initrd $(ls /boot/initramfs-linux*.img | head -1)
+}
+GRUBEOF
+
+    # Replace VFIO_IDS placeholder
+    sudo sed -i "s|VFIO_IDS|vfio-pci.ids=${vfio_ids}|" "$grub_custom"
+    sudo chmod +x "$grub_custom"
+    sudo grub-mkconfig -o /boot/grub/grub.cfg 2>/dev/null || true
+
+    printf "  ✔ GRUB VM menu entry created.\n"
+}
+
+_gpu_has_vm_boot_entry() {
+    # Return 0 if a VM boot entry exists (any bootloader).
+    if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
+        [[ -f "/boot/loader/entries/${_GPU_VM_ENTRY_NAME}.conf" ]]
+    elif [[ -f /etc/default/grub ]]; then
+        [[ -f "/etc/grub.d/99-hyprconf-vm" ]]
+    else
+        return 1
+    fi
+}
+
+_gpu_booted_vm_mode() {
+    # Return 0 if currently booted with vfio-pci.ids in cmdline (VM entry).
+    grep -qE 'vfio-pci\.ids=' /proc/cmdline 2>/dev/null
 }
 
 # ── Kernel Command Line Helpers ────────────────────────────────────────────────

@@ -40,7 +40,7 @@
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
 - **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `hyprconf sync`
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
-- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver with no reboot; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, boot-time `vfio-pci.ids` binding for dual-NVIDIA); includes a Docker-based Windows VM launcher (`hyprconf hardware gpu vm`) using `dockurr/windows` with RDP via `xfreerdp`; installed via `hyprconf addon vfio`
+- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`hyprconf hardware gpu vm`) using `dockurr/windows` with RDP via `xfreerdp`; installed via `hyprconf addon vfio`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
@@ -488,11 +488,11 @@ Hyprland transform to the built-in display (`eDP-*`):
 
 ### GPU Passthrough (VFIO)
 
-Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no libvirt). Switch a GPU between VM and host modes at runtime — no reboot required. On single-GPU + iGPU systems, the NVIDIA driver is blacklisted at boot (`install nvidia /bin/false`). On dual-NVIDIA systems, the passthrough GPU is claimed by `vfio-pci` at boot via kernel cmdline `vfio-pci.ids=` — no blacklist needed since the display GPU shares the nvidia driver.
+Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no libvirt). On single-GPU + iGPU systems, the NVIDIA driver is blacklisted at boot (`install nvidia /bin/false`) and GPU modes switch at runtime — no reboot required. On dual-NVIDIA systems, `hyprconf hardware gpu setup` creates two boot entries sharing the same kernel: a **Normal** entry (both GPUs on nvidia) and a **GPU Passthrough** entry (`vfio-pci.ids=VENDOR:DEVICE` in kernel cmdline so the passthrough GPU is claimed by vfio-pci at boot). Select the desired entry at the systemd-boot menu — no runtime nvidia unbind needed, which avoids the kernel deadlock caused by the shared nvidia module.
 
 **Install:** `hyprconf addon vfio` (installs QEMU, OVMF, dmidecode, and loads VFIO modules).
 
-**Setup:** `hyprconf hardware gpu setup` — interactive wizard that detects CPU vendor, auto-applies IOMMU kernel params (systemd-boot, GRUB, or Limine), configures driver isolation (NVIDIA blacklist for single-GPU, or boot-time `vfio-pci.ids` binding + mkinitcpio module ordering for multi-NVIDIA), and prompts you to choose which GPU to reserve for passthrough.
+**Setup:** `hyprconf hardware gpu setup` — interactive wizard that detects CPU vendor, auto-applies IOMMU kernel params (systemd-boot, GRUB, or Limine), configures driver isolation (NVIDIA blacklist for single-GPU, or dual boot entries + mkinitcpio module ordering for multi-NVIDIA), and prompts you to choose which GPU to reserve for passthrough.
 
 `[gpu]` accepts: PCI address (`01:00.0`), model name (`3070`, `5090`), or ordinal (`nvidia0`, `nvidia1`). When omitted, uses the GPU saved during `setup`.
 
@@ -500,10 +500,10 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 |---|---|
 | `hyprconf hardware gpu` | Status overview — IOMMU, GPU modes, configured GPU |
 | `hyprconf hardware gpu detect` | List all GPUs with PCI addresses, IOMMU groups, audio devices, current drivers |
-| `hyprconf hardware gpu audit` | Full system readiness check (IOMMU, modules, packages, driver isolation, groups) |
+| `hyprconf hardware gpu audit` | Full system readiness check (IOMMU, modules, packages, driver isolation, boot entries) |
 | `hyprconf hardware gpu mode` | Show current GPU mode (`vm`, `host`, or `none`) |
-| `hyprconf hardware gpu mode vm [--force] [gpu]` | Unbind NVIDIA driver → bind GPU + IOMMU group to vfio-pci |
-| `hyprconf hardware gpu mode host [gpu]` | Unbind from vfio-pci → reload native driver → remove boot-time binding if present |
+| `hyprconf hardware gpu mode vm [--force] [gpu]` | Bind GPU + IOMMU group to vfio-pci (multi-NVIDIA: requires "GPU Passthrough" boot entry) |
+| `hyprconf hardware gpu mode host [gpu]` | Unbind from vfio-pci → reload native driver |
 | `hyprconf hardware gpu mode none [gpu]` | Unbind GPU from all drivers (idle state) |
 | `hyprconf hardware gpu vm install` | Interactive wizard — set RAM, CPU, disk, Windows version, credentials |
 | `hyprconf hardware gpu vm launch [-k]` | Auto-bind GPU → start Docker container → connect RDP (`-k` keeps VM alive on disconnect) |
@@ -513,9 +513,13 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 | `hyprconf hardware gpu report` | Comprehensive hardware report (system, motherboard, GPUs, IOMMU groups, drivers) |
 | `hyprconf hardware gpu diagnose` | Detailed diagnostic dump (dmesg, IOMMU groups, modules, config) |
 
+**Dual-NVIDIA boot entries:** `setup` creates `hyprconf-vm.conf` in `/boot/loader/entries/` (systemd-boot) or a GRUB custom menuentry. The VM entry duplicates the default entry and appends `vfio-pci.ids=<gpu>,<audio>`. mkinitcpio is configured with `vfio-pci` before `nvidia` in MODULES so vfio-pci loads early enough to claim the device. `hyprconf sync` keeps boot entries and initramfs config in sync. The normal entry is not modified — vfio-pci loads but claims nothing without `vfio-pci.ids` in the cmdline.
+
 **Windows VM:** Uses `dockurr/windows` Docker image (QEMU internally) with GPU forwarded via vfio-pci. First run: `hyprconf hardware gpu vm install` to configure resources. Then `hyprconf hardware gpu vm launch` to bind the GPU, start the container, and connect via RDP. First boot installs Windows via web viewer at `http://localhost:8006`. Shared folder at `~/Windows/` is mounted as a network drive. Requires `docker-compose` and `freerdp` packages.
 
-**Workflow:** `hyprconf hardware gpu vm launch` handles the full flow — bind GPU to vfio-pci, start the Docker container, wait for Windows to boot, then connect via `xfreerdp`. On disconnect the VM stops automatically (use `-k` to keep it running). To manually stop: `hyprconf hardware gpu vm stop`. Return GPU to host: `hyprconf hardware gpu mode host`.
+**Workflow (dual-NVIDIA):** Reboot → select "GPU Passthrough" at boot menu → `hyprconf hardware gpu vm launch` → VM starts with GPU. To return to full desktop: `hyprconf hardware gpu mode host`, then reboot with the normal entry.
+
+**Workflow (single-GPU + iGPU):** `hyprconf hardware gpu vm launch` handles the full flow — unbind nvidia, bind to vfio-pci, start the Docker container, wait for Windows, connect via RDP. On disconnect the VM stops automatically (use `-k` to keep it running). Return GPU to host: `hyprconf hardware gpu mode host`.
 
 Config stored at `~/.config/hyprconf/gpu-passthrough.conf` (GPU) and `~/.config/hyprconf/gpu-vm.conf` (VM). Boot-time binding is synced automatically via `hyprconf sync` for multi-NVIDIA setups. Doctor checks IOMMU, VFIO modules, and user groups when the `vfio` addon is installed.
 
