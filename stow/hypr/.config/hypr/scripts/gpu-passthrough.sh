@@ -1265,19 +1265,21 @@ _gpu_create_vm_entry_systemdboot() {
     local entries_dir="/boot/loader/entries"
     local vm_entry="${entries_dir}/${_GPU_VM_ENTRY_NAME}.conf"
 
-    # Find the source entry to duplicate (default or first non-VM entry)
+    # /boot often has restricted permissions — all reads need sudo
     local source_entry=""
     local default_name
-    default_name=$(grep -E '^\s*default\s' /boot/loader/loader.conf 2>/dev/null \
+    default_name=$(sudo grep -E '^\s*default\s' /boot/loader/loader.conf 2>/dev/null \
         | awk '{print $2}' | sed 's/\.conf$//' | sed 's/\*//')
 
     if [[ -n "$default_name" ]]; then
-        # Default may be a glob pattern — find first match
         local candidate
-        for candidate in "${entries_dir}/${default_name}"*.conf; do
-            [[ -f "$candidate" ]] || continue
-            [[ "$(basename "$candidate" .conf)" == "$_GPU_VM_ENTRY_NAME" ]] && continue
-            source_entry="$candidate"
+        for candidate in $(sudo ls "${entries_dir}/" 2>/dev/null); do
+            [[ "$candidate" == *.conf ]] || continue
+            local base="${candidate%.conf}"
+            [[ "$base" == "$_GPU_VM_ENTRY_NAME" ]] && continue
+            # Match default pattern (default_name is prefix after glob strip)
+            [[ "$base" == "${default_name}"* ]] || continue
+            source_entry="${entries_dir}/${candidate}"
             break
         done
     fi
@@ -1285,10 +1287,10 @@ _gpu_create_vm_entry_systemdboot() {
     # Fallback: first non-VM entry
     if [[ -z "$source_entry" ]]; then
         local entry
-        for entry in "$entries_dir"/*.conf; do
-            [[ -f "$entry" ]] || continue
-            [[ "$(basename "$entry" .conf)" == "$_GPU_VM_ENTRY_NAME" ]] && continue
-            source_entry="$entry"
+        for entry in $(sudo ls "${entries_dir}/" 2>/dev/null); do
+            [[ "$entry" == *.conf ]] || continue
+            [[ "${entry%.conf}" == "$_GPU_VM_ENTRY_NAME" ]] && continue
+            source_entry="${entries_dir}/${entry}"
             break
         done
     fi
@@ -1299,13 +1301,13 @@ _gpu_create_vm_entry_systemdboot() {
         return $?
     fi
 
-    printf "  → Creating VM boot entry: %s\n" "$(basename "$vm_entry")"
+    printf "  → Creating VM boot entry from: %s\n" "$(basename "$source_entry")"
 
     sudo cp "$source_entry" "$vm_entry"
 
     # Set title: replace existing title with a passthrough variant
     local orig_title
-    orig_title=$(grep '^title' "$source_entry" 2>/dev/null | sed 's/^title\s*//')
+    orig_title=$(sudo grep '^title' "$source_entry" 2>/dev/null | sed 's/^title\s*//')
     sudo sed -i "s/^title .*/title ${orig_title} (GPU Passthrough)/" "$vm_entry"
 
     # Clean any existing vfio-pci.ids then append ours
@@ -1366,7 +1368,7 @@ _gpu_remove_vm_boot_entry() {
     # Remove the GPU passthrough boot entry.
     if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
         local vm_entry="/boot/loader/entries/${_GPU_VM_ENTRY_NAME}.conf"
-        if [[ -f "$vm_entry" ]]; then
+        if sudo test -f "$vm_entry"; then
             sudo rm -f "$vm_entry"
             printf "  ✔ Removed VM boot entry.\n"
         fi
@@ -1387,12 +1389,12 @@ _gpu_clean_vfio_ids_from_entries() {
     if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
         local entries_dir="/boot/loader/entries"
         local entry
-        for entry in "$entries_dir"/*.conf; do
-            [[ -f "$entry" ]] || continue
-            [[ "$(basename "$entry" .conf)" == "$_GPU_VM_ENTRY_NAME" ]] && continue
-            if grep -qE 'vfio-pci\.ids=' "$entry" 2>/dev/null; then
-                sudo sed -i "s/ *vfio-pci\.ids=[^ ]*//" "$entry"
-                printf "  → Cleaned vfio-pci.ids from: %s\n" "$(basename "$entry")"
+        for entry in $(sudo ls "${entries_dir}/" 2>/dev/null); do
+            [[ "$entry" == *.conf ]] || continue
+            [[ "${entry%.conf}" == "$_GPU_VM_ENTRY_NAME" ]] && continue
+            if sudo grep -qE 'vfio-pci\.ids=' "${entries_dir}/${entry}" 2>/dev/null; then
+                sudo sed -i "s/ *vfio-pci\.ids=[^ ]*//" "${entries_dir}/${entry}"
+                printf "  → Cleaned vfio-pci.ids from: %s\n" "$entry"
             fi
         done
 
@@ -1438,7 +1440,7 @@ GRUBEOF
 _gpu_has_vm_boot_entry() {
     # Return 0 if a VM boot entry exists (any bootloader).
     if command -v bootctl &>/dev/null && sudo bootctl is-installed &>/dev/null 2>&1; then
-        [[ -f "/boot/loader/entries/${_GPU_VM_ENTRY_NAME}.conf" ]]
+        sudo test -f "/boot/loader/entries/${_GPU_VM_ENTRY_NAME}.conf"
     elif [[ -f /etc/default/grub ]]; then
         [[ -f "/etc/grub.d/99-hyprconf-vm" ]]
     else
