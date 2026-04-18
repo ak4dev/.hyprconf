@@ -1989,6 +1989,73 @@ _gpu_host_smbios() {
     printf '%s\t%s\t%s\n' "$mfg" "$product" "$serial"
 }
 
+_gpu_vm_smbios_sanitize() {
+    # Replace spaces with underscores and remove commas so the value survives
+    # Dockurr's unquoted $ARGS expansion without word-splitting or breaking
+    # QEMU's comma-delimited option parser.
+    local v="$1"
+    v="${v// /_}"
+    v="${v//,/}"
+    printf '%s' "$v"
+}
+
+_gpu_vm_smbios_args() {
+    # Generate QEMU -smbios args from host hardware identity.
+    # Passes real BIOS (type 0), system (type 1), and baseboard (type 2) info
+    # so the guest sees genuine manufacturer/product strings instead of
+    # "QEMU Standard PC".  Prevents anti-cheat (EAC, VAC, …) VM detection.
+    local dmi="/sys/devices/virtual/dmi/id"
+    local args="" v
+
+    # ── Type 0 — BIOS ──────────────────────────────────────────────────────
+    local bios_vendor="" bios_version="" bios_date=""
+    [[ -r "$dmi/bios_vendor" ]]  && bios_vendor=$(cat "$dmi/bios_vendor" 2>/dev/null)
+    [[ -r "$dmi/bios_version" ]] && bios_version=$(cat "$dmi/bios_version" 2>/dev/null)
+    [[ -r "$dmi/bios_date" ]]    && bios_date=$(cat "$dmi/bios_date" 2>/dev/null)
+    if [[ -n "$bios_vendor" ]]; then
+        args+="-smbios type=0"
+        args+=",vendor=$(_gpu_vm_smbios_sanitize "$bios_vendor")"
+        [[ -n "$bios_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$bios_version")"
+        [[ -n "$bios_date" ]]    && args+=",date=$(_gpu_vm_smbios_sanitize "$bios_date")"
+    fi
+
+    # ── Type 1 — System ────────────────────────────────────────────────────
+    local sys_vendor="" product_name="" product_version=""
+    local product_serial="" product_uuid="" product_family=""
+    [[ -r "$dmi/sys_vendor" ]]       && sys_vendor=$(cat "$dmi/sys_vendor" 2>/dev/null)
+    [[ -r "$dmi/product_name" ]]     && product_name=$(cat "$dmi/product_name" 2>/dev/null)
+    [[ -r "$dmi/product_version" ]]  && product_version=$(cat "$dmi/product_version" 2>/dev/null)
+    [[ -r "$dmi/product_serial" ]]   && product_serial=$(cat "$dmi/product_serial" 2>/dev/null)
+    [[ -r "$dmi/product_uuid" ]]     && product_uuid=$(cat "$dmi/product_uuid" 2>/dev/null)
+    [[ -r "$dmi/product_family" ]]   && product_family=$(cat "$dmi/product_family" 2>/dev/null)
+    if [[ -n "$sys_vendor" ]]; then
+        args+=" -smbios type=1"
+        args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$sys_vendor")"
+        [[ -n "$product_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$product_name")"
+        [[ -n "$product_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$product_version")"
+        [[ -n "$product_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$product_serial")"
+        [[ -n "$product_uuid" ]]    && args+=",uuid=$(_gpu_vm_smbios_sanitize "$product_uuid")"
+        [[ -n "$product_family" ]]  && args+=",family=$(_gpu_vm_smbios_sanitize "$product_family")"
+    fi
+
+    # ── Type 2 — Baseboard ──────────────────────────────────────────────────
+    local board_vendor="" board_name="" board_version="" board_serial=""
+    [[ -r "$dmi/board_vendor" ]]  && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
+    [[ -r "$dmi/board_name" ]]    && board_name=$(cat "$dmi/board_name" 2>/dev/null)
+    [[ -r "$dmi/board_version" ]] && board_version=$(cat "$dmi/board_version" 2>/dev/null)
+    [[ -r "$dmi/board_serial" ]]  && board_serial=$(cat "$dmi/board_serial" 2>/dev/null)
+    if [[ -n "$board_vendor" ]]; then
+        args+=" -smbios type=2"
+        args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
+        [[ -n "$board_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$board_name")"
+        [[ -n "$board_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$board_version")"
+        [[ -n "$board_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$board_serial")"
+    fi
+
+    args="${args# }"  # trim leading space
+    printf '%s' "$args"
+}
+
 # ── Status (default view) ─────────────────────────────────────────────────────
 
 _gpu_status() {
@@ -2339,6 +2406,11 @@ _gpu_vm_generate_compose() {
     local usb_args
     usb_args=$(_gpu_vm_usb_qemu_args)
     qemu_devices="${qemu_devices}${usb_args}"
+
+    # Append SMBIOS host-identity spoofing args (anti-cheat evasion)
+    local smbios_args
+    smbios_args=$(_gpu_vm_smbios_args)
+    [[ -n "$smbios_args" ]] && qemu_devices="${qemu_devices} ${smbios_args}"
     qemu_devices="${qemu_devices# }"  # trim leading space
 
     local tz

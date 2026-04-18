@@ -1077,6 +1077,439 @@ class TestGpuHostSmbios:
         assert "\t" in r.stdout
 
 
+class TestGpuVmSmbiosSanitize:
+    """Tests for _gpu_vm_smbios_sanitize."""
+
+    def test_replaces_spaces_with_underscores(self, tmp_path):
+        """Spaces become underscores to survive bash word splitting."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_vm_smbios_sanitize "ASUSTeK Computer Inc."
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert r.stdout == "ASUSTeK_Computer_Inc."
+
+    def test_removes_commas(self, tmp_path):
+        """Commas are stripped (QEMU option delimiter)."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_vm_smbios_sanitize "Micro-Star International Co., Ltd."
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert r.stdout == "Micro-Star_International_Co._Ltd."
+
+    def test_noop_on_clean_value(self, tmp_path):
+        """Values without spaces or commas pass through unchanged."""
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_vm_smbios_sanitize "LENOVO"
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert r.stdout == "LENOVO"
+
+
+class TestGpuVmSmbiosArgs:
+    """Tests for _gpu_vm_smbios_args."""
+
+    def _make_dmi(self, sysfs_root, fields):
+        """Create fake DMI sysfs entries."""
+        dmi_dir = sysfs_root / "devices" / "virtual" / "dmi" / "id"
+        dmi_dir.mkdir(parents=True, exist_ok=True)
+        for name, value in fields.items():
+            (dmi_dir / name).write_text(value)
+        return dmi_dir
+
+    def test_generates_all_three_smbios_types(self, tmp_path):
+        """All three SMBIOS types are generated when sysfs has full data."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root)
+
+        dmi_dir = self._make_dmi(sysfs_root, {
+            "bios_vendor": "American Megatrends Inc.",
+            "bios_version": "3201",
+            "bios_date": "01/04/2024",
+            "sys_vendor": "ASUSTeK Computer Inc.",
+            "product_name": "ROG STRIX B550-F",
+            "product_version": "1.0",
+            "product_serial": "ABC123",
+            "product_uuid": "12345678-1234-1234-1234-123456789abc",
+            "product_family": "GAMING",
+            "board_vendor": "ASUSTeK Computer Inc.",
+            "board_name": "ROG STRIX B550-F GAMING (WI-FI)",
+            "board_version": "Rev 1.xx",
+            "board_serial": "XYZ789",
+        })
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_vm_smbios_args() {{
+                local dmi="{dmi_dir}"
+                local args="" v
+
+                local bios_vendor="" bios_version="" bios_date=""
+                [[ -r "$dmi/bios_vendor" ]]  && bios_vendor=$(cat "$dmi/bios_vendor" 2>/dev/null)
+                [[ -r "$dmi/bios_version" ]] && bios_version=$(cat "$dmi/bios_version" 2>/dev/null)
+                [[ -r "$dmi/bios_date" ]]    && bios_date=$(cat "$dmi/bios_date" 2>/dev/null)
+                if [[ -n "$bios_vendor" ]]; then
+                    args+="-smbios type=0"
+                    args+=",vendor=$(_gpu_vm_smbios_sanitize "$bios_vendor")"
+                    [[ -n "$bios_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$bios_version")"
+                    [[ -n "$bios_date" ]]    && args+=",date=$(_gpu_vm_smbios_sanitize "$bios_date")"
+                fi
+
+                local sys_vendor="" product_name="" product_version=""
+                local product_serial="" product_uuid="" product_family=""
+                [[ -r "$dmi/sys_vendor" ]]       && sys_vendor=$(cat "$dmi/sys_vendor" 2>/dev/null)
+                [[ -r "$dmi/product_name" ]]     && product_name=$(cat "$dmi/product_name" 2>/dev/null)
+                [[ -r "$dmi/product_version" ]]  && product_version=$(cat "$dmi/product_version" 2>/dev/null)
+                [[ -r "$dmi/product_serial" ]]   && product_serial=$(cat "$dmi/product_serial" 2>/dev/null)
+                [[ -r "$dmi/product_uuid" ]]     && product_uuid=$(cat "$dmi/product_uuid" 2>/dev/null)
+                [[ -r "$dmi/product_family" ]]   && product_family=$(cat "$dmi/product_family" 2>/dev/null)
+                if [[ -n "$sys_vendor" ]]; then
+                    args+=" -smbios type=1"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$sys_vendor")"
+                    [[ -n "$product_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$product_name")"
+                    [[ -n "$product_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$product_version")"
+                    [[ -n "$product_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$product_serial")"
+                    [[ -n "$product_uuid" ]]    && args+=",uuid=$(_gpu_vm_smbios_sanitize "$product_uuid")"
+                    [[ -n "$product_family" ]]  && args+=",family=$(_gpu_vm_smbios_sanitize "$product_family")"
+                fi
+
+                local board_vendor="" board_name="" board_version="" board_serial=""
+                [[ -r "$dmi/board_vendor" ]]  && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
+                [[ -r "$dmi/board_name" ]]    && board_name=$(cat "$dmi/board_name" 2>/dev/null)
+                [[ -r "$dmi/board_version" ]] && board_version=$(cat "$dmi/board_version" 2>/dev/null)
+                [[ -r "$dmi/board_serial" ]]  && board_serial=$(cat "$dmi/board_serial" 2>/dev/null)
+                if [[ -n "$board_vendor" ]]; then
+                    args+=" -smbios type=2"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
+                    [[ -n "$board_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$board_name")"
+                    [[ -n "$board_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$board_version")"
+                    [[ -n "$board_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$board_serial")"
+                fi
+
+                args="${{args# }}"
+                printf '%s' "$args"
+            }}
+            _gpu_vm_smbios_args
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        out = r.stdout
+
+        # Type 0 — BIOS
+        assert "-smbios type=0" in out
+        assert "vendor=American_Megatrends_Inc." in out
+        assert "version=3201" in out
+        assert "date=01/04/2024" in out
+        # Type 1 — System (spaces → underscores)
+        assert "-smbios type=1" in out
+        assert "manufacturer=ASUSTeK_Computer_Inc." in out
+        assert "product=ROG_STRIX_B550-F" in out
+        assert "serial=ABC123" in out
+        assert "uuid=12345678-1234-1234-1234-123456789abc" in out
+        assert "family=GAMING" in out
+        # Type 2 — Baseboard (spaces + commas removed)
+        assert "-smbios type=2" in out
+        assert "product=ROG_STRIX_B550-F_GAMING_(WI-FI)" in out
+        assert "serial=XYZ789" in out
+
+    def test_skips_unreadable_fields(self, tmp_path):
+        """Only available fields are included; missing ones are skipped."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root)
+
+        # Only provide minimal type 1 data — no serial, uuid, family
+        dmi_dir = self._make_dmi(sysfs_root, {
+            "sys_vendor": "LENOVO",
+            "product_name": "ThinkPad",
+        })
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_vm_smbios_args() {{
+                local dmi="{dmi_dir}"
+                local args="" v
+
+                local bios_vendor=""
+                [[ -r "$dmi/bios_vendor" ]] && bios_vendor=$(cat "$dmi/bios_vendor" 2>/dev/null)
+                if [[ -n "$bios_vendor" ]]; then
+                    args+="-smbios type=0,vendor=$(_gpu_vm_smbios_sanitize "$bios_vendor")"
+                fi
+
+                local sys_vendor="" product_name="" product_version=""
+                local product_serial="" product_uuid="" product_family=""
+                [[ -r "$dmi/sys_vendor" ]]      && sys_vendor=$(cat "$dmi/sys_vendor" 2>/dev/null)
+                [[ -r "$dmi/product_name" ]]    && product_name=$(cat "$dmi/product_name" 2>/dev/null)
+                [[ -r "$dmi/product_version" ]] && product_version=$(cat "$dmi/product_version" 2>/dev/null)
+                [[ -r "$dmi/product_serial" ]]  && product_serial=$(cat "$dmi/product_serial" 2>/dev/null)
+                [[ -r "$dmi/product_uuid" ]]    && product_uuid=$(cat "$dmi/product_uuid" 2>/dev/null)
+                [[ -r "$dmi/product_family" ]]  && product_family=$(cat "$dmi/product_family" 2>/dev/null)
+                if [[ -n "$sys_vendor" ]]; then
+                    args+=" -smbios type=1"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$sys_vendor")"
+                    [[ -n "$product_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$product_name")"
+                    [[ -n "$product_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$product_version")"
+                    [[ -n "$product_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$product_serial")"
+                    [[ -n "$product_uuid" ]]    && args+=",uuid=$(_gpu_vm_smbios_sanitize "$product_uuid")"
+                    [[ -n "$product_family" ]]  && args+=",family=$(_gpu_vm_smbios_sanitize "$product_family")"
+                fi
+
+                local board_vendor=""
+                [[ -r "$dmi/board_vendor" ]] && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
+                if [[ -n "$board_vendor" ]]; then
+                    args+=" -smbios type=2,manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
+                fi
+
+                args="${{args# }}"
+                printf '%s' "$args"
+            }}
+            _gpu_vm_smbios_args
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        out = r.stdout
+
+        # Type 0 and Type 2 should be absent (no sysfs entries)
+        assert "type=0" not in out
+        assert "type=2" not in out
+        # Type 1 present with available fields only
+        assert "-smbios type=1" in out
+        assert "manufacturer=LENOVO" in out
+        assert "product=ThinkPad" in out
+        assert "serial=" not in out
+        assert "uuid=" not in out
+
+    def test_empty_sysfs_returns_empty(self, tmp_path):
+        """Returns empty string when no DMI data is available."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root)
+
+        # Create empty DMI dir — no files
+        dmi_dir = sysfs_root / "devices" / "virtual" / "dmi" / "id"
+        dmi_dir.mkdir(parents=True)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_vm_smbios_args() {{
+                local dmi="{dmi_dir}"
+                local args=""
+
+                local bios_vendor=""
+                [[ -r "$dmi/bios_vendor" ]] && bios_vendor=$(cat "$dmi/bios_vendor" 2>/dev/null)
+                [[ -n "$bios_vendor" ]] && args+="-smbios type=0,vendor=$(_gpu_vm_smbios_sanitize "$bios_vendor")"
+
+                local sys_vendor=""
+                [[ -r "$dmi/sys_vendor" ]] && sys_vendor=$(cat "$dmi/sys_vendor" 2>/dev/null)
+                [[ -n "$sys_vendor" ]] && args+=" -smbios type=1,manufacturer=$(_gpu_vm_smbios_sanitize "$sys_vendor")"
+
+                local board_vendor=""
+                [[ -r "$dmi/board_vendor" ]] && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
+                [[ -n "$board_vendor" ]] && args+=" -smbios type=2,manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
+
+                args="${{args# }}"
+                printf '%s' "$args"
+            }}
+            result=$(_gpu_vm_smbios_args)
+            if [[ -z "$result" ]]; then
+                echo "EMPTY"
+            else
+                echo "$result"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert r.stdout.strip() == "EMPTY"
+
+
+class TestGpuVmComposeSmbios:
+    """Tests for SMBIOS anti-detection integration in compose output."""
+
+    def test_compose_includes_smbios_args(self, tmp_path):
+        """Compose ARGUMENTS includes SMBIOS spoofing args from host DMI."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        # Create fake DMI entries
+        dmi_dir = sysfs_root / "devices" / "virtual" / "dmi" / "id"
+        dmi_dir.mkdir(parents=True)
+        (dmi_dir / "bios_vendor").write_text("American Megatrends Inc.")
+        (dmi_dir / "bios_version").write_text("3201")
+        (dmi_dir / "bios_date").write_text("01/04/2024")
+        (dmi_dir / "sys_vendor").write_text("ASUSTeK Computer Inc.")
+        (dmi_dir / "product_name").write_text("ROG STRIX")
+        (dmi_dir / "board_vendor").write_text("ASUSTeK Computer Inc.")
+        (dmi_dir / "board_name").write_text("ROG STRIX B550-F")
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _GPU_SYSFS="{sysfs_root}"
+            # Override smbios to use fake sysfs
+            _gpu_vm_smbios_args() {{
+                local dmi="{dmi_dir}"
+                local args=""
+                local bios_vendor="" bios_version="" bios_date=""
+                [[ -r "$dmi/bios_vendor" ]]  && bios_vendor=$(cat "$dmi/bios_vendor" 2>/dev/null)
+                [[ -r "$dmi/bios_version" ]] && bios_version=$(cat "$dmi/bios_version" 2>/dev/null)
+                [[ -r "$dmi/bios_date" ]]    && bios_date=$(cat "$dmi/bios_date" 2>/dev/null)
+                if [[ -n "$bios_vendor" ]]; then
+                    args+="-smbios type=0"
+                    args+=",vendor=$(_gpu_vm_smbios_sanitize "$bios_vendor")"
+                    [[ -n "$bios_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$bios_version")"
+                    [[ -n "$bios_date" ]]    && args+=",date=$(_gpu_vm_smbios_sanitize "$bios_date")"
+                fi
+                local sys_vendor="" product_name=""
+                [[ -r "$dmi/sys_vendor" ]]   && sys_vendor=$(cat "$dmi/sys_vendor" 2>/dev/null)
+                [[ -r "$dmi/product_name" ]] && product_name=$(cat "$dmi/product_name" 2>/dev/null)
+                if [[ -n "$sys_vendor" ]]; then
+                    args+=" -smbios type=1"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$sys_vendor")"
+                    [[ -n "$product_name" ]] && args+=",product=$(_gpu_vm_smbios_sanitize "$product_name")"
+                fi
+                local board_vendor="" board_name=""
+                [[ -r "$dmi/board_vendor" ]] && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
+                [[ -r "$dmi/board_name" ]]   && board_name=$(cat "$dmi/board_name" 2>/dev/null)
+                if [[ -n "$board_vendor" ]]; then
+                    args+=" -smbios type=2"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
+                    [[ -n "$board_name" ]] && args+=",product=$(_gpu_vm_smbios_sanitize "$board_name")"
+                fi
+                args="${{args# }}"
+                printf '%s' "$args"
+            }}
+            _gpu_vm_generate_compose
+            cat "$_GPU_VM_COMPOSE"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        compose = r.stdout
+
+        # GPU device arg still present
+        assert "vfio-pci,host=01:00.0" in compose
+        # SMBIOS type 0 — BIOS
+        assert "-smbios type=0" in compose
+        assert "vendor=American_Megatrends_Inc." in compose
+        # SMBIOS type 1 — System
+        assert "-smbios type=1" in compose
+        assert "manufacturer=ASUSTeK_Computer_Inc." in compose
+        assert "product=ROG_STRIX" in compose
+        # SMBIOS type 2 — Baseboard
+        assert "-smbios type=2" in compose
+        assert "product=ROG_STRIX_B550-F" in compose
+
+    def test_compose_works_without_dmi(self, tmp_path):
+        """Compose generates correctly even if DMI data is unavailable."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+        # No DMI directory at all
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _GPU_SYSFS="{sysfs_root}"
+            # Override: no DMI data available
+            _gpu_vm_smbios_args() {{ printf ''; }}
+            _gpu_vm_generate_compose
+            cat "$_GPU_VM_COMPOSE"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        compose = r.stdout
+
+        # Core compose structure still works
+        assert "dockurr/windows" in compose
+        assert "vfio-pci,host=01:00.0" in compose
+        # No SMBIOS args injected
+        assert "-smbios" not in compose
+
+
 # ---------------------------------------------------------------------------
 # Mode system (replaces bind/unbind/pass)
 # ---------------------------------------------------------------------------
