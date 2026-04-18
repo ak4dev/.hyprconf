@@ -522,7 +522,7 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 
 | Layer | Mechanism | Effect |
 |---|---|---|
-| **SMBIOS** | Types 0 (BIOS + `uefi=on`), 1 (system + UUID validation), 4 (processor via dmidecode) | Guest sees real host manufacturer/product instead of "QEMU Standard PC" |
+| **SMBIOS** | Types 0 (BIOS + `uefi=on`), 1 (system + UUID), 2 (baseboard), 3 (chassis), 4 (processor), 17 (memory via dmidecode) | Guest sees real host manufacturer/product/RAM instead of "QEMU Standard PC" |
 | **CPU flags** | `CPU_FLAGS` env: `-hypervisor,hv_vendor_id=<vendor>,family=X,model=Y,stepping=Z` | Hides hypervisor CPUID bit; passes real CPU identity |
 | **Machine type** | `MACHINE: "q35"` | Modern chipset (vmport=off, hpet=off via Dockurr defaults) |
 | **Display** | `DISPLAY: "none"` | Eliminates VirtIO GPU — no Red Hat display adapter in Device Manager |

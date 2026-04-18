@@ -1137,8 +1137,8 @@ class TestGpuVmSmbiosArgs:
             (dmi_dir / name).write_text(value)
         return dmi_dir
 
-    def test_generates_smbios_types_0_1_4(self, tmp_path):
-        """SMBIOS types 0 (BIOS), 1 (System), and 4 (Processor) are generated."""
+    def test_generates_smbios_types_0_1_2_3_4(self, tmp_path):
+        """SMBIOS types 0 (BIOS), 1 (System), 2 (Baseboard), 3 (Chassis), and 4 (Processor) are generated."""
         bin_dir = tmp_path / "bin"
         sysfs_root = tmp_path / "sys"
         _make_fake_bins(bin_dir)
@@ -1154,6 +1154,15 @@ class TestGpuVmSmbiosArgs:
             "product_serial": "ABC123",
             "product_uuid": "12345678-1234-1234-1234-123456789abc",
             "product_family": "GAMING",
+            "board_vendor": "ASUSTeK Computer Inc.",
+            "board_name": "ROG STRIX B550-F GAMING",
+            "board_version": "Rev 1.xx",
+            "board_serial": "BRD456",
+            "chassis_vendor": "ASUSTeK Computer Inc.",
+            "chassis_version": "1.0",
+            "chassis_serial": "CHS789",
+            "chassis_asset_tag": "ATG001",
+            "chassis_type": "3",
         })
 
         # Create fake /proc/cpuinfo for type 4 fallback
@@ -1203,6 +1212,34 @@ class TestGpuVmSmbiosArgs:
                     [[ -n "$product_family" ]]  && args+=",family=$(_gpu_vm_smbios_sanitize "$product_family")"
                 fi
 
+                local board_vendor="" board_name="" board_version="" board_serial=""
+                [[ -r "$dmi/board_vendor" ]]  && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
+                [[ -r "$dmi/board_name" ]]    && board_name=$(cat "$dmi/board_name" 2>/dev/null)
+                [[ -r "$dmi/board_version" ]] && board_version=$(cat "$dmi/board_version" 2>/dev/null)
+                [[ -r "$dmi/board_serial" ]]  && board_serial=$(cat "$dmi/board_serial" 2>/dev/null)
+                if [[ -n "$board_vendor" ]]; then
+                    args+=" -smbios type=2"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
+                    [[ -n "$board_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$board_name")"
+                    [[ -n "$board_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$board_version")"
+                    [[ -n "$board_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$board_serial")"
+                fi
+
+                local chassis_vendor="" chassis_version="" chassis_serial="" chassis_asset="" chassis_type=""
+                [[ -r "$dmi/chassis_vendor" ]]    && chassis_vendor=$(cat "$dmi/chassis_vendor" 2>/dev/null)
+                [[ -r "$dmi/chassis_version" ]]   && chassis_version=$(cat "$dmi/chassis_version" 2>/dev/null)
+                [[ -r "$dmi/chassis_serial" ]]    && chassis_serial=$(cat "$dmi/chassis_serial" 2>/dev/null)
+                [[ -r "$dmi/chassis_asset_tag" ]] && chassis_asset=$(cat "$dmi/chassis_asset_tag" 2>/dev/null)
+                [[ -r "$dmi/chassis_type" ]]      && chassis_type=$(cat "$dmi/chassis_type" 2>/dev/null)
+                if [[ -n "$chassis_vendor" ]]; then
+                    args+=" -smbios type=3"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$chassis_vendor")"
+                    [[ -n "$chassis_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$chassis_version")"
+                    [[ -n "$chassis_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$chassis_serial")"
+                    [[ -n "$chassis_asset" ]]   && args+=",asset=$(_gpu_vm_smbios_sanitize "$chassis_asset")"
+                    [[ "$chassis_type" =~ ^[0-9]+$ ]] && args+=",type=${{chassis_type}}"
+                fi
+
                 # Type 4 — Processor (from fake /proc/cpuinfo)
                 local cpu_mfg="" cpu_ver=""
                 cpu_mfg=$(grep -m1 'vendor_id' "{proc_dir}/cpuinfo" 2>/dev/null | awk -F': ' '{{print $2}}' || true)
@@ -1238,8 +1275,15 @@ class TestGpuVmSmbiosArgs:
         assert "serial=ABC123" in out
         assert "uuid=12345678-1234-1234-1234-123456789abc" in out
         assert "family=GAMING" in out
-        # Type 2 — Baseboard NOT present (removed per omarchy approach)
-        assert "type=2" not in out
+        # Type 2 — Baseboard
+        assert "-smbios type=2" in out
+        assert "product=ROG_STRIX_B550-F_GAMING" in out
+        assert "serial=BRD456" in out
+        # Type 3 — Chassis
+        assert "-smbios type=3" in out
+        assert "serial=CHS789" in out
+        assert "asset=ATG001" in out
+        assert "type=3" in out
         # Type 4 — Processor
         assert "-smbios type=4" in out
         assert "manufacturer=AuthenticAMD" in out
@@ -1303,10 +1347,12 @@ class TestGpuVmSmbiosArgs:
         assert r.returncode == 0, f"stderr: {r.stderr}"
         out = r.stdout
 
-        # Type 0, 2, 4 should be absent (no sysfs entries / no proc mock)
+        # Type 0, 2, 3, 4, 17 should be absent (no sysfs entries / no proc mock / no dmidecode)
         assert "type=0" not in out
         assert "type=2" not in out
+        assert "type=3" not in out
         assert "type=4" not in out
+        assert "type=17" not in out
         # Type 1 present with available fields only
         assert "-smbios type=1" in out
         assert "manufacturer=LENOVO" in out
@@ -1396,6 +1442,124 @@ class TestGpuVmSmbiosArgs:
         assert r.returncode == 0
         assert r.stdout.strip() == "EMPTY"
 
+    def test_type17_memory_from_dmidecode(self, tmp_path):
+        """SMBIOS type 17 (Memory) is generated when dmidecode is available."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root)
+
+        dmi_dir = sysfs_root / "devices" / "virtual" / "dmi" / "id"
+        dmi_dir.mkdir(parents=True, exist_ok=True)
+
+        # Create a fake dmidecode that outputs realistic memory info
+        fake_dmidecode = bin_dir / "dmidecode"
+        fake_dmidecode.write_text(textwrap.dedent("""\
+            #!/usr/bin/env bash
+            echo "# dmidecode 3.5"
+            echo "Memory Device"
+            echo "	Manufacturer: G Skill Intl"
+            echo "	Speed: 3600 MT/s"
+            echo "	Serial Number: 00000001"
+            echo "	Part Number: F4-3600C16-16GVKC"
+            echo "	Locator: DIMM_A1"
+        """))
+        fake_dmidecode.chmod(0o755)
+
+        # Create a fake sudo that just runs the command
+        fake_sudo = bin_dir / "sudo"
+        fake_sudo.write_text('#!/usr/bin/env bash\nshift; "$@"\n')
+        fake_sudo.chmod(0o755)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            _gpu_vm_smbios_args() {{
+                local dmi="{dmi_dir}"
+                local args=""
+
+                # Skip types 0-4 for brevity, just test type 17
+                if command -v dmidecode &>/dev/null; then
+                    local mem_mfg="" mem_speed="" mem_serial="" mem_part="" mem_loc=""
+                    mem_mfg=$(sudo -n dmidecode -t memory 2>/dev/null \\
+                        | grep -m1 'Manufacturer:' | sed 's/.*Manufacturer:[[:space:]]*//' || true)
+                    mem_speed=$(sudo -n dmidecode -t memory 2>/dev/null \\
+                        | grep -m1 'Speed:' | grep -oP '\\d+' | head -1 || true)
+                    mem_serial=$(sudo -n dmidecode -t memory 2>/dev/null \\
+                        | grep -m1 'Serial Number:' | sed 's/.*Serial Number:[[:space:]]*//' || true)
+                    mem_part=$(sudo -n dmidecode -t memory 2>/dev/null \\
+                        | grep -m1 'Part Number:' | sed 's/.*Part Number:[[:space:]]*//' || true)
+                    mem_loc=$(sudo -n dmidecode -t memory 2>/dev/null \\
+                        | grep -m1 'Locator:' | sed 's/.*Locator:[[:space:]]*//' || true)
+                    if [[ -n "$mem_mfg" ]] && [[ "$mem_mfg" != "Unknown" ]] && [[ "$mem_mfg" != "Not Specified" ]]; then
+                        args+=" -smbios type=17"
+                        args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$mem_mfg")"
+                        [[ -n "$mem_speed" ]] && args+=",speed=${{mem_speed}}"
+                        [[ -n "$mem_serial" ]] && [[ "$mem_serial" != "Unknown" ]] && [[ "$mem_serial" != "Not Specified" ]] \\
+                            && args+=",serial=$(_gpu_vm_smbios_sanitize "$mem_serial")"
+                        [[ -n "$mem_part" ]] && [[ "$mem_part" != "Unknown" ]] && [[ "$mem_part" != "Not Specified" ]] \\
+                            && args+=",part=$(_gpu_vm_smbios_sanitize "$mem_part")"
+                        [[ -n "$mem_loc" ]] && [[ "$mem_loc" != "Unknown" ]] && [[ "$mem_loc" != "Not Specified" ]] \\
+                            && args+=",loc_pfx=$(_gpu_vm_smbios_sanitize "$mem_loc")"
+                    fi
+                fi
+
+                args="${{args# }}"
+                printf '%s' "$args"
+            }}
+            _gpu_vm_smbios_args
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        out = r.stdout
+
+        assert "-smbios type=17" in out
+        assert "manufacturer=G_Skill_Intl" in out
+        assert "speed=3600" in out
+        assert "serial=00000001" in out
+        assert "part=F4-3600C16-16GVKC" in out
+        assert "loc_pfx=DIMM_A1" in out
+
+    def test_type17_skipped_when_no_dmidecode(self, tmp_path):
+        """SMBIOS type 17 is skipped when dmidecode is not available."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root)
+
+        dmi_dir = sysfs_root / "devices" / "virtual" / "dmi" / "id"
+        dmi_dir.mkdir(parents=True, exist_ok=True)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            # Override command to pretend dmidecode does not exist
+            command() {{
+                if [[ "${{2:-}}" == "dmidecode" ]] && [[ "${{1:-}}" == "-v" ]]; then
+                    return 1
+                fi
+                builtin command "$@"
+            }}
+            _gpu_vm_smbios_args() {{
+                local args=""
+                if command -v dmidecode &>/dev/null; then
+                    args+=" -smbios type=17,manufacturer=FAKE"
+                fi
+                args="${{args# }}"
+                printf '%s' "$args"
+            }}
+            _gpu_vm_smbios_args
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert "type=17" not in r.stdout
+
 
 class TestGpuVmComposeSmbios:
     """Tests for anti-detection and Looking Glass integration in compose output."""
@@ -1420,6 +1584,10 @@ class TestGpuVmComposeSmbios:
         (dmi_dir / "bios_date").write_text("01/04/2024")
         (dmi_dir / "sys_vendor").write_text("ASUSTeK Computer Inc.")
         (dmi_dir / "product_name").write_text("ROG STRIX")
+        (dmi_dir / "board_vendor").write_text("ASUSTeK Computer Inc.")
+        (dmi_dir / "board_name").write_text("ROG STRIX B550-F")
+        (dmi_dir / "chassis_vendor").write_text("ASUSTeK Computer Inc.")
+        (dmi_dir / "chassis_type").write_text("3")
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -1463,6 +1631,22 @@ class TestGpuVmComposeSmbios:
                     args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$sys_vendor")"
                     [[ -n "$product_name" ]] && args+=",product=$(_gpu_vm_smbios_sanitize "$product_name")"
                 fi
+                local board_vendor="" board_name=""
+                [[ -r "$dmi/board_vendor" ]] && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
+                [[ -r "$dmi/board_name" ]]   && board_name=$(cat "$dmi/board_name" 2>/dev/null)
+                if [[ -n "$board_vendor" ]]; then
+                    args+=" -smbios type=2"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
+                    [[ -n "$board_name" ]] && args+=",product=$(_gpu_vm_smbios_sanitize "$board_name")"
+                fi
+                local chassis_vendor="" chassis_type=""
+                [[ -r "$dmi/chassis_vendor" ]] && chassis_vendor=$(cat "$dmi/chassis_vendor" 2>/dev/null)
+                [[ -r "$dmi/chassis_type" ]]   && chassis_type=$(cat "$dmi/chassis_type" 2>/dev/null)
+                if [[ -n "$chassis_vendor" ]]; then
+                    args+=" -smbios type=3"
+                    args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$chassis_vendor")"
+                    [[ "$chassis_type" =~ ^[0-9]+$ ]] && args+=",type=${{chassis_type}}"
+                fi
                 args="${{args# }}"
                 printf '%s' "$args"
             }}
@@ -1494,8 +1678,12 @@ class TestGpuVmComposeSmbios:
         assert "-smbios type=1" in compose
         assert "manufacturer=ASUSTeK_Computer_Inc." in compose
         assert "product=ROG_STRIX" in compose
-        # Type 2 — Baseboard NOT present
-        assert "type=2" not in compose
+        # Type 2 — Baseboard
+        assert "-smbios type=2" in compose
+        assert "product=ROG_STRIX_B550-F" in compose
+        # Type 3 — Chassis
+        assert "-smbios type=3" in compose
+        assert "type=3" in compose
         # CPU_FLAGS env var
         assert 'CPU_FLAGS: "-hypervisor,hv_vendor_id=AuthenticAMD,family=25,model=33,stepping=2"' in compose
         # MACHINE env var

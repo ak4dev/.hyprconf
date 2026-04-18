@@ -2000,7 +2000,8 @@ _gpu_vm_smbios_sanitize() {
 
 _gpu_vm_smbios_args() {
     # Generate QEMU -smbios args from host hardware identity.
-    # Passes real BIOS (type 0), system (type 1), and processor (type 4) info
+    # Passes real BIOS (type 0), system (type 1), baseboard (type 2),
+    # chassis (type 3), processor (type 4), and memory (type 17) info
     # so the guest sees genuine manufacturer/product strings instead of
     # "QEMU Standard PC".  Prevents anti-cheat (EAC, VAC, …) VM detection.
     local dmi="/sys/devices/virtual/dmi/id"
@@ -2041,6 +2042,37 @@ _gpu_vm_smbios_args() {
         [[ -n "$product_family" ]]  && args+=",family=$(_gpu_vm_smbios_sanitize "$product_family")"
     fi
 
+    # ── Type 2 — Baseboard ────────────────────────────────────────────────
+    local board_vendor="" board_name="" board_version="" board_serial=""
+    [[ -r "$dmi/board_vendor" ]]  && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
+    [[ -r "$dmi/board_name" ]]    && board_name=$(cat "$dmi/board_name" 2>/dev/null)
+    [[ -r "$dmi/board_version" ]] && board_version=$(cat "$dmi/board_version" 2>/dev/null)
+    [[ -r "$dmi/board_serial" ]]  && board_serial=$(cat "$dmi/board_serial" 2>/dev/null)
+    if [[ -n "$board_vendor" ]]; then
+        args+=" -smbios type=2"
+        args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
+        [[ -n "$board_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$board_name")"
+        [[ -n "$board_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$board_version")"
+        [[ -n "$board_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$board_serial")"
+    fi
+
+    # ── Type 3 — Chassis ──────────────────────────────────────────────────
+    local chassis_vendor="" chassis_version="" chassis_serial="" chassis_asset="" chassis_type=""
+    [[ -r "$dmi/chassis_vendor" ]]    && chassis_vendor=$(cat "$dmi/chassis_vendor" 2>/dev/null)
+    [[ -r "$dmi/chassis_version" ]]   && chassis_version=$(cat "$dmi/chassis_version" 2>/dev/null)
+    [[ -r "$dmi/chassis_serial" ]]    && chassis_serial=$(cat "$dmi/chassis_serial" 2>/dev/null)
+    [[ -r "$dmi/chassis_asset_tag" ]] && chassis_asset=$(cat "$dmi/chassis_asset_tag" 2>/dev/null)
+    [[ -r "$dmi/chassis_type" ]]      && chassis_type=$(cat "$dmi/chassis_type" 2>/dev/null)
+    if [[ -n "$chassis_vendor" ]]; then
+        args+=" -smbios type=3"
+        args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$chassis_vendor")"
+        [[ -n "$chassis_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$chassis_version")"
+        [[ -n "$chassis_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$chassis_serial")"
+        [[ -n "$chassis_asset" ]]   && args+=",asset=$(_gpu_vm_smbios_sanitize "$chassis_asset")"
+        # QEMU accepts numeric chassis type (1=Other, 3=Desktop, 9=Laptop, etc.)
+        [[ "$chassis_type" =~ ^[0-9]+$ ]] && args+=",type=${chassis_type}"
+    fi
+
     # ── Type 4 — Processor ─────────────────────────────────────────────────
     local cpu_mfg="" cpu_ver="" cpu_cur_speed="" cpu_max_speed=""
     if command -v dmidecode &>/dev/null; then
@@ -2064,6 +2096,34 @@ _gpu_vm_smbios_args() {
         args+=",version=$(_gpu_vm_smbios_sanitize "$cpu_ver")"
         [[ -n "$cpu_cur_speed" ]] && args+=",current-speed=${cpu_cur_speed}"
         [[ -n "$cpu_max_speed" ]] && args+=",max-speed=${cpu_max_speed}"
+    fi
+
+    # ── Type 17 — Memory Device ────────────────────────────────────────────
+    # Requires dmidecode (root) — reads the first physical DIMM's info.
+    # Without this, SMBIOS reports generic "DIMM" which some anti-cheats flag.
+    if command -v dmidecode &>/dev/null; then
+        local mem_mfg="" mem_speed="" mem_serial="" mem_part="" mem_loc=""
+        mem_mfg=$(sudo -n dmidecode -t memory 2>/dev/null \
+            | grep -m1 'Manufacturer:' | sed 's/.*Manufacturer:[[:space:]]*//' || true)
+        mem_speed=$(sudo -n dmidecode -t memory 2>/dev/null \
+            | grep -m1 'Speed:' | grep -oP '\d+' | head -1 || true)
+        mem_serial=$(sudo -n dmidecode -t memory 2>/dev/null \
+            | grep -m1 'Serial Number:' | sed 's/.*Serial Number:[[:space:]]*//' || true)
+        mem_part=$(sudo -n dmidecode -t memory 2>/dev/null \
+            | grep -m1 'Part Number:' | sed 's/.*Part Number:[[:space:]]*//' || true)
+        mem_loc=$(sudo -n dmidecode -t memory 2>/dev/null \
+            | grep -m1 'Locator:' | sed 's/.*Locator:[[:space:]]*//' || true)
+        if [[ -n "$mem_mfg" ]] && [[ "$mem_mfg" != "Unknown" ]] && [[ "$mem_mfg" != "Not Specified" ]]; then
+            args+=" -smbios type=17"
+            args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$mem_mfg")"
+            [[ -n "$mem_speed" ]] && args+=",speed=${mem_speed}"
+            [[ -n "$mem_serial" ]] && [[ "$mem_serial" != "Unknown" ]] && [[ "$mem_serial" != "Not Specified" ]] \
+                && args+=",serial=$(_gpu_vm_smbios_sanitize "$mem_serial")"
+            [[ -n "$mem_part" ]] && [[ "$mem_part" != "Unknown" ]] && [[ "$mem_part" != "Not Specified" ]] \
+                && args+=",part=$(_gpu_vm_smbios_sanitize "$mem_part")"
+            [[ -n "$mem_loc" ]] && [[ "$mem_loc" != "Unknown" ]] && [[ "$mem_loc" != "Not Specified" ]] \
+                && args+=",loc_pfx=$(_gpu_vm_smbios_sanitize "$mem_loc")"
+        fi
     fi
 
     args="${args# }"  # trim leading space
