@@ -2512,14 +2512,21 @@ _gpu_vm_usb_hotplug() {
 }
 
 _gpu_vm_usb_qemu_args() {
-    # Output QEMU -device args for all saved USB devices.
+    # Output QEMU -device args for saved USB devices that are currently connected.
+    # Skips devices not physically present to avoid libusb NO_DEVICE errors.
     _gpu_vm_usb_load
-    local entry vid_pid vid pid
+    local entry vid_pid vid pid desc
     for entry in "${_GPU_VM_USB_DEVICES[@]}"; do
         vid_pid="${entry%% *}"
+        desc="${entry#* }"
         vid="${vid_pid%%:*}"
         pid="${vid_pid##*:}"
-        printf " -device usb-host,vendorid=0x%s,productid=0x%s,id=usb-%s-%s" "$vid" "$pid" "$vid" "$pid"
+        if lsusb -d "${vid_pid}" &>/dev/null; then
+            printf " -device usb-host,vendorid=0x%s,productid=0x%s,id=usb-%s-%s" "$vid" "$pid" "$vid" "$pid"
+        else
+            _gpu_log "WARN" "USB ${vid_pid} (${desc}) not connected — skipped at boot"
+            printf "  ⚠ Skipping %s (%s) — not connected\n" "$vid_pid" "$desc" >&2
+        fi
     done
 }
 

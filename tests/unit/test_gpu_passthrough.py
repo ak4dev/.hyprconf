@@ -4444,6 +4444,15 @@ class TestGpuVmUsbConfig:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
+        # Fake lsusb that reports test devices as connected
+        _make_executable(bin_dir / "lsusb", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "${1:-}" == "-d" ]]; then
+                echo "Bus 001 Device 002: ID $2 Test Device"
+                exit 0
+            fi
+            echo "Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub"
+        """))
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -4488,6 +4497,46 @@ class TestGpuVmUsbConfig:
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
         assert r.returncode == 0, f"stderr: {r.stderr}"
         assert "RESULT=[]" in r.stdout
+
+    def test_usb_qemu_args_skips_disconnected(self, tmp_path):
+        """_gpu_vm_usb_qemu_args skips devices not physically connected."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        # Fake lsusb: only 046d:c52b is connected, 0951:16a5 is not
+        _make_executable(bin_dir / "lsusb", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "${1:-}" == "-d" ]]; then
+                case "$2" in
+                    046d:c52b) echo "Bus 001 Device 002: ID 046d:c52b Logitech"; exit 0 ;;
+                    *) exit 1 ;;
+                esac
+            fi
+        """))
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-vm-usb.conf").write_text(
+            "046d:c52b  Logitech Receiver\n"
+            "0951:16a5  Kingston HyperX\n"
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_usb_qemu_args
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "usb-host,vendorid=0x046d,productid=0xc52b" in r.stdout
+        assert "usb-host,vendorid=0x0951,productid=0x16a5" not in r.stdout
+        assert "Skipping 0951:16a5" in r.stderr
 
 
 class TestGpuVmUsbListHost:
@@ -4603,6 +4652,15 @@ class TestGpuVmComposeWithUsb:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
+        # Fake lsusb that reports test devices as connected
+        _make_executable(bin_dir / "lsusb", textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "${1:-}" == "-d" ]]; then
+                echo "Bus 001 Device 002: ID $2 Test Device"
+                exit 0
+            fi
+            echo "Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub"
+        """))
         _make_fake_sysfs(sysfs_root, gpus={
             "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
         })
