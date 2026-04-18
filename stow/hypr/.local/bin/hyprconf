@@ -2384,7 +2384,7 @@ _addon_description() {
 _addon_packages() {
   case "$1" in
     dev)  printf "python-pytest-xdist qemu-full edk2-ovmf aws-cli" ;;
-    vfio) printf "qemu-desktop edk2-ovmf dmidecode freerdp" ;;
+    vfio) printf "qemu-desktop edk2-ovmf dmidecode freerdp linux-headers" ;;
     *)    printf "" ;;
   esac
 }
@@ -2499,6 +2499,10 @@ _addon_post_install() {
       else
         printf "${_g}✓${_r} kvmfr options already configured.\n"
       fi
+
+      sudo dkms autoinstall 2>/dev/null \
+        && printf "${_g}✓${_r} DKMS modules built for current kernel.\n" \
+        || printf "${_y}⚠${_r} DKMS autoinstall failed — check 'dkms status'.\n"
 
       sudo modprobe kvmfr static_size_mb=128 2>/dev/null \
         && printf "${_g}✓${_r} kvmfr module loaded (/dev/kvmfr0).\n" \
