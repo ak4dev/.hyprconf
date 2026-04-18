@@ -2511,7 +2511,8 @@ _addon_post_install() {
       # Set /dev/kvmfr0 permissions for current user
       if [[ -e /dev/kvmfr0 ]]; then
         sudo chown "$USER:kvm" /dev/kvmfr0 2>/dev/null \
-          && printf "${_g}✓${_r} /dev/kvmfr0 owned by %s.\n" "$USER"
+          && sudo chmod 660 /dev/kvmfr0 2>/dev/null \
+          && printf "${_g}✓${_r} /dev/kvmfr0 owned by %s (mode 0660).\n" "$USER"
 
         # Persist via udev rule
         local udev_rule="/etc/udev/rules.d/99-kvmfr.rules"

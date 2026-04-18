@@ -2190,10 +2190,6 @@ readonly _GPU_VM_USB_CONF="${_GPU_CONF_DIR}/gpu-vm-usb.conf"
 readonly _GPU_VM_QEMU_MONITOR="/run/qemu.monitor"
 _GPU_VM_KVMFR_DEV="/dev/kvmfr0"
 
-_gpu_vm_spice_dir() {
-    printf '%s' "${XDG_RUNTIME_DIR:-/tmp}/hyprconf-spice"
-}
-
 _gpu_vm_freerdp_bin() {
     # FreeRDP v3 renamed the binary to xfreerdp3
     if command -v xfreerdp3 &>/dev/null; then
@@ -2629,12 +2625,11 @@ _gpu_vm_generate_compose() {
     [[ -n "$disk_flags" ]] && qemu_args+=" ${disk_flags}"
 
     # Looking Glass: ivshmem shared memory device (only if kvmfr is loaded)
-    local ivshmem_size="${VM_IVSHMEM_SIZE:-64}"
     local has_kvmfr=false
     if [[ -e "$_GPU_VM_KVMFR_DEV" ]]; then
         has_kvmfr=true
         qemu_args+=" -device ivshmem-plain,id=shmem0,memdev=looking-glass"
-        qemu_args+=" -object memory-backend-file,id=looking-glass,mem-path=${_GPU_VM_KVMFR_DEV},size=${ivshmem_size}M,share=yes"
+        qemu_args+=" -object memory-backend-file,id=looking-glass,mem-path=${_GPU_VM_KVMFR_DEV},size=${VM_IVSHMEM_SIZE:-128}M,share=yes"
     fi
 
     # GPU passthrough: vfio-pci devices (skip PCI bridges)
@@ -2646,30 +2641,10 @@ _gpu_vm_generate_compose() {
     done
 
     # Audio: always provide intel-hda so Windows has a sound device.
-    # With SPICE (kvmfr): audio routed through SPICE channel.
-    # Without SPICE: use PulseAudio backend from the host.
-    if [[ "$has_kvmfr" == true ]]; then
-        qemu_args+=" -audiodev spice,id=hda-audio"
-    else
-        qemu_args+=" -audiodev pa,id=hda-audio,server=/run/user/$(id -u)/pulse/native"
-    fi
+    # PulseAudio backend — PipeWire provides the compatibility socket.
+    qemu_args+=" -audiodev pa,id=hda-audio,server=/run/user/$(id -u)/pulse/native"
     qemu_args+=" -device intel-hda"
     qemu_args+=" -device hda-duplex,audiodev=hda-audio"
-
-    # SPICE + Looking Glass input devices (only when kvmfr is available)
-    if [[ "$has_kvmfr" == true ]]; then
-        # SPICE display socket (Looking Glass connects here for input)
-        qemu_args+=" -spice unix=on,addr=/tmp/spice/spice.sock,disable-ticketing=on,agent-mouse=off"
-
-        # SPICE clipboard channel (vdagent)
-        qemu_args+=" -device virtio-serial-pci"
-        qemu_args+=" -device virtserialport,chardev=spicechannel0,name=com.redhat.spice.0"
-        qemu_args+=" -chardev spicevmc,id=spicechannel0,name=vdagent"
-
-        # Input: mouse and keyboard via virtio
-        qemu_args+=" -device virtio-mouse-pci"
-        qemu_args+=" -device virtio-keyboard-pci"
-    fi
 
     # Power: disable S3/S4 (suspend/hibernate breaks GPU passthrough)
     qemu_args+=" -global ICH9-LPC.disable_s3=1"
@@ -2688,9 +2663,6 @@ _gpu_vm_generate_compose() {
     # CPU anti-detection flags (hides hypervisor bit, passes real CPU identity)
     local cpu_flags
     cpu_flags=$(_gpu_vm_cpu_flags)
-
-    local spice_dir
-    spice_dir=$(_gpu_vm_spice_dir)
 
     local tz
     tz=$(timedatectl show -p Timezone --value 2>/dev/null || echo "UTC")
@@ -2747,7 +2719,7 @@ ${devices_block}
       - ${_GPU_VM_STORAGE_DIR}:/storage
       - ${_GPU_VM_SHARED_DIR}:/shared
       - ${_GPU_VM_OEM_DIR}:/oem
-      - ${spice_dir}:/tmp/spice
+      - /run/user/$(id -u)/pulse:/run/user/1000/pulse
     restart: unless-stopped
     stop_grace_period: 2m
 EOF
@@ -2883,11 +2855,6 @@ _gpu_vm_launch() {
         return 1
     fi
 
-    # Create SPICE socket directory
-    local spice_dir
-    spice_dir=$(_gpu_vm_spice_dir)
-    mkdir -p "$spice_dir"
-
     # Check Looking Glass prerequisites
     if [[ ! -e "$_GPU_VM_KVMFR_DEV" ]]; then
         printf "⚠ %s not found.\n" "$_GPU_VM_KVMFR_DEV" >&2
@@ -2969,15 +2936,13 @@ _gpu_vm_connect() {
 
 _gpu_vm_connect_inner() {
     local use_rdp="$1" stop_on_disconnect="$2"
-    local spice_dir
-    spice_dir=$(_gpu_vm_spice_dir)
 
     local rdp_bin
     rdp_bin=$(_gpu_vm_freerdp_bin 2>/dev/null || echo "")
 
     if [[ "$use_rdp" == false ]] && command -v looking-glass-client &>/dev/null; then
         printf "→ Launching Looking Glass...\n"
-        looking-glass-client -f "$_GPU_VM_KVMFR_DEV" -c "${spice_dir}/spice.sock" &
+        looking-glass-client -f "$_GPU_VM_KVMFR_DEV" &
         printf "  Stop VM: hyprconf hardware gpu vm stop\n"
         if [[ -n "$rdp_bin" ]]; then
             printf "  RDP:     %s /v:127.0.0.1:3389 /u:%s /p:%s\n" "$rdp_bin" "${VM_USERNAME}" "${VM_PASSWORD}"

@@ -1510,26 +1510,24 @@ class TestGpuVmComposeSmbios:
         # Looking Glass ivshmem device
         assert "ivshmem-plain,id=shmem0,memdev=looking-glass" in compose
         assert "memory-backend-file,id=looking-glass,mem-path=" in compose
-        assert "size=64M,share=yes" in compose
+        assert "size=64M,share=yes" in compose  # matches VM_IVSHMEM_SIZE=64 in test config
         assert "kvmfr0" in compose
-        # SPICE audio
-        assert "-audiodev spice,id=hda-audio" in compose
+        # Audio: PulseAudio backend (no SPICE — Dockurr QEMU lacks it)
+        assert "-audiodev pa,id=hda-audio" in compose
         assert "-device intel-hda" in compose
         assert "-device hda-duplex,audiodev=hda-audio" in compose
-        # SPICE display socket
-        assert "-spice unix=on,addr=/tmp/spice/spice.sock" in compose
-        # SPICE clipboard channel
-        assert "virtio-serial-pci" in compose
-        assert "spicechannel0" in compose
-        assert "vdagent" in compose
-        # Input devices
-        assert "virtio-mouse-pci" in compose
-        assert "virtio-keyboard-pci" in compose
+        # No SPICE (Dockurr QEMU does not have SPICE compiled in)
+        assert "-spice" not in compose
+        assert "virtio-serial-pci" not in compose
+        assert "spicechannel0" not in compose
+        assert "vdagent" not in compose
+        assert "virtio-mouse-pci" not in compose
+        assert "virtio-keyboard-pci" not in compose
         # ICH9 power management
         assert "ICH9-LPC.disable_s3=1" in compose
         assert "ICH9-LPC.disable_s4=1" in compose
-        # SPICE volume mount
-        assert "/tmp/spice" in compose
+        # PulseAudio volume mount
+        assert "/pulse" in compose
         # OEM volume mount for auto-install
         assert "/oem" in compose
         # ulimits for VFIO memory locking
