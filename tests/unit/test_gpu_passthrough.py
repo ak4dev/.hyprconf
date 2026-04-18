@@ -1470,6 +1470,9 @@ class TestGpuVmComposeSmbios:
             _gpu_vm_cpu_flags() {{ printf '%s' "-hypervisor,hv_vendor_id=AuthenticAMD,family=25,model=33,stepping=2"; }}
             # Override disk_flags (no real disk in test)
             _gpu_vm_disk_flags() {{ printf '%s' "-global scsi-hd.product=Samsung_970_EVO"; }}
+            # Simulate kvmfr0 device for Looking Glass
+            _GPU_VM_KVMFR_DEV="{tmp_path}/kvmfr0"
+            touch "$_GPU_VM_KVMFR_DEV"
             _gpu_vm_generate_compose
             cat "$_GPU_VM_COMPOSE"
         """)
@@ -1506,8 +1509,9 @@ class TestGpuVmComposeSmbios:
         assert 'USB: "no"' in compose
         # Looking Glass ivshmem device
         assert "ivshmem-plain,id=shmem0,memdev=looking-glass" in compose
-        assert "memory-backend-file,id=looking-glass,mem-path=/dev/kvmfr0,size=64M,share=yes" in compose
-        assert "/dev/kvmfr0:/dev/kvmfr0" in compose
+        assert "memory-backend-file,id=looking-glass,mem-path=" in compose
+        assert "size=64M,share=yes" in compose
+        assert "kvmfr0" in compose
         # SPICE audio
         assert "-audiodev spice,id=spice" in compose
         assert "-device intel-hda" in compose
@@ -1566,6 +1570,9 @@ class TestGpuVmComposeSmbios:
             _gpu_vm_smbios_args() {{ printf ''; }}
             _gpu_vm_cpu_flags() {{ printf ''; }}
             _gpu_vm_disk_flags() {{ printf ''; }}
+            # Simulate kvmfr0 device for Looking Glass
+            _GPU_VM_KVMFR_DEV="{tmp_path}/kvmfr0"
+            touch "$_GPU_VM_KVMFR_DEV"
             _gpu_vm_generate_compose
             cat "$_GPU_VM_COMPOSE"
         """)
@@ -1588,9 +1595,9 @@ class TestGpuVmComposeSmbios:
         assert 'DISPLAY: "none"' in compose
         assert 'ADAPTER: "e1000e"' in compose
         assert 'DISK_TYPE: "sata"' in compose
-        # Looking Glass always present
+        # Looking Glass present when kvmfr device exists
         assert "ivshmem-plain" in compose
-        assert "/dev/kvmfr0" in compose
+        assert "kvmfr0" in compose
 
     def test_compose_ivshmem_size_from_config(self, tmp_path):
         """IVSHMEM size from VM config is used in Looking Glass device."""
@@ -1626,6 +1633,8 @@ class TestGpuVmComposeSmbios:
             _gpu_vm_smbios_args() {{ printf ''; }}
             _gpu_vm_cpu_flags() {{ printf ''; }}
             _gpu_vm_disk_flags() {{ printf ''; }}
+            _GPU_VM_KVMFR_DEV="{tmp_path}/kvmfr0"
+            touch "$_GPU_VM_KVMFR_DEV"
             _gpu_vm_generate_compose
             cat "$_GPU_VM_COMPOSE"
         """)

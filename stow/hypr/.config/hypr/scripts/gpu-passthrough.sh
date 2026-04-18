@@ -2187,6 +2187,7 @@ readonly _GPU_VM_STORAGE_DIR="${HOME}/.local/share/hyprconf/windows-vm"
 readonly _GPU_VM_SHARED_DIR="${HOME}/Windows"
 readonly _GPU_VM_USB_CONF="${_GPU_CONF_DIR}/gpu-vm-usb.conf"
 readonly _GPU_VM_QEMU_MONITOR="/run/qemu.monitor"
+_GPU_VM_KVMFR_DEV="/dev/kvmfr0"
 
 _gpu_vm_spice_dir() {
     printf '%s' "${XDG_RUNTIME_DIR:-/tmp}/hyprconf-spice"
@@ -2483,10 +2484,14 @@ _gpu_vm_generate_compose() {
     disk_flags=$(_gpu_vm_disk_flags)
     [[ -n "$disk_flags" ]] && qemu_args+=" ${disk_flags}"
 
-    # Looking Glass: ivshmem shared memory device
+    # Looking Glass: ivshmem shared memory device (only if kvmfr is loaded)
     local ivshmem_size="${VM_IVSHMEM_SIZE:-64}"
-    qemu_args+=" -device ivshmem-plain,id=shmem0,memdev=looking-glass"
-    qemu_args+=" -object memory-backend-file,id=looking-glass,mem-path=/dev/kvmfr0,size=${ivshmem_size}M,share=yes"
+    local has_kvmfr=false
+    if [[ -e "$_GPU_VM_KVMFR_DEV" ]]; then
+        has_kvmfr=true
+        qemu_args+=" -device ivshmem-plain,id=shmem0,memdev=looking-glass"
+        qemu_args+=" -object memory-backend-file,id=looking-glass,mem-path=${_GPU_VM_KVMFR_DEV},size=${ivshmem_size}M,share=yes"
+    fi
 
     # GPU passthrough: vfio-pci devices (skip PCI bridges)
     local dev_pci dev_class
@@ -2538,6 +2543,20 @@ _gpu_vm_generate_compose() {
     tz=$(timedatectl show -p Timezone --value 2>/dev/null || echo "UTC")
 
     mkdir -p "$_GPU_CONF_DIR" "$_GPU_VM_STORAGE_DIR" "$_GPU_VM_SHARED_DIR"
+
+    # Build devices list (kvmfr0 only if module is loaded)
+    local devices_block="      - /dev/kvm
+      - /dev/net/tun
+      - /dev/vfio/${iommu_group}:/dev/vfio/${iommu_group}
+      - /dev/vfio/vfio:/dev/vfio/vfio"
+    if [[ "$has_kvmfr" == true ]]; then
+        devices_block="      - /dev/kvm
+      - /dev/net/tun
+      - ${_GPU_VM_KVMFR_DEV}:${_GPU_VM_KVMFR_DEV}
+      - /dev/vfio/${iommu_group}:/dev/vfio/${iommu_group}
+      - /dev/vfio/vfio:/dev/vfio/vfio"
+    fi
+
     cat > "$_GPU_VM_COMPOSE" <<EOF
 services:
   windows:
@@ -2559,11 +2578,7 @@ services:
       USB: "no"
       ARGUMENTS: "${qemu_args}"
     devices:
-      - /dev/kvm
-      - /dev/net/tun
-      - /dev/kvmfr0:/dev/kvmfr0
-      - /dev/vfio/${iommu_group}:/dev/vfio/${iommu_group}
-      - /dev/vfio/vfio:/dev/vfio/vfio
+${devices_block}
     cap_add:
       - NET_ADMIN
     privileged: true
@@ -2718,8 +2733,8 @@ _gpu_vm_launch() {
     mkdir -p "$spice_dir"
 
     # Check Looking Glass prerequisites
-    if [[ ! -e /dev/kvmfr0 ]]; then
-        printf "⚠ /dev/kvmfr0 not found.\n" >&2
+    if [[ ! -e "$_GPU_VM_KVMFR_DEV" ]]; then
+        printf "⚠ %s not found.\n" "$_GPU_VM_KVMFR_DEV" >&2
         printf "  Load kvmfr module: sudo modprobe kvmfr static_size_mb=%s\n" "${VM_IVSHMEM_SIZE:-64}" >&2
         printf "  Continuing without Looking Glass (RDP fallback).\n" >&2
         use_rdp=true
@@ -2771,7 +2786,7 @@ _gpu_vm_launch() {
 
     if [[ "$use_rdp" == false ]] && command -v looking-glass-client &>/dev/null; then
         printf "→ Launching Looking Glass...\n"
-        looking-glass-client -f /dev/kvmfr0 -c "${spice_dir}/spice.sock" &
+        looking-glass-client -f "$_GPU_VM_KVMFR_DEV" -c "${spice_dir}/spice.sock" &
         printf "  Stop VM: hyprconf hardware gpu vm stop\n"
         if [[ -n "$rdp_bin" ]]; then
             printf "  RDP:     %s /v:127.0.0.1:3389 /u:%s /p:%s\n" "$rdp_bin" "${VM_USERNAME}" "${VM_PASSWORD}"
