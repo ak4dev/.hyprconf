@@ -2192,6 +2192,17 @@ _gpu_vm_spice_dir() {
     printf '%s' "${XDG_RUNTIME_DIR:-/tmp}/hyprconf-spice"
 }
 
+_gpu_vm_freerdp_bin() {
+    # FreeRDP v3 renamed the binary to xfreerdp3
+    if command -v xfreerdp3 &>/dev/null; then
+        printf 'xfreerdp3'
+    elif command -v xfreerdp &>/dev/null; then
+        printf 'xfreerdp'
+    else
+        return 1
+    fi
+}
+
 # ── USB Passthrough ────────────────────────────────────────────────────────────
 
 _gpu_vm_usb_load() {
@@ -2755,12 +2766,17 @@ _gpu_vm_launch() {
     printf "✔ VM is running.\n"
 
     # Connect to VM
+    local rdp_bin
+    rdp_bin=$(_gpu_vm_freerdp_bin 2>/dev/null || echo "")
+
     if [[ "$use_rdp" == false ]] && command -v looking-glass-client &>/dev/null; then
         printf "→ Launching Looking Glass...\n"
         looking-glass-client -f /dev/kvmfr0 -c "${spice_dir}/spice.sock" &
         printf "  Stop VM: hyprconf hardware gpu vm stop\n"
-        printf "  RDP:     xfreerdp /v:127.0.0.1:3389 /u:%s /p:%s\n" "${VM_USERNAME}" "${VM_PASSWORD}"
-    elif command -v xfreerdp &>/dev/null; then
+        if [[ -n "$rdp_bin" ]]; then
+            printf "  RDP:     %s /v:127.0.0.1:3389 /u:%s /p:%s\n" "$rdp_bin" "${VM_USERNAME}" "${VM_PASSWORD}"
+        fi
+    elif [[ -n "$rdp_bin" ]]; then
         printf "→ Connecting via RDP...\n"
 
         # Wait for RDP port
@@ -2770,7 +2786,7 @@ _gpu_vm_launch() {
             rdp_wait=$((rdp_wait + 1))
             if (( rdp_wait > 30 )); then
                 printf "⚠ RDP not yet available. VM may still be installing.\n"
-                printf "  Connect manually: xfreerdp /v:127.0.0.1:3389 /u:%s /p:%s\n" "${VM_USERNAME}" "${VM_PASSWORD}"
+                printf "  Connect manually: %s /v:127.0.0.1:3389 /u:%s /p:%s\n" "$rdp_bin" "${VM_USERNAME}" "${VM_PASSWORD}"
                 return 0
             fi
         done
@@ -2789,7 +2805,7 @@ _gpu_vm_launch() {
             fi
         fi
 
-        xfreerdp /u:"${VM_USERNAME}" /p:"${VM_PASSWORD}" /v:127.0.0.1:3389 \
+        "$rdp_bin" /u:"${VM_USERNAME}" /p:"${VM_PASSWORD}" /v:127.0.0.1:3389 \
             /cert:ignore /sound /microphone /clipboard \
             /title:"Windows VM — .hyprconf" /dynamic-resolution \
             /gfx:AVC444 ${scale_arg} +grab-keyboard 2>/dev/null || true
@@ -2804,7 +2820,7 @@ _gpu_vm_launch() {
         fi
     else
         printf "  Install looking-glass-client (AUR) or freerdp for display.\n"
-        printf "  RDP: xfreerdp /v:127.0.0.1:3389 /u:%s /p:%s\n" "${VM_USERNAME}" "${VM_PASSWORD}"
+        printf "  Web viewer: http://127.0.0.1:8006\n"
     fi
 }
 
