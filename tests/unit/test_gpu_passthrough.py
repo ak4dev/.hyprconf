@@ -1469,7 +1469,7 @@ class TestGpuVmComposeSmbios:
             # Override cpu_flags to return predictable value
             _gpu_vm_cpu_flags() {{ printf '%s' "-hypervisor,hv_vendor_id=AuthenticAMD,family=25,model=33,stepping=2"; }}
             # Override disk_flags (no real disk in test)
-            _gpu_vm_disk_flags() {{ printf '%s' "-global scsi-hd.product=Samsung_970_EVO"; }}
+            _gpu_vm_disk_flags() {{ printf '%s' "-global ide-hd.model=Samsung_970_EVO"; }}
             # Simulate kvmfr0 device for Looking Glass
             _GPU_VM_KVMFR_DEV="{tmp_path}/kvmfr0"
             touch "$_GPU_VM_KVMFR_DEV"
@@ -1501,7 +1501,7 @@ class TestGpuVmComposeSmbios:
         # MACHINE env var
         assert 'MACHINE: "q35"' in compose
         # Disk spoofing in ARGUMENTS
-        assert "scsi-hd.product=Samsung_970_EVO" in compose
+        assert "ide-hd.model=Samsung_970_EVO" in compose
         # Anti-detection env vars (eliminate VirtIO fingerprints)
         assert 'DISPLAY: "none"' in compose
         assert 'ADAPTER: "e1000e"' in compose
@@ -1730,6 +1730,12 @@ class TestGpuVmOem:
         assert "FirefoxSetup.exe" in bat
         assert "/S" in bat
         assert "/quiet" in bat
+        # Privacy hardening
+        assert "AllowTelemetry" in bat
+        assert "AdvertisingInfo" in bat
+        assert "DiagTrack" in bat
+        assert "TurnOffWindowsCopilot" in bat
+        assert "DisableAIDataAnalysis" in bat
 
     def test_oem_dir_created_by_generate(self, tmp_path):
         """OEM directory is created by _gpu_vm_generate_oem."""
@@ -1888,7 +1894,7 @@ class TestGpuVmDiskFlags:
     """Tests for _gpu_vm_disk_flags() — disk identity spoofing."""
 
     def test_nvme_disk(self, tmp_path):
-        """NVMe disk is detected and produces scsi-hd spoofing flags."""
+        """NVMe disk is detected and produces ide-hd spoofing flags."""
         bin_dir = tmp_path / "bin"
         sysfs_root = tmp_path / "sys"
         _make_fake_bins(bin_dir)
@@ -1899,7 +1905,6 @@ class TestGpuVmDiskFlags:
         lsblk.write_text(textwrap.dedent('''\
             #!/bin/bash
             case "$@" in
-                *VENDOR*nvme*) echo "Samsung";;
                 *MODEL*nvme*)  echo "Samsung SSD 970 EVO Plus 2TB";;
                 *SERIAL*nvme*) echo "S4P2NJ0R123456";;
                 *) echo "";;
@@ -1918,9 +1923,9 @@ class TestGpuVmDiskFlags:
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
         assert r.returncode == 0, f"stderr: {r.stderr}"
         out = r.stdout
-        assert "scsi-hd.vendor=Samsung" in out
-        assert "scsi-hd.product=Samsung_SSD_970_EVO_Plus_2TB" in out
-        assert "scsi-hd.serial=S4P2NJ0R123456" in out
+        assert "ide-hd.model=Samsung_SSD_970_EVO_Plus_2TB" in out
+        assert "ide-hd.serial=S4P2NJ0R123456" in out
+        assert "ide-cd.model=ATAPI_DVD_RW" in out
 
     def test_no_disk_returns_empty(self, tmp_path):
         """Returns empty when no disk is found."""

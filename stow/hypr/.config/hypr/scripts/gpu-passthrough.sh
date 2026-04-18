@@ -2093,24 +2093,24 @@ _gpu_vm_cpu_flags() {
 }
 
 _gpu_vm_disk_flags() {
-    # Generate -global scsi-hd.* args to spoof disk identity.
-    # Reads vendor/model/serial from host's primary disk via lsblk.
-    local disk_vendor="" disk_model="" disk_serial="" flags=""
+    # Generate -global ide-hd.* args to spoof SATA disk identity.
+    # With DISK_TYPE=sata, Dockurr uses ich9-ahci + ide-hd (not scsi-hd).
+    # Without these, Windows sees "QEMU HARDDISK" — a major VM fingerprint.
+    local disk_model="" disk_serial="" flags=""
 
     # Try NVMe first, fall back to SATA/SAS
-    disk_vendor=$(lsblk -ndo VENDOR /dev/nvme0n1 2>/dev/null | xargs)
     disk_model=$(lsblk -ndo MODEL /dev/nvme0n1 2>/dev/null | xargs)
     disk_serial=$(lsblk -ndo SERIAL /dev/nvme0n1 2>/dev/null | xargs)
     if [[ -z "$disk_model" ]]; then
-        disk_vendor=$(lsblk -ndo VENDOR /dev/sda 2>/dev/null | xargs)
         disk_model=$(lsblk -ndo MODEL /dev/sda 2>/dev/null | xargs)
         disk_serial=$(lsblk -ndo SERIAL /dev/sda 2>/dev/null | xargs)
     fi
 
     if [[ -n "$disk_model" ]]; then
-        [[ -n "$disk_vendor" ]] && flags+="-global scsi-hd.vendor=$(_gpu_vm_smbios_sanitize "$disk_vendor") "
-        flags+="-global scsi-hd.product=$(_gpu_vm_smbios_sanitize "$disk_model")"
-        [[ -n "$disk_serial" ]] && flags+=" -global scsi-hd.serial=$(_gpu_vm_smbios_sanitize "$disk_serial")"
+        flags+="-global ide-hd.model=$(_gpu_vm_smbios_sanitize "$disk_model")"
+        [[ -n "$disk_serial" ]] && flags+=" -global ide-hd.serial=$(_gpu_vm_smbios_sanitize "$disk_serial")"
+        # Also spoof the CD-ROM to hide "QEMU DVD-ROM"
+        flags+=" -global ide-cd.model=ATAPI_DVD_RW"
     fi
 
     printf '%s' "$flags"
@@ -2455,14 +2455,15 @@ EOF
 }
 
 _gpu_vm_generate_oem() {
-    # Generate OEM install.bat that auto-installs gaming platforms and Firefox.
+    # Generate OEM install.bat that auto-installs gaming platforms, Firefox,
+    # and applies maximum privacy settings.
     # Dockurr copies /oem → C:\OEM and runs install.bat at the end of unattended setup.
     mkdir -p "$_GPU_VM_OEM_DIR"
     cat > "$_GPU_VM_OEM_DIR/install.bat" <<'OEMEOF'
 @echo off
 setlocal
 
-echo === hyprconf OEM: Installing gaming platforms ===
+echo === hyprconf OEM: Installing software ===
 
 echo [1/4] Downloading Steam...
 powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe' -OutFile '%TEMP%\SteamSetup.exe'"
@@ -2507,6 +2508,89 @@ if exist "%TEMP%\FirefoxSetup.exe" (
 ) else (
     echo [4/4] Firefox download failed, skipping.
 )
+
+echo === Applying privacy settings ===
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+ $p='HKLM:\SOFTWARE\Policies\Microsoft\Windows';^
+ $c='HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion';^
+ ^
+ # --- Telemetry ---^
+ New-Item -Path \"$p\DataCollection\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$p\DataCollection\" -Name AllowTelemetry -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$p\DataCollection\" -Name DoNotShowFeedbackNotifications -Value 1 -Type DWord;^
+ New-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Diagnostics\DiagTrack' -Force | Out-Null;^
+ Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Diagnostics\DiagTrack' -Name ShowedToastAtLevel -Value 1 -Type DWord;^
+ ^
+ # --- Advertising ID ---^
+ New-Item -Path \"$c\AdvertisingInfo\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$c\AdvertisingInfo\" -Name Enabled -Value 0 -Type DWord;^
+ ^
+ # --- Activity History ---^
+ New-Item -Path \"$p\System\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$p\System\" -Name EnableActivityFeed -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$p\System\" -Name PublishUserActivities -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$p\System\" -Name UploadUserActivities -Value 0 -Type DWord;^
+ ^
+ # --- Location ---^
+ New-Item -Path \"$c\CapabilityAccessManager\ConsentStore\location\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$c\CapabilityAccessManager\ConsentStore\location\" -Name Value -Value 'Deny';^
+ ^
+ # --- Cortana ---^
+ New-Item -Path \"$p\Windows Search\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$p\Windows Search\" -Name AllowCortana -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$p\Windows Search\" -Name AllowSearchToUseLocation -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$p\Windows Search\" -Name AllowCloudSearch -Value 0 -Type DWord;^
+ ^
+ # --- Start menu suggestions / tips ---^
+ New-Item -Path \"$c\ContentDeliveryManager\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name SystemPaneSuggestionsEnabled -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name SoftLandingEnabled -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name SubscribedContent-338388Enabled -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name SubscribedContent-310093Enabled -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name SubscribedContent-338389Enabled -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name SubscribedContent-338393Enabled -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name OemPreInstalledAppsEnabled -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name PreInstalledAppsEnabled -Value 0 -Type DWord;^
+ Set-ItemProperty -Path \"$c\ContentDeliveryManager\" -Name SilentInstalledAppsEnabled -Value 0 -Type DWord;^
+ ^
+ # --- Tailored experiences ---^
+ New-Item -Path \"$c\Privacy\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$c\Privacy\" -Name TailoredExperiencesWithDiagnosticDataEnabled -Value 0 -Type DWord;^
+ ^
+ # --- Online speech recognition ---^
+ New-Item -Path 'HKCU:\SOFTWARE\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy' -Force | Out-Null;^
+ Set-ItemProperty -Path 'HKCU:\SOFTWARE\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy' -Name HasAccepted -Value 0 -Type DWord;^
+ ^
+ # --- Inking and typing personalisation ---^
+ New-Item -Path \"$c\InputPersonalization\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$c\InputPersonalization\" -Name RestrictImplicitInkCollection -Value 1 -Type DWord;^
+ Set-ItemProperty -Path \"$c\InputPersonalization\" -Name RestrictImplicitTextCollection -Value 1 -Type DWord;^
+ New-Item -Path \"$c\InputPersonalization\TrainedDataStore\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$c\InputPersonalization\TrainedDataStore\" -Name HarvestContacts -Value 0 -Type DWord;^
+ ^
+ # --- App launch tracking ---^
+ New-Item -Path \"$c\Explorer\Advanced\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$c\Explorer\Advanced\" -Name Start_TrackProgs -Value 0 -Type DWord;^
+ ^
+ # --- Disable DiagTrack and dmwappushservice ---^
+ Stop-Service -Name DiagTrack -Force -ErrorAction SilentlyContinue;^
+ Set-Service -Name DiagTrack -StartupType Disabled -ErrorAction SilentlyContinue;^
+ Stop-Service -Name dmwappushservice -Force -ErrorAction SilentlyContinue;^
+ Set-Service -Name dmwappushservice -StartupType Disabled -ErrorAction SilentlyContinue;^
+ ^
+ # --- Disable Copilot ---^
+ New-Item -Path \"$p\WindowsCopilot\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$p\WindowsCopilot\" -Name TurnOffWindowsCopilot -Value 1 -Type DWord;^
+ ^
+ # --- Disable Recall ---^
+ New-Item -Path \"$p\WindowsAI\" -Force | Out-Null;^
+ Set-ItemProperty -Path \"$p\WindowsAI\" -Name DisableAIDataAnalysis -Value 1 -Type DWord;^
+ ^
+ # --- Disable widgets ---^
+ New-Item -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' -Force | Out-Null;^
+ Set-ItemProperty -Path 'HKLM:\SOFTWARE\Policies\Microsoft\Dsh' -Name AllowNewsAndInterests -Value 0 -Type DWord;^
+ ^
+ Write-Host 'Privacy settings applied.'
 
 echo === OEM install complete ===
 endlocal
