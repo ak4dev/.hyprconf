@@ -1990,22 +1990,21 @@ _gpu_host_smbios() {
 }
 
 _gpu_vm_smbios_sanitize() {
-    # Replace spaces with underscores and remove commas so the value survives
-    # Dockurr's unquoted $ARGS expansion without word-splitting or breaking
-    # QEMU's comma-delimited option parser.
+    # Replace spaces with underscores and escape commas with QEMU's double-comma
+    # convention so the value survives Dockurr's unquoted $ARGS expansion.
     local v="$1"
     v="${v// /_}"
-    v="${v//,/}"
+    v="${v//,/,,}"
     printf '%s' "$v"
 }
 
 _gpu_vm_smbios_args() {
     # Generate QEMU -smbios args from host hardware identity.
-    # Passes real BIOS (type 0), system (type 1), and baseboard (type 2) info
+    # Passes real BIOS (type 0), system (type 1), and processor (type 4) info
     # so the guest sees genuine manufacturer/product strings instead of
     # "QEMU Standard PC".  Prevents anti-cheat (EAC, VAC, …) VM detection.
     local dmi="/sys/devices/virtual/dmi/id"
-    local args="" v
+    local args=""
 
     # ── Type 0 — BIOS ──────────────────────────────────────────────────────
     local bios_vendor="" bios_version="" bios_date=""
@@ -2017,6 +2016,7 @@ _gpu_vm_smbios_args() {
         args+=",vendor=$(_gpu_vm_smbios_sanitize "$bios_vendor")"
         [[ -n "$bios_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$bios_version")"
         [[ -n "$bios_date" ]]    && args+=",date=$(_gpu_vm_smbios_sanitize "$bios_date")"
+        args+=",uefi=on"
     fi
 
     # ── Type 1 — System ────────────────────────────────────────────────────
@@ -2034,26 +2034,86 @@ _gpu_vm_smbios_args() {
         [[ -n "$product_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$product_name")"
         [[ -n "$product_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$product_version")"
         [[ -n "$product_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$product_serial")"
-        [[ -n "$product_uuid" ]]    && args+=",uuid=$(_gpu_vm_smbios_sanitize "$product_uuid")"
+        # UUID: only pass if valid format (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)
+        if [[ "$product_uuid" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+            args+=",uuid=$product_uuid"
+        fi
         [[ -n "$product_family" ]]  && args+=",family=$(_gpu_vm_smbios_sanitize "$product_family")"
     fi
 
-    # ── Type 2 — Baseboard ──────────────────────────────────────────────────
-    local board_vendor="" board_name="" board_version="" board_serial=""
-    [[ -r "$dmi/board_vendor" ]]  && board_vendor=$(cat "$dmi/board_vendor" 2>/dev/null)
-    [[ -r "$dmi/board_name" ]]    && board_name=$(cat "$dmi/board_name" 2>/dev/null)
-    [[ -r "$dmi/board_version" ]] && board_version=$(cat "$dmi/board_version" 2>/dev/null)
-    [[ -r "$dmi/board_serial" ]]  && board_serial=$(cat "$dmi/board_serial" 2>/dev/null)
-    if [[ -n "$board_vendor" ]]; then
-        args+=" -smbios type=2"
-        args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$board_vendor")"
-        [[ -n "$board_name" ]]    && args+=",product=$(_gpu_vm_smbios_sanitize "$board_name")"
-        [[ -n "$board_version" ]] && args+=",version=$(_gpu_vm_smbios_sanitize "$board_version")"
-        [[ -n "$board_serial" ]]  && args+=",serial=$(_gpu_vm_smbios_sanitize "$board_serial")"
+    # ── Type 4 — Processor ─────────────────────────────────────────────────
+    local cpu_mfg="" cpu_ver="" cpu_cur_speed="" cpu_max_speed=""
+    if command -v dmidecode &>/dev/null; then
+        cpu_mfg=$(sudo -n dmidecode -t processor 2>/dev/null \
+            | grep -m1 'Manufacturer:' | sed 's/.*Manufacturer:[[:space:]]*//' || true)
+        cpu_ver=$(sudo -n dmidecode -t processor 2>/dev/null \
+            | grep -m1 'Version:' | sed 's/.*Version:[[:space:]]*//' || true)
+        cpu_cur_speed=$(sudo -n dmidecode -t processor 2>/dev/null \
+            | grep -m1 'Current Speed:' | grep -oP '\d+' | head -1 || true)
+        cpu_max_speed=$(sudo -n dmidecode -t processor 2>/dev/null \
+            | grep -m1 'Max Speed:' | grep -oP '\d+' | head -1 || true)
+    fi
+    # Fallback to /proc/cpuinfo
+    [[ -z "$cpu_mfg" ]] && cpu_mfg=$(grep -m1 'vendor_id' /proc/cpuinfo 2>/dev/null \
+        | awk -F': ' '{print $2}' || true)
+    [[ -z "$cpu_ver" ]] && cpu_ver=$(grep -m1 'model name' /proc/cpuinfo 2>/dev/null \
+        | awk -F': ' '{print $2}' || true)
+    if [[ -n "$cpu_mfg" ]] && [[ -n "$cpu_ver" ]]; then
+        args+=" -smbios type=4"
+        args+=",manufacturer=$(_gpu_vm_smbios_sanitize "$cpu_mfg")"
+        args+=",version=$(_gpu_vm_smbios_sanitize "$cpu_ver")"
+        [[ -n "$cpu_cur_speed" ]] && args+=",current-speed=${cpu_cur_speed}"
+        [[ -n "$cpu_max_speed" ]] && args+=",max-speed=${cpu_max_speed}"
     fi
 
     args="${args# }"  # trim leading space
     printf '%s' "$args"
+}
+
+_gpu_vm_cpu_flags() {
+    # Generate CPU_FLAGS for anti-detection: hides hypervisor CPUID bit,
+    # sets Hyper-V vendor ID to real CPU vendor, passes host CPU identity.
+    # Returned value is set as the CPU_FLAGS Docker env var; Dockurr appends
+    # it after its own CPU features, so our -hypervisor overrides +hypervisor.
+    local vendor flags=""
+    vendor=$(grep -m1 'vendor_id' /proc/cpuinfo 2>/dev/null | awk -F': ' '{print $2}')
+    [[ -z "$vendor" ]] && return 0
+
+    flags="-hypervisor,hv_vendor_id=${vendor}"
+
+    local family model stepping
+    family=$(grep -m1 '^cpu family[[:space:]]*:' /proc/cpuinfo 2>/dev/null | awk -F': ' '{print $2}')
+    model=$(grep -m1 '^model[[:space:]]*:' /proc/cpuinfo 2>/dev/null | awk -F': ' '{print $2}')
+    stepping=$(grep -m1 '^stepping[[:space:]]*:' /proc/cpuinfo 2>/dev/null | awk -F': ' '{print $2}')
+    [[ "$family" =~ ^[0-9]+$ ]]   && flags+=",family=${family}"
+    [[ "$model" =~ ^[0-9]+$ ]]    && flags+=",model=${model}"
+    [[ "$stepping" =~ ^[0-9]+$ ]] && flags+=",stepping=${stepping}"
+
+    printf '%s' "$flags"
+}
+
+_gpu_vm_disk_flags() {
+    # Generate -global scsi-hd.* args to spoof disk identity.
+    # Reads vendor/model/serial from host's primary disk via lsblk.
+    local disk_vendor="" disk_model="" disk_serial="" flags=""
+
+    # Try NVMe first, fall back to SATA/SAS
+    disk_vendor=$(lsblk -ndo VENDOR /dev/nvme0n1 2>/dev/null | xargs)
+    disk_model=$(lsblk -ndo MODEL /dev/nvme0n1 2>/dev/null | xargs)
+    disk_serial=$(lsblk -ndo SERIAL /dev/nvme0n1 2>/dev/null | xargs)
+    if [[ -z "$disk_model" ]]; then
+        disk_vendor=$(lsblk -ndo VENDOR /dev/sda 2>/dev/null | xargs)
+        disk_model=$(lsblk -ndo MODEL /dev/sda 2>/dev/null | xargs)
+        disk_serial=$(lsblk -ndo SERIAL /dev/sda 2>/dev/null | xargs)
+    fi
+
+    if [[ -n "$disk_model" ]]; then
+        [[ -n "$disk_vendor" ]] && flags+="-global scsi-hd.vendor=$(_gpu_vm_smbios_sanitize "$disk_vendor") "
+        flags+="-global scsi-hd.product=$(_gpu_vm_smbios_sanitize "$disk_model")"
+        [[ -n "$disk_serial" ]] && flags+=" -global scsi-hd.serial=$(_gpu_vm_smbios_sanitize "$disk_serial")"
+    fi
+
+    printf '%s' "$flags"
 }
 
 # ── Status (default view) ─────────────────────────────────────────────────────
@@ -2411,7 +2471,17 @@ _gpu_vm_generate_compose() {
     local smbios_args
     smbios_args=$(_gpu_vm_smbios_args)
     [[ -n "$smbios_args" ]] && qemu_devices="${qemu_devices} ${smbios_args}"
+
+    # Append disk identity spoofing args
+    local disk_flags
+    disk_flags=$(_gpu_vm_disk_flags)
+    [[ -n "$disk_flags" ]] && qemu_devices="${qemu_devices} ${disk_flags}"
+
     qemu_devices="${qemu_devices# }"  # trim leading space
+
+    # CPU anti-detection flags (hides hypervisor bit, passes real CPU identity)
+    local cpu_flags
+    cpu_flags=$(_gpu_vm_cpu_flags)
 
     local tz
     tz=$(timedatectl show -p Timezone --value 2>/dev/null || echo "UTC")
@@ -2430,6 +2500,8 @@ services:
       USERNAME: "${VM_USERNAME:-user}"
       PASSWORD: "${VM_PASSWORD:-admin}"
       TZ: "${tz}"
+      CPU_FLAGS: "${cpu_flags}"
+      MACHINE: "q35"
       ARGUMENTS: "${qemu_devices}"
     devices:
       - /dev/kvm
