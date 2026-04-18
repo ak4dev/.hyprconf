@@ -968,6 +968,8 @@ _gpu_audit() {
         local pci_addr name driver
         pci_addr=$(echo "$line" | awk '{print $1}')
         name=$(echo "$line" | sed -E 's/^[0-9a-f:.]+\s+[^:]+:\s+//' | sed -E 's/\s*\[[0-9a-f]{4}:[0-9a-f]{4}\]//g' | sed -E 's/\s*\(rev [^)]+\)//')
+        driver=$(_gpu_current_driver "$pci_addr" 2>/dev/null)
+        printf "  %s: %s (%s)\n" "$pci_addr" "$name" "${driver:-none}"
     done < <(_gpu_list_raw)
 
     printf "\n"

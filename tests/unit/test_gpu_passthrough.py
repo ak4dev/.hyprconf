@@ -873,6 +873,14 @@ class TestGpuAudit:
         # Modules available but not loaded → warnings
         assert "available but not loaded" in r.stdout
 
+    def test_audit_gpu_overview_prints_gpus(self, fake_env):
+        """GPU overview section must list each GPU with PCI addr and driver."""
+        r = _source_and_run("_gpu_audit", **fake_env)
+        assert "GPUs" in r.stdout
+        # fake_env has GPUs at 01:00.0 and 02:00.0
+        assert "01:00.0" in r.stdout
+        assert "02:00.0" in r.stdout
+
 
 # ---------------------------------------------------------------------------
 # _gpu_status
