@@ -2375,7 +2375,7 @@ readonly -a _ADDON_NAMES=(dev vfio)
 _addon_description() {
   case "$1" in
     dev)  printf "Developer tools: full test-suite deps (pytest-xdist, QEMU/KVM, Packer) + GitHub Copilot CLI" ;;
-    vfio) printf "GPU passthrough: QEMU, OVMF, VFIO modules (for GPU VM passthrough)" ;;
+    vfio) printf "GPU passthrough: QEMU, OVMF, VFIO, Looking Glass, RDP (for GPU VM)" ;;
     *)    printf "" ;;
   esac
 }
@@ -2384,7 +2384,7 @@ _addon_description() {
 _addon_packages() {
   case "$1" in
     dev)  printf "python-pytest-xdist qemu-full edk2-ovmf aws-cli" ;;
-    vfio) printf "qemu-desktop edk2-ovmf dmidecode" ;;
+    vfio) printf "qemu-desktop edk2-ovmf dmidecode freerdp" ;;
     *)    printf "" ;;
   esac
 }
@@ -2393,7 +2393,7 @@ _addon_packages() {
 _addon_aur_packages() {
   case "$1" in
     dev)  printf "packer" ;;
-    vfio) printf "" ;;
+    vfio) printf "looking-glass looking-glass-module-dkms" ;;
     *)    printf "" ;;
   esac
 }
@@ -2478,6 +2478,47 @@ _addon_post_install() {
       fi
 
       printf "\n${_g}✓${_r} VFIO addon setup complete.\n"
+
+      # kvmfr module (Looking Glass shared memory)
+      local kvmfr_conf="/etc/modules-load.d/kvmfr.conf"
+      if [[ ! -f "$kvmfr_conf" ]] || ! grep -q "^kvmfr$" "$kvmfr_conf" 2>/dev/null; then
+        printf "${_b}→${_r} Registering kvmfr module for auto-load...\n"
+        printf 'kvmfr\n' | sudo tee "$kvmfr_conf" > /dev/null \
+          && printf "${_g}✓${_r} kvmfr registered in %s.\n" "$kvmfr_conf" \
+          || printf "${_y}⚠${_r} Could not write %s.\n" "$kvmfr_conf"
+      else
+        printf "${_g}✓${_r} kvmfr module autoload already configured.\n"
+      fi
+
+      local kvmfr_opts="/etc/modprobe.d/kvmfr.conf"
+      if [[ ! -f "$kvmfr_opts" ]] || ! grep -q "static_size_mb" "$kvmfr_opts" 2>/dev/null; then
+        printf "${_b}→${_r} Setting kvmfr shared memory to 128MB...\n"
+        printf 'options kvmfr static_size_mb=128\n' | sudo tee "$kvmfr_opts" > /dev/null \
+          && printf "${_g}✓${_r} kvmfr options saved to %s.\n" "$kvmfr_opts" \
+          || printf "${_y}⚠${_r} Could not write %s.\n" "$kvmfr_opts"
+      else
+        printf "${_g}✓${_r} kvmfr options already configured.\n"
+      fi
+
+      sudo modprobe kvmfr static_size_mb=128 2>/dev/null \
+        && printf "${_g}✓${_r} kvmfr module loaded (/dev/kvmfr0).\n" \
+        || printf "${_y}⚠${_r} modprobe kvmfr failed — reboot may be required after DKMS build.\n"
+
+      # Set /dev/kvmfr0 permissions for current user
+      if [[ -e /dev/kvmfr0 ]]; then
+        sudo chown "$USER:kvm" /dev/kvmfr0 2>/dev/null \
+          && printf "${_g}✓${_r} /dev/kvmfr0 owned by %s.\n" "$USER"
+
+        # Persist via udev rule
+        local udev_rule="/etc/udev/rules.d/99-kvmfr.rules"
+        if [[ ! -f "$udev_rule" ]]; then
+          printf 'SUBSYSTEM=="kvmfr", OWNER="%s", GROUP="kvm", MODE="0660"\n' "$USER" \
+            | sudo tee "$udev_rule" > /dev/null \
+            && printf "${_g}✓${_r} udev rule created for /dev/kvmfr0 permissions.\n"
+        fi
+      fi
+
+      printf "\n${_g}✓${_r} VFIO addon fully configured.\n"
       printf "  Run 'hyprconf hardware gpu audit' to verify system readiness.\n"
       printf "  Run 'hyprconf hardware gpu setup' to configure GPU and driver blacklist.\n"
       ;;
