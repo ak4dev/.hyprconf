@@ -2185,6 +2185,7 @@ readonly _GPU_VM_COMPOSE="${_GPU_CONF_DIR}/gpu-vm.yml"
 readonly _GPU_VM_CONTAINER="hyprconf-windows"
 readonly _GPU_VM_STORAGE_DIR="${HOME}/.local/share/hyprconf/windows-vm"
 readonly _GPU_VM_SHARED_DIR="${HOME}/Windows"
+readonly _GPU_VM_OEM_DIR="${HOME}/.local/share/hyprconf/windows-vm-oem"
 readonly _GPU_VM_USB_CONF="${_GPU_CONF_DIR}/gpu-vm-usb.conf"
 readonly _GPU_VM_QEMU_MONITOR="/run/qemu.monitor"
 _GPU_VM_KVMFR_DEV="/dev/kvmfr0"
@@ -2453,6 +2454,43 @@ VM_IVSHMEM_SIZE="${VM_IVSHMEM_SIZE:-64}"
 EOF
 }
 
+_gpu_vm_generate_oem() {
+    # Generate OEM install.bat that auto-installs Steam and Epic Games Launcher.
+    # Dockurr copies /oem → C:\OEM and runs install.bat at the end of unattended setup.
+    mkdir -p "$_GPU_VM_OEM_DIR"
+    cat > "$_GPU_VM_OEM_DIR/install.bat" <<'OEMEOF'
+@echo off
+setlocal
+
+echo === hyprconf OEM: Installing gaming platforms ===
+
+echo [1/2] Downloading Steam...
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe' -OutFile '%TEMP%\SteamSetup.exe'"
+if exist "%TEMP%\SteamSetup.exe" (
+    echo [1/2] Installing Steam silently...
+    start /wait "" "%TEMP%\SteamSetup.exe" /S
+    del "%TEMP%\SteamSetup.exe"
+    echo [1/2] Steam installed.
+) else (
+    echo [1/2] Steam download failed, skipping.
+)
+
+echo [2/2] Downloading Epic Games Launcher...
+powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi' -OutFile '%TEMP%\EpicInstaller.msi'"
+if exist "%TEMP%\EpicInstaller.msi" (
+    echo [2/2] Installing Epic Games Launcher silently...
+    msiexec /i "%TEMP%\EpicInstaller.msi" /quiet /norestart
+    del "%TEMP%\EpicInstaller.msi"
+    echo [2/2] Epic Games Launcher installed.
+) else (
+    echo [2/2] Epic download failed, skipping.
+)
+
+echo === OEM install complete ===
+endlocal
+OEMEOF
+}
+
 _gpu_vm_generate_compose() {
     # Generate docker-compose.yml with GPU passthrough, Looking Glass,
     # and comprehensive anti-detection (SMBIOS, CPU, disk, devices).
@@ -2545,7 +2583,7 @@ _gpu_vm_generate_compose() {
     local tz
     tz=$(timedatectl show -p Timezone --value 2>/dev/null || echo "UTC")
 
-    mkdir -p "$_GPU_CONF_DIR" "$_GPU_VM_STORAGE_DIR" "$_GPU_VM_SHARED_DIR"
+    mkdir -p "$_GPU_CONF_DIR" "$_GPU_VM_STORAGE_DIR" "$_GPU_VM_SHARED_DIR" "$_GPU_VM_OEM_DIR"
 
     # Build devices list (kvmfr0 only if module is loaded)
     local devices_block="      - /dev/kvm
@@ -2596,6 +2634,7 @@ ${devices_block}
     volumes:
       - ${_GPU_VM_STORAGE_DIR}:/storage
       - ${_GPU_VM_SHARED_DIR}:/shared
+      - ${_GPU_VM_OEM_DIR}:/oem
       - ${spice_dir}:/tmp/spice
     restart: unless-stopped
     stop_grace_period: 2m
@@ -2698,6 +2737,7 @@ _gpu_vm_install() {
     fi
 
     _gpu_vm_save_config
+    _gpu_vm_generate_oem
     _gpu_vm_generate_compose
 
     printf "\n✔ Windows VM configured.\n"
@@ -2915,7 +2955,7 @@ _gpu_vm_remove() {
 
     # Remove config and data
     rm -f "$_GPU_VM_CONF" "$_GPU_VM_COMPOSE"
-    rm -rf "$_GPU_VM_STORAGE_DIR"
+    rm -rf "$_GPU_VM_STORAGE_DIR" "$_GPU_VM_OEM_DIR"
 
     printf "✔ Windows VM removed.\n"
     printf "  Shared folder ~/Windows/ was preserved.\n"

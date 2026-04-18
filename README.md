@@ -515,7 +515,7 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 
 **Dual-NVIDIA boot entries:** `setup` creates `hyprconf-vm.conf` in `/boot/loader/entries/` (systemd-boot) or a GRUB custom menuentry. The VM entry duplicates the default entry and appends `vfio-pci.ids=<gpu>,<audio>`. mkinitcpio is configured with `vfio-pci` before `nvidia` in MODULES so vfio-pci loads early enough to claim the device. `hyprconf sync` keeps boot entries and initramfs config in sync. The normal entry is not modified — vfio-pci loads but claims nothing without `vfio-pci.ids` in the cmdline.
 
-**Windows VM:** Uses `dockurr/windows` Docker image (QEMU internally) with GPU forwarded via vfio-pci and [Looking Glass](https://looking-glass.io/) for near-native display latency. First run: `hyprconf hardware gpu vm install` to configure resources and IVSHMEM size. Then `hyprconf hardware gpu vm launch` to bind the GPU, start the container, and connect via Looking Glass (falls back to RDP if `looking-glass-client` not installed). The GPU must have a physical display connected (second monitor, second cable, or HDMI/DP dummy plug). First boot: Windows installs on the GPU-connected display — install GPU drivers and the Looking Glass host app. SPICE provides audio and clipboard sharing. Shared folder at `~/Windows/` is mounted as a network drive. Requires `docker-compose`; optional: `looking-glass` (AUR), `freerdp`.
+**Windows VM:** Uses `dockurr/windows` Docker image (QEMU internally) with GPU forwarded via vfio-pci and [Looking Glass](https://looking-glass.io/) for near-native display latency. First run: `hyprconf hardware gpu vm install` to configure resources and IVSHMEM size. Then `hyprconf hardware gpu vm launch` to bind the GPU, start the container, and connect via Looking Glass (falls back to RDP if `looking-glass-client` not installed). The GPU must have a physical display connected (second monitor, second cable, or HDMI/DP dummy plug). First boot: Windows installs on the GPU-connected display — install GPU drivers and the Looking Glass host app. SPICE provides audio and clipboard sharing. Shared folder at `~/Windows/` is mounted as a network drive. **OEM auto-install:** Steam and Epic Games Launcher are automatically installed during first boot via an OEM `install.bat` — no manual downloads needed. The user account is created automatically (no OOBE prompt). Requires `docker-compose`; optional: `looking-glass` (AUR), `freerdp`.
 
 **Anti-cheat evasion:** The VM uses a multi-layer anti-detection strategy mirroring [omarchy](https://github.com/basecamp/omarchy):
 
@@ -531,13 +531,14 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 | **USB** | `USB: "no"` + conditional `qemu-xhci` only when USB passthrough configured | No unnecessary virtual USB controller |
 | **Power** | `-global ICH9-LPC.disable_s3=1 -global ICH9-LPC.disable_s4=1` | Prevents suspend/hibernate which breaks GPU passthrough |
 | **Looking Glass** | ivshmem shared memory + SPICE audio/input | Near-native display via physical GPU, no virtual VGA needed |
+| **OEM auto-install** | `/oem` volume → `install.bat` runs post-setup | Steam + Epic Games Launcher installed on first boot, no OOBE prompt |
 | **Hyper-V passthrough** | Dockurr default `hv_passthrough` + our `-hypervisor` override | Hyper-V enlightenments active but hypervisor bit hidden |
 
 This is sufficient for EAC (Fortnite, The Finals), VAC (CS2), and most anti-cheat systems. Riot Vanguard (VALORANT) and kernel-level anti-cheat (Javelin/BF6) use deeper detection and are not bypassed.
 
 **Workflow (dual-NVIDIA):** Reboot → select "GPU Passthrough" at boot menu → `hyprconf hardware gpu vm launch` → VM starts with GPU, Looking Glass auto-launches. To return to full desktop: `hyprconf hardware gpu mode host`, then reboot with the normal entry.
 
-**Workflow (single-GPU + iGPU):** `hyprconf hardware gpu vm launch` handles the full flow — unbind nvidia, bind to vfio-pci, start the Docker container, wait for Windows, launch Looking Glass (or connect via RDP with `--rdp`). On RDP disconnect the VM stops automatically (use `-k` to keep it running). Return GPU to host: `hyprconf hardware gpu mode host`.
+**Workflow (single-GPU + iGPU):** `hyprconf hardware gpu vm launch` handles the full flow — unbind nvidia, bind to vfio-pci, start the Docker container, wait for Windows, launch Looking Glass (or connect via RDP with `--rdp`). VM keeps running after RDP disconnect by default (use `--stop-on-disconnect` to auto-stop). Return GPU to host: `hyprconf hardware gpu mode host`.
 
 **Prerequisites:** `sudo modprobe kvmfr static_size_mb=N` (32 for 1080p, 64 for 1440p, 128 for 4K). Add to `/etc/modules-load.d/` for persistence. GPU must have a display connected (second monitor or dummy plug).
 

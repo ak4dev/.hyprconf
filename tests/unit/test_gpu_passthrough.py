@@ -1530,6 +1530,8 @@ class TestGpuVmComposeSmbios:
         assert "ICH9-LPC.disable_s4=1" in compose
         # SPICE volume mount
         assert "/tmp/spice" in compose
+        # OEM volume mount for auto-install
+        assert "/oem" in compose
         # ulimits for VFIO memory locking
         assert "memlock:" in compose
         assert "soft: -1" in compose
@@ -1694,6 +1696,64 @@ class TestGpuVmComposeSmbios:
 
         assert 'USB: "no"' in compose
         assert "qemu-xhci" not in compose
+
+
+class TestGpuVmOem:
+    """Tests for OEM auto-install script generation."""
+
+    def test_generate_oem_creates_install_bat(self, tmp_path):
+        """_gpu_vm_generate_oem creates install.bat with Steam and Epic installers."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_generate_oem
+            cat "$_GPU_VM_OEM_DIR/install.bat"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        bat = r.stdout
+
+        assert "SteamSetup.exe" in bat
+        assert "EpicInstaller.msi" in bat
+        assert "EpicGamesLauncherInstaller.msi" in bat
+        assert "/S" in bat
+        assert "/quiet" in bat
+
+    def test_oem_dir_created_by_generate(self, tmp_path):
+        """OEM directory is created by _gpu_vm_generate_oem."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        oem_dir = home_dir / ".local" / "share" / "hyprconf" / "windows-vm-oem"
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_generate_oem
+            [[ -d "$_GPU_VM_OEM_DIR" ]] && echo "OEM_DIR_EXISTS"
+            [[ -f "$_GPU_VM_OEM_DIR/install.bat" ]] && echo "INSTALL_BAT_EXISTS"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "OEM_DIR_EXISTS" in r.stdout
+        assert "INSTALL_BAT_EXISTS" in r.stdout
 
 
 class TestGpuVmCpuFlags:
