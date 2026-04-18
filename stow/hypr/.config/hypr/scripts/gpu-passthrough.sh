@@ -2302,11 +2302,12 @@ _gpu_vm_usb_add() {
         dev_line="${devs[$((num - 1))]}"
         vid_pid="${dev_line%% *}"
 
-        # Skip if already saved
-        local existing
+        # Remove if already saved (re-add to update description)
+        local existing new_list=()
         for existing in "${_GPU_VM_USB_DEVICES[@]}"; do
-            [[ "${existing%% *}" == "$vid_pid" ]] && { printf "  ℹ %s already saved.\n" "$vid_pid"; continue 2; }
+            [[ "${existing%% *}" == "$vid_pid" ]] || new_list+=("$existing")
         done
+        _GPU_VM_USB_DEVICES=("${new_list[@]+"${new_list[@]}"}")
 
         _GPU_VM_USB_DEVICES+=("$dev_line")
         added=$((added + 1))
@@ -2959,6 +2960,8 @@ _gpu_vm_connect_inner() {
             -f "$_GPU_VM_KVMFR_DEV" \
             spice:enable=no \
             egl:doubleBuffer=yes \
+            egl:noBufferAge=yes \
+            egl:noSwapDamage=yes \
             win:fullScreen=yes \
             win:autoResize=yes \
             &
