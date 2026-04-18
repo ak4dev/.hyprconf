@@ -348,6 +348,25 @@ _gpu_unbind_vtconsoles() {
 
 # ── NVIDIA Module Management ───────────────────────────────────────────────────
 
+_gpu_nvidia_used_by_other_gpu() {
+    # Return 0 if nvidia driver is bound to devices OUTSIDE our IOMMU group.
+    # In multi-GPU setups the display GPU shares nvidia modules with the
+    # passthrough GPU — modules cannot (and need not) be unloaded.
+    local nvidia_drv_dir="${_GPU_SYSFS}/bus/pci/drivers/nvidia"
+    [[ -d "$nvidia_drv_dir" ]] || return 1
+
+    local iommu_list=" ${GPU_IOMMU_DEVICES:-} "
+    local bound_dev short_addr
+    for bound_dev in "$nvidia_drv_dir"/0000:*; do
+        [[ -e "$bound_dev" ]] || continue
+        short_addr=$(basename "$bound_dev" | sed 's/^0000://')
+        if [[ "$iommu_list" != *" $short_addr "* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 _gpu_unload_nvidia_modules() {
     # Unload NVIDIA modules in dependency order (drm → modeset → uvm → nvidia).
     # Returns non-zero if modules cannot be unloaded (GPU still in use).
@@ -495,8 +514,15 @@ _gpu_mode_vm() {
     # Unload NVIDIA modules if any are loaded — not just when driver is "nvidia".
     # A previous failed attempt may have unbound the driver but left modules
     # loaded, creating a zombie state where sysfs writes hang indefinitely.
+    # In multi-GPU setups (display GPU on nvidia), modules are shared and cannot
+    # be unloaded — driver_override works per-device without module unload.
     if _gpu_is_module_loaded nvidia; then
-        _gpu_unload_nvidia_modules || return 1
+        if _gpu_nvidia_used_by_other_gpu; then
+            printf "  ℹ NVIDIA driver in use by display GPU — using per-device unbind.\n"
+            _gpu_log "INFO" "Multi-GPU: skipping nvidia module unload"
+        else
+            _gpu_unload_nvidia_modules || return 1
+        fi
     fi
 
     # Unbind VT consoles / EFI framebuffer to release GPU references
@@ -732,7 +758,12 @@ _gpu_mode_none() {
 
     # Unload NVIDIA modules if loaded (even when driver is already "none")
     if _gpu_is_module_loaded nvidia; then
-        _gpu_unload_nvidia_modules || return 1
+        if _gpu_nvidia_used_by_other_gpu; then
+            printf "  ℹ NVIDIA driver in use by display GPU — using per-device unbind.\n"
+            _gpu_log "INFO" "Multi-GPU: skipping nvidia module unload"
+        else
+            _gpu_unload_nvidia_modules || return 1
+        fi
     fi
 
     # Unbind VT consoles / EFI framebuffer to release GPU references

@@ -369,12 +369,14 @@ def _make_fake_sysfs(
         (dev_dir / "vendor").write_text(info.get("vendor", "0x10de"))
         (dev_dir / "device").write_text(info.get("device", "0x0000"))
 
-        # driver symlink
+        # driver symlink (device → driver dir)
         driver = info.get("driver", "")
         if driver:
             driver_target = drivers_dir / driver
             driver_target.mkdir(parents=True, exist_ok=True)
             (dev_dir / "driver").symlink_to(driver_target)
+            # Reverse symlink (driver dir → device) for driver enumeration
+            (driver_target / full_addr).symlink_to(dev_dir)
 
         # driver_override file
         (dev_dir / "driver_override").write_text("")
@@ -1573,6 +1575,7 @@ class TestGpuUnloadNvidiaModulesFailure:
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
             source "{SCRIPT}"
+            export _GPU_SYSFS="{sysfs_root}"
             _gpu_current_driver() {{
                 local pci_addr="$1"
                 local full_addr="0000:${{pci_addr}}"
@@ -1635,6 +1638,7 @@ class TestGpuUnloadNvidiaModulesFailure:
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
             source "{SCRIPT}"
+            export _GPU_SYSFS="{sysfs_root}"
             _gpu_current_driver() {{
                 local pci_addr="$1"
                 local full_addr="0000:${{pci_addr}}"
@@ -1691,6 +1695,7 @@ class TestGpuUnloadNvidiaModulesFailure:
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
             source "{SCRIPT}"
+            export _GPU_SYSFS="{sysfs_root}"
             _gpu_current_driver() {{
                 local pci_addr="$1"
                 local full_addr="0000:${{pci_addr}}"
@@ -2508,3 +2513,223 @@ class TestGpuVmStatus:
         assert "RTX 3070" in output
         assert "8G RAM" in output or "8G" in output
         assert "not created" in output
+
+
+class TestGpuNvidiaUsedByOtherGpu:
+    """Tests for _gpu_nvidia_used_by_other_gpu multi-GPU detection."""
+
+    def test_detects_other_gpu_on_nvidia(self, tmp_path):
+        """Returns 0 when nvidia driver is bound to a device outside the IOMMU group."""
+        sysfs_root = tmp_path / "sys"
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        # Two GPUs: 01:00.0 is our passthrough GPU, 02:00.0 is the display GPU
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+            "02:00.0": {"driver": "nvidia", "iommu_group": "2", "vendor": "0x10de", "device": "0x2684"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+            'GPU_NAME="RTX 3070"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_load_config
+            if _gpu_nvidia_used_by_other_gpu; then
+                echo "OTHER_GPU_USES_NVIDIA"
+            else
+                echo "NO_OTHER_GPU"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "OTHER_GPU_USES_NVIDIA" in r.stdout
+
+    def test_no_other_gpu_on_nvidia(self, tmp_path):
+        """Returns 1 when only the target IOMMU group devices are on nvidia."""
+        sysfs_root = tmp_path / "sys"
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        # Single GPU setup — only the passthrough GPU is on nvidia
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
+            'GPU_NAME="RTX 3070"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_load_config
+            if _gpu_nvidia_used_by_other_gpu; then
+                echo "OTHER_GPU_USES_NVIDIA"
+            else
+                echo "NO_OTHER_GPU"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "NO_OTHER_GPU" in r.stdout
+
+    def test_no_nvidia_driver_dir(self, tmp_path):
+        """Returns 1 when no nvidia driver directory exists (no nvidia loaded)."""
+        sysfs_root = tmp_path / "sys"
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        # All GPUs on vfio-pci — no nvidia driver dir
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+            'GPU_NAME="RTX 3070"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_load_config
+            if _gpu_nvidia_used_by_other_gpu; then
+                echo "OTHER_GPU_USES_NVIDIA"
+            else
+                echo "NO_OTHER_GPU"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "NO_OTHER_GPU" in r.stdout
+
+    def test_mode_vm_skips_unload_multi_gpu(self, tmp_path):
+        """mode_vm succeeds in multi-GPU setup without unloading nvidia modules."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        # Multi-GPU: 01:00.x = passthrough (nvidia), 02:00.0 = display (nvidia)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
+            "02:00.0": {"driver": "nvidia", "iommu_group": "2", "vendor": "0x10de", "device": "0x2684"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
+        )
+
+        # Use a direct bash script with overrides that simulate sysfs binding
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            source "{SCRIPT}"
+            export _GPU_SYSFS="{sysfs_root}"
+            _gpu_current_driver() {{
+                local pci_addr="$1"
+                local full_addr="0000:${{pci_addr}}"
+                local driver_link="{sysfs_root}/bus/pci/devices/${{full_addr}}/driver"
+                if [[ -L "$driver_link" ]]; then
+                    basename "$(readlink "$driver_link")"
+                else
+                    echo "none"
+                fi
+            }}
+            _gpu_iommu_devices() {{
+                local pci_addr="$1"
+                local group
+                group=$(_gpu_iommu_group "$pci_addr")
+                [[ -z "$group" ]] && return 1
+                local grp_dir="{sysfs_root}/kernel/iommu_groups/${{group}}/devices"
+                [[ -d "$grp_dir" ]] || return 1
+                local dev
+                for dev in "$grp_dir"/*; do
+                    basename "$dev" | sed 's/^0000://'
+                done
+            }}
+            _gpu_check_processes() {{ return 0; }}
+            _gpu_check_display_safety() {{ return 0; }}
+            _gpu_unbind_vtconsoles() {{ return 0; }}
+            _gpu_is_module_loaded() {{ return 0; }}
+            _gpu_update_state_marker() {{ return 0; }}
+            _gpu_ensure_sudo() {{ return 0; }}
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            # Override sysfs_write to mutate fake symlinks
+            _gpu_sysfs_write() {{
+                local value="$1" path="$2"
+                # Detect unbind writes
+                if [[ "$path" == */driver/unbind ]]; then
+                    local dev_dir
+                    dev_dir=$(dirname "$(dirname "$path")")
+                    rm -f "$dev_dir/driver"
+                # Detect drivers_probe writes (bind via driver_override)
+                elif [[ "$path" == */drivers_probe ]]; then
+                    local dev_dir="{sysfs_root}/bus/pci/devices/$value"
+                    if [[ -d "$dev_dir" ]]; then
+                        local override
+                        override=$(cat "$dev_dir/driver_override" 2>/dev/null)
+                        if [[ -n "$override" ]]; then
+                            rm -f "$dev_dir/driver"
+                            local drv_dir="{sysfs_root}/bus/pci/drivers/$override"
+                            mkdir -p "$drv_dir"
+                            ln -sf "$drv_dir" "$dev_dir/driver"
+                        fi
+                    fi
+                # Detect driver_override writes
+                elif [[ "$path" == */driver_override ]]; then
+                    echo "$value" > "$path"
+                fi
+                return 0
+            }}
+            _gpu_mode_vm
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "per-device unbind" in r.stdout
