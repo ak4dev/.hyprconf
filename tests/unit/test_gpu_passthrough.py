@@ -4644,6 +4644,8 @@ class TestGpuVmComposeWithUsb:
         assert "usb-host,vendorid=0x0951,productid=0x16a5" in compose
         # USB controller added when USB devices present
         assert "qemu-xhci" in compose
+        # USB bus access mounted for libusb passthrough
+        assert "/dev/bus/usb:/dev/bus/usb" in compose
 
     def test_compose_no_usb_when_unconfigured(self, tmp_path):
         """Compose works fine without any USB config file."""
@@ -4689,6 +4691,8 @@ class TestGpuVmComposeWithUsb:
         assert "usb-host" not in compose
         # No USB controller when no USB devices
         assert "qemu-xhci" not in compose
+        # No USB bus access when no USB devices
+        assert "/dev/bus/usb" not in compose
 
 
 class TestGpuVmLaunchForce:

@@ -2381,6 +2381,8 @@ _gpu_vm_usb_add() {
 
     if (( added > 0 )); then
         _gpu_vm_usb_save
+        # Regenerate compose so next restart includes /dev/bus/usb + xhci controller
+        _gpu_vm_generate_compose 2>/dev/null || true
         printf "\n✔ %d device(s) saved.\n" "$added"
         if ! _gpu_vm_is_running; then
             printf "  Devices will be passed on next VM launch.\n"
@@ -2431,6 +2433,8 @@ _gpu_vm_usb_remove() {
 
     _GPU_VM_USB_DEVICES=("${keep[@]+"${keep[@]}"}")
     _gpu_vm_usb_save
+    # Regenerate compose (drops /dev/bus/usb + xhci if no USB devices remain)
+    _gpu_vm_generate_compose 2>/dev/null || true
     printf "\n✔ %d device(s) removed.\n" "$removed"
 }
 
@@ -2447,6 +2451,28 @@ _gpu_vm_usb_hotplug() {
     local action="$1" vid_pid="$2"
     local vid="${vid_pid%%:*}" pid="${vid_pid##*:}"
     local dev_id="usb-${vid}-${pid}"
+
+    # For hot-add, verify the container can access the host USB bus.
+    # Without /dev/bus/usb, QEMU's usb-host (libusb) can't claim the device.
+    if [[ "$action" == "add" ]]; then
+        if ! docker exec "$_GPU_VM_CONTAINER" test -d /dev/bus/usb 2>/dev/null; then
+            printf "  ⚠ Container lacks USB bus access (/dev/bus/usb not mounted).\n" >&2
+            printf "    Restart VM to apply: hyprconf hardware gpu vm stop && hyprconf hardware gpu vm launch\n" >&2
+            _gpu_log "WARN" "USB hot-add skipped (no /dev/bus/usb): ${vid_pid}"
+            return 1
+        fi
+
+        # Ensure xhci controller exists (may be absent if VM launched with no USB devices)
+        local qemu_devices
+        qemu_devices=$(docker exec "$_GPU_VM_CONTAINER" bash -c \
+            "echo 'info usb' | socat - UNIX-CONNECT:${_GPU_VM_QEMU_MONITOR}" 2>/dev/null || true)
+        if [[ -z "$qemu_devices" ]] || echo "$qemu_devices" | grep -q "USB support not enabled"; then
+            printf "  → Adding USB controller to VM...\n"
+            docker exec "$_GPU_VM_CONTAINER" bash -c \
+                "echo 'device_add qemu-xhci,id=xhci' | socat - UNIX-CONNECT:${_GPU_VM_QEMU_MONITOR}" &>/dev/null || true
+            sleep 0.5
+        fi
+    fi
 
     local monitor_cmd
     if [[ "$action" == "add" ]]; then
@@ -2729,11 +2755,14 @@ _gpu_vm_generate_compose() {
     qemu_args+=" -global ICH9-LPC.disable_s3=1"
     qemu_args+=" -global ICH9-LPC.disable_s4=1"
 
-    # USB: add controller + devices only if user has configured USB passthrough
-    local usb_args
+    # USB: add controller + devices only if user has configured USB passthrough.
+    # Also check for hot-add readiness: if USB devices may be added later,
+    # we still need the xhci controller present at boot.
+    local usb_args has_usb=false
     usb_args=$(_gpu_vm_usb_qemu_args)
     if [[ -n "$usb_args" ]]; then
         qemu_args+=" -device qemu-xhci,id=xhci${usb_args}"
+        has_usb=true
     fi
 
     qemu_args="${qemu_args# }"  # trim leading space
@@ -2759,6 +2788,14 @@ _gpu_vm_generate_compose() {
       - ${_GPU_VM_KVMFR_DEV}:${_GPU_VM_KVMFR_DEV}
       - /dev/vfio/${iommu_group}:/dev/vfio/${iommu_group}
       - /dev/vfio/vfio:/dev/vfio/vfio"
+    fi
+
+    # USB bus access: required for usb-host passthrough (libusb).
+    # Mount the entire /dev/bus/usb tree so QEMU can claim devices.
+    local usb_volume=""
+    if [[ "$has_usb" == true ]]; then
+        usb_volume="
+      - /dev/bus/usb:/dev/bus/usb"
     fi
 
     cat > "$_GPU_VM_COMPOSE" <<EOF
@@ -2797,7 +2834,7 @@ ${devices_block}
     volumes:
       - ${_GPU_VM_STORAGE_DIR}:/storage
       - ${_GPU_VM_SHARED_DIR}:/shared
-      - ${_GPU_VM_OEM_DIR}:/oem
+      - ${_GPU_VM_OEM_DIR}:/oem${usb_volume}
     restart: unless-stopped
     stop_grace_period: 2m
 EOF
