@@ -141,15 +141,7 @@ ufw
 # nvidia-open
 # egl-wayland
 
-# GPU passthrough / VFIO (for VM GPU passthrough; install via `hyprconf addon vfio`)
-# libvirt
-# virt-manager
-# qemu-desktop
-# edk2-ovmf
-# dnsmasq
-# iptables-nft
-# swtpm
-
-# Windows VM (Docker-based GPU passthrough VM; requires docker)
-docker-compose
-freerdp
+# GPU passthrough / VFIO (install via `hyprconf addon vfio`)
+# Addon installs: qemu-desktop edk2-ovmf docker docker-compose dmidecode
+#                 freerdp linux-headers dnsmasq iptables-nft
+#                 looking-glass looking-glass-module-dkms (AUR)

@@ -1745,22 +1745,27 @@ _doctor_check_hardware() {
   fi
 
   # GPU passthrough (only check if vfio addon is installed)
-  if pacman -Qi libvirt &>/dev/null 2>&1; then
+  if pacman -Qi qemu-desktop &>/dev/null 2>&1; then
     printf "\n${_b}GPU Passthrough${_r}\n"
     if grep -qE '(intel_iommu|amd_iommu)=on' /proc/cmdline 2>/dev/null; then
       _doctor_pass "IOMMU enabled in kernel cmdline"
     else
       _doctor_warn "IOMMU not enabled — GPU passthrough requires intel_iommu=on or amd_iommu=on"
     fi
-    if systemctl is-active --quiet libvirtd 2>/dev/null; then
-      _doctor_pass "libvirtd running"
+    if systemctl is-active --quiet docker 2>/dev/null; then
+      _doctor_pass "Docker running"
     else
-      _doctor_warn "libvirtd not running — start with: sudo systemctl enable --now libvirtd"
+      _doctor_warn "Docker not running — start with: sudo systemctl enable --now docker"
     fi
-    if id -nG "$USER" | grep -qw libvirt; then
-      _doctor_pass "$USER in libvirt group"
+    if id -nG "$USER" | grep -qw docker; then
+      _doctor_pass "$USER in docker group"
     else
-      _doctor_warn "$USER not in libvirt group — run: sudo usermod -aG libvirt $USER"
+      _doctor_warn "$USER not in docker group — run: sudo usermod -aG docker $USER"
+    fi
+    if id -nG "$USER" | grep -qw kvm; then
+      _doctor_pass "$USER in kvm group"
+    else
+      _doctor_warn "$USER not in kvm group — run: sudo usermod -aG kvm $USER"
     fi
     if lsmod | grep -q "^vfio_pci" 2>/dev/null; then
       _doctor_pass "vfio_pci module loaded"
@@ -1768,6 +1773,18 @@ _doctor_check_hardware() {
       _doctor_pass "vfio_pci module available (not loaded — loads on demand)"
     else
       _doctor_warn "vfio_pci module not available"
+    fi
+    if lsmod | grep -q "^kvmfr" 2>/dev/null; then
+      _doctor_pass "kvmfr module loaded"
+    elif modinfo kvmfr &>/dev/null 2>&1; then
+      _doctor_pass "kvmfr module available (not loaded)"
+    else
+      _doctor_warn "kvmfr module not available — install looking-glass-module-dkms and run: sudo dkms autoinstall"
+    fi
+    if [[ -e /dev/kvmfr0 ]]; then
+      _doctor_pass "/dev/kvmfr0 present"
+    else
+      _doctor_warn "/dev/kvmfr0 not found — run: sudo modprobe kvmfr static_size_mb=128"
     fi
   fi
 }
@@ -2384,7 +2401,7 @@ _addon_description() {
 _addon_packages() {
   case "$1" in
     dev)  printf "python-pytest-xdist qemu-full edk2-ovmf aws-cli" ;;
-    vfio) printf "qemu-desktop edk2-ovmf dmidecode freerdp linux-headers" ;;
+    vfio) printf "qemu-desktop edk2-ovmf docker docker-compose dmidecode freerdp linux-headers dnsmasq iptables-nft" ;;
     *)    printf "" ;;
   esac
 }
@@ -2475,6 +2492,20 @@ _addon_post_install() {
         sudo usermod -aG kvm "$USER" \
           && printf "${_g}✓${_r} Added to 'kvm'. Log out and back in to apply.\n" \
           || printf "${_y}⚠${_r} Could not add to 'kvm' group.\n"
+      fi
+
+      # Docker service + group
+      printf "${_b}→${_r} Enabling Docker service...\n"
+      sudo systemctl enable --now docker 2>/dev/null \
+        && printf "${_g}✓${_r} Docker service enabled and started.\n" \
+        || printf "${_y}⚠${_r} Could not enable Docker — start manually: sudo systemctl enable --now docker\n"
+      if id -nG "$USER" | grep -qw docker; then
+        printf "${_g}✓${_r} %s already in 'docker' group.\n" "$USER"
+      else
+        printf "${_b}→${_r} Adding %s to 'docker' group...\n" "$USER"
+        sudo usermod -aG docker "$USER" \
+          && printf "${_g}✓${_r} Added to 'docker'. Log out and back in to apply.\n" \
+          || printf "${_y}⚠${_r} Could not add to 'docker' group.\n"
       fi
 
       printf "\n${_g}✓${_r} VFIO addon setup complete.\n"
