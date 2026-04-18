@@ -4438,8 +4438,8 @@ class TestGpuVmComposeWithUsb:
 class TestGpuVmLaunchForce:
     """Tests for --force flag on _gpu_vm_launch."""
 
-    def test_launch_parses_force_and_keep_alive(self, tmp_path):
-        """Both -k and --force are parsed from args."""
+    def test_launch_parses_force_and_stop_on_disconnect(self, tmp_path):
+        """--force, -s, and --rdp are parsed from args; -k is a legacy no-op."""
         bin_dir = tmp_path / "bin"
         home_dir = tmp_path / "home"
         home_dir.mkdir()
@@ -4451,18 +4451,19 @@ class TestGpuVmLaunchForce:
             source "{SCRIPT}"
             # Override launch to inspect parsed flags
             _gpu_vm_launch() {{
-                local keep_alive=false force="" use_rdp=false
+                local stop_on_disconnect=false force="" use_rdp=false
                 while [[ $# -gt 0 ]]; do
                     case "$1" in
-                        --keep-alive|-k) keep_alive=true ;;
-                        --force|-f)      force="force" ;;
-                        --rdp)           use_rdp=true ;;
+                        --stop-on-disconnect|-s) stop_on_disconnect=true ;;
+                        --keep-alive|-k)         ;;
+                        --force|-f)              force="force" ;;
+                        --rdp)                   use_rdp=true ;;
                     esac
                     shift
                 done
-                printf "KEEP=%s FORCE=%s RDP=%s\\n" "$keep_alive" "$force" "$use_rdp"
+                printf "STOP=%s FORCE=%s RDP=%s\\n" "$stop_on_disconnect" "$force" "$use_rdp"
             }}
-            _gpu_vm_launch --force -k
+            _gpu_vm_launch --force -s
         """)
 
         env = os.environ.copy()
@@ -4470,7 +4471,7 @@ class TestGpuVmLaunchForce:
         env["HOME"] = str(home_dir)
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
         assert r.returncode == 0, f"stderr: {r.stderr}"
-        assert "KEEP=true" in r.stdout
+        assert "STOP=true" in r.stdout
         assert "FORCE=force" in r.stdout
 
     def test_launch_force_bypasses_display_check(self, tmp_path):

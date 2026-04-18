@@ -2711,12 +2711,13 @@ _gpu_vm_install() {
 
 _gpu_vm_launch() {
     # Bind GPU to vfio-pci (if needed), start Docker container, connect.
-    local keep_alive=false force="" use_rdp=false
+    local stop_on_disconnect=false force="" use_rdp=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --keep-alive|-k) keep_alive=true ;;
-            --force|-f)      force="force" ;;
-            --rdp)           use_rdp=true ;;
+            --stop-on-disconnect|-s) stop_on_disconnect=true ;;
+            --keep-alive|-k)         ;;  # legacy no-op (now the default)
+            --force|-f)              force="force" ;;
+            --rdp)                   use_rdp=true ;;
         esac
         shift
     done
@@ -2828,7 +2829,7 @@ _gpu_vm_launch() {
             /title:"Windows VM — .hyprconf" /dynamic-resolution \
             /gfx:AVC444 ${scale_arg} +grab-keyboard 2>/dev/null || true
 
-        if [[ "$keep_alive" == "false" ]]; then
+        if [[ "$stop_on_disconnect" == true ]]; then
             printf "→ RDP disconnected. Stopping VM...\n"
             docker-compose -f "$_GPU_VM_COMPOSE" down 2>/dev/null
             printf "✔ VM stopped.\n"
