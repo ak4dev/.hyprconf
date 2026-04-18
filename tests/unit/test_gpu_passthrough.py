@@ -1513,9 +1513,9 @@ class TestGpuVmComposeSmbios:
         assert "size=64M,share=yes" in compose
         assert "kvmfr0" in compose
         # SPICE audio
-        assert "-audiodev spice,id=spice" in compose
+        assert "-audiodev spice,id=hda-audio" in compose
         assert "-device intel-hda" in compose
-        assert "-device hda-duplex,audiodev=spice" in compose
+        assert "-device hda-duplex,audiodev=hda-audio" in compose
         # SPICE display socket
         assert "-spice unix=on,addr=/tmp/spice/spice.sock" in compose
         # SPICE clipboard channel
@@ -1696,6 +1696,10 @@ class TestGpuVmComposeSmbios:
 
         assert 'USB: "no"' in compose
         assert "qemu-xhci" not in compose
+        # Audio always present even without kvmfr (PulseAudio fallback)
+        assert "-device intel-hda" in compose
+        assert "-device hda-duplex,audiodev=hda-audio" in compose
+        assert "-audiodev pa,id=hda-audio" in compose
 
 
 class TestGpuVmOem:

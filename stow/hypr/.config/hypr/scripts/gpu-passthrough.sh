@@ -2645,13 +2645,19 @@ _gpu_vm_generate_compose() {
         qemu_args+=" -device vfio-pci,host=${dev_pci}"
     done
 
+    # Audio: always provide intel-hda so Windows has a sound device.
+    # With SPICE (kvmfr): audio routed through SPICE channel.
+    # Without SPICE: use PulseAudio backend from the host.
+    if [[ "$has_kvmfr" == true ]]; then
+        qemu_args+=" -audiodev spice,id=hda-audio"
+    else
+        qemu_args+=" -audiodev pa,id=hda-audio,server=/run/user/$(id -u)/pulse/native"
+    fi
+    qemu_args+=" -device intel-hda"
+    qemu_args+=" -device hda-duplex,audiodev=hda-audio"
+
     # SPICE + Looking Glass input devices (only when kvmfr is available)
     if [[ "$has_kvmfr" == true ]]; then
-        # Audio output via intel-hda over SPICE
-        qemu_args+=" -audiodev spice,id=spice"
-        qemu_args+=" -device intel-hda"
-        qemu_args+=" -device hda-duplex,audiodev=spice"
-
         # SPICE display socket (Looking Glass connects here for input)
         qemu_args+=" -spice unix=on,addr=/tmp/spice/spice.sock,disable-ticketing=on,agent-mouse=off"
 
