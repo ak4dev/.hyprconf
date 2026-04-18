@@ -367,6 +367,20 @@ _gpu_nvidia_used_by_other_gpu() {
     return 1
 }
 
+_gpu_has_other_nvidia_gpu() {
+    # Return 0 if other NVIDIA VGA/3D GPUs exist besides the passthrough GPU.
+    # Uses lspci (works at setup time before drivers are bound).
+    local passthrough_addr="${GPU_PCI_ADDR:-}"
+    local pci_addr
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        echo "$line" | grep -q '\[10de:' || continue
+        pci_addr=$(echo "$line" | awk '{print $1}')
+        [[ "$pci_addr" != "$passthrough_addr" ]] && return 0
+    done < <(_gpu_list_raw)
+    return 1
+}
+
 _gpu_unload_nvidia_modules() {
     # Unload NVIDIA modules in dependency order (drm → modeset → uvm → nvidia).
     # Returns non-zero if modules cannot be unloaded (GPU still in use).
@@ -889,6 +903,8 @@ _gpu_audit() {
     printf "\nDriver Blacklist\n"
     if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
         printf "  ✔ GPU driver blacklist configured (%s)\n" "$_GPU_BLACKLIST_CONF"
+    elif _gpu_has_other_nvidia_gpu 2>/dev/null; then
+        printf "  ✔ No blacklist needed (multi-GPU — per-device driver_override used)\n"
     else
         printf "  ⚠ No driver blacklist (GPU loads native driver at boot)\n"
         warnings=$((warnings + 1))
@@ -1057,6 +1073,10 @@ _gpu_setup() {
 _gpu_configure_blacklist() {
     # Write GPU driver blacklist to modprobe.d (mirrors omarchy configure_gpu_blacklist).
     # Prevents the GPU driver from loading at boot so the GPU stays unbound.
+    #
+    # In multi-NVIDIA-GPU setups the blacklist is SKIPPED — the display GPU
+    # needs nvidia at boot. Per-device driver_override handles the passthrough
+    # GPU without a blanket module blacklist.
     local vendor_device="${GPU_VENDOR_DEVICE:-}"
 
     if [[ -z "$vendor_device" ]]; then
@@ -1073,6 +1093,18 @@ _gpu_configure_blacklist() {
     local vendor_id="${vendor_device%%:*}"
 
     if [[ "$vendor_id" == "10de" ]]; then
+        if _gpu_has_other_nvidia_gpu; then
+            # Multi-NVIDIA: blacklisting nvidia would block ALL GPUs.
+            # Remove stale blacklist if one exists from a previous config.
+            if [[ -f "$_GPU_BLACKLIST_CONF" ]]; then
+                sudo rm -f "$_GPU_BLACKLIST_CONF"
+                printf "  ✔ Removed stale NVIDIA blacklist (multi-GPU — not needed)\n"
+            else
+                printf "  ✔ NVIDIA blacklist skipped (multi-GPU — display GPU needs nvidia)\n"
+            fi
+            return 0
+        fi
+
         printf "\n→ Configuring NVIDIA driver blacklist...\n"
         sudo tee "$_GPU_BLACKLIST_CONF" > /dev/null <<'EOF'
 # GPU Passthrough — prevent NVIDIA auto-load at boot

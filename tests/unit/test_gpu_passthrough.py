@@ -39,6 +39,12 @@ LSPCI_TWO_NVIDIA = """\
 02:00.1 Audio device: NVIDIA Corporation AD102 High Definition Audio Controller [10de:22be] (rev a1)
 """
 
+LSPCI_SINGLE_NVIDIA = """\
+00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630 [8086:3e92] (rev 00)
+01:00.0 VGA compatible controller: NVIDIA Corporation GA104 [GeForce RTX 3070] [10de:2484] (rev a1)
+01:00.1 Audio device: NVIDIA Corporation GA104 High Definition Audio Controller [10de:228b] (rev a1)
+"""
+
 LSPCI_INTEL_IGPU = """\
 00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 630 [8086:3e92] (rev 00)
 """
@@ -1304,11 +1310,11 @@ class TestGpuBlacklist:
     """Test _gpu_configure_blacklist."""
 
     def test_blacklist_nvidia(self, tmp_path):
-        """NVIDIA GPU gets driver blacklist written."""
+        """NVIDIA GPU gets driver blacklist written (single-GPU + iGPU)."""
         bin_dir = tmp_path / "bin"
         home_dir = tmp_path / "home"
         home_dir.mkdir()
-        _make_fake_bins(bin_dir)
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_SINGLE_NVIDIA)
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -1332,6 +1338,67 @@ class TestGpuBlacklist:
         assert blacklist_file.exists()
         content = blacklist_file.read_text()
         assert "install nvidia /bin/false" in content
+
+    def test_blacklist_skipped_multi_nvidia(self, tmp_path):
+        """Multi-NVIDIA setup: blacklist is NOT written — display GPU needs nvidia."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_TWO_NVIDIA)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        blacklist_file = tmp_path / "blacklist-gpu-passthrough.conf"
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            _GPU_BLACKLIST_CONF="{blacklist_file}"
+            source "{SCRIPT}"
+            _gpu_configure_blacklist
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert not blacklist_file.exists(), "Blacklist should not be written in multi-GPU"
+        assert "multi-GPU" in r.stdout
+
+    def test_blacklist_stale_removed_multi_nvidia(self, tmp_path):
+        """Multi-NVIDIA setup: pre-existing blacklist file is removed."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_TWO_NVIDIA)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        # Pre-existing stale blacklist
+        blacklist_file = tmp_path / "blacklist-gpu-passthrough.conf"
+        blacklist_file.write_text("install nvidia /bin/false\n")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            _GPU_BLACKLIST_CONF="{blacklist_file}"
+            source "{SCRIPT}"
+            _gpu_configure_blacklist
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0
+        assert not blacklist_file.exists(), "Stale blacklist should be removed"
+        assert "Removed stale" in r.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -2733,3 +2800,107 @@ class TestGpuNvidiaUsedByOtherGpu:
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
         assert r.returncode == 0, f"stderr: {r.stderr}"
         assert "per-device unbind" in r.stdout
+
+
+# ---------------------------------------------------------------------------
+# _gpu_has_other_nvidia_gpu (lspci-based multi-GPU detection)
+# ---------------------------------------------------------------------------
+
+class TestGpuHasOtherNvidiaGpu:
+    """Tests for _gpu_has_other_nvidia_gpu lspci-based multi-GPU detection."""
+
+    def test_detects_other_nvidia_gpu(self, tmp_path):
+        """Returns 0 when another NVIDIA VGA GPU exists besides passthrough."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_TWO_NVIDIA)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_load_config
+            if _gpu_has_other_nvidia_gpu; then
+                echo "HAS_OTHER_NVIDIA"
+            else
+                echo "NO_OTHER_NVIDIA"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "HAS_OTHER_NVIDIA" in r.stdout
+
+    def test_no_other_nvidia_single_gpu(self, tmp_path):
+        """Returns 1 when only one NVIDIA GPU exists (single-GPU + iGPU)."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_SINGLE_NVIDIA)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_load_config
+            if _gpu_has_other_nvidia_gpu; then
+                echo "HAS_OTHER_NVIDIA"
+            else
+                echo "NO_OTHER_NVIDIA"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "NO_OTHER_NVIDIA" in r.stdout
+
+    def test_no_other_nvidia_intel_only(self, tmp_path):
+        """Returns 1 when only Intel iGPU exists (no NVIDIA at all)."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, lspci_output=LSPCI_INTEL_IGPU)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_load_config
+            if _gpu_has_other_nvidia_gpu; then
+                echo "HAS_OTHER_NVIDIA"
+            else
+                echo "NO_OTHER_NVIDIA"
+            fi
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "NO_OTHER_NVIDIA" in r.stdout
