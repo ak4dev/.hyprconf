@@ -2247,7 +2247,7 @@ readonly _GPU_VM_STORAGE_DIR="${HOME}/.local/share/hyprconf/windows-vm"
 readonly _GPU_VM_SHARED_DIR="${HOME}/Windows"
 readonly _GPU_VM_OEM_DIR="${HOME}/.local/share/hyprconf/windows-vm-oem"
 readonly _GPU_VM_USB_CONF="${_GPU_CONF_DIR}/gpu-vm-usb.conf"
-readonly _GPU_VM_QEMU_MONITOR="/run/qemu.monitor"
+readonly _GPU_VM_QEMU_MON_PORT="7100"
 _GPU_VM_KVMFR_DEV="/dev/kvmfr0"
 
 _gpu_vm_freerdp_bin() {
@@ -2445,8 +2445,22 @@ _gpu_vm_is_running() {
     [[ "$status" == "running" ]]
 }
 
+_gpu_vm_qemu_monitor_cmd() {
+    # Send a command to the QEMU HMP monitor via telnet (port 7100 inside container).
+    # Uses netcat (nc) which is available in the Dockurr Debian image.
+    # Returns the monitor response text. Strips telnet/prompt noise.
+    local cmd="$1"
+    local result
+    result=$(docker exec "$_GPU_VM_CONTAINER" bash -c \
+        "{ sleep 0.3; printf '%s\n' '${cmd}'; sleep 0.5; } | \
+         nc -q 1 localhost ${_GPU_VM_QEMU_MON_PORT}" 2>&1 || true)
+    # Strip QEMU prompt lines
+    result=$(echo "$result" | grep -v '^(qemu)' | sed '/^$/d')
+    printf '%s' "$result"
+}
+
 _gpu_vm_usb_hotplug() {
-    # Hot-add or hot-remove a USB device via the QEMU monitor socket.
+    # Hot-add or hot-remove a USB device via the QEMU monitor (telnet).
     # Usage: _gpu_vm_usb_hotplug add|del vendor_id:product_id
     local action="$1" vid_pid="$2"
     local vid="${vid_pid%%:*}" pid="${vid_pid##*:}"
@@ -2463,13 +2477,11 @@ _gpu_vm_usb_hotplug() {
         fi
 
         # Ensure xhci controller exists (may be absent if VM launched with no USB devices)
-        local qemu_devices
-        qemu_devices=$(docker exec "$_GPU_VM_CONTAINER" bash -c \
-            "echo 'info usb' | socat - UNIX-CONNECT:${_GPU_VM_QEMU_MONITOR}" 2>/dev/null || true)
-        if [[ -z "$qemu_devices" ]] || echo "$qemu_devices" | grep -q "USB support not enabled"; then
+        local usb_info
+        usb_info=$(_gpu_vm_qemu_monitor_cmd "info usb")
+        if [[ -z "$usb_info" ]] || echo "$usb_info" | grep -qi "not enabled\|no bus"; then
             printf "  → Adding USB controller to VM...\n"
-            docker exec "$_GPU_VM_CONTAINER" bash -c \
-                "echo 'device_add qemu-xhci,id=xhci' | socat - UNIX-CONNECT:${_GPU_VM_QEMU_MONITOR}" &>/dev/null || true
+            _gpu_vm_qemu_monitor_cmd "device_add qemu-xhci,id=xhci" >/dev/null
             sleep 0.5
         fi
     fi
@@ -2483,20 +2495,15 @@ _gpu_vm_usb_hotplug() {
 
     printf "  → Hot-%s %s to VM...\n" "$action" "$vid_pid"
     local result
-    if result=$(docker exec "$_GPU_VM_CONTAINER" bash -c \
-        "echo '${monitor_cmd}' | socat - UNIX-CONNECT:${_GPU_VM_QEMU_MONITOR}" 2>&1); then
-        printf "  ✔ USB %s hot-%s successful.\n" "$vid_pid" "${action/del/remove}d"
-        _gpu_log "INFO" "USB hot-${action}: ${vid_pid} (${monitor_cmd})"
+    result=$(_gpu_vm_qemu_monitor_cmd "$monitor_cmd")
+
+    if echo "$result" | grep -qi "error\|failed\|unknown\|duplicate"; then
+        printf "  ⚠ Hot-%s failed: %s\n" "$action" "$result" >&2
+        printf "    Device will be applied on next VM restart.\n" >&2
+        _gpu_log "WARN" "USB hot-${action} failed: ${vid_pid}: ${result}"
     else
-        # Fallback: try writing directly if socat unavailable
-        if docker exec "$_GPU_VM_CONTAINER" bash -c \
-            "printf '%s\n' '${monitor_cmd}' > ${_GPU_VM_QEMU_MONITOR}" 2>/dev/null; then
-            printf "  ✔ USB %s hot-%s successful.\n" "$vid_pid" "${action/del/remove}d"
-            _gpu_log "INFO" "USB hot-${action} (direct): ${vid_pid}"
-        else
-            printf "  ⚠ Hot-%s failed. Device will be applied on next VM restart.\n" "$action" >&2
-            _gpu_log "WARN" "USB hot-${action} failed: ${vid_pid}: ${result}"
-        fi
+        printf "  ✔ USB %s hot-%sd.\n" "$vid_pid" "${action/del/remove}"
+        _gpu_log "INFO" "USB hot-${action}: ${vid_pid}"
     fi
 }
 
