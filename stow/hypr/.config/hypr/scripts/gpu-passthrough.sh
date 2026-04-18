@@ -2942,7 +2942,7 @@ _gpu_vm_connect_inner() {
 
     if [[ "$use_rdp" == false ]] && command -v looking-glass-client &>/dev/null; then
         printf "→ Launching Looking Glass...\n"
-        looking-glass-client -f "$_GPU_VM_KVMFR_DEV" &
+        looking-glass-client -f "$_GPU_VM_KVMFR_DEV" --no-spice &
         printf "  Stop VM: hyprconf hardware gpu vm stop\n"
         if [[ -n "$rdp_bin" ]]; then
             printf "  RDP:     %s /v:127.0.0.1:3389 /u:%s /p:%s\n" "$rdp_bin" "${VM_USERNAME}" "${VM_PASSWORD}"
