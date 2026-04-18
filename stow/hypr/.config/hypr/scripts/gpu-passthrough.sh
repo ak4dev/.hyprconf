@@ -2936,7 +2936,42 @@ _gpu_vm_launch() {
 
     printf "✔ VM is running.\n"
 
-    # Connect to VM
+    _gpu_vm_connect_inner "$use_rdp" "$stop_on_disconnect"
+}
+
+_gpu_vm_connect() {
+    # Connect to a running VM via Looking Glass or RDP.
+    local use_rdp=false stop_on_disconnect=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --rdp)                   use_rdp=true ;;
+            --stop-on-disconnect|-s) stop_on_disconnect=true ;;
+        esac
+        shift
+    done
+
+    if ! _gpu_vm_load_config; then
+        printf "Windows VM not configured. Run: hyprconf hardware gpu vm install\n" >&2
+        return 1
+    fi
+
+    if ! _gpu_vm_is_running; then
+        printf "VM is not running. Start with: hyprconf hardware gpu vm launch\n" >&2
+        return 1
+    fi
+
+    if [[ ! -e "$_GPU_VM_KVMFR_DEV" ]]; then
+        use_rdp=true
+    fi
+
+    _gpu_vm_connect_inner "$use_rdp" "$stop_on_disconnect"
+}
+
+_gpu_vm_connect_inner() {
+    local use_rdp="$1" stop_on_disconnect="$2"
+    local spice_dir
+    spice_dir=$(_gpu_vm_spice_dir)
+
     local rdp_bin
     rdp_bin=$(_gpu_vm_freerdp_bin 2>/dev/null || echo "")
 

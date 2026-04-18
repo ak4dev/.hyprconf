@@ -125,7 +125,8 @@ usage() {
   printf "  hyprconf hardware gpu mode host [gpu]  Restore GPU to host driver\n"
   printf "  hyprconf hardware gpu mode none [gpu]  Unbind GPU from all drivers\n"
   printf "  hyprconf hardware gpu diagnose         Detailed diagnostic dump\n"
-  printf "  hyprconf hardware gpu vm launch [-k] [--force]  Bind GPU + start VM + connect RDP\n"
+  printf "  hyprconf hardware gpu vm launch [--rdp] [--force]  Bind GPU + start VM + connect\n"
+  printf "  hyprconf hardware gpu vm connect [--rdp]           Connect to running VM (LG/RDP)\n"
   printf "  hyprconf hardware gpu vm usb [list]    Show host USB devices and saved VM devices\n"
   printf "  hyprconf hardware gpu vm usb add       Pick USB devices to pass through to VM\n"
   printf "  hyprconf hardware gpu vm usb remove    Remove USB devices from VM passthrough\n"
@@ -1557,6 +1558,9 @@ cmd_hardware() {
             launch|start)
               _gpu_vm_launch "$@"
               ;;
+            connect)
+              _gpu_vm_connect "$@"
+              ;;
             stop)
               _gpu_vm_stop
               ;;
@@ -1585,7 +1589,7 @@ cmd_hardware() {
               ;;
             *)
               printf "${_y}Unknown vm subcommand: %s${_r}\n\n" "$vm_sub" >&2
-              printf "Usage: hyprconf hardware gpu vm [install|launch|stop|status|remove|usb]\n" >&2
+              printf "Usage: hyprconf hardware gpu vm [install|launch|connect|stop|status|remove|usb]\n" >&2
               exit 1
               ;;
           esac
