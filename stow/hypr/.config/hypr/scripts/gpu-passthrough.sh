@@ -2188,6 +2188,10 @@ readonly _GPU_VM_SHARED_DIR="${HOME}/Windows"
 readonly _GPU_VM_USB_CONF="${_GPU_CONF_DIR}/gpu-vm-usb.conf"
 readonly _GPU_VM_QEMU_MONITOR="/run/qemu.monitor"
 
+_gpu_vm_spice_dir() {
+    printf '%s' "${XDG_RUNTIME_DIR:-/tmp}/hyprconf-spice"
+}
+
 # ── USB Passthrough ────────────────────────────────────────────────────────────
 
 _gpu_vm_usb_load() {
@@ -2433,12 +2437,13 @@ VM_DISK="${VM_DISK}"
 VM_USERNAME="${VM_USERNAME}"
 VM_PASSWORD="${VM_PASSWORD}"
 VM_VERSION="${VM_VERSION}"
+VM_IVSHMEM_SIZE="${VM_IVSHMEM_SIZE:-64}"
 EOF
 }
 
 _gpu_vm_generate_compose() {
-    # Generate docker-compose.yml with GPU passthrough devices.
-    # Reads from gpu-passthrough.conf (GPU config) and gpu-vm.conf (VM config).
+    # Generate docker-compose.yml with GPU passthrough, Looking Glass,
+    # and comprehensive anti-detection (SMBIOS, CPU, disk, devices).
     if ! _gpu_load_config; then
         printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
         return 1
@@ -2454,34 +2459,69 @@ _gpu_vm_generate_compose() {
         return 1
     fi
 
-    # Build QEMU vfio-pci device args for all non-bridge IOMMU group devices
-    local qemu_devices="" dev_pci dev_class
-    for dev_pci in ${GPU_IOMMU_DEVICES:-$GPU_PCI_ADDR}; do
-        dev_class=$(_gpu_get_pci_class "$dev_pci" 2>/dev/null) || continue
-        [[ "$dev_class" == "0604" ]] && continue  # skip PCI bridges
-        qemu_devices="${qemu_devices} -device vfio-pci,host=${dev_pci}"
-    done
+    # ── Build QEMU ARGUMENTS ──────────────────────────────────────────────
+    local qemu_args=""
 
-    # Append saved USB device args
-    local usb_args
-    usb_args=$(_gpu_vm_usb_qemu_args)
-    qemu_devices="${qemu_devices}${usb_args}"
-
-    # Append SMBIOS host-identity spoofing args (anti-cheat evasion)
+    # Anti-detection: SMBIOS host-identity spoofing
     local smbios_args
     smbios_args=$(_gpu_vm_smbios_args)
-    [[ -n "$smbios_args" ]] && qemu_devices="${qemu_devices} ${smbios_args}"
+    [[ -n "$smbios_args" ]] && qemu_args+="${smbios_args}"
 
-    # Append disk identity spoofing args
+    # Anti-detection: Disk identity spoofing
     local disk_flags
     disk_flags=$(_gpu_vm_disk_flags)
-    [[ -n "$disk_flags" ]] && qemu_devices="${qemu_devices} ${disk_flags}"
+    [[ -n "$disk_flags" ]] && qemu_args+=" ${disk_flags}"
 
-    qemu_devices="${qemu_devices# }"  # trim leading space
+    # Looking Glass: ivshmem shared memory device
+    local ivshmem_size="${VM_IVSHMEM_SIZE:-64}"
+    qemu_args+=" -device ivshmem-plain,id=shmem0,memdev=looking-glass"
+    qemu_args+=" -object memory-backend-file,id=looking-glass,mem-path=/dev/kvmfr0,size=${ivshmem_size}M,share=yes"
 
+    # GPU passthrough: vfio-pci devices (skip PCI bridges)
+    local dev_pci dev_class
+    for dev_pci in ${GPU_IOMMU_DEVICES:-$GPU_PCI_ADDR}; do
+        dev_class=$(_gpu_get_pci_class "$dev_pci" 2>/dev/null) || continue
+        [[ "$dev_class" == "0604" ]] && continue
+        qemu_args+=" -device vfio-pci,host=${dev_pci}"
+    done
+
+    # SPICE: audio output via intel-hda
+    qemu_args+=" -audiodev spice,id=spice"
+    qemu_args+=" -device intel-hda"
+    qemu_args+=" -device hda-duplex,audiodev=spice"
+
+    # SPICE: display socket (Looking Glass connects here for input)
+    qemu_args+=" -spice unix=on,addr=/tmp/spice/spice.sock,disable-ticketing=on,agent-mouse=off"
+
+    # SPICE: clipboard channel (vdagent)
+    qemu_args+=" -device virtio-serial-pci"
+    qemu_args+=" -device virtserialport,chardev=spicechannel0,name=com.redhat.spice.0"
+    qemu_args+=" -chardev spicevmc,id=spicechannel0,name=vdagent"
+
+    # Input: mouse and keyboard via virtio (works without USB controller)
+    qemu_args+=" -device virtio-mouse-pci"
+    qemu_args+=" -device virtio-keyboard-pci"
+
+    # Power: disable S3/S4 (suspend/hibernate breaks GPU passthrough)
+    qemu_args+=" -global ICH9-LPC.disable_s3=1"
+    qemu_args+=" -global ICH9-LPC.disable_s4=1"
+
+    # USB: add controller + devices only if user has configured USB passthrough
+    local usb_args
+    usb_args=$(_gpu_vm_usb_qemu_args)
+    if [[ -n "$usb_args" ]]; then
+        qemu_args+=" -device qemu-xhci,id=xhci${usb_args}"
+    fi
+
+    qemu_args="${qemu_args# }"  # trim leading space
+
+    # ── Build remaining compose fields ────────────────────────────────────
     # CPU anti-detection flags (hides hypervisor bit, passes real CPU identity)
     local cpu_flags
     cpu_flags=$(_gpu_vm_cpu_flags)
+
+    local spice_dir
+    spice_dir=$(_gpu_vm_spice_dir)
 
     local tz
     tz=$(timedatectl show -p Timezone --value 2>/dev/null || echo "UTC")
@@ -2502,15 +2542,24 @@ services:
       TZ: "${tz}"
       CPU_FLAGS: "${cpu_flags}"
       MACHINE: "q35"
-      ARGUMENTS: "${qemu_devices}"
+      DISPLAY: "none"
+      ADAPTER: "e1000e"
+      DISK_TYPE: "sata"
+      USB: "no"
+      ARGUMENTS: "${qemu_args}"
     devices:
       - /dev/kvm
       - /dev/net/tun
+      - /dev/kvmfr0:/dev/kvmfr0
       - /dev/vfio/${iommu_group}:/dev/vfio/${iommu_group}
       - /dev/vfio/vfio:/dev/vfio/vfio
     cap_add:
       - NET_ADMIN
     privileged: true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
     ports:
       - 127.0.0.1:8006:8006
       - 127.0.0.1:3389:3389/tcp
@@ -2518,6 +2567,7 @@ services:
     volumes:
       - ${_GPU_VM_STORAGE_DIR}:/storage
       - ${_GPU_VM_SHARED_DIR}:/shared
+      - ${spice_dir}:/tmp/spice
     restart: unless-stopped
     stop_grace_period: 2m
 EOF
@@ -2577,6 +2627,16 @@ _gpu_vm_install() {
     read -r VM_VERSION
     VM_VERSION="${VM_VERSION:-$version_default}"
 
+    # IVSHMEM size for Looking Glass shared memory
+    printf "\nLooking Glass IVSHMEM size:\n"
+    printf "  32  — 1080p\n"
+    printf "  64  — 1440p (recommended)\n"
+    printf "  128 — 4K\n"
+    local ivshmem_default="64"
+    printf "IVSHMEM size in MB [%s]: " "$ivshmem_default"
+    read -r VM_IVSHMEM_SIZE
+    VM_IVSHMEM_SIZE="${VM_IVSHMEM_SIZE:-$ivshmem_default}"
+
     # Credentials
     local user_default="user"
     printf "Windows username [%s]: " "$user_default"
@@ -2596,6 +2656,7 @@ _gpu_vm_install() {
     printf "  CPU:      %s cores\n" "$VM_CPU"
     printf "  Disk:     %s\n" "$VM_DISK"
     printf "  Version:  Windows %s\n" "$VM_VERSION"
+    printf "  IVSHMEM:  %sMB (Looking Glass)\n" "$VM_IVSHMEM_SIZE"
     printf "  Username: %s\n" "$VM_USERNAME"
     printf "  Storage:  %s\n" "$_GPU_VM_STORAGE_DIR"
     printf "  Shared:   %s\n\n" "$_GPU_VM_SHARED_DIR"
@@ -2611,17 +2672,22 @@ _gpu_vm_install() {
     _gpu_vm_generate_compose
 
     printf "\n✔ Windows VM configured.\n"
+    printf "  Prerequisites:\n"
+    printf "    sudo modprobe kvmfr static_size_mb=%s\n" "$VM_IVSHMEM_SIZE"
+    printf "    (Add 'kvmfr' to /etc/modules-load.d/ for persistence)\n"
+    printf "    GPU must have a display connected (monitor, second cable, or dummy plug)\n"
     printf "  Launch:  hyprconf hardware gpu vm launch\n"
     printf "  Status:  hyprconf hardware gpu vm status\n"
 }
 
 _gpu_vm_launch() {
-    # Bind GPU to vfio-pci (if needed), start Docker container, connect via RDP.
-    local keep_alive=false force=""
+    # Bind GPU to vfio-pci (if needed), start Docker container, connect.
+    local keep_alive=false force="" use_rdp=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --keep-alive|-k) keep_alive=true ;;
             --force|-f)      force="force" ;;
+            --rdp)           use_rdp=true ;;
         esac
         shift
     done
@@ -2633,6 +2699,19 @@ _gpu_vm_launch() {
     if ! _gpu_vm_load_config; then
         printf "Windows VM not configured. Run: hyprconf hardware gpu vm install\n" >&2
         return 1
+    fi
+
+    # Create SPICE socket directory
+    local spice_dir
+    spice_dir=$(_gpu_vm_spice_dir)
+    mkdir -p "$spice_dir"
+
+    # Check Looking Glass prerequisites
+    if [[ ! -e /dev/kvmfr0 ]]; then
+        printf "⚠ /dev/kvmfr0 not found.\n" >&2
+        printf "  Load kvmfr module: sudo modprobe kvmfr static_size_mb=%s\n" "${VM_IVSHMEM_SIZE:-64}" >&2
+        printf "  Continuing without Looking Glass (RDP fallback).\n" >&2
+        use_rdp=true
     fi
 
     # Ensure GPU is bound to vfio-pci
@@ -2657,7 +2736,8 @@ _gpu_vm_launch() {
             return 1
         fi
 
-        printf "  Waiting for VM to boot (web viewer: http://127.0.0.1:8006)...\n"
+        printf "  Waiting for VM to boot...\n"
+        printf "  GPU display should be visible on the monitor connected to the passthrough GPU.\n"
 
         local wait_count=0
         while ! docker logs "$_GPU_VM_CONTAINER" 2>&1 | grep -qi "windows started successfully\|booting.*qemu"; do
@@ -2665,8 +2745,8 @@ _gpu_vm_launch() {
             wait_count=$((wait_count + 1))
             if (( wait_count > 90 )); then
                 printf "\n⚠ VM may still be installing Windows (first boot takes 10-15 min).\n"
-                printf "  Monitor at: http://127.0.0.1:8006\n"
-                printf "  RDP will be available once installation completes.\n"
+                printf "  First boot: Windows installer runs on the GPU-connected display.\n"
+                printf "  After install: install GPU drivers, then Looking Glass host app.\n"
                 return 0
             fi
         done
@@ -2674,8 +2754,13 @@ _gpu_vm_launch() {
 
     printf "✔ VM is running.\n"
 
-    # Connect via RDP if xfreerdp is available
-    if command -v xfreerdp &>/dev/null; then
+    # Connect to VM
+    if [[ "$use_rdp" == false ]] && command -v looking-glass-client &>/dev/null; then
+        printf "→ Launching Looking Glass...\n"
+        looking-glass-client -f /dev/kvmfr0 -c "${spice_dir}/spice.sock" &
+        printf "  Stop VM: hyprconf hardware gpu vm stop\n"
+        printf "  RDP:     xfreerdp /v:127.0.0.1:3389 /u:%s /p:%s\n" "${VM_USERNAME}" "${VM_PASSWORD}"
+    elif command -v xfreerdp &>/dev/null; then
         printf "→ Connecting via RDP...\n"
 
         # Wait for RDP port
@@ -2685,7 +2770,6 @@ _gpu_vm_launch() {
             rdp_wait=$((rdp_wait + 1))
             if (( rdp_wait > 30 )); then
                 printf "⚠ RDP not yet available. VM may still be installing.\n"
-                printf "  Monitor at: http://127.0.0.1:8006\n"
                 printf "  Connect manually: xfreerdp /v:127.0.0.1:3389 /u:%s /p:%s\n" "${VM_USERNAME}" "${VM_PASSWORD}"
                 return 0
             fi
@@ -2719,9 +2803,8 @@ _gpu_vm_launch() {
             printf "  Stop with: hyprconf hardware gpu vm stop\n"
         fi
     else
-        printf "  xfreerdp not installed. Install: sudo pacman -S freerdp\n"
-        printf "  Web viewer:  http://127.0.0.1:8006\n"
-        printf "  RDP connect: xfreerdp /v:127.0.0.1:3389 /u:%s /p:%s\n" "${VM_USERNAME}" "${VM_PASSWORD}"
+        printf "  Install looking-glass-client (AUR) or freerdp for display.\n"
+        printf "  RDP: xfreerdp /v:127.0.0.1:3389 /u:%s /p:%s\n" "${VM_USERNAME}" "${VM_PASSWORD}"
     fi
 }
 

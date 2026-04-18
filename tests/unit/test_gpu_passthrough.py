@@ -1398,10 +1398,10 @@ class TestGpuVmSmbiosArgs:
 
 
 class TestGpuVmComposeSmbios:
-    """Tests for anti-detection integration in compose output."""
+    """Tests for anti-detection and Looking Glass integration in compose output."""
 
     def test_compose_includes_smbios_and_cpu_flags(self, tmp_path):
-        """Compose includes SMBIOS, CPU_FLAGS, MACHINE, and disk flags."""
+        """Compose includes SMBIOS, CPU_FLAGS, MACHINE, disk flags, and anti-detection env vars."""
         bin_dir = tmp_path / "bin"
         sysfs_root = tmp_path / "sys"
         home_dir = tmp_path / "home"
@@ -1431,6 +1431,7 @@ class TestGpuVmComposeSmbios:
         (conf_dir / "gpu-vm.conf").write_text(
             'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
             'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+            'VM_IVSHMEM_SIZE="64"\n'
         )
 
         cmd = textwrap.dedent(f"""\
@@ -1498,6 +1499,37 @@ class TestGpuVmComposeSmbios:
         assert 'MACHINE: "q35"' in compose
         # Disk spoofing in ARGUMENTS
         assert "scsi-hd.product=Samsung_970_EVO" in compose
+        # Anti-detection env vars (eliminate VirtIO fingerprints)
+        assert 'DISPLAY: "none"' in compose
+        assert 'ADAPTER: "e1000e"' in compose
+        assert 'DISK_TYPE: "sata"' in compose
+        assert 'USB: "no"' in compose
+        # Looking Glass ivshmem device
+        assert "ivshmem-plain,id=shmem0,memdev=looking-glass" in compose
+        assert "memory-backend-file,id=looking-glass,mem-path=/dev/kvmfr0,size=64M,share=yes" in compose
+        assert "/dev/kvmfr0:/dev/kvmfr0" in compose
+        # SPICE audio
+        assert "-audiodev spice,id=spice" in compose
+        assert "-device intel-hda" in compose
+        assert "-device hda-duplex,audiodev=spice" in compose
+        # SPICE display socket
+        assert "-spice unix=on,addr=/tmp/spice/spice.sock" in compose
+        # SPICE clipboard channel
+        assert "virtio-serial-pci" in compose
+        assert "spicechannel0" in compose
+        assert "vdagent" in compose
+        # Input devices
+        assert "virtio-mouse-pci" in compose
+        assert "virtio-keyboard-pci" in compose
+        # ICH9 power management
+        assert "ICH9-LPC.disable_s3=1" in compose
+        assert "ICH9-LPC.disable_s4=1" in compose
+        # SPICE volume mount
+        assert "/tmp/spice" in compose
+        # ulimits for VFIO memory locking
+        assert "memlock:" in compose
+        assert "soft: -1" in compose
+        assert "hard: -1" in compose
 
     def test_compose_works_without_dmi(self, tmp_path):
         """Compose generates correctly even if DMI data is unavailable."""
@@ -1552,6 +1584,107 @@ class TestGpuVmComposeSmbios:
         assert "-smbios" not in compose
         # MACHINE q35 still present (always set)
         assert 'MACHINE: "q35"' in compose
+        # Anti-detection env vars always present
+        assert 'DISPLAY: "none"' in compose
+        assert 'ADAPTER: "e1000e"' in compose
+        assert 'DISK_TYPE: "sata"' in compose
+        # Looking Glass always present
+        assert "ivshmem-plain" in compose
+        assert "/dev/kvmfr0" in compose
+
+    def test_compose_ivshmem_size_from_config(self, tmp_path):
+        """IVSHMEM size from VM config is used in Looking Glass device."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+            'VM_IVSHMEM_SIZE="128"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_vm_smbios_args() {{ printf ''; }}
+            _gpu_vm_cpu_flags() {{ printf ''; }}
+            _gpu_vm_disk_flags() {{ printf ''; }}
+            _gpu_vm_generate_compose
+            cat "$_GPU_VM_COMPOSE"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        compose = r.stdout
+
+        assert "size=128M,share=yes" in compose
+
+    def test_compose_usb_no_by_default(self, tmp_path):
+        """USB is disabled by default; no USB controller without USB devices."""
+        bin_dir = tmp_path / "bin"
+        sysfs_root = tmp_path / "sys"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+
+        _make_fake_bins(bin_dir)
+        _make_fake_sysfs(sysfs_root, gpus={
+            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
+        })
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _GPU_SYSFS="{sysfs_root}"
+            _gpu_vm_smbios_args() {{ printf ''; }}
+            _gpu_vm_cpu_flags() {{ printf ''; }}
+            _gpu_vm_disk_flags() {{ printf ''; }}
+            _gpu_vm_generate_compose
+            cat "$_GPU_VM_COMPOSE"
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        compose = r.stdout
+
+        assert 'USB: "no"' in compose
+        assert "qemu-xhci" not in compose
 
 
 class TestGpuVmCpuFlags:
@@ -4244,6 +4377,8 @@ class TestGpuVmComposeWithUsb:
         assert "vfio-pci,host=01:00.0" in compose
         assert "usb-host,vendorid=0x046d,productid=0xc52b" in compose
         assert "usb-host,vendorid=0x0951,productid=0x16a5" in compose
+        # USB controller added when USB devices present
+        assert "qemu-xhci" in compose
 
     def test_compose_no_usb_when_unconfigured(self, tmp_path):
         """Compose works fine without any USB config file."""
@@ -4287,6 +4422,8 @@ class TestGpuVmComposeWithUsb:
         compose = r.stdout
         assert "vfio-pci,host=01:00.0" in compose
         assert "usb-host" not in compose
+        # No USB controller when no USB devices
+        assert "qemu-xhci" not in compose
 
 
 class TestGpuVmLaunchForce:
@@ -4305,15 +4442,16 @@ class TestGpuVmLaunchForce:
             source "{SCRIPT}"
             # Override launch to inspect parsed flags
             _gpu_vm_launch() {{
-                local keep_alive=false force=""
+                local keep_alive=false force="" use_rdp=false
                 while [[ $# -gt 0 ]]; do
                     case "$1" in
                         --keep-alive|-k) keep_alive=true ;;
                         --force|-f)      force="force" ;;
+                        --rdp)           use_rdp=true ;;
                     esac
                     shift
                 done
-                printf "KEEP=%s FORCE=%s\\n" "$keep_alive" "$force"
+                printf "KEEP=%s FORCE=%s RDP=%s\\n" "$keep_alive" "$force" "$use_rdp"
             }}
             _gpu_vm_launch --force -k
         """)
