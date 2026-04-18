@@ -2448,15 +2448,16 @@ _gpu_vm_is_running() {
 _gpu_vm_qemu_monitor_cmd() {
     # Send a command to the QEMU HMP monitor via telnet (port 7100 inside container).
     # Uses netcat (nc) which is available in the Dockurr Debian image.
-    # Returns the monitor response text. Strips telnet/prompt noise.
+    # Strips telnet IAC negotiation bytes (binary) and QEMU prompt noise.
     local cmd="$1"
-    local result
-    result=$(docker exec "$_GPU_VM_CONTAINER" bash -c \
+    local raw
+    raw=$(docker exec "$_GPU_VM_CONTAINER" bash -c \
         "{ sleep 0.3; printf '%s\n' '${cmd}'; sleep 0.5; } | \
-         nc -q 1 localhost ${_GPU_VM_QEMU_MON_PORT}" 2>&1 || true)
-    # Strip QEMU prompt lines
-    result=$(echo "$result" | grep -v '^(qemu)' | sed '/^$/d')
-    printf '%s' "$result"
+         nc -q 1 localhost ${_GPU_VM_QEMU_MON_PORT} 2>/dev/null | \
+         tr -d '\000-\010\016-\037\177-\377'" 2>/dev/null || true)
+    # Strip QEMU prompt lines and blanks
+    raw=$(printf '%s\n' "$raw" | grep -v '^(qemu)' | sed '/^[[:space:]]*$/d')
+    printf '%s' "$raw"
 }
 
 _gpu_vm_usb_hotplug() {
@@ -2497,7 +2498,10 @@ _gpu_vm_usb_hotplug() {
     local result
     result=$(_gpu_vm_qemu_monitor_cmd "$monitor_cmd")
 
-    if echo "$result" | grep -qi "error\|failed\|unknown\|duplicate"; then
+    if echo "$result" | grep -qi "duplicate"; then
+        printf "  ✔ USB %s already attached to VM.\n" "$vid_pid"
+        _gpu_log "INFO" "USB hot-${action}: ${vid_pid} (already attached)"
+    elif echo "$result" | grep -qi "error\|failed\|unknown"; then
         printf "  ⚠ Hot-%s failed: %s\n" "$action" "$result" >&2
         printf "    Device will be applied on next VM restart.\n" >&2
         _gpu_log "WARN" "USB hot-${action} failed: ${vid_pid}: ${result}"
