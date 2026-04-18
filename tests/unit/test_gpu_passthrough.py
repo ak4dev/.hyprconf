@@ -1512,10 +1512,9 @@ class TestGpuVmComposeSmbios:
         assert "memory-backend-file,id=looking-glass,mem-path=" in compose
         assert "size=64M,share=yes" in compose  # matches VM_IVSHMEM_SIZE=64 in test config
         assert "kvmfr0" in compose
-        # Audio: PulseAudio backend (no SPICE — Dockurr QEMU lacks it)
-        assert "-audiodev pa,id=hda-audio" in compose
-        assert "-device intel-hda" in compose
-        assert "-device hda-duplex,audiodev=hda-audio" in compose
+        # Audio: removed entirely (Dockurr QEMU lacks all audio backends)
+        assert "-device intel-hda" not in compose
+        assert "-audiodev" not in compose
         # No SPICE (Dockurr QEMU does not have SPICE compiled in)
         assert "-spice" not in compose
         assert "virtio-serial-pci" not in compose
@@ -1526,8 +1525,7 @@ class TestGpuVmComposeSmbios:
         # ICH9 power management
         assert "ICH9-LPC.disable_s3=1" in compose
         assert "ICH9-LPC.disable_s4=1" in compose
-        # PulseAudio volume mount
-        assert "/pulse" in compose
+        # PulseAudio volume mount not needed (no host audio backend)
         # OEM volume mount for auto-install
         assert "/oem" in compose
         # ulimits for VFIO memory locking
@@ -1694,10 +1692,9 @@ class TestGpuVmComposeSmbios:
 
         assert 'USB: "no"' in compose
         assert "qemu-xhci" not in compose
-        # Audio always present even without kvmfr (PulseAudio fallback)
-        assert "-device intel-hda" in compose
-        assert "-device hda-duplex,audiodev=hda-audio" in compose
-        assert "-audiodev pa,id=hda-audio" in compose
+        # Audio: removed entirely (Dockurr QEMU lacks all audio backends)
+        assert "-device intel-hda" not in compose
+        assert "-audiodev" not in compose
 
 
 class TestGpuVmOem:
@@ -1730,6 +1727,8 @@ class TestGpuVmOem:
         assert "EpicGamesLauncherInstaller.msi" in bat
         assert "Battle.net-Setup.exe" in bat
         assert "FirefoxSetup.exe" in bat
+        assert "looking-glass.io/artifact/B7/host" in bat
+        assert "looking-glass-host" in bat
         assert "/S" in bat
         assert "/quiet" in bat
         # Privacy hardening
@@ -4507,8 +4506,8 @@ class TestGpuVmComposeWithUsb:
 class TestGpuVmLaunchForce:
     """Tests for --force flag on _gpu_vm_launch."""
 
-    def test_launch_parses_force_and_stop_on_disconnect(self, tmp_path):
-        """--force, -s, and --rdp are parsed from args; -k is a legacy no-op."""
+    def test_launch_parses_force_flag(self, tmp_path):
+        """--force is parsed from args."""
         bin_dir = tmp_path / "bin"
         home_dir = tmp_path / "home"
         home_dir.mkdir()
@@ -4520,19 +4519,16 @@ class TestGpuVmLaunchForce:
             source "{SCRIPT}"
             # Override launch to inspect parsed flags
             _gpu_vm_launch() {{
-                local stop_on_disconnect=false force="" use_rdp=false
+                local force=""
                 while [[ $# -gt 0 ]]; do
                     case "$1" in
-                        --stop-on-disconnect|-s) stop_on_disconnect=true ;;
-                        --keep-alive|-k)         ;;
-                        --force|-f)              force="force" ;;
-                        --rdp)                   use_rdp=true ;;
+                        --force|-f) force="force" ;;
                     esac
                     shift
                 done
-                printf "STOP=%s FORCE=%s RDP=%s\\n" "$stop_on_disconnect" "$force" "$use_rdp"
+                printf "FORCE=%s\\n" "$force"
             }}
-            _gpu_vm_launch --force -s
+            _gpu_vm_launch --force
         """)
 
         env = os.environ.copy()
@@ -4540,7 +4536,6 @@ class TestGpuVmLaunchForce:
         env["HOME"] = str(home_dir)
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
         assert r.returncode == 0, f"stderr: {r.stderr}"
-        assert "STOP=true" in r.stdout
         assert "FORCE=force" in r.stdout
 
     def test_launch_force_bypasses_display_check(self, tmp_path):

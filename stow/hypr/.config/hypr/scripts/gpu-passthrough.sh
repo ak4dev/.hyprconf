@@ -2461,49 +2461,69 @@ setlocal
 
 echo === hyprconf OEM: Installing software ===
 
-echo [1/4] Downloading Steam...
+echo [1/5] Downloading Steam...
 powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe' -OutFile '%TEMP%\SteamSetup.exe'"
 if exist "%TEMP%\SteamSetup.exe" (
-    echo [1/4] Installing Steam silently...
+    echo [1/5] Installing Steam silently...
     start /wait "" "%TEMP%\SteamSetup.exe" /S
     del "%TEMP%\SteamSetup.exe"
-    echo [1/4] Steam installed.
+    echo [1/5] Steam installed.
 ) else (
-    echo [1/4] Steam download failed, skipping.
+    echo [1/5] Steam download failed, skipping.
 )
 
-echo [2/4] Downloading Epic Games Launcher...
+echo [2/5] Downloading Epic Games Launcher...
 powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/EpicGamesLauncherInstaller.msi' -OutFile '%TEMP%\EpicInstaller.msi'"
 if exist "%TEMP%\EpicInstaller.msi" (
-    echo [2/4] Installing Epic Games Launcher silently...
+    echo [2/5] Installing Epic Games Launcher silently...
     msiexec /i "%TEMP%\EpicInstaller.msi" /quiet /norestart
     del "%TEMP%\EpicInstaller.msi"
-    echo [2/4] Epic Games Launcher installed.
+    echo [2/5] Epic Games Launcher installed.
 ) else (
-    echo [2/4] Epic download failed, skipping.
+    echo [2/5] Epic download failed, skipping.
 )
 
-echo [3/4] Downloading Battle.net...
+echo [3/5] Downloading Battle.net...
 powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://www.battle.net/download/getInstallerForGame?os=win&gameProgram=BATTLENET_APP&version=Live' -OutFile '%TEMP%\Battle.net-Setup.exe'"
 if exist "%TEMP%\Battle.net-Setup.exe" (
-    echo [3/4] Installing Battle.net silently...
+    echo [3/5] Installing Battle.net silently...
     start /wait "" "%TEMP%\Battle.net-Setup.exe" --lang=enUS --installpath="C:\Program Files (x86)\Battle.net" --productinstall
     del "%TEMP%\Battle.net-Setup.exe"
-    echo [3/4] Battle.net installed.
+    echo [3/5] Battle.net installed.
 ) else (
-    echo [3/4] Battle.net download failed, skipping.
+    echo [3/5] Battle.net download failed, skipping.
 )
 
-echo [4/4] Downloading Firefox...
+echo [4/5] Downloading Firefox...
 powershell -NoProfile -Command "Invoke-WebRequest -Uri 'https://download.mozilla.org/?product=firefox-latest-ssl&os=win64&lang=en-US' -OutFile '%TEMP%\FirefoxSetup.exe'"
 if exist "%TEMP%\FirefoxSetup.exe" (
-    echo [4/4] Installing Firefox silently...
+    echo [4/5] Installing Firefox silently...
     start /wait "" "%TEMP%\FirefoxSetup.exe" /S
     del "%TEMP%\FirefoxSetup.exe"
-    echo [4/4] Firefox installed.
+    echo [4/5] Firefox installed.
 ) else (
-    echo [4/4] Firefox download failed, skipping.
+    echo [4/5] Firefox download failed, skipping.
 )
+
+echo [5/5] Downloading Looking Glass Host...
+powershell -NoProfile -Command "$ProgressPreference='SilentlyContinue'; Invoke-WebRequest -Uri 'https://looking-glass.io/artifact/B7/host' -OutFile '%TEMP%\looking-glass-host.zip'; Expand-Archive -Path '%TEMP%\looking-glass-host.zip' -DestinationPath '%TEMP%\lg-host' -Force"
+if exist "%TEMP%\lg-host\looking-glass-host-setup.exe" (
+    echo [5/5] Installing Looking Glass Host silently...
+    start /wait "" "%TEMP%\lg-host\looking-glass-host-setup.exe" /S
+    echo [5/5] Looking Glass Host installed.
+) else if exist "%TEMP%\lg-host\looking-glass-host.exe" (
+    echo [5/5] Installing Looking Glass Host (portable)...
+    mkdir "C:\Program Files\Looking Glass (host)" 2>nul
+    copy /Y "%TEMP%\lg-host\looking-glass-host.exe" "C:\Program Files\Looking Glass (host)\"
+    echo [5/5] Looking Glass Host copied. Creating startup task...
+    schtasks /Create /TN "Looking Glass Host" /TR "\"C:\Program Files\Looking Glass (host)\looking-glass-host.exe\"" /SC ONLOGON /RL HIGHEST /F
+    start "" "C:\Program Files\Looking Glass (host)\looking-glass-host.exe"
+    echo [5/5] Looking Glass Host installed and started.
+) else (
+    echo [5/5] Looking Glass Host download failed, skipping.
+)
+if exist "%TEMP%\looking-glass-host.zip" del "%TEMP%\looking-glass-host.zip"
+if exist "%TEMP%\lg-host" rmdir /S /Q "%TEMP%\lg-host"
 
 echo === Applying privacy settings ===
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -2640,11 +2660,9 @@ _gpu_vm_generate_compose() {
         qemu_args+=" -device vfio-pci,host=${dev_pci}"
     done
 
-    # Audio: always provide intel-hda so Windows has a sound device.
-    # PulseAudio backend — PipeWire provides the compatibility socket.
-    qemu_args+=" -audiodev pa,id=hda-audio,server=/run/user/$(id -u)/pulse/native"
-    qemu_args+=" -device intel-hda"
-    qemu_args+=" -device hda-duplex,audiodev=hda-audio"
+    # Audio: removed entirely — Dockurr's QEMU lacks all audio backends
+    # (SPICE, PulseAudio, ALSA). HDMI audio from the passthrough GPU
+    # provides sound output in Windows.
 
     # Power: disable S3/S4 (suspend/hibernate breaks GPU passthrough)
     qemu_args+=" -global ICH9-LPC.disable_s3=1"
@@ -2719,7 +2737,6 @@ ${devices_block}
       - ${_GPU_VM_STORAGE_DIR}:/storage
       - ${_GPU_VM_SHARED_DIR}:/shared
       - ${_GPU_VM_OEM_DIR}:/oem
-      - /run/user/$(id -u)/pulse:/run/user/1000/pulse
     restart: unless-stopped
     stop_grace_period: 2m
 EOF
@@ -2834,14 +2851,12 @@ _gpu_vm_install() {
 }
 
 _gpu_vm_launch() {
-    # Bind GPU to vfio-pci (if needed), start Docker container, connect.
-    local stop_on_disconnect=false force="" use_rdp=false
+    # Bind GPU to vfio-pci (if needed), start Docker container.
+    # VM runs persistently until explicitly stopped with `vm stop`.
+    local force=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --stop-on-disconnect|-s) stop_on_disconnect=true ;;
-            --keep-alive|-k)         ;;  # legacy no-op (now the default)
-            --force|-f)              force="force" ;;
-            --rdp)                   use_rdp=true ;;
+            --force|-f) force="force" ;;
         esac
         shift
     done
@@ -2853,14 +2868,6 @@ _gpu_vm_launch() {
     if ! _gpu_vm_load_config; then
         printf "Windows VM not configured. Run: hyprconf hardware gpu vm install\n" >&2
         return 1
-    fi
-
-    # Check Looking Glass prerequisites
-    if [[ ! -e "$_GPU_VM_KVMFR_DEV" ]]; then
-        printf "⚠ %s not found.\n" "$_GPU_VM_KVMFR_DEV" >&2
-        printf "  Load kvmfr module: sudo modprobe kvmfr static_size_mb=%s\n" "${VM_IVSHMEM_SIZE:-64}" >&2
-        printf "  Continuing without Looking Glass (RDP fallback).\n" >&2
-        use_rdp=true
     fi
 
     # Ensure GPU is bound to vfio-pci
@@ -2878,32 +2885,38 @@ _gpu_vm_launch() {
     local container_status
     container_status=$(docker inspect --format='{{.State.Status}}' "$_GPU_VM_CONTAINER" 2>/dev/null || echo "")
 
-    if [[ "$container_status" != "running" ]]; then
-        printf "→ Starting Windows VM...\n"
-        if ! docker-compose -f "$_GPU_VM_COMPOSE" up -d 2>&1; then
-            printf "✘ Failed to start VM. Check: docker logs %s\n" "$_GPU_VM_CONTAINER" >&2
-            return 1
-        fi
-
-        printf "  Waiting for VM to boot...\n"
-        printf "  GPU display should be visible on the monitor connected to the passthrough GPU.\n"
-
-        local wait_count=0
-        while ! docker logs "$_GPU_VM_CONTAINER" 2>&1 | grep -qi "windows started successfully\|booting.*qemu"; do
-            sleep 2
-            wait_count=$((wait_count + 1))
-            if (( wait_count > 90 )); then
-                printf "\n⚠ VM may still be installing Windows (first boot takes 10-15 min).\n"
-                printf "  First boot: Windows installer runs on the GPU-connected display.\n"
-                printf "  After install: install GPU drivers, then Looking Glass host app.\n"
-                return 0
-            fi
-        done
+    if [[ "$container_status" == "running" ]]; then
+        printf "VM is already running.\n"
+        printf "  Connect: hyprconf hardware gpu vm connect\n"
+        printf "  Stop:    hyprconf hardware gpu vm stop\n"
+        return 0
     fi
 
-    printf "✔ VM is running.\n"
+    printf "→ Starting Windows VM...\n"
+    if ! docker-compose -f "$_GPU_VM_COMPOSE" up -d 2>&1; then
+        printf "✘ Failed to start VM. Check: docker logs %s\n" "$_GPU_VM_CONTAINER" >&2
+        return 1
+    fi
 
-    _gpu_vm_connect_inner "$use_rdp" "$stop_on_disconnect"
+    printf "  Waiting for VM to boot...\n"
+    printf "  GPU display should be visible on the monitor connected to the passthrough GPU.\n"
+
+    local wait_count=0
+    while ! docker logs "$_GPU_VM_CONTAINER" 2>&1 | grep -qi "windows started successfully\|booting.*qemu"; do
+        sleep 2
+        wait_count=$((wait_count + 1))
+        if (( wait_count > 90 )); then
+            printf "\n⚠ VM may still be installing Windows (first boot takes 10-15 min).\n"
+            printf "  First boot: Windows installer runs on the GPU-connected display.\n"
+            printf "  After install: install GPU drivers, then Looking Glass host app.\n"
+            return 0
+        fi
+    done
+
+    printf "✔ VM is running.\n"
+    printf "  Connect: hyprconf hardware gpu vm connect\n"
+    printf "  Stop:    hyprconf hardware gpu vm stop\n"
+    printf "  Status:  hyprconf hardware gpu vm status\n"
 }
 
 _gpu_vm_connect() {
@@ -2942,7 +2955,13 @@ _gpu_vm_connect_inner() {
 
     if [[ "$use_rdp" == false ]] && command -v looking-glass-client &>/dev/null; then
         printf "→ Launching Looking Glass...\n"
-        looking-glass-client -f "$_GPU_VM_KVMFR_DEV" --no-spice &
+        looking-glass-client \
+            -f "$_GPU_VM_KVMFR_DEV" \
+            spice:enable=no \
+            egl:doubleBuffer=yes \
+            win:fullScreen=yes \
+            win:autoResize=yes \
+            &
         printf "  Stop VM: hyprconf hardware gpu vm stop\n"
         if [[ -n "$rdp_bin" ]]; then
             printf "  RDP:     %s /v:127.0.0.1:3389 /u:%s /p:%s\n" "$rdp_bin" "${VM_USERNAME}" "${VM_PASSWORD}"
