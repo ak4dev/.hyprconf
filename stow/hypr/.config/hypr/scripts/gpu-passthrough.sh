@@ -201,7 +201,7 @@ _gpu_is_display_gpu() {
     # Return 0 if the GPU at pci_addr has an active display connector.
     local pci_addr="$1"
     local full_addr="0000:${pci_addr}"
-    local drm_dir="/sys/bus/pci/devices/${full_addr}/drm"
+    local drm_dir="${_GPU_SYSFS}/bus/pci/devices/${full_addr}/drm"
 
     [[ -d "$drm_dir" ]] || return 1
 
@@ -210,7 +210,7 @@ _gpu_is_display_gpu() {
         [[ -d "$card" ]] || continue
         local card_name
         card_name=$(basename "$card")
-        for status_file in /sys/class/drm/"${card_name}"-*/status; do
+        for status_file in "${_GPU_SYSFS}/class/drm/${card_name}"-*/status; do
             [[ -f "$status_file" ]] || continue
             if [[ "$(cat "$status_file" 2>/dev/null)" == "connected" ]]; then
                 return 0
@@ -223,7 +223,7 @@ _gpu_is_display_gpu() {
 _gpu_current_driver() {
     local pci_addr="$1"
     local full_addr="0000:${pci_addr}"
-    local driver_link="/sys/bus/pci/devices/${full_addr}/driver"
+    local driver_link="${_GPU_SYSFS}/bus/pci/devices/${full_addr}/driver"
     if [[ -L "$driver_link" ]]; then
         basename "$(readlink "$driver_link")"
     else
@@ -245,7 +245,7 @@ _gpu_detect_mode() {
 _gpu_iommu_group() {
     local pci_addr="$1"
     local full_addr="0000:${pci_addr}"
-    local iommu_link="/sys/bus/pci/devices/${full_addr}/iommu_group"
+    local iommu_link="${_GPU_SYSFS}/bus/pci/devices/${full_addr}/iommu_group"
     if [[ -L "$iommu_link" ]]; then
         basename "$(readlink "$iommu_link")"
     else
@@ -260,7 +260,7 @@ _gpu_iommu_devices() {
     group=$(_gpu_iommu_group "$pci_addr")
     [[ -z "$group" ]] && return 1
 
-    local grp_dir="/sys/kernel/iommu_groups/${group}/devices"
+    local grp_dir="${_GPU_SYSFS}/kernel/iommu_groups/${group}/devices"
     [[ -d "$grp_dir" ]] || return 1
 
     local dev
@@ -494,11 +494,15 @@ _gpu_mode_get() {
 _gpu_mode_vm() {
     # Bind GPU + all IOMMU group devices to vfio-pci (mirrors omarchy cmd_bind).
     local force="${1:-}"
+    local pci_override="${2:-}"
 
     if ! _gpu_load_config; then
         printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
         return 1
     fi
+
+    # Apply CLI override if a specific GPU was requested
+    [[ -n "$pci_override" ]] && GPU_PCI_ADDR="$pci_override"
 
     _gpu_ensure_sudo || return 1
 
@@ -640,11 +644,15 @@ _gpu_mode_vm() {
 
 _gpu_mode_host() {
     # Unbind from vfio-pci, restore native driver (mirrors omarchy cmd_unbind).
+    local pci_override="${1:-}"
 
     if ! _gpu_load_config; then
         printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
         return 1
     fi
+
+    # Apply CLI override if a specific GPU was requested
+    [[ -n "$pci_override" ]] && GPU_PCI_ADDR="$pci_override"
 
     _gpu_ensure_sudo || return 1
 
@@ -771,11 +779,15 @@ _gpu_mode_host() {
 
 _gpu_mode_none() {
     # Unbind GPU from all drivers (mirrors omarchy cmd_set_none).
+    local pci_override="${1:-}"
 
     if ! _gpu_load_config; then
         printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
         return 1
     fi
+
+    # Apply CLI override if a specific GPU was requested
+    [[ -n "$pci_override" ]] && GPU_PCI_ADDR="$pci_override"
 
     _gpu_ensure_sudo || return 1
 
@@ -1421,12 +1433,13 @@ _gpu_create_vm_entry_grub() {
 
     sudo tee "$grub_custom" > /dev/null <<'GRUBEOF'
 #!/bin/sh
-exec tail -n +3 $0
+cat << EOF
 menuentry "Arch Linux (GPU Passthrough)" --class arch --class gnu-linux {
     search --no-floppy --set=root --fs-uuid $(grub-probe --target=fs_uuid /)
     linux $(ls /boot/vmlinuz-linux* | head -1) root=UUID=$(findmnt -no UUID /) rw VFIO_IDS
     initrd $(ls /boot/initramfs-linux*.img | head -1)
 }
+EOF
 GRUBEOF
 
     # Replace VFIO_IDS placeholder
@@ -2754,7 +2767,7 @@ _gpu_vm_generate_compose() {
     if [[ -e "$_GPU_VM_KVMFR_DEV" ]]; then
         has_kvmfr=true
         qemu_args+=" -device ivshmem-plain,id=shmem0,memdev=looking-glass"
-        qemu_args+=" -object memory-backend-file,id=looking-glass,mem-path=${_GPU_VM_KVMFR_DEV},size=${VM_IVSHMEM_SIZE:-128}M,share=yes"
+        qemu_args+=" -object memory-backend-file,id=looking-glass,mem-path=${_GPU_VM_KVMFR_DEV},size=${VM_IVSHMEM_SIZE:-64}M,share=yes"
     fi
 
     # GPU passthrough: vfio-pci devices (skip PCI bridges)
@@ -3018,7 +3031,7 @@ _gpu_vm_launch() {
     printf "  GPU display should be visible on the monitor connected to the passthrough GPU.\n"
 
     local wait_count=0
-    while ! docker logs "$_GPU_VM_CONTAINER" 2>&1 | grep -qi "windows started successfully\|booting.*qemu"; do
+    while ! docker logs "$_GPU_VM_CONTAINER" 2>&1 | grep -qi "windows started successfully\|booting.*qemu\|windows is ready"; do
         sleep 2
         wait_count=$((wait_count + 1))
         if (( wait_count > 90 )); then

@@ -2414,9 +2414,8 @@ class TestGpuBlacklist:
         content = blacklist_file.read_text()
         assert "install nvidia /bin/false" in content
 
-    @pytest.mark.skip(reason="Dual boot entry rewrite — tests pending")
     def test_blacklist_skipped_multi_nvidia(self, tmp_path):
-        """Multi-NVIDIA setup: blacklist is NOT written, boot-time binding is configured."""
+        """Multi-NVIDIA setup: blacklist is NOT written, dual boot entries are configured."""
         bin_dir = tmp_path / "bin"
         home_dir = tmp_path / "home"
         home_dir.mkdir()
@@ -2430,31 +2429,16 @@ class TestGpuBlacklist:
         )
 
         blacklist_file = tmp_path / "blacklist-gpu-passthrough.conf"
-        vfio_conf = tmp_path / "vfio.conf"
-        vfio_conf.write_text("options vfio-pci disable_vga=1\n")
-        mkinitcpio = tmp_path / "mkinitcpio.conf"
-        mkinitcpio.write_text("MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)\n")
-        # Create a fake boot entry for kernel cmdline
-        boot_entries = tmp_path / "loader" / "entries"
-        boot_entries.mkdir(parents=True)
-        (boot_entries / "linux.conf").write_text("options quiet splash\n")
-
-        # Fake bootctl that reports installed + fake mkinitcpio
-        _make_executable(bin_dir / "bootctl", textwrap.dedent("""\
-            #!/usr/bin/env bash
-            exit 0
-        """))
-        _make_executable(bin_dir / "mkinitcpio", "#!/usr/bin/env bash\nexit 0\n")
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
             _GPU_BLACKLIST_CONF="{blacklist_file}"
             source "{SCRIPT}"
-            # Override paths for test
-            _gpu_set_kernel_param() {{
-                local key="$1" value="$2"
-                # Write to a file so tests can verify
-                echo "${{key}}=${{value}}" >> "{tmp_path}/kernel_params_set"
+            _gpu_clean_vfio_ids_from_entries() {{
+                echo "clean_vfio_ids_called" >> "{tmp_path}/calls"
+            }}
+            _gpu_create_vm_boot_entry() {{
+                echo "create_vm_boot_entry:$1" >> "{tmp_path}/calls"
             }}
             _gpu_ensure_mkinitcpio_vfio_first() {{
                 echo "mkinitcpio_vfio_first_called" >> "{tmp_path}/calls"
@@ -2474,16 +2458,15 @@ class TestGpuBlacklist:
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
         assert r.returncode == 0, f"stderr: {r.stderr}"
         assert not blacklist_file.exists(), "Blacklist should not be written in multi-GPU"
-        # Verify boot-time binding was configured
-        assert "multi-NVIDIA" in r.stdout or "boot-time" in r.stdout
-        params = (tmp_path / "kernel_params_set").read_text()
-        assert "vfio-pci.ids=10de:2484,10de:228b" in params
+        # Verify dual boot entry was configured
+        assert "multi-NVIDIA" in r.stdout or "dual boot" in r.stdout.lower()
         calls = (tmp_path / "calls").read_text()
+        assert "clean_vfio_ids_called" in calls
+        assert "create_vm_boot_entry:10de:2484,10de:228b" in calls
         assert "mkinitcpio_vfio_first_called" in calls
         assert "vfio_softdep_called" in calls
         assert "rebuild_initramfs_called" in calls
 
-    @pytest.mark.skip(reason="Dual boot entry rewrite — tests pending")
     def test_blacklist_stale_removed_multi_nvidia(self, tmp_path):
         """Multi-NVIDIA setup: pre-existing blacklist file is removed."""
         bin_dir = tmp_path / "bin"
@@ -2505,7 +2488,8 @@ class TestGpuBlacklist:
             set -euo pipefail
             _GPU_BLACKLIST_CONF="{blacklist_file}"
             source "{SCRIPT}"
-            _gpu_set_kernel_param() {{ return 0; }}
+            _gpu_clean_vfio_ids_from_entries() {{ return 0; }}
+            _gpu_create_vm_boot_entry() {{ return 0; }}
             _gpu_ensure_mkinitcpio_vfio_first() {{ return 0; }}
             _gpu_ensure_vfio_softdep() {{ return 0; }}
             _gpu_rebuild_initramfs() {{ return 0; }}
@@ -2662,7 +2646,6 @@ class TestGpuBootTimeBinding:
         content = vfio_conf.read_text()
         assert content.count("softdep nvidia pre: vfio-pci") == 1
 
-    @pytest.mark.skip(reason="Dual boot entry rewrite — tests pending")
     def test_boot_binding_multi_nvidia_no_audio(self, tmp_path):
         """Boot binding works when GPU_AUDIO_IDS is empty."""
         bin_dir = tmp_path / "bin"
@@ -2681,8 +2664,9 @@ class TestGpuBootTimeBinding:
             set -euo pipefail
             _GPU_BLACKLIST_CONF="{blacklist_file}"
             source "{SCRIPT}"
-            _gpu_set_kernel_param() {{
-                echo "${{1}}=${{2}}" >> "{tmp_path}/kernel_params_set"
+            _gpu_clean_vfio_ids_from_entries() {{ return 0; }}
+            _gpu_create_vm_boot_entry() {{
+                echo "create_vm_boot_entry:$1" >> "{tmp_path}/calls"
             }}
             _gpu_ensure_mkinitcpio_vfio_first() {{ return 0; }}
             _gpu_ensure_vfio_softdep() {{ return 0; }}
@@ -2695,10 +2679,10 @@ class TestGpuBootTimeBinding:
 
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
         assert r.returncode == 0, f"stderr: {r.stderr}"
-        params = (tmp_path / "kernel_params_set").read_text()
+        calls = (tmp_path / "calls").read_text()
         # Without audio IDs, should only have GPU device ID
-        assert "vfio-pci.ids=10de:2484" in params
-        assert "10de:228b" not in params
+        assert "create_vm_boot_entry:10de:2484" in calls
+        assert "10de:228b" not in calls
 
     def test_boot_binding_single_nvidia_writes_blacklist(self, tmp_path):
         """Single-NVIDIA path still writes blacklist, not boot binding."""
@@ -2759,7 +2743,7 @@ class TestGpuBootTimeBinding:
 class TestGpuAuditBootBinding:
     """Test audit checks for multi-NVIDIA boot-time binding."""
 
-    def _run_audit_with_cmdline(self, tmp_path, cmdline_content, lspci_output, *, mkinitcpio_content="", vfio_conf_content=""):
+    def _run_audit_with_cmdline(self, tmp_path, cmdline_content, lspci_output, *, mkinitcpio_content="", vfio_conf_content="", vm_entry_exists=False):
         """Helper to run _gpu_audit with faked /proc/cmdline."""
         bin_dir = tmp_path / "bin"
         home_dir = tmp_path / "home"
@@ -2800,10 +2784,12 @@ class TestGpuAuditBootBinding:
         sysfs_root = tmp_path / "sys"
         _make_fake_sysfs(sysfs_root)
 
+        vm_entry_stub = "return 0" if vm_entry_exists else "return 1"
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
             export _GPU_SYSFS="{sysfs_root}"
             source "{SCRIPT}"
+            _gpu_has_vm_boot_entry() {{ {vm_entry_stub}; }}
             _gpu_audit
         """)
         env = os.environ.copy()
@@ -2812,30 +2798,29 @@ class TestGpuAuditBootBinding:
 
         return subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
 
-    @pytest.mark.skip(reason="Dual boot entry rewrite — tests pending")
     def test_audit_boot_binding_present(self, tmp_path):
-        """Audit reports ✔ when vfio-pci.ids is in cmdline for multi-NVIDIA."""
+        """Audit reports ✔ when VM boot entry exists for multi-NVIDIA."""
         r = self._run_audit_with_cmdline(
             tmp_path,
             "intel_iommu=on iommu=pt vfio-pci.ids=10de:2484,10de:228b",
             LSPCI_TWO_NVIDIA,
             mkinitcpio_content="MODULES=(vfio-pci nvidia)",
             vfio_conf_content="softdep nvidia pre: vfio-pci",
+            vm_entry_exists=True,
         )
         assert r.returncode == 0, f"stderr: {r.stderr}"
-        assert "boot-time" in r.stdout.lower() or "vfio-pci" in r.stdout
+        assert "boot entry exists" in r.stdout.lower() or "passthrough mode" in r.stdout.lower()
 
-    @pytest.mark.skip(reason="Dual boot entry rewrite — tests pending")
     def test_audit_boot_binding_missing(self, tmp_path):
-        """Audit warns when vfio-pci.ids is missing for multi-NVIDIA."""
+        """Audit warns when no VM boot entry exists for multi-NVIDIA."""
         r = self._run_audit_with_cmdline(
             tmp_path,
             "intel_iommu=on iommu=pt",
             LSPCI_TWO_NVIDIA,
         )
-        # Should return warnings (non-zero is for errors, warnings are still rc 0)
+        # Should return warnings about missing boot entry
         combined = r.stdout + r.stderr
-        assert "vfio-pci.ids" in combined or "boot-time" in combined.lower() or "warning" in combined.lower()
+        assert "boot entry" in combined.lower() or "setup" in combined.lower()
 
 class TestGpuDiagnose:
     def test_diagnose_creates_report(self, fake_env):
@@ -4139,7 +4124,6 @@ class TestGpuNvidiaUsedByOtherGpu:
         assert r.returncode == 0, f"stderr: {r.stderr}"
         assert "NO_OTHER_GPU" in r.stdout
 
-    @pytest.mark.skip(reason="Dual boot entry rewrite — tests pending")
     def test_mode_vm_skips_unload_multi_gpu(self, tmp_path):
         """mode_vm succeeds in multi-GPU setup without unloading nvidia modules."""
         bin_dir = tmp_path / "bin"
@@ -4163,33 +4147,11 @@ class TestGpuNvidiaUsedByOtherGpu:
             'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
         )
 
-        # Use a direct bash script with overrides that simulate sysfs binding
+        # Use a direct bash script — sysfs functions now use ${_GPU_SYSFS}
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
             source "{SCRIPT}"
             export _GPU_SYSFS="{sysfs_root}"
-            _gpu_current_driver() {{
-                local pci_addr="$1"
-                local full_addr="0000:${{pci_addr}}"
-                local driver_link="{sysfs_root}/bus/pci/devices/${{full_addr}}/driver"
-                if [[ -L "$driver_link" ]]; then
-                    basename "$(readlink "$driver_link")"
-                else
-                    echo "none"
-                fi
-            }}
-            _gpu_iommu_devices() {{
-                local pci_addr="$1"
-                local group
-                group=$(_gpu_iommu_group "$pci_addr")
-                [[ -z "$group" ]] && return 1
-                local grp_dir="{sysfs_root}/kernel/iommu_groups/${{group}}/devices"
-                [[ -d "$grp_dir" ]] || return 1
-                local dev
-                for dev in "$grp_dir"/*; do
-                    basename "$dev" | sed 's/^0000://'
-                done
-            }}
             _gpu_check_processes() {{ return 0; }}
             _gpu_check_display_safety() {{ return 0; }}
             _gpu_unbind_vtconsoles() {{ return 0; }}
@@ -4197,6 +4159,7 @@ class TestGpuNvidiaUsedByOtherGpu:
             _gpu_update_state_marker() {{ return 0; }}
             _gpu_ensure_sudo() {{ return 0; }}
             _gpu_get_pci_class() {{ echo "0300"; }}
+            _gpu_booted_vm_mode() {{ return 0; }}
             # Override sysfs_write to mutate fake symlinks
             _gpu_sysfs_write() {{
                 local value="$1" path="$2"

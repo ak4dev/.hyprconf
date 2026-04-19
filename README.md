@@ -250,10 +250,14 @@ hyprconf hardware gpu mode vm [gpu]    Bind GPU to vfio-pci for VM passthrough (
 hyprconf hardware gpu mode host [gpu]  Restore GPU to host driver
 hyprconf hardware gpu mode none [gpu]  Unbind GPU from all drivers
 hyprconf hardware gpu vm install       Interactive Windows VM setup wizard
-hyprconf hardware gpu vm launch [-k]   Bind GPU + start VM + connect RDP (-k keeps VM on disconnect)
+hyprconf hardware gpu vm launch        Bind GPU + start VM (--force to override safety checks)
+hyprconf hardware gpu vm connect       Connect via Looking Glass or RDP (--rdp, --stop-on-disconnect|-s)
 hyprconf hardware gpu vm stop          Stop the Windows VM container
 hyprconf hardware gpu vm status        Show VM config, GPU state, container status
 hyprconf hardware gpu vm remove        Remove VM container, image, and config (preserves ~/Windows/)
+hyprconf hardware gpu vm usb [list]    List USB devices available for passthrough
+hyprconf hardware gpu vm usb add       Interactively attach a USB device to the running VM
+hyprconf hardware gpu vm usb remove    Interactively detach a USB device from the VM
 hyprconf hardware gpu report           Detailed hardware report
 hyprconf hardware gpu diagnose         Detailed diagnostic dump
 
@@ -506,11 +510,12 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 | `hyprconf hardware gpu mode host [gpu]` | Unbind from vfio-pci → reload native driver |
 | `hyprconf hardware gpu mode none [gpu]` | Unbind GPU from all drivers (idle state) |
 | `hyprconf hardware gpu vm install` | Interactive wizard — set RAM, CPU, disk, Windows version, credentials |
-| `hyprconf hardware gpu vm launch` | Start Docker container with GPU passthrough (VM persists until stopped) |
-| `hyprconf hardware gpu vm connect` | Connect to running VM via Looking Glass (falls back to RDP) |
+| `hyprconf hardware gpu vm launch [--force]` | Start Docker container with GPU passthrough (VM persists until stopped) |
+| `hyprconf hardware gpu vm connect [--rdp] [-s]` | Connect to running VM via Looking Glass (falls back to RDP); `-s`/`--stop-on-disconnect` stops VM on RDP exit |
 | `hyprconf hardware gpu vm stop` | Stop the Windows VM container |
 | `hyprconf hardware gpu vm status` | Show VM config, GPU binding state, container status |
 | `hyprconf hardware gpu vm remove` | Remove container, image, and config (preserves `~/Windows/` shared folder) |
+| `hyprconf hardware gpu vm usb [list\|add\|remove]` | Hot-plug USB devices into/out of the running VM via QEMU monitor |
 | `hyprconf hardware gpu report` | Comprehensive hardware report (system, motherboard, GPUs, IOMMU groups, drivers) |
 | `hyprconf hardware gpu diagnose` | Detailed diagnostic dump (dmesg, IOMMU groups, modules, config) |
 
