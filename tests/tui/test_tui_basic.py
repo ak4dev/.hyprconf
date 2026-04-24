@@ -433,3 +433,222 @@ async def test_set_wallpaper_uses_hyprpaper_ipc(
         and any("hyprpaper" in str(x) for x in a)
         for a in run_calls
     ), "`hyprctl keyword hyprpaper` is wrong — hyprpaper is not a Hyprland option section"
+
+
+# ---------------------------------------------------------------------------
+# Monitor position helper unit tests (pure Python, no TUI required)
+# ---------------------------------------------------------------------------
+
+def test_compute_logical_size_no_rotation():
+    import main as tui_main
+    lw, lh = tui_main._compute_logical_size(3840, 2160, 2.0, 0)
+    assert lw == 1920.0
+    assert lh == 1080.0
+
+
+def test_compute_logical_size_swaps_axes_on_90_rotation():
+    import main as tui_main
+    # transform=1 means 90° — physical 1920x1080 becomes logical 540x960
+    lw, lh = tui_main._compute_logical_size(1920, 1080, 2.0, 1)
+    assert lw == 540.0
+    assert lh == 960.0
+
+
+def test_compute_logical_size_swaps_axes_on_270_rotation():
+    import main as tui_main
+    lw, lh = tui_main._compute_logical_size(1920, 1080, 1.0, 3)
+    assert lw == 1080.0
+    assert lh == 1920.0
+
+
+def test_compute_logical_size_does_not_swap_on_180():
+    import main as tui_main
+    lw, lh = tui_main._compute_logical_size(1920, 1080, 1.0, 2)
+    assert lw == 1920.0
+    assert lh == 1080.0
+
+
+def test_monitor_edit_screen_uses_file_position():
+    """MonitorEditScreen should show the persisted file position, not hyprctl coords."""
+    import main as tui_main
+    mon = {"name": "HDMI-A-1", "width": 1920, "height": 1080, "refreshRate": 60.0,
+           "scale": 1.0, "x": 1920, "y": 0, "transform": 0, "vrr": False,
+           "availableModes": []}
+    screen = tui_main.MonitorEditScreen(mon, "", "auto-right")
+    assert screen._pos == "auto-right"
+
+
+def test_monitor_edit_screen_falls_back_to_hyprctl_coords():
+    """When no file_position provided, fall back to the hyprctl x/y coordinates."""
+    import main as tui_main
+    mon = {"name": "HDMI-A-1", "width": 1920, "height": 1080, "refreshRate": 60.0,
+           "scale": 1.0, "x": 1920, "y": 0, "transform": 0, "vrr": False,
+           "availableModes": []}
+    screen = tui_main.MonitorEditScreen(mon, "")
+    assert screen._pos == "1920x0"
+
+
+def test_monitor_edit_screen_blank_new_defaults_to_auto():
+    """Blank new-monitor dialog should default position to 'auto'."""
+    import main as tui_main
+    blank = {"name": "", "description": "", "width": 1920, "height": 1080,
+             "refreshRate": 60.0, "scale": 1.0, "x": 0, "y": 0,
+             "vrr": False, "availableModes": []}
+    screen = tui_main.MonitorEditScreen(blank, "", "auto")
+    assert screen._pos == "auto"
+
+
+def test_adjust_adjacent_no_change_when_delta_small():
+    """No adjustment calls when logical size barely changes."""
+    import main as tui_main
+
+    upsert_calls: list = []
+    run_calls:    list = []
+
+    snapshot = [
+        {"name": "DP-1",    "x": 0,    "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {"name": "HDMI-A-1","x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+    ]
+    fake_file_mc = MagicMock()
+    fake_file_mc.name     = "HDMI-A-1"
+    fake_file_mc.position = "1920x0"
+    fake_file_mc.resolution = "1920x1080@60"
+    fake_file_mc.scale    = "1.0"
+    fake_file_mc.extras   = ""
+
+    with (
+        patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_file_mc]),
+        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
+        patch.object(tui_main, "_run",                side_effect=lambda *a, **kw: run_calls.append(a)),
+    ):
+        # delta = 0 — no change
+        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 1920.0, 1080.0)
+
+    assert upsert_calls == [], "no upsert expected for zero delta"
+    assert run_calls    == [], "no run expected for zero delta"
+
+
+def test_adjust_adjacent_shifts_monitor_to_the_right():
+    """When the edited monitor grows in width, the monitor to its right must be shifted."""
+    import main as tui_main
+
+    upsert_calls: list = []
+    run_calls:    list = []
+
+    # DP-1 at origin (1920 logical wide); HDMI-A-1 butted against its right edge
+    snapshot = [
+        {"name": "DP-1",    "x": 0,    "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {"name": "HDMI-A-1","x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+    ]
+    fake_file_mc = MagicMock()
+    fake_file_mc.name       = "HDMI-A-1"
+    fake_file_mc.position   = "1920x0"
+    fake_file_mc.resolution = "1920x1080@60"
+    fake_file_mc.scale      = "1.0"
+    fake_file_mc.extras     = ""
+
+    with (
+        patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_file_mc]),
+        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
+        patch.object(tui_main, "_run",                side_effect=lambda *a, **kw: run_calls.append(a)),
+    ):
+        # DP-1 grew from 1920 to 2560 logical pixels wide (e.g. scale lowered)
+        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0)
+
+    assert len(upsert_calls) == 1, "exactly one adjacent monitor should have been repositioned"
+    # New position should be 2560x0 (shifted by +640)
+    assert upsert_calls[0][2] == "2560x0"
+
+
+def test_adjust_adjacent_skips_auto_positions():
+    """Monitors with auto-* positions in monitors.conf must NOT be adjusted."""
+    import main as tui_main
+
+    upsert_calls: list = []
+
+    snapshot = [
+        {"name": "DP-1",    "x": 0,    "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {"name": "HDMI-A-1","x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+    ]
+    fake_file_mc = MagicMock()
+    fake_file_mc.name       = "HDMI-A-1"
+    fake_file_mc.position   = "auto-right"  # <-- auto, must be skipped
+    fake_file_mc.resolution = "1920x1080@60"
+    fake_file_mc.scale      = "1.0"
+    fake_file_mc.extras     = ""
+
+    with (
+        patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_file_mc]),
+        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
+        patch.object(tui_main, "_run",                return_value="ok"),
+    ):
+        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0)
+
+    assert upsert_calls == [], "auto-right monitor must not be adjusted"
+
+
+def test_adjust_adjacent_handles_chain():
+    """All monitors in a chain to the right of the edited one get the same delta."""
+    import main as tui_main
+
+    upsert_calls: list = []
+
+    # Three monitors in a row: DP-1 (0), MON-B (1920), MON-C (3840)
+    snapshot = [
+        {"name": "DP-1", "x": 0,    "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {"name": "MON-B","x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {"name": "MON-C","x": 3840, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+    ]
+    fake_b = MagicMock(name="MON-B", position="1920x0", resolution="1920x1080@60", scale="1.0", extras="")
+    fake_b.name = "MON-B"
+    fake_b.position = "1920x0"
+    fake_b.resolution = "1920x1080@60"
+    fake_b.scale = "1.0"
+    fake_b.extras = ""
+    fake_c = MagicMock()
+    fake_c.name = "MON-C"
+    fake_c.position = "3840x0"
+    fake_c.resolution = "1920x1080@60"
+    fake_c.scale = "1.0"
+    fake_c.extras = ""
+
+    with (
+        patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_b, fake_c]),
+        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
+        patch.object(tui_main, "_run",                return_value="ok"),
+    ):
+        # DP-1 grows from 1920 to 2560 → delta +640
+        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0)
+
+    positions = {c[0]: c[2] for c in upsert_calls}
+    assert positions.get("MON-B") == "2560x0", "MON-B should shift by +640"
+    assert positions.get("MON-C") == "4480x0", "MON-C should shift by +640"
+
+
+def test_adjust_adjacent_shifts_monitor_below():
+    """When the edited monitor grows in height, the monitor below it must be shifted."""
+    import main as tui_main
+
+    upsert_calls: list = []
+
+    snapshot = [
+        {"name": "DP-1",    "x": 0, "y": 0,    "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {"name": "HDMI-A-1","x": 0, "y": 1080, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+    ]
+    fake_file_mc = MagicMock()
+    fake_file_mc.name       = "HDMI-A-1"
+    fake_file_mc.position   = "0x1080"
+    fake_file_mc.resolution = "1920x1080@60"
+    fake_file_mc.scale      = "1.0"
+    fake_file_mc.extras     = ""
+
+    with (
+        patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_file_mc]),
+        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
+        patch.object(tui_main, "_run",                return_value="ok"),
+    ):
+        # DP-1 grew from 1080 to 1440 logical pixels tall
+        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 1920.0, 1440.0)
+
+    assert len(upsert_calls) == 1
+    assert upsert_calls[0][2] == "0x1440"

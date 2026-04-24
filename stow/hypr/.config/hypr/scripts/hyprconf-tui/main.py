@@ -625,6 +625,112 @@ def _parse_monitor_extras(extras: str) -> dict[str, str]:
     return result
 
 
+# Matches an absolute monitor position like "1920x0" or "-100x200".
+_ABS_POS_RE = re.compile(r'^(-?\d+)[xX](-?\d+)$')
+
+
+def _compute_logical_size(
+    phys_w: int, phys_h: int, scale: float, transform: int,
+) -> tuple[float, float]:
+    """Return (logical_width, logical_height) after applying scale and transform.
+
+    Transforms 1/3/5/7 (90° / 270° rotations) swap the physical axes before
+    dividing by scale, matching how Hyprland measures position offsets.
+    """
+    if transform in (1, 3, 5, 7):
+        phys_w, phys_h = phys_h, phys_w
+    return phys_w / scale, phys_h / scale
+
+
+def _adjust_adjacent_monitor_positions(
+    edited_name:   str,
+    snapshot:      list[dict],  # ALL monitor dicts from hyprctl, captured BEFORE the edit
+    old_lw:        float,       # old logical width  of the edited monitor
+    old_lh:        float,       # old logical height of the edited monitor
+    new_lw:        float,       # new logical width
+    new_lh:        float,       # new logical height
+) -> None:
+    """Shift absolute-positioned monitors adjacent to the edited one to prevent overlaps.
+
+    When the edited monitor's logical size grows (scale decreases, or a larger
+    resolution is chosen), monitors that were sitting to its right or below can
+    overlap the new extent.  This function shifts every such monitor — including
+    chains — by the same delta so their relative layout is preserved.
+
+    Monitors using auto / auto-right / etc. are intentionally skipped: Hyprland
+    will recompute their positions automatically.  Only monitors with explicit
+    numeric positions in monitors.conf need manual adjustment.
+    """
+    delta_w = new_lw - old_lw
+    delta_h = new_lh - old_lh
+    if abs(delta_w) < 0.5 and abs(delta_h) < 0.5:
+        return
+
+    edited = next((m for m in snapshot if m.get("name") == edited_name), None)
+    if not edited:
+        return
+
+    old_x      = float(edited.get("x", 0))
+    old_y      = float(edited.get("y", 0))
+    old_right  = old_x + old_lw
+    old_bottom = old_y + old_lh
+
+    file_configs = _lib_monitor_configs()
+
+    for mon in snapshot:
+        mname = mon.get("name", "")
+        if mname == edited_name:
+            continue
+
+        mx      = float(mon.get("x", 0))
+        my      = float(mon.get("y", 0))
+        m_w     = int(mon.get("width",  1920))
+        m_h     = int(mon.get("height", 1080))
+        m_tr    = int(mon.get("transform", 0) or 0)
+        m_scale = float(mon.get("scale", 1.0) or 1.0)
+        m_lw, m_lh = _compute_logical_size(m_w, m_h, m_scale, m_tr)
+
+        file_mc = next((fc for fc in file_configs if fc.name == mname), None)
+        if not file_mc:
+            continue
+        if file_mc.position.lower().startswith("auto"):
+            continue  # Hyprland handles auto positions automatically
+
+        pos_m = _ABS_POS_RE.match(file_mc.position.strip())
+        if not pos_m:
+            continue
+        file_x = int(pos_m.group(1))
+        file_y = int(pos_m.group(2))
+
+        # ── Horizontal: shift monitors to the right of the edited monitor ──────
+        # Use delta_w > 0 only (monitor grew) since shrinking just creates a gap.
+        # All monitors in the affected column (mx >= old right edge, y-band
+        # overlaps edited) receive the same delta, which correctly handles chains.
+        if delta_w > 0.5 and mx >= old_right - 1:
+            # Y-band overlap: mon's vertical range must intersect edited's range
+            if not (my + m_lh <= old_y or my >= old_bottom):
+                new_file_x = file_x + int(round(delta_w))
+                new_pos = f"{new_file_x}x{file_y}"
+                extras_str = file_mc.extras.strip()
+                _lib_upsert_monitor(mname, file_mc.resolution, new_pos, file_mc.scale, extras_str)
+                _run(["hyprctl", "keyword", "monitor",
+                      f"{mname},{file_mc.resolution},{new_pos},{file_mc.scale}"
+                      + (f",{extras_str}" if extras_str else "")])
+                continue
+
+        # ── Vertical: shift monitors below the edited monitor ─────────────────
+        if delta_h > 0.5 and my >= old_bottom - 1:
+            # X-band overlap: mon's horizontal range must intersect edited's range
+            if not (mx + m_lw <= old_x or mx >= old_x + old_lw):
+                new_file_y = file_y + int(round(delta_h))
+                new_pos = f"{file_x}x{new_file_y}"
+                extras_str = file_mc.extras.strip()
+                _lib_upsert_monitor(mname, file_mc.resolution, new_pos, file_mc.scale, extras_str)
+                _run(["hyprctl", "keyword", "monitor",
+                      f"{mname},{file_mc.resolution},{new_pos},{file_mc.scale}"
+                      + (f",{extras_str}" if extras_str else "")])
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 #  Keybind edit / new screen
 # ──────────────────────────────────────────────────────────────────────────────
@@ -924,7 +1030,7 @@ class MonitorEditScreen(ModalScreen):
         "mon-transform", "mon-mirror",
     )
 
-    def __init__(self, monitor: dict, extras: str = "") -> None:
+    def __init__(self, monitor: dict, extras: str = "", file_position: str = "") -> None:
         super().__init__()
         self._monitor = monitor
         self._name    = monitor.get("name", "")
@@ -935,7 +1041,10 @@ class MonitorEditScreen(ModalScreen):
         self._scale   = str(monitor.get("scale", 1.0))
         x             = monitor.get("x", 0)
         y             = monitor.get("y", 0)
-        self._pos     = f"{x}x{y}"
+        # Prefer the persisted file position (e.g. "auto-right") over the
+        # runtime-computed absolute coordinates from hyprctl so that Hyprland
+        # can continue to auto-place monitors relative to the current scale.
+        self._pos     = file_position if file_position else f"{x}x{y}"
         self._modes   = monitor.get("availableModes", [])
         ex = _parse_monitor_extras(extras)
         self._vrr           = ex.get("vrr", str(int(bool(monitor.get("vrr", False)))))
@@ -1049,7 +1158,27 @@ class MonitorEditScreen(ModalScreen):
             return
 
         if fid == "mon-pos":
-            self.query_one("#mon-vrr", Input).focus()
+            current_pos = self.query_one("#mon-pos", Input).value.strip()
+            pos_opts: list[tuple[str, str]] = []
+            # Prepend the current value if it's already non-auto (so user can confirm it)
+            _auto_keys = {"auto", "auto-right", "auto-left", "auto-up", "auto-down"}
+            if current_pos and current_pos not in _auto_keys:
+                pos_opts.append((current_pos, f"{current_pos}  (current)"))
+            pos_opts += [
+                ("auto",       "auto        — let Hyprland decide"),
+                ("auto-right", "auto-right  — to the right of existing monitors"),
+                ("auto-left",  "auto-left   — to the left  of existing monitors"),
+                ("auto-up",    "auto-up     — above existing monitors"),
+                ("auto-down",  "auto-down   — below existing monitors"),
+            ]
+            def _apply_pos(val: Optional[str]) -> None:
+                if val is not None:
+                    self.query_one("#mon-pos", Input).value = val
+                self.query_one("#mon-vrr", Input).focus()
+            self.app.push_screen(
+                OptionSelectScreen("Position", pos_opts, current_pos),
+                _apply_pos,
+            )
             return
 
         if fid == "mon-vrr":
@@ -2117,7 +2246,12 @@ class HyprconfApp(App):
                 # Read persisted extras (bitdepth, cm, sdrbrightness, etc.) from monitors.conf
                 file_configs = _lib_monitor_configs()
                 file_mc = next((mc for mc in file_configs if mc.name == monitor_name), None)
-                file_extras = file_mc.extras if file_mc else ""
+                file_extras   = file_mc.extras   if file_mc else ""
+                file_position = file_mc.position if file_mc else ""
+
+                # Snapshot ALL monitors now (before the edit dialog opens) so
+                # that handle_monitor can detect which neighbours need adjusting.
+                monitors_snapshot = monitors
 
                 def handle_monitor(keyword: Optional[str]) -> None:
                     if not keyword:
@@ -2133,13 +2267,41 @@ class HyprconfApp(App):
                             extras=", ".join(parts[4:]) if len(parts) > 4 else "",
                         )
                         self.notify(f"Monitor saved: {parts[0]}")
+
+                        # ── Adjust adjacent monitors if logical size changed ──────────
+                        # Skip when: special res keyword, scale=auto, or transform changed
+                        # (transform swap changes which axis is "width" — safer to skip).
+                        new_res   = parts[1]
+                        new_scale_s = parts[3]
+                        new_extras_d = _parse_monitor_extras(", ".join(parts[4:]) if len(parts) > 4 else "")
+                        new_tr = int(new_extras_d.get("transform", "0") or "0")
+                        old_tr = int(mon_data.get("transform", 0) or 0)
+                        res_m  = re.match(r'^(\d+)[xX](\d+)', new_res)
+                        if res_m and new_scale_s not in ("auto", "") and new_tr == old_tr:
+                            try:
+                                old_scale = float(mon_data.get("scale", 1.0) or 1.0)
+                                new_scale = float(new_scale_s)
+                                old_lw, old_lh = _compute_logical_size(
+                                    int(mon_data.get("width", 1920)),
+                                    int(mon_data.get("height", 1080)),
+                                    old_scale, old_tr,
+                                )
+                                new_lw, new_lh = _compute_logical_size(
+                                    int(res_m.group(1)), int(res_m.group(2)),
+                                    new_scale, new_tr,
+                                )
+                                _adjust_adjacent_monitor_positions(
+                                    parts[0], monitors_snapshot, old_lw, old_lh, new_lw, new_lh,
+                                )
+                            except (ValueError, ZeroDivisionError):
+                                pass
                     elif ok_rt is not None:
                         self.notify(f"Monitor configured: {keyword}")
                     else:
                         self.notify(f"hyprctl rejected: {keyword}", severity="error")
                     self._refresh_monitors()
 
-                self.push_screen(MonitorEditScreen(mon_data, file_extras), handle_monitor)
+                self.push_screen(MonitorEditScreen(mon_data, file_extras, file_position), handle_monitor)
             return
 
         # ── Hardware ─────────────────────────────────────────────────────────
@@ -2327,7 +2489,7 @@ class HyprconfApp(App):
             blank = {"name": "", "description": "", "width": 1920, "height": 1080,
                      "refreshRate": 60.0, "scale": 1.0, "x": 0, "y": 0,
                      "vrr": False, "availableModes": []}
-            scr = MonitorEditScreen(blank)
+            scr = MonitorEditScreen(blank, "", "auto")
             def _handle(keyword: Optional[str]) -> None:
                 if not keyword:
                     return
