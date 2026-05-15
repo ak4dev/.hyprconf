@@ -112,6 +112,16 @@ _sync_vm_to_dev() {
          && echo 'VM repo synced to dev.'"
 
     rm -f "${bundle}"
+
+    # Allow SSH through ufw so hyprconf sync (which enables ufw with deny-incoming)
+    # does not lock out subsequent SSH connections from the test suite.
+    ssh -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o ConnectTimeout=10 \
+        -i "${SSH_KEY}" \
+        -p "${SSH_PORT}" \
+        hyprtest@127.0.0.1 \
+        "sudo ufw allow ssh 2>/dev/null || true"
 }
 
 case "${1:-}" in

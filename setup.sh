@@ -410,6 +410,7 @@ update_zshrc() {
     add_if_missing "alias hyprsync='~/.hyprconf/setup.sh --sync'"
     add_if_missing "fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green"
 
+    trap - RETURN
     log_ok "~/.zshrc configured."
 }
 
