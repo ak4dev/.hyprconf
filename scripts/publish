@@ -231,7 +231,7 @@ if [[ -f "$INSTALL_IMAGE" ]]; then
   printf '%s  ─   Commit: %s%s\n\n'         "$DM" "$_built_commit" "$RS"
   printf '  1) Use existing image  (skip install.sh rebuild — faster)\n'
   printf '  2) Rebuild from scratch (tests install.sh end-to-end — ~20 min)\n\n'
-  read -rp "  Choice [1/2, default 1]: " _img_choice
+  read -rp "  Choice [1/2, default 1]: " _img_choice || true
   case "${_img_choice:-1}" in
     2) _build_image=true ;;
     *) ok "Reusing existing image" ;;
@@ -273,7 +273,7 @@ else
     printf '  1) Clean up stale overlays and retry\n'
     printf '  2) Skip tier 5 (not recommended before publishing)\n'
     printf '  3) Abort\n\n'
-    read -rp "  Choice [1/2/3, default 3]: " _recovery
+    read -rp "  Choice [1/2/3, default 3]: " _recovery || true
     case "${_recovery:-3}" in
       1)
         warn "Cleaning up and retrying..."
