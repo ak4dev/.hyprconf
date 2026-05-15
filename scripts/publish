@@ -184,6 +184,7 @@ if [[ "$SKIP_BUMP" == false ]]; then
   else
     git add "$VERSION_FILE"
     git commit -m "release: [${release_tag}] bump version"
+    git push origin dev
     ok "Bumped to ${version}"
   fi
 else
