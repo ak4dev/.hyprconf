@@ -13,6 +13,11 @@ readonly STEP=2
 
 direction="${1:-+}"
 
+if [[ "$direction" != "+" && "$direction" != "-" ]]; then
+    printf 'Usage: %s <+|->\n' "$(basename "$0")" >&2
+    exit 1
+fi
+
 _get_gap() {
     # gaps_in / gaps_out are CCssGapData (custom type: "T R B L").
     # Use the first (top) value as the representative uniform gap.

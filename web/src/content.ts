@@ -23,7 +23,7 @@ export const PROJECT_DESCRIPTION =
 
 export const INSTALL_COMMAND = 'bash <(curl -fsSL hyprconf.sh)';
 
-export const VERSION = '2.1.2';
+export const VERSION = '2.1.1';
 
 export interface Feature {
   title: string;
@@ -130,7 +130,7 @@ export const CLI_GROUPS: CliGroup[] = [
         name: 'hyprconf theme list',
         usage: 'hyprconf theme list',
         description: 'List all available themes with their appearance type.',
-        example: '★ dracula            dark\n  gruvbox-dark       dark\n  nord               dark\n  tokyo-night        dark\n\n42 themes available',
+        example: `★ dracula            dark\n  gruvbox-dark       dark\n  nord               dark\n  tokyo-night        dark\n\n${themeCount} themes available`,
       },
       { name: 'hyprconf theme generate', usage: 'hyprconf theme generate <image>', description: 'Generate a new theme from an image file using color extraction.' },
     ],

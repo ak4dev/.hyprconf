@@ -8,7 +8,6 @@ export interface RouteConfig {
   component: React.LazyExoticComponent<ComponentType>;
   icon: LucideIcon;
   showInNav: boolean;
-  hasSidebar: boolean;
 }
 
 export const routes: RouteConfig[] = [
@@ -18,7 +17,6 @@ export const routes: RouteConfig[] = [
     component: lazy(() => import('@/pages/Themes')),
     icon: Palette,
     showInNav: true,
-    hasSidebar: true,
   },
   {
     path: '/keybindings',
@@ -26,7 +24,6 @@ export const routes: RouteConfig[] = [
     component: lazy(() => import('@/pages/Keybindings')),
     icon: Keyboard,
     showInNav: true,
-    hasSidebar: true,
   },
   {
     path: '/cli',
@@ -34,7 +31,6 @@ export const routes: RouteConfig[] = [
     component: lazy(() => import('@/pages/CLI')),
     icon: Terminal,
     showInNav: true,
-    hasSidebar: true,
   },
   {
     path: '/install',
@@ -42,6 +38,5 @@ export const routes: RouteConfig[] = [
     component: lazy(() => import('@/pages/Install')),
     icon: Download,
     showInNav: true,
-    hasSidebar: true,
   },
 ];

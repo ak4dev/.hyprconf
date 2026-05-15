@@ -8,7 +8,6 @@ const app = new cdk.App();
 const domain = app.node.tryGetContext("domain") || process.env.HYPRCONF_DOMAIN;
 const bucket = app.node.tryGetContext("bucket") || process.env.HYPRCONF_BUCKET;
 const zoneId = app.node.tryGetContext("zoneId") || process.env.HYPRCONF_ZONE_ID;
-const repoUrl = app.node.tryGetContext("repoUrl") || process.env.HYPRCONF_REPO || "";
 
 if (!domain || !bucket || !zoneId) {
   console.error(
@@ -28,5 +27,4 @@ new HyprconfStack(app, "HyprconfStack", {
   domain,
   bucketName: bucket,
   hostedZoneId: zoneId,
-  repoUrl,
 });

@@ -597,7 +597,9 @@ def cmd_rule(args: list[str]) -> int:
                 print(f"{_Y}Index out of range{_R}", file=sys.stderr)
                 return 1
             e = entries[idx]
-            delete_rule(e.file_path, e.line_idx)
+            if not delete_rule(e.file_path, e.line_idx):
+                print(f"{_Y}Failed to delete window rule{_R}", file=sys.stderr)
+                return 1
             print(f"  {_B}Deleted:{_R}  {e.rule}")
             return 0
 
@@ -656,7 +658,9 @@ def cmd_rule(args: list[str]) -> int:
                 print(f"{_Y}Index out of range{_R}", file=sys.stderr)
                 return 1
             e = entries[idx]
-            delete_rule(e.file_path, e.line_idx)
+            if not delete_rule(e.file_path, e.line_idx):
+                print(f"{_Y}Failed to delete workspace rule{_R}", file=sys.stderr)
+                return 1
             print(f"  {_B}Deleted:{_R}  {e.rule}")
             return 0
 
@@ -670,7 +674,9 @@ def cmd_rule(args: list[str]) -> int:
                 print(f"{_Y}Index out of range{_R}", file=sys.stderr)
                 return 1
             e = entries[idx]
-            update_workspace_rule(e.file_path, e.line_idx, args[3], args[4])
+            if not update_workspace_rule(e.file_path, e.line_idx, args[3], args[4]):
+                print(f"{_Y}Failed to update workspace rule{_R}", file=sys.stderr)
+                return 1
             print(f"  {_B}Updated:{_R}  [{args[2]}] → workspace = {args[3]}, {args[4]}")
             return 0
 
@@ -712,7 +718,9 @@ def cmd_monitor(args: list[str]) -> int:
             field = args[3]
             value = args[4]
             try:
-                update_monitor_field(name, field, value)
+                if not update_monitor_field(name, field, value):
+                    print(f"{_Y}Failed to set monitor field{_R}", file=sys.stderr)
+                    return 1
             except ValueError as exc:
                 print(f"{_Y}{exc}{_R}", file=sys.stderr)
                 return 1

@@ -14,7 +14,6 @@ function createStack(overrides?: { importBucket?: boolean }): Template {
     domain: "test.example.com",
     bucketName: "test-example-com",
     hostedZoneId: "Z0123456789ABCDEFGHIJ",
-    repoUrl: "https://github.com/test/repo",
   });
   return Template.fromStack(stack);
 }

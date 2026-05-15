@@ -186,7 +186,7 @@ def test_save_pending_strips_legacy_marker(hypr_dir: Path) -> None:
 def test_save_pending_returns_false_on_oserror(hypr_dir: Path) -> None:
     import unittest.mock as _mock
     from hyprconf.config import save_pending
-    with _mock.patch("pathlib.Path.write_text", side_effect=OSError("disk full")):
+    with _mock.patch("hyprconf.config.atomic_write_text", side_effect=OSError("disk full")):
         ok, n = save_pending({"general": {"gaps_in": "5"}})
     assert ok is False
     assert n == 0

@@ -95,11 +95,14 @@ def read_keybinds_with_location(
                 ms = _SOURCE_RE.match(stripped)
                 if ms:
                     src_raw = os.path.expanduser(os.path.expandvars(ms.group(1).strip()))
-                    if "*" in src_raw:
-                        for sp in sorted(Path(src_raw).parent.glob(Path(src_raw).name)):
+                    src_path = Path(src_raw)
+                    if not src_path.is_absolute():
+                        src_path = p.parent / src_path
+                    if "*" in src_path.name:
+                        for sp in sorted(src_path.parent.glob(src_path.name)):
                             _parse(sp, local_vars)
                     else:
-                        _parse(Path(src_raw), local_vars)
+                        _parse(src_path, local_vars)
                     continue
             mb = _BIND_RE.match(stripped)
             if mb:

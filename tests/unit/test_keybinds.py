@@ -322,3 +322,14 @@ def test_read_keybinds_nonexistent_file(tmp_path: Path) -> None:
     missing = tmp_path / "nonexistent.conf"
     entries = read_keybinds(missing)
     assert entries == []
+
+
+def test_read_keybinds_relative_source(tmp_path: Path) -> None:
+    """A relative `source = ./foo.conf` resolves against the including file's dir."""
+    from hyprconf.keybinds import read_keybinds_with_location
+    sub = tmp_path / "extra.conf"
+    sub.write_text("bind = SUPER, X, exec, foo\n")
+    main = tmp_path / "hyprland.conf"
+    main.write_text("source = extra.conf\n")
+    entries = read_keybinds_with_location(main, follow_sources=True)
+    assert any(e.key == "X" and e.dispatcher == "exec" for e in entries)

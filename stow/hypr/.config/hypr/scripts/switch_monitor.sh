@@ -25,6 +25,11 @@ if [[ -z "${1:-}" ]]; then
     exit 1
 fi
 
+# Whitelist preset names to prevent path traversal via $1.
+if [[ ! "$1" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    log_die "Invalid preset name: '$1' (allowed: A-Z, a-z, 0-9, _, -)"
+fi
+
 SOURCE="$CONFIG_DIR/pcMonitors.$1"
 [[ -f "$SOURCE" ]] || log_die "Preset not found: pcMonitors.$1"
 

@@ -311,3 +311,13 @@ def test_collect_rules_follows_glob_source(hypr_dir: Path) -> None:
     dispatchers = {e.rule for e in entries}
     assert any("app1" in d for d in dispatchers)
     assert any("app2" in d for d in dispatchers)
+
+
+def test_collect_rules_resolves_relative_source(hypr_dir: Path) -> None:
+    """A relative `source = ./extra.conf` resolves against the including file's dir."""
+    from hyprconf.rules import HYPRLAND_CONF, read_window_rules_with_location
+    extra = hypr_dir / "extra.conf"
+    extra.write_text("windowrule = float, class:relApp\n")
+    HYPRLAND_CONF.write_text("source = extra.conf\n")
+    entries = read_window_rules_with_location()
+    assert any("relApp" in e.rule for e in entries)

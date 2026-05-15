@@ -7,6 +7,7 @@ import signal
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import colorsys
 import filecmp
@@ -430,9 +431,20 @@ def read_state() -> Optional[str]:
 
 
 def write_state(theme_name: str) -> None:
-    """Persist the current theme name to the state file."""
-    Path(STATE_FILE).parent.mkdir(parents=True, exist_ok=True)
-    Path(STATE_FILE).write_text(theme_name + "\n", encoding="utf-8")
+    """Persist the current theme name to the state file (atomically)."""
+    p = Path(STATE_FILE)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=".theme-state-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(theme_name + "\n")
+        os.replace(tmp, p)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def get_adjacent_theme(direction: int) -> Optional[str]:

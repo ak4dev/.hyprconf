@@ -111,9 +111,13 @@ def _parse_file(
     section_stack: list[str],
     visited: set[Path],
 ) -> None:
-    if path in visited or not path.is_file():
+    try:
+        resolved = path.resolve()
+    except OSError:
+        resolved = path
+    if resolved in visited or not path.is_file():
         return
-    visited.add(path)
+    visited.add(resolved)
 
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -132,9 +136,12 @@ def _parse_file(
         m = _RE_SOURCE.match(ln)
         if m:
             raw_path = os.path.expanduser(os.path.expandvars(m.group(1).strip()))
+            src = Path(raw_path)
+            if not src.is_absolute():
+                src = path.parent / src
             for p in sorted(
-                Path(raw_path).parent.glob(Path(raw_path).name)
-                if "*" in raw_path else [Path(raw_path)]
+                src.parent.glob(src.name)
+                if "*" in src.name else [src]
             ):
                 _parse_file(p, result, current_section, visited)
             continue

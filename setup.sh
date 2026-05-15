@@ -555,7 +555,7 @@ purge_broken_symlinks() {
 _is_desktop() {
     # Primary: DMI chassis type (3-7 = Desktop/Tower variants, 13 = All-in-one, 24 = Space-saving)
     local chassis
-    chassis=$(< /sys/class/dmi/id/chassis_type 2>/dev/null) || chassis=""
+    chassis=$(cat /sys/class/dmi/id/chassis_type 2>/dev/null) || chassis=""
     chassis="${chassis//[[:space:]]}"  # strip any surrounding whitespace
     case "$chassis" in
         3|4|5|6|7|13|24) return 0 ;;

@@ -2424,6 +2424,7 @@ class HyprconfApp(App):
             if not result or not result.strip():
                 return
             wp_path = result.strip()
+            ok = _lib_add_preload(wp_path)
             if ok:
                 ok2 = _lib_add_wp_block("", wp_path)
             else:

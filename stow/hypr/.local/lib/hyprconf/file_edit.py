@@ -19,7 +19,14 @@ from pathlib import Path
 #  Shared parsing helpers (used by block_conf, hyprpaper, keybinds, monitors)
 # ─────────────────────────────────────────────────────────────────────────────
 
-COMMENT_RE = re.compile(r"(?<!\S)#(?![0-9a-fA-F]{6}\b)(?![0-9a-fA-F]{8}\b).*$")
+COMMENT_RE = re.compile(
+    r"(?<!\S)#"
+    r"(?![0-9a-fA-F]{8}\b)"
+    r"(?![0-9a-fA-F]{6}\b)"
+    r"(?![0-9a-fA-F]{4}\b)"
+    r"(?![0-9a-fA-F]{3}\b)"
+    r".*$"
+)
 
 
 def strip_comment(line: str) -> str:
@@ -55,14 +62,24 @@ def _write_lines(path: Path, lines: list[str]) -> None:
     be converted to real files, which ``detect_gpu_and_link_monitor_config``
     then deletes on the next sync — silently discarding all edits.
     """
-    path = path.resolve()
+    body = "\n".join(lines) + ("\n" if lines else "")
+    atomic_write_text(path, body)
+
+
+def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+    """Write *content* to *path* atomically (temp-file + rename).
+
+    Public helper for callers that produce already-joined text rather than a
+    list of lines.  Resolves symlinks so the *target* is updated, not the
+    link itself, matching the behaviour of :func:`_write_lines`.
+    """
+    if path.is_symlink() or path.exists():
+        path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".hyprconf-tmp-")
     try:
-        with os.fdopen(fd, "w") as fh:
-            fh.write("\n".join(lines))
-            if lines:
-                fh.write("\n")
+        with os.fdopen(fd, "w", encoding=encoding) as fh:
+            fh.write(content)
         os.replace(tmp, path)
     except Exception:
         try:

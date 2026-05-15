@@ -68,12 +68,15 @@ def _collect_rules(root: Path, pattern: re.Pattern) -> list[RuleEntry]:
                 continue
             ms = _SOURCE_RE.match(stripped)
             if ms:
-                src = os.path.expanduser(os.path.expandvars(ms.group(1).strip()))
-                if "*" in src:
-                    for sp in sorted(Path(src).parent.glob(Path(src).name)):
+                src_raw = os.path.expanduser(os.path.expandvars(ms.group(1).strip()))
+                src_path = Path(src_raw)
+                if not src_path.is_absolute():
+                    src_path = p.parent / src_path
+                if "*" in src_path.name:
+                    for sp in sorted(src_path.parent.glob(src_path.name)):
                         _parse(sp)
                 else:
-                    _parse(Path(src))
+                    _parse(src_path)
                 continue
             if pattern.search(stripped):
                 entries.append(RuleEntry(rule=stripped, file_path=p, line_idx=idx))

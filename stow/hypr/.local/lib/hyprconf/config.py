@@ -27,6 +27,8 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from .file_edit import atomic_write_text
+
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
@@ -139,7 +141,7 @@ def save_pending(pending: dict[str, dict[str, str]]) -> tuple[bool, int]:
         for k in sorted(managed):
             body += f"{k} = {managed[k]}\n"
 
-        path.write_text(body, encoding="utf-8")
+        atomic_write_text(path, body)
         return True, len(managed)
     except OSError:
         return False, 0
@@ -164,9 +166,9 @@ def migrate_legacy() -> bool:
     """
     if LEGACY_OVERRIDES_FILE.exists() and not OVERRIDES_FILE.exists():
         OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
-        OVERRIDES_FILE.write_text(
+        atomic_write_text(
+            OVERRIDES_FILE,
             LEGACY_OVERRIDES_FILE.read_text(encoding="utf-8"),
-            encoding="utf-8",
         )
         return True
     return False

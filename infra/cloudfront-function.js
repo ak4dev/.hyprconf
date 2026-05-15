@@ -11,8 +11,9 @@ function handler(event) {
   var request = event.request;
   var ua = (request.headers['user-agent'] || { value: '' }).value;
 
-  // CLI tools get the install script
-  if (/curl|wget/i.test(ua)) {
+  // CLI tools (curl/wget) get the install script. Match leading product token
+  // to avoid false positives like "Curlybot" appearing inside browser UAs.
+  if (/^(curl|wget)\//i.test(ua)) {
     request.uri = '/install.sh';
     return request;
   }

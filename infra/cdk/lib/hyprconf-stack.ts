@@ -17,8 +17,6 @@ export interface HyprconfStackProps extends cdk.StackProps {
   bucketName: string;
   /** Route53 hosted zone ID */
   hostedZoneId: string;
-  /** GitHub repo URL injected into install.sh */
-  repoUrl: string;
 }
 
 export class HyprconfStack extends cdk.Stack {

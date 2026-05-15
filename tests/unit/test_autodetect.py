@@ -189,6 +189,18 @@ def test_detect_and_parse_prevents_cycles(tmp_path, monkeypatch):
     assert isinstance(result, _auto.DetectionResult)
 
 
+def test_detect_and_parse_resolves_relative_source(tmp_path, monkeypatch):
+    """A `source = ./foo.conf` line must resolve relative to the including file."""
+    sub = tmp_path / "sub.conf"
+    sub.write_text("general {\n    gaps_in = 11\n}\n")
+    cfg = tmp_path / "hyprland.conf"
+    cfg.write_text("source = sub.conf\n")
+    monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
+    result = _auto.detect_and_parse()
+    matches = [o for o in result.parsed_options if o.key == "gaps_in"]
+    assert matches and matches[0].value == "11"
+
+
 # ---------------------------------------------------------------------------
 # DetectionResult properties
 # ---------------------------------------------------------------------------

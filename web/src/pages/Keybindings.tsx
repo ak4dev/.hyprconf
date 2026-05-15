@@ -46,8 +46,8 @@ export default function Keybindings() {
               <span role="columnheader">Keys</span>
               <span role="columnheader">Action</span>
             </div>
-            {cat.bindings.map((b, i) => (
-              <div key={i} className={styles.row} role="row">
+            {cat.bindings.map((b) => (
+              <div key={`${b.keys.join('+')}|${b.action}`} className={styles.row} role="row">
                 <span role="cell">
                   <KeyboardKey keys={b.keys} />
                 </span>

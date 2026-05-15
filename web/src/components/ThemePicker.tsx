@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ChevronDown, Palette } from 'lucide-react';
 import { useTheme } from '@/lib/theme-provider';
 import { themeNames, communityThemeNames, aiThemeNames } from '@/generated/themes';
@@ -23,7 +23,7 @@ export function ThemePicker() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  const filteredNames = (() => {
+  const filteredNames = useMemo(() => {
     switch (filter) {
       case 'dark':
         return themeNames.filter((n) => allThemes[n]?.appearance === 'dark');
@@ -34,7 +34,7 @@ export function ThemePicker() {
       default:
         return [...communityThemeNames, ...aiThemeNames];
     }
-  })();
+  }, [filter, allThemes]);
 
   return (
     <div className={styles.wrapper}>

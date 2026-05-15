@@ -14,7 +14,22 @@ fi
 log_step() { printf '%s  ▸ %s%s%s\n' "$AM" "$WH" "$1" "$RS"; }
 log_ok()   { printf '%s  ✔ %s%s%s\n' "$GR" "$WH" "$1" "$RS"; }
 
-readonly PANEL="eDP-1"
+# Auto-detect the built-in laptop panel. Most laptops report eDP-1 / eDP-2;
+# desktops do not have one. Allow $PANEL=<name> override for special cases.
+detect_panel() {
+    if [[ -n "${PANEL:-}" ]]; then
+        printf '%s\n' "$PANEL"
+        return
+    fi
+    hyprctl monitors | awk '/^Monitor / && $2 ~ /^eDP-/ {print $2; exit}'
+}
+
+PANEL="$(detect_panel)"
+if [[ -z "$PANEL" ]]; then
+    printf 'No internal panel (eDP-*) detected. Set PANEL=<name> to override.\n' >&2
+    exit 1
+fi
+readonly PANEL
 
 DISABLED=$(hyprctl monitors | awk -v m="$PANEL" '
   $0 ~ "Monitor " m {flag=1}

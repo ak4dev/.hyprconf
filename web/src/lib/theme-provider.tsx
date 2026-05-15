@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useTransition,
   type ReactNode,
 } from 'react';
@@ -99,8 +100,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     [startTransition]
   );
 
+  const value = useMemo<ThemeContextValue>(
+    () => ({ theme, themeName, setTheme, allThemes: themes, isPending }),
+    [theme, themeName, setTheme, isPending]
+  );
+
   return (
-    <ThemeContext value={{ theme, themeName, setTheme, allThemes: themes, isPending }}>
+    <ThemeContext value={value}>
       {children}
     </ThemeContext>
   );

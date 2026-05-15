@@ -369,3 +369,18 @@ def test_strip_comment_preserves_midline_hex_with_comment() -> None:
     from hyprconf.file_edit import strip_comment
     result = strip_comment("col = #112233 #445566  # gradient colors")
     assert result == "col = #112233 #445566"
+
+
+def test_strip_comment_preserves_hex_color_3() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("color = #abc") == "color = #abc"
+
+
+def test_strip_comment_preserves_hex_color_4() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("color = #abcd") == "color = #abcd"
+
+
+def test_strip_comment_preserves_hex_3_with_trailing_comment() -> None:
+    from hyprconf.file_edit import strip_comment
+    assert strip_comment("color = #f0a # accent") == "color = #f0a"
