@@ -100,16 +100,17 @@ def test_no_preset_argument_exits_nonzero(tmp_path):
 # Atomic write regression
 # ---------------------------------------------------------------------------
 
-def test_atomic_write_uses_cp_then_mv_not_rm_then_cp() -> None:
-    """Regression: switch_monitor.sh must use cp+mv (atomic) not rm+cp.
+def test_atomic_write_uses_ln_sf_not_rm_cp() -> None:
+    """Regression: switch_monitor.sh must use ln -sf (atomic symlink) not rm+cp.
 
     The rm+cp pattern leaves a window where monitors.conf is absent.
-    With cp+mv, the new file is always swapped in atomically.
+    ln -sf is a single syscall that atomically replaces the symlink.
+    This also ensures TUI edits flow directly to the tracked preset file.
     """
     src = SCRIPT.read_text()
-    # Must NOT contain the old pattern
-    assert "rm -f" not in src or "mv " in src, (
-        "switch_monitor.sh uses rm+cp (non-atomic); must use cp+mv"
+    # Must use ln -sf for atomic symlink replacement
+    assert "ln -sf" in src, "switch_monitor.sh must use 'ln -sf' for atomic monitors.conf replacement"
+    # Must NOT use the old non-atomic rm+cp pattern
+    assert not ("rm -f" in src and "cp " in src and "mv " not in src), (
+        "switch_monitor.sh uses rm+cp (non-atomic); must use ln -sf"
     )
-    # Positive: mv must be present for atomic replace
-    assert "mv " in src, "switch_monitor.sh must use mv for atomic monitors.conf replacement"

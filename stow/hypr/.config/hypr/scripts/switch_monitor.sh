@@ -35,10 +35,9 @@ SOURCE="$CONFIG_DIR/pcMonitors.$1"
 
 log_step "Switching monitor config to: $1"
 
-# Write directly to monitors.conf, replacing any existing symlink or file.
-# This avoids overwriting the stow-tracked pcMonitors.conf source.
-cp "$SOURCE" "${MONITORS_CONF}.tmp"
-mv "${MONITORS_CONF}.tmp" "$MONITORS_CONF"
+# Symlink monitors.conf → preset file so the TUI writes go directly to the
+# tracked preset (edits persist when the preset is re-selected later).
+ln -sf "$SOURCE" "$MONITORS_CONF"
 
 hyprctl reload
 log_ok "Monitor preset '$1' active — Hyprland reloaded."
