@@ -19,20 +19,13 @@ Special position values:    auto  auto-right  auto-left  auto-up  auto-down
 """
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Paths
-# ─────────────────────────────────────────────────────────────────────────────
-
-_CFG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-MONITORS_FILE = _CFG / "hypr" / "monitors.conf"
+from .paths import MONITORS_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Data type

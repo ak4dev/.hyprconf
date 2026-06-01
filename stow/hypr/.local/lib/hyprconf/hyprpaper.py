@@ -25,7 +25,6 @@ top-level key=value settings are handled directly.
 
 from __future__ import annotations
 
-import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,13 +32,7 @@ from typing import Optional
 
 from .block_conf import ConfigBlock, read_blocks, update_block_field, delete_block, add_block
 from .file_edit  import read_lines, update_line, delete_line, append_block, strip_comment
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Path
-# ─────────────────────────────────────────────────────────────────────────────
-
-_CFG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-HYPRPAPER_FILE = _CFG / "hypr" / "hyprpaper.conf"
+from .paths import HYPRPAPER_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Regexes

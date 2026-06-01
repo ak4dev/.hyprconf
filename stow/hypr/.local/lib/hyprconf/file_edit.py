@@ -19,6 +19,8 @@ from pathlib import Path
 #  Shared parsing helpers (used by block_conf, hyprpaper, keybinds, monitors)
 # ─────────────────────────────────────────────────────────────────────────────
 
+SOURCE_RE = re.compile(r"^source\s*=\s*(.+)$")
+
 COMMENT_RE = re.compile(
     r"(?<!\S)#"
     r"(?![0-9a-fA-F]{8}\b)"
@@ -32,6 +34,20 @@ COMMENT_RE = re.compile(
 def strip_comment(line: str) -> str:
     """Remove an inline ``# …`` comment and surrounding whitespace."""
     return COMMENT_RE.sub("", line).strip()
+
+
+def resolve_source_paths(directive_value: str, relative_to: Path) -> list[Path]:
+    """Expand a ``source = …`` value to a list of concrete paths.
+
+    Handles ``~``, environment variables, relative paths, and glob patterns.
+    """
+    raw = os.path.expanduser(os.path.expandvars(directive_value.strip()))
+    src = Path(raw)
+    if not src.is_absolute():
+        src = relative_to / src
+    if "*" in src.name:
+        return sorted(src.parent.glob(src.name))
+    return [src]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -81,7 +97,7 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
         with os.fdopen(fd, "w", encoding=encoding) as fh:
             fh.write(content)
         os.replace(tmp, path)
-    except Exception:
+    except BaseException:
         try:
             os.unlink(tmp)
         except OSError:

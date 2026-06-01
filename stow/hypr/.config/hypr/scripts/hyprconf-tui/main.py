@@ -22,10 +22,19 @@ from hyprconf.schema import (    # noqa: E402
     SECTION_LABELS,
 )
 from hyprconf.config import (    # noqa: E402
-    OVERRIDES_FILE as _OVERRIDES_FILE,
     MANAGED_MARKER as _MANAGED_MARKER,
     read_persisted as _lib_read_persisted,
     save_pending   as _lib_save_pending,
+)
+from hyprconf.paths import (     # noqa: E402
+    CFG_HOME as _CFG_HOME,
+    HYPR_DIR as _HYPR_DIR,
+    OVERRIDES_FILE as _OVERRIDES_FILE,
+    HYPRLAND_CONF  as _HYPRLAND_CONF,
+    KEYBINDS_FILE  as _KEYBINDS_FILE,
+    HYPRLOCK_FILE  as _HYPRLOCK_FILE,
+    HYPRIDLE_FILE  as _HYPRIDLE_FILE,
+    HYPRPAPER_FILE as _HYPRPAPER_FILE,
 )
 from hyprconf.hyprctl import (   # noqa: E402
     get_option  as _lib_hyprctl_get,
@@ -114,17 +123,17 @@ from textual.widgets import (
 #  Paths
 # ──────────────────────────────────────────────────────────────────────────────
 
-CFG_HOME         = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-HYPR_DIR         = CFG_HOME / "hypr"
+CFG_HOME         = _CFG_HOME
+HYPR_DIR         = _HYPR_DIR
 OVERRIDES_FILE   = _OVERRIDES_FILE
 THEME_DIR        = HYPR_DIR / "scripts" / "theme-switcher" / "themes"
 CURRENT_THEME_F  = HYPR_DIR / ".current-theme"
 THEME_SCRIPT     = HYPR_DIR / "scripts" / "theme-switcher" / "switch_theme.py"
-KEYBINDS_CONF    = HYPR_DIR / "keybinds.conf"
-HYPRLAND_CONF    = HYPR_DIR / "hyprland.conf"
-HYPRLOCK_CONF    = HYPR_DIR / "hyprlock.conf"
-HYPRIDLE_CONF    = HYPR_DIR / "hypridle.conf"
-HYPRPAPER_CONF   = HYPR_DIR / "hyprpaper.conf"
+KEYBINDS_CONF    = _KEYBINDS_FILE
+HYPRLAND_CONF    = _HYPRLAND_CONF
+HYPRLOCK_CONF    = _HYPRLOCK_FILE
+HYPRIDLE_CONF    = _HYPRIDLE_FILE
+HYPRPAPER_CONF   = _HYPRPAPER_FILE
 WALLPAPER_DIR    = Path.home() / "wallpaper"
 MANAGED_MARKER   = _MANAGED_MARKER
 
@@ -2552,7 +2561,6 @@ class HyprconfApp(App):
                 blocks = _lib_idle_blocks()
             else:
                 from hyprconf.block_conf import read_blocks
-                from hyprconf.hyprpaper import HYPRPAPER_CONF as _PAPER_CONF
                 blocks = read_blocks(Path(file_path))
             blk = next(
                 (b for b in blocks

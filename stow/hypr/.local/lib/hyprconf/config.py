@@ -22,20 +22,16 @@ above it is never touched.
 
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import Optional
 
 from .file_edit import atomic_write_text
+from .paths import OVERRIDES_FILE, HYPR_DIR as _HYPR_DIR
 
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
-_CFG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-_HYPR_DIR = _CFG_HOME / "hypr"
-
-OVERRIDES_FILE: Path = _HYPR_DIR / "conf.d" / "99-hyprconf-local.conf"
 LEGACY_OVERRIDES_FILE: Path = _HYPR_DIR / "hyprconf.local.conf"
 
 MANAGED_MARKER: str = "# hyprconf-managed"

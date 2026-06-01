@@ -18,7 +18,6 @@ Design goals
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 from dataclasses import dataclass, field
@@ -26,16 +25,14 @@ from pathlib import Path
 from typing import Optional
 
 from .config import OVERRIDES_FILE
-from .file_edit import strip_comment
+from .file_edit import strip_comment, SOURCE_RE, resolve_source_paths
+from .paths import CFG_HOME as _CFG_HOME, HYPRLAND_CONF as _HYPRLAND_CONF
 from .schema import get_option_meta
 
 # ── Candidate config paths ─────────────────────────────────────────────────────
 
-_CFG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-_HYPR_DIR = _CFG_HOME / "hypr"
-
 CANDIDATE_CONFIGS: list[Path] = [
-    _HYPR_DIR / "hyprland.conf",
+    _HYPRLAND_CONF,
     Path.home() / ".hyprland.conf",
 ]
 
@@ -43,7 +40,6 @@ CANDIDATE_CONFIGS: list[Path] = [
 _FIRST_RUN_MARKER: Path = _CFG_HOME / "hyprconf" / ".initialized"
 
 # ── Pre-compiled parsing regexes (used per-line in _parse_file) ────────────────
-_RE_SOURCE     = re.compile(r"^source\s*=\s*(.+)$")
 _RE_BLOCK_OPEN = re.compile(r"^(\w[\w.]*)\s*\{$")
 _RE_KEY_VAL    = re.compile(r"^([\w.]+[\w])\s*=\s*(.+)$")
 
@@ -133,16 +129,9 @@ def _parse_file(
             continue
 
         # source = ...
-        m = _RE_SOURCE.match(ln)
+        m = SOURCE_RE.match(ln)
         if m:
-            raw_path = os.path.expanduser(os.path.expandvars(m.group(1).strip()))
-            src = Path(raw_path)
-            if not src.is_absolute():
-                src = path.parent / src
-            for p in sorted(
-                src.parent.glob(src.name)
-                if "*" in src.name else [src]
-            ):
+            for p in resolve_source_paths(m.group(1), path.parent):
                 _parse_file(p, result, current_section, visited)
             continue
 

@@ -13,23 +13,12 @@ in-place on the file that owns the rule line.
 """
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Paths
-# ─────────────────────────────────────────────────────────────────────────────
-
-_CFG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-HYPR_DIR       = _CFG / "hypr"
-HYPRLAND_CONF  = HYPR_DIR / "hyprland.conf"
-# Managed rule files — created on first write; sourced via conf.d glob
-WINRULES_FILE  = HYPR_DIR / "conf.d" / "50-windowrules.conf"
-WKSPRULES_FILE = HYPR_DIR / "conf.d" / "50-workspacerules.conf"
+from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment, SOURCE_RE, resolve_source_paths
+from .paths import HYPR_DIR, HYPRLAND_CONF, WINRULES_FILE, WKSPRULES_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Data types
@@ -47,7 +36,6 @@ class RuleEntry(NamedTuple):
 
 _WIN_RULE_RE  = re.compile(r"^(windowrulev2|windowrule)\s*=", re.IGNORECASE)
 _WKSP_RULE_RE = re.compile(r"^workspace\s*=", re.IGNORECASE)
-_SOURCE_RE    = re.compile(r"^source\s*=\s*(.+)$")
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Parsing — follows source directives recursively
@@ -66,17 +54,10 @@ def _collect_rules(root: Path, pattern: re.Pattern) -> list[RuleEntry]:
             stripped = strip_comment(raw)
             if not stripped:
                 continue
-            ms = _SOURCE_RE.match(stripped)
+            ms = SOURCE_RE.match(stripped)
             if ms:
-                src_raw = os.path.expanduser(os.path.expandvars(ms.group(1).strip()))
-                src_path = Path(src_raw)
-                if not src_path.is_absolute():
-                    src_path = p.parent / src_path
-                if "*" in src_path.name:
-                    for sp in sorted(src_path.parent.glob(src_path.name)):
-                        _parse(sp)
-                else:
-                    _parse(src_path)
+                for sp in resolve_source_paths(ms.group(1), p.parent):
+                    _parse(sp)
                 continue
             if pattern.search(stripped):
                 entries.append(RuleEntry(rule=stripped, file_path=p, line_idx=idx))

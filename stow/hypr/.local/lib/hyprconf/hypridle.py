@@ -6,18 +6,11 @@ Uses the generic block_conf parser.  Known block types:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Optional
 
 from .block_conf import ConfigBlock, read_blocks, update_block_field, delete_block, add_block
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Path
-# ─────────────────────────────────────────────────────────────────────────────
-
-_CFG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-HYPRIDLE_FILE = _CFG / "hypr" / "hypridle.conf"
+from .paths import HYPRIDLE_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Schema

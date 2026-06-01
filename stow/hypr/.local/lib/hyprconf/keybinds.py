@@ -13,19 +13,12 @@ Bind flags (may be combined): l (locked), r (release), e (repeat),
 """
 from __future__ import annotations
 
-import os
 import re
 from pathlib import Path
 from typing import NamedTuple, Optional
 
-from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Paths
-# ─────────────────────────────────────────────────────────────────────────────
-
-_CFG = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-KEYBINDS_FILE = _CFG / "hypr" / "keybinds.conf"
+from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment, SOURCE_RE, resolve_source_paths
+from .paths import KEYBINDS_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Data types
@@ -48,7 +41,6 @@ class KeybindEntry(NamedTuple):
 
 _BIND_RE    = re.compile(r"^(bind[a-zA-Z]*)\s*=\s*(.+)$")
 _VAR_RE     = re.compile(r"^\$([A-Za-z0-9_]+)\s*=\s*(.+)$")
-_SOURCE_RE  = re.compile(r"^source\s*=\s*(.+)$")
 
 
 def _expand_vars(text: str, vars_: dict[str, str]) -> str:
@@ -92,17 +84,10 @@ def read_keybinds_with_location(
                 local_vars[mv.group(1)] = mv.group(2).strip()
                 continue
             if follow_sources:
-                ms = _SOURCE_RE.match(stripped)
+                ms = SOURCE_RE.match(stripped)
                 if ms:
-                    src_raw = os.path.expanduser(os.path.expandvars(ms.group(1).strip()))
-                    src_path = Path(src_raw)
-                    if not src_path.is_absolute():
-                        src_path = p.parent / src_path
-                    if "*" in src_path.name:
-                        for sp in sorted(src_path.parent.glob(src_path.name)):
-                            _parse(sp, local_vars)
-                    else:
-                        _parse(src_path, local_vars)
+                    for sp in resolve_source_paths(ms.group(1), p.parent):
+                        _parse(sp, local_vars)
                     continue
             mb = _BIND_RE.match(stripped)
             if mb:
