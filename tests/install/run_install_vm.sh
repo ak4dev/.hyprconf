@@ -108,6 +108,7 @@ _sync_vm_to_dev() {
          && git clone --quiet /tmp/hyprconf-install-vm-sync.bundle ~/.hyprconf \
          && git -C ~/.hyprconf remote set-url origin 'https://github.com/ak4dev/.hyprconf' \
          && rm -f /tmp/hyprconf-install-vm-sync.bundle \
+         && stow -R -d ~/.hyprconf/stow -t ~ hypr \
          && echo 'Install VM repo synced to dev.'"
 
     rm -f "${bundle}"
