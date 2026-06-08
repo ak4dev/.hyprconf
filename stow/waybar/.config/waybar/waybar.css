@@ -36,7 +36,7 @@
 #workspaces {
   background: @background-alpha; /* Slightly more opaque for the island */
   border-radius: 12px;
-  margin: 4px 8px;
+  margin: 0 8px;
   padding: 2px 8px;
 }
 

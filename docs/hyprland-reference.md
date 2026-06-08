@@ -472,19 +472,19 @@ listener {
 }
 
 listener {
-    timeout    = 300
+    timeout    = 2700                                            # 45 min — lock
     on-timeout = pidof hyprlock || (cliphist wipe && hyprlock)
     on-resume  = hyprctl dispatch dpms on
 }
 
 listener {
-    timeout    = 330
+    timeout    = 5400                                            # 90 min — displays off
     on-timeout = hyprctl dispatch dpms off
     on-resume  = hyprctl dispatch dpms on
 }
 
 listener {
-    timeout    = 1800
+    timeout    = 10800                                           # 3 hr  — suspend
     on-timeout = systemctl suspend
 }
 ```
