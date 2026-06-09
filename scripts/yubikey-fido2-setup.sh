@@ -1,0 +1,687 @@
+#!/usr/bin/env bash
+# yubikey-fido2-setup.sh — Interactive YubiKey FIDO2+PIN system login setup
+# Arch Linux: sudo · TTY login · display manager · SSH · LUKS at boot
+# All file edits are backed up; errors trigger interactive rollback.
+
+set -uo pipefail
+
+# ── Colors ────────────────────────────────────────────────────────────────────
+R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m'
+B='\033[0;34m' C='\033[0;36m' W='\033[1m' N='\033[0m'
+
+# ── Globals ───────────────────────────────────────────────────────────────────
+BACKUP_DIR="/tmp/yubikey-backup-$(date +%Y%m%d-%H%M%S)"
+LOG="/tmp/yubikey-setup.log"
+U2F_KEYS="/etc/security/u2f_keys"
+PAM_LINE='auth    required    pam_u2f.so    authfile=/etc/security/u2f_keys    pinverification=1    cue'
+TARGET_USER=""
+declare -a BACKED_UP=()
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+log()  { printf '%b\n' "$*" | tee -a "$LOG"; }
+info() { log "  ${G}[$(date +%H:%M:%S)]${N} $*"; }
+warn() { log "  ${Y}[WARN]${N} $*"; }
+err()  { log "  ${R}[ERR] ${N} $*"; }
+step() { log "\n${W}${B}▶ $*${N}"; }
+ok()   { log "  ${G}✓${N} $*"; }
+fail() { log "  ${R}✗${N} $*"; }
+
+# ── Prompts (always from /dev/tty so piped stdin doesn't break them) ──────────
+ask_yn() {
+    local msg="$1" def="${2:-y}"
+    local hint; [[ "$def" == y ]] && hint="${G}Y${N}/n" || hint="y/${G}N${N}"
+    while true; do
+        printf '%b' "\n  ${C}?${N} $msg [${hint}]: " >/dev/tty
+        IFS= read -r ans </dev/tty
+        ans="${ans:-$def}"
+        case "${ans,,}" in
+            y|yes) return 0 ;;
+            n|no)  return 1 ;;
+            *) printf '%b\n' "    Please answer y or n." >/dev/tty ;;
+        esac
+    done
+}
+
+ask_str() {
+    local outvar="$1" msg="$2" def="${3:-}"
+    local hint; [[ -n "$def" ]] && hint=" [${def}]" || hint=""
+    printf '%b' "\n  ${C}?${N} ${msg}${hint}: " >/dev/tty
+    IFS= read -r val </dev/tty
+    [[ -z "$val" && -n "$def" ]] && val="$def"
+    printf -v "$outvar" '%s' "$val"
+}
+
+ask_pick() {
+    local outvar="$1" msg="$2"; shift 2
+    local -a opts=("$@")
+    printf '%b\n' "\n  ${C}?${N} $msg" >/dev/tty
+    local i
+    for i in "${!opts[@]}"; do
+        printf '%b\n' "    $((i+1))) ${opts[$i]}" >/dev/tty
+    done
+    while true; do
+        printf '    Choice [1-%d]: ' "${#opts[@]}" >/dev/tty
+        IFS= read -r choice </dev/tty
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#opts[@]} )); then
+            printf -v "$outvar" '%s' "${opts[$((choice-1))]}"
+            return 0
+        fi
+        printf '%b\n' "    Invalid — enter 1 to ${#opts[@]}." >/dev/tty
+    done
+}
+
+press_enter() {
+    printf '%b' "\n  ${C}↵${N} ${1:-Press Enter to continue...} " >/dev/tty
+    IFS= read -r </dev/tty
+}
+
+# ── Backup & Rollback ─────────────────────────────────────────────────────────
+backup() {
+    local f="$1"
+    [[ -f "$f" ]] || return 0
+    # Only capture the original — skip if already backed up this session
+    local already
+    for already in "${BACKED_UP[@]:-}"; do
+        [[ "$already" == "$f" ]] && return 0
+    done
+    local dst="${BACKUP_DIR}${f}"
+    mkdir -p "$(dirname "$dst")"
+    cp -a "$f" "$dst"
+    BACKED_UP+=("$f")
+    ok "Backed up: $f"
+}
+
+rollback() {
+    warn "═══ ROLLING BACK ALL CHANGES ═══"
+    local f
+    for f in "${BACKED_UP[@]:-}"; do
+        local src="${BACKUP_DIR}${f}"
+        [[ -f "$src" ]] || { warn "No backup for $f — skip"; continue; }
+        cp -a "$src" "$f"
+        ok "Restored: $f"
+    done
+    # Restart sshd if its config was touched
+    for f in "${BACKED_UP[@]:-}"; do
+        if [[ "$f" == */sshd_config ]]; then
+            systemctl restart sshd 2>/dev/null && ok "Restarted sshd" \
+                || warn "Could not restart sshd — do it manually"
+            break
+        fi
+    done
+    warn "Backup files remain in: $BACKUP_DIR"
+    warn "If initramfs was rebuilt, restore mkinitcpio.conf then run: mkinitcpio -P"
+}
+
+die() {
+    err "$*"
+    if ask_yn "Rollback all completed changes?" y; then rollback; fi
+    exit 1
+}
+
+# Safety net for completely unexpected failures (functions not using || die)
+trap 'rc=$?; err "Unexpected failure at line $LINENO (exit $rc)"; ask_yn "Rollback?" y && rollback; exit 1' ERR
+
+# ── 0. Preflight ──────────────────────────────────────────────────────────────
+preflight() {
+    step "Preflight"
+    [[ $EUID -eq 0 ]] || die "Run as root: sudo $0"
+    ok "Running as root"
+
+    if [[ -n "${SUDO_USER:-}" ]]; then
+        TARGET_USER="$SUDO_USER"
+        ok "Target user: $TARGET_USER (from \$SUDO_USER)"
+    else
+        ask_str TARGET_USER "Username to configure YubiKey for"
+        [[ -n "$TARGET_USER" ]] || die "Username required."
+        id "$TARGET_USER" &>/dev/null || die "User '$TARGET_USER' does not exist."
+        ok "Target user: $TARGET_USER"
+    fi
+
+    info "Log:     $LOG"
+    info "Backups: $BACKUP_DIR"
+}
+
+# ── 1. Packages ───────────────────────────────────────────────────────────────
+install_packages() {
+    step "Package check"
+    local -a miss=()
+    local pkg
+    for pkg in libfido2 pam-u2f yubikey-manager; do
+        if pacman -Q "$pkg" &>/dev/null; then ok "$pkg"; else
+            fail "$pkg (missing)"; miss+=("$pkg")
+        fi
+    done
+    (( ${#miss[@]} == 0 )) && return 0
+    ask_yn "Install missing packages? (${miss[*]})" y \
+        || die "Cannot continue — packages required."
+    pacman -S --noconfirm "${miss[@]}" >>"$LOG" 2>&1 \
+        || die "pacman failed — see $LOG"
+    ok "Packages installed"
+}
+
+# ── 2. YubiKey detection ──────────────────────────────────────────────────────
+detect_key() {
+    step "YubiKey detection"
+    local tries=0
+    until ykman list 2>/dev/null | grep -qi yubikey; do
+        (( tries++ ))
+        (( tries >= 4 )) && die "No YubiKey found after $tries attempts."
+        warn "No key detected (attempt $tries/3). Insert YubiKey."
+        press_enter "Press Enter when inserted..."
+    done
+    ykman list 2>/dev/null | while IFS= read -r l; do ok "$l"; done
+}
+
+# ── 3. FIDO2 PIN ──────────────────────────────────────────────────────────────
+ensure_pin() {
+    step "FIDO2 PIN"
+    local finfo
+    finfo=$(ykman fido info 2>&1) \
+        || die "Cannot query FIDO2 info — key locked or unavailable."
+    echo "$finfo" >>"$LOG"
+
+    if echo "$finfo" | grep -qi "PIN is set: True"; then
+        ok "FIDO2 PIN already configured"
+        return 0
+    fi
+
+    warn "No FIDO2 PIN set on this YubiKey."
+    ask_yn "Set a FIDO2 PIN now? (required for this setup)" y \
+        || die "FIDO2 PIN is required."
+    ykman fido access change-pin || die "Failed to set FIDO2 PIN."
+    ok "FIDO2 PIN set"
+}
+
+# ── 4. Register YubiKey ───────────────────────────────────────────────────────
+register_key() {
+    step "YubiKey registration"
+    info "You'll be prompted for your FIDO2 PIN, then asked to touch the key."
+
+    backup "$U2F_KEYS"
+    mkdir -p /etc/security
+
+    local entry
+    entry=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification 2>/dev/null) \
+        || die "pamu2fcfg failed — check PIN and key insertion."
+    echo "$entry" | grep -q ":" \
+        || die "Unexpected pamu2fcfg output: $entry"
+
+    if [[ -f "$U2F_KEYS" ]] && grep -q "^${TARGET_USER}:" "$U2F_KEYS"; then
+        warn "Existing entry for '$TARGET_USER' found in $U2F_KEYS."
+        if ask_yn "Replace it with this new credential?" y; then
+            { grep -v "^${TARGET_USER}:" "$U2F_KEYS"; printf '%s\n' "$entry"; } \
+                > "${U2F_KEYS}.tmp" && mv "${U2F_KEYS}.tmp" "$U2F_KEYS"
+            ok "Entry replaced"
+        else
+            local cred="${entry#*:}"
+            sed -i "/^${TARGET_USER}:/ s/$/:${cred}/" "$U2F_KEYS"
+            ok "Credential appended to existing entry"
+        fi
+    else
+        printf '%s\n' "$entry" >> "$U2F_KEYS"
+        ok "Entry created"
+    fi
+
+    chown root:root "$U2F_KEYS"
+    chmod 640 "$U2F_KEYS"
+    ok "Permissions set on $U2F_KEYS (root:root 640)"
+
+    if ask_yn "Register a backup/spare YubiKey as well?" n; then
+        warn "Insert your BACKUP YubiKey now."
+        press_enter "Press Enter when inserted..."
+        detect_key
+        local bcred
+        bcred=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification --nouser 2>/dev/null) \
+            || die "pamu2fcfg failed for backup key."
+        sed -i "/^${TARGET_USER}:/ s/$/:${bcred}/" "$U2F_KEYS"
+        ok "Backup key registered"
+    fi
+
+    info "Contents of $U2F_KEYS:"
+    cat "$U2F_KEYS" >>"$LOG"
+}
+
+# ── 5. PAM ────────────────────────────────────────────────────────────────────
+
+# Insert PAM_LINE before the first 'auth' line using awk (reliable, no regex escaping)
+pam_add_u2f() {
+    local file="$1"
+    if [[ ! -f "$file" ]]; then
+        warn "$file not found — skipping"
+        return 0
+    fi
+    if grep -q "pam_u2f.so" "$file"; then
+        ok "$file — already has pam_u2f, skipping"
+        return 0
+    fi
+    backup "$file"
+    awk -v ins="$PAM_LINE" \
+        '!done && /^auth/ { print ins; done=1 } { print }' \
+        "$file" > "${file}.new" && mv "${file}.new" "$file"
+    ok "Updated: $file"
+}
+
+configure_pam() {
+    step "PAM configuration"
+
+    ask_yn "Protect sudo with YubiKey?" y       && pam_add_u2f /etc/pam.d/sudo
+    ask_yn "Protect TTY login with YubiKey?" y  && pam_add_u2f /etc/pam.d/login
+
+    # Display manager — auto-detect which PAM files exist
+    local -a dms=()
+    local dm
+    for dm in sddm gdm-password gdm lightdm lxdm xdm; do
+        [[ -f "/etc/pam.d/$dm" ]] && dms+=("$dm")
+    done
+
+    if (( ${#dms[@]} == 0 )); then
+        warn "No display manager PAM files found — skipping"
+    elif (( ${#dms[@]} == 1 )); then
+        ask_yn "Protect ${dms[0]} (display manager) with YubiKey?" y \
+            && pam_add_u2f "/etc/pam.d/${dms[0]}"
+    else
+        local chosen_dm
+        ask_pick chosen_dm "Multiple display manager PAM files found — pick one:" \
+            "${dms[@]}" "skip"
+        [[ "$chosen_dm" != "skip" ]] && pam_add_u2f "/etc/pam.d/$chosen_dm"
+    fi
+
+    if ask_yn "Protect SSH logins with YubiKey?" y; then
+        pam_add_u2f /etc/pam.d/sshd
+        configure_ssh
+    fi
+}
+
+# ── 6. SSH daemon ─────────────────────────────────────────────────────────────
+configure_ssh() {
+    step "SSH daemon config"
+    [[ -f /etc/ssh/sshd_config ]] || { warn "/etc/ssh/sshd_config not found — skipping"; return 0; }
+
+    # OpenSSH uses FIRST-MATCH semantics: the first file that defines a directive
+    # wins; later files (including later drop-ins) are ignored for that directive.
+    # The main sshd_config has "Include /etc/ssh/sshd_config.d/*.conf" near the
+    # top, so drop-ins are read BEFORE the rest of the main file.  We must find
+    # and edit the file that FIRST sets each directive — not append to a later one.
+
+    # Build the list of files in the order sshd reads them
+    local -a ordered_files=()
+    while IFS= read -r f; do ordered_files+=("$f"); done \
+        < <(ls /etc/ssh/sshd_config.d/*.conf 2>/dev/null | sort)
+    ordered_files+=(/etc/ssh/sshd_config)
+
+    # Returns the path of the first file that defines KEY (active or commented),
+    # or empty string if none.
+    first_file_for() {
+        local key="$1" f
+        for f in "${ordered_files[@]}"; do
+            grep -qiE "^\s*#?\s*${key}\s" "$f" 2>/dev/null && { printf '%s' "$f"; return; }
+        done
+    }
+
+    # Set KEY=VAL in whichever file first mentions it (so we override the right
+    # place). If no file mentions it, insert it before the Include line in the
+    # main sshd_config so it is processed before any drop-ins.
+    sshd_set() {
+        local key="$1" val="$2"
+        local target
+        target=$(first_file_for "$key")
+        if [[ -n "$target" ]]; then
+            backup "$target"
+            sed -i -E "s|^\s*#?\s*(${key})\s.*|\1 ${val}|I" "$target"
+            ok "Set ${key} ${val} in $target"
+        else
+            backup /etc/ssh/sshd_config
+            python3 - /etc/ssh/sshd_config "$key" "$val" <<'PYEOF'
+import sys
+path, key, val = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    lines = f.readlines()
+new_lines, done = [], False
+for line in lines:
+    if not done and line.strip().startswith('Include'):
+        new_lines.append(f'{key} {val}\n')
+        done = True
+    new_lines.append(line)
+if not done:
+    new_lines.append(f'\n{key} {val}\n')
+with open(path, 'w') as f:
+    f.writelines(new_lines)
+PYEOF
+            ok "Set ${key} ${val} in sshd_config (before Include)"
+        fi
+    }
+
+    # Detect which option name this OpenSSH version uses (renamed in 8.7)
+    local kbd_opt="KbdInteractiveAuthentication"
+    if grep -rqiE "^\s*ChallengeResponseAuthentication\s" /etc/ssh/ 2>/dev/null \
+    && ! grep -rqiE "^\s*KbdInteractiveAuthentication\s" /etc/ssh/ 2>/dev/null; then
+        kbd_opt="ChallengeResponseAuthentication"
+    fi
+
+    sshd_set "UsePAM" "yes"
+    sshd_set "$kbd_opt" "yes"
+
+    info "With default SSH settings, a successful SSH key login bypasses PAM."
+    local auth_methods="keyboard-interactive"
+    if ask_yn "Require YubiKey even when authenticating with an SSH keypair?" y; then
+        auth_methods="publickey,keyboard-interactive"
+        warn "Users must now authenticate with both their SSH key AND YubiKey+PIN."
+    else
+        info "YubiKey required only for password-based SSH logins."
+    fi
+    sshd_set "AuthenticationMethods" "$auth_methods"
+
+    # Show effective values for these keys so the user can verify
+    info "Effective sshd auth settings:"
+    sshd -T 2>/dev/null \
+        | grep -iE "^(usepam|kbd|challenge|authenticationmethods)" \
+        | while IFS= read -r l; do info "  $l"; done || true
+
+    # Host keys must exist before sshd -t will run; generate them if absent
+    if ! ls /etc/ssh/ssh_host_*_key &>/dev/null; then
+        warn "SSH host keys not found — generating now (ssh-keygen -A)"
+        ssh-keygen -A >>"$LOG" 2>&1 || die "ssh-keygen -A failed — see $LOG"
+        ok "Host keys generated"
+    fi
+
+    if ! sshd -t >>"$LOG" 2>&1; then
+        err "sshd config validation failed — restoring backed-up files"
+        local f
+        for f in "${BACKED_UP[@]:-}"; do
+            local src="${BACKUP_DIR}${f}"
+            [[ -f "$src" ]] && cp -a "$src" "$f" && ok "Restored: $f"
+        done
+        die "sshd config still invalid. Check $LOG for details."
+    fi
+
+    systemctl restart sshd || die "sshd restart failed — check journalctl -xe"
+    ok "sshd restarted"
+    warn "IMPORTANT: Test SSH from another session before closing this terminal."
+}
+
+# ── 7. LUKS ───────────────────────────────────────────────────────────────────
+configure_luks() {
+    step "LUKS + systemd-cryptenroll"
+
+    # Find LUKS devices reported by the kernel
+    local -a luks_devs=()
+    mapfile -t luks_devs < <(
+        lsblk -o NAME,FSTYPE -rn 2>/dev/null \
+            | awk '$2=="crypto_LUKS"{print "/dev/"$1}'
+    )
+    (( ${#luks_devs[@]} > 0 )) || { warn "No LUKS devices found — skipping"; return 0; }
+
+    # Filter to LUKS2 (cryptenroll requires LUKS2)
+    local -a luks2_devs=()
+    local dev ver
+    for dev in "${luks_devs[@]}"; do
+        ver=$(cryptsetup luksDump "$dev" 2>/dev/null | awk '/^Version:/{print $2}')
+        if [[ "$ver" == "2" ]]; then
+            luks2_devs+=("$dev")
+        else
+            warn "$dev is LUKS${ver:-?} — systemd-cryptenroll requires LUKS2, skipping"
+        fi
+    done
+    (( ${#luks2_devs[@]} > 0 )) || { warn "No LUKS2 devices found — skipping"; return 0; }
+
+    # Let user pick a device
+    local chosen_dev
+    if (( ${#luks2_devs[@]} == 1 )); then
+        chosen_dev="${luks2_devs[0]}"
+        ask_yn "Enroll YubiKey for LUKS device $chosen_dev?" y || return 0
+    else
+        ask_pick chosen_dev "Select LUKS2 device to enroll:" \
+            "${luks2_devs[@]}" "Skip LUKS setup"
+        [[ "$chosen_dev" == "Skip LUKS setup" ]] && return 0
+    fi
+
+    local uuid
+    uuid=$(cryptsetup luksUUID "$chosen_dev") \
+        || die "Could not read UUID from $chosen_dev"
+    ok "Device: $chosen_dev   UUID: $uuid"
+
+    info "You will be prompted for:"
+    info "  1. Your existing LUKS passphrase  (passphrase stays as fallback)"
+    info "  2. Your YubiKey FIDO2 PIN"
+    info "  3. A touch of the YubiKey"
+
+    systemd-cryptenroll \
+        --fido2-device=auto \
+        --fido2-with-client-pin=yes \
+        "$chosen_dev" || die "systemd-cryptenroll failed."
+    ok "YubiKey enrolled as LUKS key slot"
+
+    update_crypttab   "$uuid"
+    update_mkinitcpio
+    update_bootloader "$uuid"
+
+    warn "Rebuilding initramfs — this may take a moment..."
+    mkinitcpio -P >>"$LOG" 2>&1 || die "mkinitcpio -P failed — see $LOG"
+    ok "Initramfs rebuilt"
+    warn "Reboot to test LUKS unlock with YubiKey. Passphrase still works as fallback."
+}
+
+update_crypttab() {
+    local uuid="$1"
+    local ctab="/etc/crypttab"
+    [[ -f "$ctab" ]] || { warn "/etc/crypttab not found — skipping"; return 0; }
+    backup "$ctab"
+
+    python3 - "$uuid" "$ctab" <<'PYEOF'
+import sys
+
+uuid, path = sys.argv[1], sys.argv[2]
+
+with open(path) as f:
+    lines = f.readlines()
+
+new_lines = []
+changed = False
+for line in lines:
+    stripped = line.strip()
+    # Skip comments and blanks
+    if not stripped or stripped.startswith('#'):
+        new_lines.append(line)
+        continue
+    if uuid in line:
+        if 'fido2-device' in line:
+            print(f"  crypttab: {uuid} already has fido2-device=auto")
+            new_lines.append(line)
+            continue
+        parts = stripped.split()
+        # crypttab columns: name  device  keyfile  options
+        while len(parts) < 4:
+            parts.append('none' if len(parts) == 2 else 'luks')
+        opts = parts[3]
+        parts[3] = (opts + ',fido2-device=auto') if opts != '-' else 'luks,fido2-device=auto'
+        line = '\t'.join(parts) + '\n'
+        changed = True
+        print(f"  crypttab updated for {uuid}")
+    new_lines.append(line)
+
+with open(path, 'w') as f:
+    f.writelines(new_lines)
+
+if not changed:
+    print(f"  crypttab: UUID {uuid} not found — add fido2-device=auto manually")
+PYEOF
+    ok "crypttab processed"
+}
+
+update_mkinitcpio() {
+    step "mkinitcpio hooks"
+    local conf="/etc/mkinitcpio.conf"
+    [[ -f "$conf" ]] || { warn "$conf not found — skipping"; return 0; }
+    backup "$conf"
+
+    local hooks_line
+    hooks_line=$(grep "^HOOKS=" "$conf") || die "HOOKS= line not found in $conf"
+    info "Current: $hooks_line"
+
+    if echo "$hooks_line" | grep -q "\bsystemd\b"; then
+        ok "Already using systemd initramfs hooks"
+        if ! echo "$hooks_line" | grep -q "\bsd-encrypt\b"; then
+            sed -i 's/\(HOOKS=.*\)\bfilesystems\b/\1sd-encrypt filesystems/' "$conf"
+            ok "Added sd-encrypt hook"
+        else
+            ok "sd-encrypt already present"
+        fi
+        return 0
+    fi
+
+    warn "Traditional (udev/encrypt) hooks detected."
+    warn "FIDO2 LUKS unlock at boot requires systemd-based initramfs hooks."
+    info "This will replace: udev→systemd, encrypt→sd-encrypt, keymap+consolefont→sd-vconsole"
+
+    ask_yn "Convert initramfs to systemd hooks? (required for FIDO2 LUKS boot)" y || {
+        warn "Skipping — FIDO2 LUKS boot unlock will not function until hooks are converted."
+        return 0
+    }
+
+    python3 - "$conf" <<'PYEOF'
+import sys, re
+
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+
+def fix_hooks(m):
+    h = m.group(1)
+    h = re.sub(r'\budev\b',    'systemd',    h)
+    h = re.sub(r'\bencrypt\b', 'sd-encrypt', h)
+    # Replace keymap+consolefont pair (either order) with sd-vconsole
+    h = re.sub(r'\bkeymap\b(\s+)consolefont\b', 'sd-vconsole', h)
+    h = re.sub(r'\bconsolefont\b(\s+)keymap\b', 'sd-vconsole', h)
+    # Replace any remaining standalone ones
+    h = re.sub(r'\bkeymap\b',     'sd-vconsole', h)
+    h = re.sub(r'\bconsolefont\b', '',            h)
+    # Collapse extra spaces
+    h = re.sub(r' {2,}', ' ', h).strip()
+    return 'HOOKS=(' + h + ')'
+
+new_content = re.sub(r'HOOKS=\(([^)]*)\)', fix_hooks, content)
+with open(path, 'w') as f:
+    f.write(new_content)
+PYEOF
+
+    ok "Converted initramfs to systemd hooks"
+    info "New: $(grep "^HOOKS=" "$conf")"
+}
+
+update_bootloader() {
+    local uuid="$1"
+    step "Bootloader"
+    local param="rd.luks.options=UUID=${uuid}=fido2-device=auto"
+
+    # GRUB
+    if [[ -f /etc/default/grub ]]; then
+        info "GRUB detected"
+        local gdef="/etc/default/grub"
+        backup "$gdef"
+
+        if grep -q "fido2-device" "$gdef"; then
+            ok "GRUB already has fido2-device parameter"
+        else
+            if grep -q "^GRUB_CMDLINE_LINUX=" "$gdef"; then
+                # Append inside existing quotes
+                sed -i "s|GRUB_CMDLINE_LINUX=\"\(.*\)\"|GRUB_CMDLINE_LINUX=\"\1 ${param}\"|" "$gdef"
+            else
+                printf '\nGRUB_CMDLINE_LINUX="%s"\n' "$param" >> "$gdef"
+            fi
+            ok "Updated /etc/default/grub"
+        fi
+
+        local grubcfg=""
+        [[ -f /boot/grub/grub.cfg  ]] && grubcfg=/boot/grub/grub.cfg
+        [[ -f /boot/grub2/grub.cfg ]] && grubcfg=/boot/grub2/grub.cfg
+        if [[ -n "$grubcfg" ]]; then
+            grub-mkconfig -o "$grubcfg" >>"$LOG" 2>&1 \
+                && ok "grub-mkconfig completed" \
+                || warn "grub-mkconfig had warnings — check $LOG"
+        else
+            warn "grub.cfg not found — run grub-mkconfig manually"
+        fi
+
+    # systemd-boot
+    elif [[ -d /boot/loader/entries ]]; then
+        info "systemd-boot detected"
+        local updated=0 entry
+        while IFS= read -r -d '' entry; do
+            if grep -q "fido2-device" "$entry"; then
+                ok "$entry — already configured"; continue
+            fi
+            backup "$entry"
+            sed -i "s|^\(options.*\)$|\1 ${param}|" "$entry"
+            ok "Updated: $entry"
+            (( ++updated ))
+        done < <(find /boot/loader/entries -name '*.conf' -print0 2>/dev/null)
+        (( updated == 0 )) && warn "No entries updated — check /boot/loader/entries/ manually"
+
+    else
+        warn "Bootloader not auto-detected. Add this kernel parameter manually:"
+        warn "  $param"
+    fi
+}
+
+# ── Summary ───────────────────────────────────────────────────────────────────
+summary() {
+    log ""
+    log "${W}${G}┌─────────────────────────────────────────────────────────┐${N}"
+    log "${W}${G}│              Setup complete                             │${N}"
+    log "${W}${G}└─────────────────────────────────────────────────────────┘${N}"
+    log ""
+    log "  ${W}Test in this order (keep this root shell open throughout):${N}"
+    log "    1. Open a NEW terminal → test sudo"
+    log "    2. SSH in from another machine → test SSH"
+    log "    3. Log out and back in → test display manager"
+    log "    4. Only after all above pass → reboot to test LUKS"
+    log ""
+    log "  ${W}Recovery if locked out:${N}"
+    log "    • Boot from Arch live USB, mount and arch-chroot"
+    log "    • Backups are in:  $BACKUP_DIR"
+    log "    • Copy files back, then run:  mkinitcpio -P"
+    log ""
+    log "  ${W}LUKS fallback:${N}"
+    log "    Your passphrase still works — YubiKey is an extra slot."
+    log "    Emergency: add  systemd.unit=rescue.target  at boot prompt."
+    log ""
+    log "  Credentials file : $U2F_KEYS"
+    log "  Full log         : $LOG"
+    log "  Backups          : $BACKUP_DIR"
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+main() {
+    mkdir -p "$BACKUP_DIR" "$(dirname "$LOG")"
+    : > "$LOG"
+
+    log "${W}${B}"
+    log "╔═══════════════════════════════════════════════════════╗"
+    log "║   YubiKey FIDO2+PIN System Login Setup                ║"
+    log "║   Arch Linux                                          ║"
+    log "╚═══════════════════════════════════════════════════════╝${N}"
+    log ""
+    log "  Protects: sudo · TTY login · display manager · SSH · LUKS"
+    log "  Every modified file is backed up before changes are made."
+    log "  Any failure triggers an interactive rollback prompt."
+    log ""
+
+    ask_yn "Ready to begin?" y || { info "Aborted."; exit 0; }
+
+    preflight
+    install_packages
+    detect_key
+    ensure_pin
+    register_key
+    configure_pam
+
+    if ask_yn "Set up LUKS encryption unlock with YubiKey?" y; then
+        configure_luks
+    fi
+
+    # Disable the ERR trap — we're done with risky operations
+    trap - ERR
+    summary
+}
+
+main "$@"
