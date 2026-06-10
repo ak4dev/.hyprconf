@@ -249,9 +249,30 @@ def test_enroll_appends_login_key_never_replaces() -> None:
     assert body, "enroll_login_key must exist"
     # appends a credential to the existing user line (does not rewrite/replace it)
     assert "pamu2fcfg --pin-verification --nouser" in body
-    assert r"s/\$/:${cred}/" in body
+    assert "append_cred" in body
     # refuses to run before initial setup created the entry
     assert "run" in body and "setup" in body
+
+
+def test_credential_append_does_not_use_sed() -> None:
+    # pamu2fcfg output is base64 (contains '/' and '+'), which breaks sed's s///
+    # delimiter. Credential appends must go through append_cred (python), never sed.
+    txt = _text()
+    assert "append_cred()" in txt
+    assert "python3" in _func_body("append_cred")
+    # no sed substitution that appends a credential variable to the user line
+    import re
+    bad = re.findall(r"sed -i .*s/\\?\$/:\$\{[a-z]*cred\}/", txt)
+    assert not bad, f"credential append must not use sed: {bad}"
+
+
+def test_log_uses_unique_file_and_tolerates_unwritable() -> None:
+    txt = _text()
+    # fixed /tmp/yubikey-setup.log is unwritable for root when a stale copy is
+    # owned by another user (fs.protected_regular). Use a per-run mktemp file
+    # and never let a failed log write abort the run.
+    assert "mktemp" in txt
+    assert "tee -a \"$LOG\" 2>/dev/null || true" in txt
 
 
 def test_enroll_luks_adds_slot_without_initramfs_rebuild() -> None:

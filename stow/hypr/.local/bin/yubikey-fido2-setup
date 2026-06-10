@@ -11,6 +11,9 @@ B='\033[0;34m' C='\033[0;36m' W='\033[1m' N='\033[0m'
 
 # ── Globals ───────────────────────────────────────────────────────────────────
 BACKUP_DIR="/tmp/yubikey-backup-$(date +%Y%m%d-%H%M%S)"
+# Per-run log set in main() via mktemp. A fixed /tmp path can be unwritable for
+# root when a stale copy is owned by another user (fs.protected_regular blocks
+# writes to others' files in the sticky /tmp dir).
 LOG="/tmp/yubikey-setup.log"
 U2F_KEYS="/etc/security/u2f_keys"
 PAM_LINE='auth    required    pam_u2f.so    authfile=/etc/security/u2f_keys    pinverification=1    cue'
@@ -18,7 +21,7 @@ TARGET_USER=""
 declare -a BACKED_UP=()
 
 # ── Logging ───────────────────────────────────────────────────────────────────
-log()  { printf '%b\n' "$*" | tee -a "$LOG"; }
+log()  { printf '%b\n' "$*" | tee -a "$LOG" 2>/dev/null || true; }
 info() { log "  ${G}[$(date +%H:%M:%S)]${N} $*"; }
 warn() { log "  ${Y}[WARN]${N} $*"; }
 err()  { log "  ${R}[ERR] ${N} $*"; }
@@ -118,6 +121,25 @@ die() {
     exit 1
 }
 
+# Append a credential to TARGET_USER's line in $U2F_KEYS. pamu2fcfg output is
+# base64 and contains '/' and '+', which break sed's s/// delimiter — so edit
+# the file with python instead of sed.
+append_cred() {
+    local cred="$1"
+    python3 - "$U2F_KEYS" "$TARGET_USER" "$cred" <<'PYEOF' || die "Failed to append credential to $U2F_KEYS"
+import sys
+path, user, cred = sys.argv[1], sys.argv[2], sys.argv[3]
+prefix = user + ":"
+with open(path) as f:
+    lines = f.read().splitlines()
+if not any(ln.startswith(prefix) for ln in lines):
+    raise SystemExit(f"no existing entry for {user} in {path}")
+out = [(ln + ":" + cred) if ln.startswith(prefix) else ln for ln in lines]
+with open(path, "w") as f:
+    f.write("\n".join(out) + "\n")
+PYEOF
+}
+
 # Safety net for completely unexpected failures (functions not using || die)
 trap 'rc=$?; err "Unexpected failure at line $LINENO (exit $rc)"; ask_yn "Rollback?" y && rollback; exit 1' ERR
 
@@ -213,8 +235,7 @@ register_key() {
                 > "${U2F_KEYS}.tmp" && mv "${U2F_KEYS}.tmp" "$U2F_KEYS"
             ok "Entry replaced"
         else
-            local cred="${entry#*:}"
-            sed -i "/^${TARGET_USER}:/ s/$/:${cred}/" "$U2F_KEYS"
+            append_cred "${entry#*:}"
             ok "Credential appended to existing entry"
         fi
     else
@@ -233,7 +254,7 @@ register_key() {
         local bcred
         bcred=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification --nouser 2>/dev/null) \
             || die "pamu2fcfg failed for backup key."
-        sed -i "/^${TARGET_USER}:/ s/$/:${bcred}/" "$U2F_KEYS"
+        append_cred "$bcred"
         ok "Backup key registered"
     fi
 
@@ -704,7 +725,7 @@ enroll_login_key() {
         return 0
     fi
 
-    sed -i "/^${TARGET_USER}:/ s/\$/:${cred}/" "$U2F_KEYS"
+    append_cred "$cred"
     chown root:root "$U2F_KEYS"
     chmod 640 "$U2F_KEYS"
     ok "Additional credential appended for $TARGET_USER (any registered key now works)"
@@ -854,8 +875,9 @@ EOF
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
-    mkdir -p "$BACKUP_DIR" "$(dirname "$LOG")"
-    : > "$LOG"
+    mkdir -p "$BACKUP_DIR"
+    # Unique, root-owned log — see note at LOG definition.
+    LOG="$(mktemp -t yubikey-setup-XXXXXX.log 2>/dev/null || printf '%s' "/tmp/yubikey-setup.$$.log")"
 
     local action="${1:-setup}"
     case "$action" in
