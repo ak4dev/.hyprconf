@@ -262,6 +262,11 @@ hyprconf hardware gpu vm usb remove    Interactively detach a USB device from th
 hyprconf hardware gpu report           Detailed hardware report
 hyprconf hardware gpu diagnose         Detailed diagnostic dump
 
+# Security
+hyprconf yubikey status          Show keys, PAM coverage, and LUKS FIDO2 slots (read-only)
+hyprconf yubikey setup           Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)
+hyprconf yubikey enroll          Enroll an additional / backup key (login + LUKS slot)
+
 # Utilities
 hyprconf doctor                  System health check (packages, services, configs, symlinks)
 hyprconf clipboard [fzf|rofi|wipe]  Clipboard history picker (cliphist)
@@ -570,16 +575,22 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 
 ## YubiKey FIDO2 Login *(optional)*
 
-Hardware-backed FIDO2+PIN authentication for an Arch + Hyprland system. Run the
-stowed helper as root:
+Hardware-backed FIDO2+PIN authentication for an Arch + Hyprland system, driven
+through the CLI:
 
 ```bash
-sudo yubikey-fido2-setup
+hyprconf yubikey status    # keys, PAM coverage, LUKS FIDO2 slots (read-only)
+hyprconf yubikey setup     # full first-time setup (sudo/TTY/DM/SSH/LUKS)
+hyprconf yubikey enroll    # add an additional / backup key (login + LUKS slot)
 ```
 
-It is fully interactive and idempotent — each step is opt-in, every modified file
-is backed up to `/tmp/yubikey-backup-<timestamp>/`, and any failure offers to roll
-back all changes. It covers:
+`hyprconf yubikey` escalates with `sudo` as needed and delegates to the stowed
+`yubikey-fido2-setup` helper (also runnable directly: `sudo yubikey-fido2-setup
+[setup|enroll|status]`).
+
+`setup` is fully interactive and idempotent — each step is opt-in, every modified
+file is backed up to `/tmp/yubikey-backup-<timestamp>/`, and any failure offers to
+roll back all changes. It covers:
 
 | Surface | What it configures |
 |---|---|
@@ -589,6 +600,14 @@ back all changes. It covers:
 | `sudo` · TTY login · display manager · SSH | Inserts `pam_u2f.so … pinverification=1 cue` into the relevant `/etc/pam.d/*` files (display managers auto-detected) |
 | SSH daemon | Sets `UsePAM`/`KbdInteractiveAuthentication`/`AuthenticationMethods` in the first sshd config file that defines each, validates with `sshd -t`, restarts `sshd` |
 | LUKS unlock at boot | Enrols the key with `systemd-cryptenroll --fido2-device=auto`, adds `fido2-device=auto` to `/etc/crypttab`, converts `mkinitcpio` HOOKS to `systemd`/`sd-encrypt`/`sd-vconsole`, adds `rd.luks.options=UUID=…=fido2-device=auto` to the bootloader (GRUB or systemd-boot), and rebuilds the initramfs |
+
+**`enroll`** adds a second/backup key to an existing setup without touching PAM
+files or rebuilding the initramfs: it appends a new credential to the
+`/etc/security/u2f_keys` line (any registered key then works for login) and adds
+another `systemd-cryptenroll --fido2-device=auto` keyslot to the LUKS device.
+**`status`** is read-only and reports installed packages, detected keys,
+per-user credential counts, which `/etc/pam.d/*` files carry `pam_u2f`, and the
+number of FIDO2 token slots per LUKS device.
 
 **hyprlock is intentionally *not* protected by the YubiKey** — the screen locker
 stays password-only (`/etc/pam.d/hyprlock` → `system-auth`) for reliable unlock,

@@ -650,11 +650,8 @@ summary() {
     log "  Backups          : $BACKUP_DIR"
 }
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-main() {
-    mkdir -p "$BACKUP_DIR" "$(dirname "$LOG")"
-    : > "$LOG"
-
+# ── Action: full first-time setup ──────────────────────────────────────────────
+do_setup() {
     log "${W}${B}"
     log "╔═══════════════════════════════════════════════════════╗"
     log "║   YubiKey FIDO2+PIN System Login Setup                ║"
@@ -682,6 +679,192 @@ main() {
     # Disable the ERR trap — we're done with risky operations
     trap - ERR
     summary
+}
+
+# ── Action: enroll an additional / backup key ──────────────────────────────────
+# Appends to an existing setup — never replaces credentials, never edits PAM files
+# or rebuilds the initramfs (those are already in place from `setup`).
+enroll_login_key() {
+    step "Register additional key for login (pam_u2f)"
+    [[ -f "$U2F_KEYS" ]] \
+        || die "$U2F_KEYS not found — run 'yubikey-fido2-setup setup' first."
+    grep -q "^${TARGET_USER}:" "$U2F_KEYS" \
+        || die "No existing pam_u2f entry for '$TARGET_USER' — run 'setup' first."
+
+    info "You'll be prompted for the new key's FIDO2 PIN, then asked to touch it."
+    backup "$U2F_KEYS"
+
+    local cred
+    cred=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification --nouser 2>/dev/null) \
+        || die "pamu2fcfg failed — check the PIN and that the key is inserted."
+    [[ -n "$cred" ]] || die "Empty credential returned by pamu2fcfg."
+
+    if grep -qF ":${cred}" "$U2F_KEYS"; then
+        warn "This credential is already registered for $TARGET_USER — nothing to do."
+        return 0
+    fi
+
+    sed -i "/^${TARGET_USER}:/ s/\$/:${cred}/" "$U2F_KEYS"
+    chown root:root "$U2F_KEYS"
+    chmod 640 "$U2F_KEYS"
+    ok "Additional credential appended for $TARGET_USER (any registered key now works)"
+}
+
+enroll_luks_key() {
+    step "Add LUKS keyslot for the additional key"
+
+    local -a luks_devs=()
+    mapfile -t luks_devs < <(
+        lsblk -o NAME,FSTYPE -rn 2>/dev/null \
+            | awk '$2=="crypto_LUKS"{print "/dev/"$1}'
+    )
+    (( ${#luks_devs[@]} > 0 )) || { warn "No LUKS devices found — skipping."; return 0; }
+
+    local -a luks2_devs=()
+    local dev ver
+    for dev in "${luks_devs[@]}"; do
+        ver=$(cryptsetup luksDump "$dev" 2>/dev/null | awk '/^Version:/{print $2}')
+        [[ "$ver" == "2" ]] && luks2_devs+=("$dev")
+    done
+    (( ${#luks2_devs[@]} > 0 )) || { warn "No LUKS2 devices found — skipping."; return 0; }
+
+    local chosen_dev
+    if (( ${#luks2_devs[@]} == 1 )); then
+        chosen_dev="${luks2_devs[0]}"
+        ask_yn "Add a FIDO2 keyslot for the new key on $chosen_dev?" y || return 0
+    else
+        ask_pick chosen_dev "Select LUKS2 device:" "${luks2_devs[@]}" "Skip"
+        [[ "$chosen_dev" == "Skip" ]] && return 0
+    fi
+
+    info "You'll be prompted for an existing passphrase (or an enrolled key), then"
+    info "the new key's FIDO2 PIN and a touch."
+    systemd-cryptenroll \
+        --fido2-device=auto \
+        --fido2-with-client-pin=yes \
+        "$chosen_dev" || die "systemd-cryptenroll failed."
+    ok "FIDO2 keyslot added on $chosen_dev"
+    info "Boot config already carries fido2-device=auto — no initramfs rebuild needed."
+}
+
+do_enroll() {
+    step "Enroll an additional / backup YubiKey"
+    log "  Appends a new key to your existing setup. Existing keys and the LUKS"
+    log "  passphrase stay valid."
+
+    preflight
+    install_packages
+    warn "Insert the ADDITIONAL YubiKey you want to enroll."
+    press_enter "Press Enter when the new key is inserted..."
+    detect_key
+    ensure_pin
+    enroll_login_key
+
+    if ask_yn "Also add this key as a LUKS unlock slot?" y; then
+        enroll_luks_key
+    fi
+
+    trap - ERR
+    log ""
+    log "  ${W}${G}✓ Additional key enrolled.${N}"
+    log "  Test before relying on it: new terminal → sudo; reboot → LUKS unlock."
+    log "  Credentials file : $U2F_KEYS"
+    log "  Full log         : $LOG"
+}
+
+# ── Action: status (read-only) ─────────────────────────────────────────────────
+do_status() {
+    trap - ERR   # read-only: never offer rollback here
+    step "YubiKey status"
+
+    info "Packages:"
+    local pkg
+    for pkg in libfido2 pam-u2f yubikey-manager; do
+        if pacman -Q "$pkg" &>/dev/null; then ok "$pkg"; else fail "$pkg (missing)"; fi
+    done
+
+    step "Inserted keys"
+    if command -v ykman &>/dev/null && ykman list 2>/dev/null | grep -qi yubikey; then
+        ykman list 2>/dev/null | while IFS= read -r l; do ok "$l"; done
+    else
+        warn "No YubiKey detected (insert one to see it listed here)."
+    fi
+
+    step "Login credentials ($U2F_KEYS)"
+    if [[ $EUID -ne 0 ]]; then
+        warn "Run with sudo (or 'hyprconf yubikey status') to read root-owned details."
+    elif [[ -f "$U2F_KEYS" ]]; then
+        local line user count
+        while IFS= read -r line; do
+            [[ -z "$line" || "$line" == \#* ]] && continue
+            user="${line%%:*}"
+            count=$(awk -F: '{print NF-1}' <<<"$line")
+            ok "$user: $count key(s) registered"
+        done < "$U2F_KEYS"
+    else
+        warn "$U2F_KEYS not found — run 'setup' first."
+    fi
+
+    step "PAM (pam_u2f) coverage"
+    local f found=0
+    for f in sudo login sshd sddm gdm-password gdm lightdm lxdm xdm; do
+        [[ -f "/etc/pam.d/$f" ]] || continue
+        if grep -q "pam_u2f.so" "/etc/pam.d/$f"; then ok "/etc/pam.d/$f"; found=1; fi
+    done
+    (( found )) || warn "pam_u2f not found in any PAM file — run 'setup' first."
+
+    step "LUKS FIDO2 slots"
+    if [[ $EUID -ne 0 ]]; then
+        warn "Run with sudo to inspect LUKS keyslots."
+    else
+        local -a luks_devs=()
+        mapfile -t luks_devs < <(
+            lsblk -o NAME,FSTYPE -rn 2>/dev/null \
+                | awk '$2=="crypto_LUKS"{print "/dev/"$1}'
+        )
+        if (( ${#luks_devs[@]} == 0 )); then
+            warn "No LUKS devices found."
+        else
+            local dev nslots
+            for dev in "${luks_devs[@]}"; do
+                nslots=$(cryptsetup luksDump "$dev" 2>/dev/null | grep -c "systemd-fido2")
+                ok "$dev: $nslots FIDO2 token(s) enrolled"
+            done
+        fi
+    fi
+}
+
+# ── Usage ──────────────────────────────────────────────────────────────────────
+usage_yk() {
+    cat >&2 <<'EOF'
+
+  YubiKey FIDO2+PIN setup — Arch Linux
+
+  Usage: yubikey-fido2-setup [setup|enroll|status]
+         hyprconf yubikey    [setup|enroll|status]
+
+    setup    Full first-time setup: sudo, TTY login, display manager, SSH, LUKS
+    enroll   Enroll an additional / backup key (login + optional LUKS keyslot)
+    status   Show packages, registered keys, PAM coverage, and LUKS FIDO2 slots
+    help     Show this help
+
+  setup and enroll modify system files and require root (run with sudo).
+EOF
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+main() {
+    mkdir -p "$BACKUP_DIR" "$(dirname "$LOG")"
+    : > "$LOG"
+
+    local action="${1:-setup}"
+    case "$action" in
+        setup|"")           do_setup ;;
+        enroll|add|add-key) do_enroll ;;
+        status|list|info)   do_status ;;
+        help|-h|--help)     usage_yk ;;
+        *) err "Unknown action: $action"; usage_yk; exit 1 ;;
+    esac
 }
 
 main "$@"

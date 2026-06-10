@@ -16,6 +16,7 @@ readonly DEPLOYMENTS_DIR="$HYPRCONF_CFG_DIR/deployments"
 readonly TUI_SCRIPT="$HOME/.config/hypr/scripts/hyprconf-tui/main.py"
 readonly CLI_LIB="$HOME/.local/lib/hyprconf"
 readonly GPU_PT_SCRIPT="$HOME/.config/hypr/scripts/gpu-passthrough.sh"
+readonly YUBIKEY_SCRIPT="$HOME/.local/bin/yubikey-fido2-setup"
 
 if [[ -t 1 ]]; then
   _b=$'\e[1m'; _c=$'\e[36m'; _g=$'\e[32m'; _y=$'\e[33m'; _r=$'\e[0m'
@@ -130,6 +131,10 @@ usage() {
   printf "  hyprconf hardware gpu vm usb [list]    Show host USB devices and saved VM devices\n"
   printf "  hyprconf hardware gpu vm usb add       Pick USB devices to pass through to VM\n"
   printf "  hyprconf hardware gpu vm usb remove    Remove USB devices from VM passthrough\n"
+  printf "\n${_b}Security${_r}\n"
+  printf "  hyprconf yubikey status          Show keys, PAM coverage, and LUKS FIDO2 slots\n"
+  printf "  hyprconf yubikey setup           Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)\n"
+  printf "  hyprconf yubikey enroll          Enroll an additional / backup key\n"
   printf "\n${_b}Addons${_r}\n"
   printf "  hyprconf addon                   List available addons and their status\n"
   printf "  hyprconf addon <name>            Install a named addon\n"
@@ -2653,6 +2658,49 @@ cmd_addon() {
   esac
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+#  hyprconf yubikey — FIDO2+PIN auth for sudo/login/SSH/LUKS
+# ════════════════════════════════════════════════════════════════════════════
+
+_yk_usage() {
+  printf "${_b}hyprconf yubikey${_r} — YubiKey FIDO2+PIN authentication\n\n"
+  printf "  hyprconf yubikey status   Show keys, PAM coverage, and LUKS FIDO2 slots\n"
+  printf "  hyprconf yubikey setup    Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)\n"
+  printf "  hyprconf yubikey enroll   Enroll an additional / backup key\n"
+}
+
+# Run the YubiKey script as an action, escalating to root when needed (the
+# script edits system files and reads root-owned credentials/keyslots).
+_yk_run() {
+  local action="$1"
+  if [[ $EUID -eq 0 ]]; then
+    exec "$YUBIKEY_SCRIPT" "$action"
+  elif command -v sudo &>/dev/null; then
+    exec sudo "$YUBIKEY_SCRIPT" "$action"
+  else
+    die "Root required — run: sudo $YUBIKEY_SCRIPT $action"
+  fi
+}
+
+cmd_yubikey() {
+  if [[ ! -x "$YUBIKEY_SCRIPT" ]]; then
+    die "YubiKey script not found: $YUBIKEY_SCRIPT\nRun 'hyprconf sync' to restore it."
+  fi
+  local sub="${1:-status}"
+  shift || true
+  case "$sub" in
+    status|list|"")     _yk_run status ;;
+    setup)              _yk_run setup ;;
+    enroll|add|add-key) _yk_run enroll ;;
+    help|-h|--help)     _yk_usage ;;
+    *)
+      printf "${_y}Unknown yubikey subcommand: %s${_r}\n\n" "$sub" >&2
+      _yk_usage >&2
+      exit 1
+      ;;
+  esac
+}
+
 main() {
   local cmd="${1:-help}"
   shift || true
@@ -2677,6 +2725,7 @@ main() {
     idle)             cmd_idle "$@" ;;
     paper)            cmd_paper "$@" ;;
     hardware)         cmd_hardware "$@" ;;
+    yubikey|yk)       cmd_yubikey "$@" ;;
     doctor)           cmd_doctor ;;
     clipboard|clip)   cmd_clipboard "$@" ;;
     screenshot|ss)    cmd_screenshot "$@" ;;

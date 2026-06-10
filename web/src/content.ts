@@ -255,6 +255,27 @@ export const CLI_GROUPS: CliGroup[] = [
     ],
   },
   {
+    title: 'Security',
+    commands: [
+      {
+        name: 'hyprconf yubikey status',
+        usage: 'hyprconf yubikey status',
+        description: 'Read-only overview: installed packages, detected keys, per-user credential counts, PAM coverage, and LUKS FIDO2 keyslots.',
+        example: 'Packages   ✔ libfido2  ✔ pam-u2f  ✔ yubikey-manager\nLogin      andy: 2 key(s) registered\nPAM        ✔ /etc/pam.d/sudo  ✔ /etc/pam.d/login  ✔ /etc/pam.d/sshd\nLUKS       /dev/nvme0n1p2: 2 FIDO2 token(s) enrolled',
+      },
+      {
+        name: 'hyprconf yubikey setup',
+        usage: 'hyprconf yubikey setup',
+        description: 'Full FIDO2+PIN setup for sudo, TTY login, display manager, SSH, and LUKS unlock at boot. Interactive, backs up every change, rolls back on failure.',
+      },
+      {
+        name: 'hyprconf yubikey enroll',
+        usage: 'hyprconf yubikey enroll',
+        description: 'Enroll an additional / backup key into an existing setup — appends a login credential and adds a LUKS keyslot without rebuilding the initramfs.',
+      },
+    ],
+  },
+  {
     title: 'Deploy',
     commands: [
       { name: 'hyprconf deploy', usage: 'hyprconf deploy', description: 'Deploy the full stack via CDK — S3, CloudFront, ACM, Route53, and web frontend.' },

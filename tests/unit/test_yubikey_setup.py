@@ -16,12 +16,26 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 SCRIPT = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "yubikey-fido2-setup"
+HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 PACKAGES = REPO_ROOT / "packages"
 README = REPO_ROOT / "README.md"
 
 
 def _text() -> str:
     return SCRIPT.read_text(encoding="utf-8")
+
+
+def _bin_text() -> str:
+    return HYPRCONF_BIN.read_text(encoding="utf-8")
+
+
+def _func_body(name: str) -> str:
+    """Extract a single shell function body via awk (matches existing test style)."""
+    result = subprocess.run(
+        ["awk", f"/^{name}\\(\\) \\{{/,/^}}$/", str(SCRIPT)],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout
 
 
 # ---------------------------------------------------------------------------
@@ -214,3 +228,88 @@ def test_readme_documents_script_and_hyprlock_exclusion() -> None:
     assert "systemd-cryptenroll" in txt
     # README must record that hyprlock stays password-only by design
     assert "hyprlock" in txt and "password-only" in txt
+
+
+# ---------------------------------------------------------------------------
+# Subcommand dispatch: setup / enroll / status
+# ---------------------------------------------------------------------------
+
+def test_main_dispatches_subcommands() -> None:
+    txt = _text()
+    for fn in ("do_setup()", "do_enroll()", "do_status()", "usage_yk()"):
+        assert fn in txt, f"missing {fn}"
+    # main() routes each action; bare/default is setup (back-compat)
+    assert 'action="${1:-setup}"' in txt
+    for token in ("setup|", "enroll|add", "status|list"):
+        assert token in txt, f"main() must route {token}"
+
+
+def test_enroll_appends_login_key_never_replaces() -> None:
+    body = _func_body("enroll_login_key")
+    assert body, "enroll_login_key must exist"
+    # appends a credential to the existing user line (does not rewrite/replace it)
+    assert "pamu2fcfg --pin-verification --nouser" in body
+    assert r"s/\$/:${cred}/" in body
+    # refuses to run before initial setup created the entry
+    assert "run" in body and "setup" in body
+
+
+def test_enroll_luks_adds_slot_without_initramfs_rebuild() -> None:
+    body = _func_body("enroll_luks_key")
+    assert body, "enroll_luks_key must exist"
+    assert "systemd-cryptenroll" in body
+    assert "--fido2-device=auto" in body
+    # adding a slot must NOT rebuild initramfs or rewrite boot config — that is
+    # only done by first-time setup (configure_luks/update_mkinitcpio).
+    assert "mkinitcpio" not in body
+    assert "update_bootloader" not in body
+    assert "update_crypttab" not in body
+
+
+def test_status_is_readonly_and_reports_slots() -> None:
+    body = _func_body("do_status")
+    assert body, "do_status must exist"
+    # read-only: disables the rollback ERR trap, makes no edits
+    assert "trap - ERR" in body
+    assert "systemd-fido2" in body          # counts LUKS FIDO2 token slots
+    assert "pam_u2f.so" in body             # reports PAM coverage
+    assert "u2f_keys" in body.lower() or "U2F_KEYS" in body
+    for verb in ("sed -i", "cryptenroll", "pamu2fcfg"):
+        assert verb not in body, f"status must not call {verb} (read-only)"
+
+
+# ---------------------------------------------------------------------------
+# hyprconf CLI integration: `hyprconf yubikey <sub>`
+# ---------------------------------------------------------------------------
+
+def test_cli_cmd_yubikey_exists() -> None:
+    assert "cmd_yubikey()" in _bin_text()
+
+
+def test_cli_dispatcher_entry() -> None:
+    # dispatcher entry routes the `yubikey` command (alias `yk`) to cmd_yubikey
+    lines = [l.strip() for l in _bin_text().splitlines()
+             if "cmd_yubikey " in l and l.lstrip().startswith("yubikey")]
+    assert lines, "yubikey must have a dispatcher entry in main()"
+
+
+def test_cli_help_lists_yubikey() -> None:
+    assert "hyprconf yubikey" in _bin_text()
+
+
+def test_cli_references_script_and_escalates() -> None:
+    txt = _bin_text()
+    assert 'YUBIKEY_SCRIPT="$HOME/.local/bin/yubikey-fido2-setup"' in txt
+    # the script edits system files / reads root-owned data → escalate via sudo
+    assert "sudo" in _func_body_bin("_yk_run")
+    # subcommands the CLI forwards
+    for sub in ("status", "setup", "enroll"):
+        assert sub in _func_body_bin("cmd_yubikey")
+
+
+def _func_body_bin(name: str) -> str:
+    result = subprocess.run(
+        ["awk", f"/^{name}\\(\\) \\{{/,/^}}$/", str(HYPRCONF_BIN)],
+        capture_output=True, text=True, check=True,
+    )
+    return result.stdout
