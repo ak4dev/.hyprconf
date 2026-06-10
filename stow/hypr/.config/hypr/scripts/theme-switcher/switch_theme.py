@@ -664,9 +664,17 @@ def load_kitty_theme(kitty_config_path: str):
 
     # Expand user (~) to full path in case the path is relative
     kitty_config_path = os.path.expanduser(kitty_config_path)
-    
+
     # Normalize to make sure all paths are absolute
     normalized_path = os.path.abspath(kitty_config_path)
+
+    # kitty.conf is stowed (a symlink into the tracked repo), so any include line
+    # we write lands in version control. Store paths under $HOME as ~-relative so
+    # the tracked file never carries a hardcoded /home/<user>/ path (PII + would
+    # break on other users' systems). kitty expands ~ in include directives.
+    home = os.path.expanduser("~")
+    if normalized_path == home or normalized_path.startswith(home + os.sep):
+        normalized_path = "~" + normalized_path[len(home):]
 
     if not os.path.exists(KITTY_CONFIG_FILE):
         Path(KITTY_CONFIG_FILE).parent.mkdir(parents=True, exist_ok=True)
