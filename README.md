@@ -45,6 +45,7 @@
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
+- **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. hyprlock is left password-only by design
 - **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
 - **Cloud deploy** — serve your own install endpoint via `hyprconf deploy` (S3 + CloudFront + ACM + Route53)
 
@@ -567,6 +568,38 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 
 ---
 
+## YubiKey FIDO2 Login *(optional)*
+
+Hardware-backed FIDO2+PIN authentication for an Arch + Hyprland system. Run the
+stowed helper as root:
+
+```bash
+sudo yubikey-fido2-setup
+```
+
+It is fully interactive and idempotent — each step is opt-in, every modified file
+is backed up to `/tmp/yubikey-backup-<timestamp>/`, and any failure offers to roll
+back all changes. It covers:
+
+| Surface | What it configures |
+|---|---|
+| Packages | Installs `libfido2`, `pam-u2f`, `yubikey-manager` if missing |
+| FIDO2 PIN | Sets a key PIN via `ykman` if none exists |
+| Registration | Writes a PIN-verified credential to `/etc/security/u2f_keys` (root:root 640); optional spare/backup key |
+| `sudo` · TTY login · display manager · SSH | Inserts `pam_u2f.so … pinverification=1 cue` into the relevant `/etc/pam.d/*` files (display managers auto-detected) |
+| SSH daemon | Sets `UsePAM`/`KbdInteractiveAuthentication`/`AuthenticationMethods` in the first sshd config file that defines each, validates with `sshd -t`, restarts `sshd` |
+| LUKS unlock at boot | Enrols the key with `systemd-cryptenroll --fido2-device=auto`, adds `fido2-device=auto` to `/etc/crypttab`, converts `mkinitcpio` HOOKS to `systemd`/`sd-encrypt`/`sd-vconsole`, adds `rd.luks.options=UUID=…=fido2-device=auto` to the bootloader (GRUB or systemd-boot), and rebuilds the initramfs |
+
+**hyprlock is intentionally *not* protected by the YubiKey** — the screen locker
+stays password-only (`/etc/pam.d/hyprlock` → `system-auth`) for reliable unlock,
+while the LUKS passphrase always remains as a fallback key slot.
+
+> Requires a LUKS2 root for boot-unlock (`systemd-cryptenroll` needs LUKS2). The
+> YubiKey packages stay commented in `packages` since they only apply to YubiKey
+> owners; the script installs them on demand.
+
+---
+
 ## Packages
 
 | Category | Packages |
@@ -593,6 +626,7 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 | Fonts | `ttf-jetbrains-mono-nerd`, `noto-fonts-emoji` |
 | Power management | `power-profiles-daemon` |
 | Firewall | `ufw` |
+| Security (optional) | `libfido2`, `pam-u2f`, `yubikey-manager` — for `yubikey-fido2-setup`; commented in `packages`, auto-installed by the script |
 | Testing | `python-pytest`, `python-pytest-asyncio`, `python-coverage` |
 | AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` *(yay is installed automatically during full setup)* |
 | Optional (Nvidia) | `nvidia-utils` *(uncomment in `packages` if needed)* |

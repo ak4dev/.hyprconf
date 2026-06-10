@@ -86,6 +86,12 @@ export const FEATURES: Feature[] = [
     icon: Lock,
   },
   {
+    title: 'YubiKey Login',
+    description:
+      'Optional FIDO2 + PIN hardware-key authentication for sudo, TTY login, display manager, SSH, and LUKS unlock at boot. One interactive script enrols the key, backs up every change, and rolls back on failure.',
+    icon: Shield,
+  },
+  {
     title: 'Sync & Update',
     description:
       'Run hyprconf sync to apply all configuration changes in place. Hardware detection, services, and packages are patched idempotently — no reinstall required.',
