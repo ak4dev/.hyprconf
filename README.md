@@ -658,7 +658,6 @@ while the LUKS passphrase always remains as a fallback key slot.
 | `Super + V` / `Super + Shift + Space` | Toggle floating |
 | `Super + Shift + F` | Toggle fullscreen |
 | `Super + P` | Toggle pseudo-tile |
-| `Super + J` | Toggle split direction |
 | `Super + ← ↑ ↓ →` | Move focus |
 | `Super + Shift + ← ↑ ↓ →` | Resize window |
 | `Super + Shift + =` / `Super + Shift + -` | Increase / decrease window gaps |

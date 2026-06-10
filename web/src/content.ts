@@ -308,7 +308,6 @@ export const KEYBINDINGS: KeybindCategory[] = [
       { keys: ['Super', 'Shift', 'Space'], action: 'Toggle floating (alternate)' },
       { keys: ['Super', 'Shift', 'F'], action: 'Toggle fullscreen' },
       { keys: ['Super', 'P'], action: 'Toggle pseudo-tile' },
-      { keys: ['Super', 'J'], action: 'Toggle split direction' },
       { keys: ['Super', '←/→/↑/↓'], action: 'Move focus' },
       { keys: ['Super', 'Shift', '←/→/↑/↓'], action: 'Resize window' },
       { keys: ['Super', 'Shift', 'A/D/W/S'], action: 'Swap window position (L/R/U/D)' },
