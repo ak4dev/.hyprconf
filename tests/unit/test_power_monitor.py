@@ -321,6 +321,23 @@ class TestSetupPowerMonitor:
         assert "ATTR{type}==" in text
         assert "Mains" in text
 
+    def test_udev_rule_target_is_root_owned_not_home(self) -> None:
+        """SECURITY: udev RUN+= runs as root, so the rule must NOT execute a
+        user-writable $HOME path (that would be a local privilege escalation).
+        The rule must point at the root-owned /usr/local/lib copy."""
+        text = _setup_text()
+        idx = text.index("setup_power_monitor()")
+        body = text[idx:idx + 4000]
+        # The RUN+= target must be the root-owned system path.
+        assert 'RUN+=\\"$system_script\\"' in body
+        assert "/usr/local/lib/hyprconf/hyprconf-power-monitor" in body
+        # And the root-owned copy must be installed root:root.
+        assert "install -Dm755 -o root -g root" in body
+        # Defensive: the literal RUN+= line must never reference a home path.
+        for line in body.splitlines():
+            if "RUN+=" in line and "ACTION==" in line:
+                assert "/home/" not in line and "$HOME" not in line
+
     def test_udevadm_reload(self) -> None:
         text = _setup_text()
         assert "udevadm control --reload-rules" in text
@@ -336,12 +353,12 @@ class TestSetupPowerMonitor:
         """Should skip if rule already installed with correct content."""
         text = _setup_text()
         idx = text.index("setup_power_monitor()")
-        body = text[idx:idx + 2000]
+        body = text[idx:idx + 4000]
         assert "already installed" in body
 
     def test_initial_profile_set(self) -> None:
         """Should run the monitor once to set initial profile."""
         text = _setup_text()
         idx = text.index("setup_power_monitor()")
-        body = text[idx:idx + 2000]
+        body = text[idx:idx + 4000]
         assert "auto" in body

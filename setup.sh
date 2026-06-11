@@ -635,25 +635,58 @@ detect_gpu_and_link_monitor_config() {
 # "power-saver" when on battery via powerprofilesctl.
 
 setup_power_monitor() {
-    local monitor_script="$HOME/.local/bin/hyprconf-power-monitor"
+    # SECURITY: a udev RUN+= program is executed by udevd AS ROOT.  The target
+    # must therefore be a root-owned, non-user-writable path.  The previous rule
+    # pointed at ~/.local/bin/hyprconf-power-monitor — a file the user (or any
+    # code running as the user: a malicious AUR/pip/npm dep, a browser exploit)
+    # could overwrite to get root on the next AC plug/unplug, with no password
+    # and no YubiKey.  We now install a root-owned copy under /usr/local/lib and
+    # point the rule there.  ~/.local/bin/hyprconf-power-monitor stays as the
+    # user-facing copy for manual `hyprconf power-profile` use only.
+    local src_script="$STOW_DIR/hypr/.local/bin/hyprconf-power-monitor"
+    local user_script="$HOME/.local/bin/hyprconf-power-monitor"
+    local system_script="/usr/local/lib/hyprconf/hyprconf-power-monitor"
     local udev_rule="/etc/udev/rules.d/99-hyprconf-power.rules"
 
-    if [[ ! -x "$monitor_script" ]]; then
-        log_warn "hyprconf-power-monitor not found at $monitor_script — skipping power monitor setup."
+    [[ -e "$src_script" ]] || src_script="$user_script"
+    if [[ ! -e "$src_script" ]]; then
+        log_warn "hyprconf-power-monitor source not found — skipping power monitor setup."
+        return 0
+    fi
+
+    # Install/refresh the root-owned copy that udev will execute.
+    if sudo install -Dm755 -o root -g root "$src_script" "$system_script" 2>/dev/null; then
+        log_ok "Power monitor installed (root-owned): $system_script"
+    else
+        log_warn "Could not install root-owned power monitor — skipping power rule."
         return 0
     fi
 
     log_step "Installing udev rule for automatic power profile switching..."
     local rule_content
     rule_content="# hyprconf — automatic power profile switching (performance on AC, power-saver on battery)
-ACTION==\"change\", SUBSYSTEM==\"power_supply\", ATTR{type}==\"Mains\", RUN+=\"$monitor_script\""
+# SECURITY: RUN+= runs as root, so it must point at a root-owned path, never \$HOME.
+ACTION==\"change\", SUBSYSTEM==\"power_supply\", ATTR{type}==\"Mains\", RUN+=\"$system_script\""
 
-    if [[ -f "$udev_rule" ]] && grep -qF "$monitor_script" "$udev_rule" 2>/dev/null; then
-        log_ok "udev rule already installed — skipping."
-    else
+    # (Re)write the rule when it is missing, points somewhere else, or — most
+    # importantly — still references a user-writable \$HOME path (migration from
+    # the pre-hardening rule).
+    local needs_write=1
+    if [[ -f "$udev_rule" ]] \
+        && grep -qF "RUN+=\"$system_script\"" "$udev_rule" 2>/dev/null \
+        && ! grep -qE 'RUN\+?=.*(/home/|\$HOME)' "$udev_rule" 2>/dev/null; then
+        needs_write=0
+    fi
+
+    if (( needs_write )); then
+        if [[ -f "$udev_rule" ]] && grep -qE 'RUN\+?=.*(/home/|\$HOME)' "$udev_rule" 2>/dev/null; then
+            log_warn "Migrating insecure power rule (was executing a \$HOME path as root)."
+        fi
         printf '%s\n' "$rule_content" | sudo tee "$udev_rule" > /dev/null \
             && log_ok "udev rule installed: $udev_rule" \
             || { log_warn "Could not install udev rule — automatic power switching unavailable."; return 0; }
+    else
+        log_ok "Secure power udev rule already installed — skipping."
     fi
 
     if ! _in_chroot; then
@@ -663,7 +696,7 @@ ACTION==\"change\", SUBSYSTEM==\"power_supply\", ATTR{type}==\"Mains\", RUN+=\"$
 
         # Set the initial power profile based on current AC state
         log_step "Setting initial power profile..."
-        "$monitor_script" auto \
+        "$user_script" auto 2>/dev/null \
             && log_ok "Initial power profile applied." \
             || log_warn "Could not set initial power profile."
     fi
@@ -1032,6 +1065,61 @@ SUBSYSTEM=="hidraw", ATTRS{idVendor}=="362d", TAG+="uaccess"'
     fi
 }
 
+# ---------------------------------------------------------------------------
+# System hardening — conservative, reversible sysctl + resolver tightening
+# ---------------------------------------------------------------------------
+# All settings here are widely-recommended and low-breakage.  The one item that
+# can affect functionality — unprivileged user namespaces, used by Flatpak and
+# the Chromium/Chrome sandbox — is shipped commented out as an opt-in.
+setup_hardening() {
+    log_step "Applying system hardening (sysctl + resolver)..."
+
+    local sysctl_file="/etc/sysctl.d/90-hyprconf-hardening.conf"
+    if sudo tee "$sysctl_file" >/dev/null <<'EOF'; then
+# Managed by hyprconf — defensive kernel sysctls (reversible: delete this file).
+# Hide kernel pointers and restrict the kernel log to root.
+kernel.kptr_restrict = 2
+kernel.dmesg_restrict = 1
+# Restrict ptrace to direct children, so in-session malware cannot scrape the
+# memory of other processes (e.g. read SSH/AWS keys out of a running agent).
+kernel.yama.ptrace_scope = 1
+# Shrink kernel attack surface reachable from unprivileged code.
+kernel.unprivileged_bpf_disabled = 1
+net.core.bpf_jit_harden = 2
+# Block unprivileged TTY line-discipline autoload (a known privilege-escalation vector).
+dev.tty.ldisc_autoload = 0
+# Anti-MITM: ignore ICMP redirects (safe for clients).  Strict rp_filter is
+# intentionally NOT set here — it can break asymmetric routing in VM/VPN/Docker
+# setups, which this machine uses.
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+# OPT-IN: also disable unprivileged user namespaces.  Blocks a large class of
+# kernel LPEs but BREAKS Flatpak and the Chromium/Chrome sandbox.  Uncomment
+# only if you do not rely on those.
+#kernel.unprivileged_userns_clone = 0
+#user.max_user_namespaces = 0
+EOF
+        log_ok "sysctl hardening installed: $sysctl_file"
+        _in_chroot || sudo sysctl --system >/dev/null 2>&1 \
+            || log_warn "Could not apply sysctls now — they apply on next boot."
+    else
+        log_warn "Could not write $sysctl_file — skipping sysctl hardening."
+    fi
+
+    # Disable LLMNR + mDNS responders (LAN name-spoofing surface).
+    local resolved_dir="/etc/systemd/resolved.conf.d"
+    local resolved_file="$resolved_dir/90-hyprconf-hardening.conf"
+    if sudo mkdir -p "$resolved_dir" \
+        && printf '[Resolve]\nLLMNR=no\nMulticastDNS=no\n' | sudo tee "$resolved_file" >/dev/null; then
+        log_ok "LLMNR/mDNS disabled: $resolved_file"
+        _in_chroot || sudo systemctl try-restart systemd-resolved 2>/dev/null || true
+    else
+        log_warn "Could not write resolved hardening drop-in."
+    fi
+}
+
 sync_services() {
     log_step "Enabling system services..."
 
@@ -1203,6 +1291,7 @@ main() {
         setup_hardware_features
         reapply_current_theme
         sync_services
+        setup_hardening
         reload_hyprland
 
         # After stowing, check for any packages not yet installed.
@@ -1270,6 +1359,7 @@ main() {
     setup_hardware_features
     reapply_current_theme
     enable_services
+    setup_hardening
     sync_services
     reload_hyprland
 

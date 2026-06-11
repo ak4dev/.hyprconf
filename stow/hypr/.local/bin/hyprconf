@@ -135,6 +135,7 @@ usage() {
   printf "  hyprconf yubikey status          Show keys, PAM coverage, and LUKS FIDO2 slots\n"
   printf "  hyprconf yubikey setup           Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)\n"
   printf "  hyprconf yubikey enroll          Enroll an additional / backup key\n"
+  printf "  hyprconf yubikey harden-luks     Remove passphrase → key-only LUKS unlock\n"
   printf "\n${_b}Addons${_r}\n"
   printf "  hyprconf addon                   List available addons and their status\n"
   printf "  hyprconf addon <name>            Install a named addon\n"
@@ -1738,7 +1739,11 @@ _doctor_check_hardware() {
   if compgen -G "/sys/class/power_supply/BAT*" > /dev/null 2>&1; then
     local udev_rule="/etc/udev/rules.d/99-hyprconf-power.rules"
     if [[ -f "$udev_rule" ]]; then
-      _doctor_pass "Power profile auto-switching enabled (udev rule installed)"
+      if grep -qE 'RUN\+?=.*(/home/|\$HOME)' "$udev_rule" 2>/dev/null; then
+        _doctor_warn "Power udev rule runs a \$HOME path as root (privilege-escalation risk) — run 'hyprconf sync' to fix"
+      else
+        _doctor_pass "Power profile auto-switching enabled (secure root-owned rule)"
+      fi
     else
       _doctor_warn "Power profile auto-switching not configured — run 'hyprconf sync'"
     fi
@@ -2664,9 +2669,10 @@ cmd_addon() {
 
 _yk_usage() {
   printf "${_b}hyprconf yubikey${_r} — YubiKey FIDO2+PIN authentication\n\n"
-  printf "  hyprconf yubikey status   Show keys, PAM coverage, and LUKS FIDO2 slots\n"
-  printf "  hyprconf yubikey setup    Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)\n"
-  printf "  hyprconf yubikey enroll   Enroll an additional / backup key\n"
+  printf "  hyprconf yubikey status       Show keys, PAM coverage, and LUKS FIDO2 slots\n"
+  printf "  hyprconf yubikey setup        Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)\n"
+  printf "  hyprconf yubikey enroll       Enroll an additional / backup key\n"
+  printf "  hyprconf yubikey harden-luks  Remove passphrase → key-only LUKS (recovery key first)\n"
 }
 
 # Run the YubiKey script as an action, escalating to root when needed (the
@@ -2692,6 +2698,7 @@ cmd_yubikey() {
     status|list|"")     _yk_run status ;;
     setup)              _yk_run setup ;;
     enroll|add|add-key) _yk_run enroll ;;
+    harden-luks|key-only) _yk_run harden-luks ;;
     help|-h|--help)     _yk_usage ;;
     *)
       printf "${_y}Unknown yubikey subcommand: %s${_r}\n\n" "$sub" >&2

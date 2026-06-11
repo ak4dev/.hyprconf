@@ -855,21 +855,132 @@ do_status() {
     fi
 }
 
+# ── Action: key-only LUKS (remove the passphrase slot) ─────────────────────────
+# DANGEROUS and one-way for the passphrase: afterwards the disk unlocks ONLY with
+# the YubiKey or the recovery key.  Guardrails: refuse unless a FIDO2 slot already
+# exists; force a recovery key to be enrolled AND acknowledged; push a backup key;
+# only then wipe the passphrase.  A misuse here means data loss, so it is gated
+# hard and never runs as part of `setup`.
+harden_luks_device() {
+    local dev="$1"
+    local uuid; uuid=$(cryptsetup luksUUID "$dev" 2>/dev/null) || die "Cannot read UUID from $dev"
+    step "Key-only conversion for $dev  (UUID $uuid)"
+
+    # 1. Must already have a FIDO2 slot, or wiping the passphrase locks you out.
+    local n_fido2
+    n_fido2=$(cryptsetup luksDump "$dev" 2>/dev/null | grep -c "systemd-fido2" || true)
+    if (( n_fido2 < 1 )); then
+        die "No FIDO2 keyslot on $dev — run 'yubikey-fido2-setup setup' (LUKS step) first."
+    fi
+    ok "$dev has $n_fido2 FIDO2 keyslot(s)"
+
+    # 2. Anything to do?
+    local n_pass
+    n_pass=$(systemd-cryptenroll "$dev" 2>/dev/null | awk 'tolower($2)=="password"{c++} END{print c+0}')
+    if (( n_pass == 0 )); then
+        ok "$dev already has no passphrase slot — nothing to wipe."
+        return 0
+    fi
+
+    warn "This REMOVES the passphrase from $dev. Afterwards only the YubiKey and the"
+    warn "recovery key (enrolled next) can unlock it — the passphrase is unrecoverable."
+    ask_yn "Continue with key-only conversion of $dev?" n || { info "Skipped $dev."; return 0; }
+
+    # 3. Enroll a recovery key FIRST and make the user acknowledge saving it.
+    local n_rec
+    n_rec=$(cryptsetup luksDump "$dev" 2>/dev/null | grep -c "systemd-recovery" || true)
+    if (( n_rec < 1 )); then
+        step "Enrolling an offline recovery key — store it somewhere safe NOW"
+        info "You will be asked for the current passphrase or YubiKey to authorize."
+        systemd-cryptenroll --recovery-key "$dev" \
+            || die "Recovery-key enrollment failed — passphrase NOT wiped."
+        warn "↑ Save this recovery key (password manager / paper in a safe)."
+        local ack=""
+        while [[ "$ack" != "I SAVED IT" ]]; do
+            ask_str ack "Type exactly  I SAVED IT  to confirm"
+        done
+    else
+        ok "$dev already has a recovery-key slot."
+        ask_yn "Do you still have that recovery key stored safely?" n \
+            || die "Store/replace the recovery key before wiping the passphrase."
+    fi
+
+    # 4. Strongly recommend a backup hardware key.
+    if ! ask_yn "Have you enrolled a BACKUP YubiKey on this device (recommended)?" n; then
+        warn "No backup key — if your only key fails, recovery depends solely on the recovery key."
+        ask_yn "Proceed without a backup key anyway?" n \
+            || { info "Aborted — add one with 'yubikey-fido2-setup enroll', then re-run."; return 0; }
+    fi
+
+    # 5. Wipe the passphrase slot(s).
+    systemd-cryptenroll --wipe-slot=password "$dev" \
+        || die "Failed to wipe passphrase slot on $dev."
+    ok "Passphrase removed from $dev."
+
+    # 6. Verify the end state.
+    local fido2_after rec_after pass_after
+    fido2_after=$(cryptsetup luksDump "$dev" 2>/dev/null | grep -c "systemd-fido2" || true)
+    rec_after=$(cryptsetup luksDump "$dev" 2>/dev/null | grep -c "systemd-recovery" || true)
+    pass_after=$(systemd-cryptenroll "$dev" 2>/dev/null | awk 'tolower($2)=="password"{c++} END{print c+0}')
+    info "Now on $dev → FIDO2: $fido2_after   recovery: $rec_after   password: $pass_after"
+    (( pass_after == 0 )) || warn "A passphrase slot still remains — re-check manually."
+}
+
+do_harden_luks() {
+    step "Key-only LUKS — remove the passphrase fallback"
+    log "  Removes the passphrase keyslot so the disk unlocks ONLY with your YubiKey"
+    log "  or an offline recovery key (enrolled first).  This closes the 'disk is"
+    log "  only as strong as the reused login password' gap.  Test before relying on it."
+
+    preflight
+    install_packages
+
+    local -a luks2_devs=()
+    local dev ver
+    while IFS= read -r dev; do
+        ver=$(cryptsetup luksDump "$dev" 2>/dev/null | awk '/^Version:/{print $2}')
+        [[ "$ver" == "2" ]] && luks2_devs+=("$dev")
+    done < <(lsblk -o NAME,FSTYPE -rn 2>/dev/null | awk '$2=="crypto_LUKS"{print "/dev/"$1}')
+    (( ${#luks2_devs[@]} > 0 )) || { warn "No LUKS2 devices found — nothing to do."; return 0; }
+
+    local d
+    if (( ${#luks2_devs[@]} == 1 )); then
+        harden_luks_device "${luks2_devs[0]}"
+    else
+        local chosen
+        ask_pick chosen "Select LUKS2 device to convert to key-only:" \
+            "${luks2_devs[@]}" "All of them" "Cancel"
+        case "$chosen" in
+            Cancel)        info "Cancelled."; return 0 ;;
+            "All of them") for d in "${luks2_devs[@]}"; do harden_luks_device "$d"; done ;;
+            *)             harden_luks_device "$chosen" ;;
+        esac
+    fi
+
+    trap - ERR
+    log ""
+    log "  ${W}${G}✓ Key-only conversion complete.${N}"
+    log "  Test NOW: reboot, confirm the YubiKey unlocks, and that the passphrase no"
+    log "  longer does.  If the key is unavailable, use the recovery key at the prompt."
+}
+
 # ── Usage ──────────────────────────────────────────────────────────────────────
 usage_yk() {
     cat >&2 <<'EOF'
 
   YubiKey FIDO2+PIN setup — Arch Linux
 
-  Usage: yubikey-fido2-setup [setup|enroll|status]
-         hyprconf yubikey    [setup|enroll|status]
+  Usage: yubikey-fido2-setup [setup|enroll|harden-luks|status]
+         hyprconf yubikey    [setup|enroll|harden-luks|status]
 
-    setup    Full first-time setup: sudo, TTY login, display manager, SSH, LUKS
-    enroll   Enroll an additional / backup key (login + optional LUKS keyslot)
-    status   Show packages, registered keys, PAM coverage, and LUKS FIDO2 slots
-    help     Show this help
+    setup        Full first-time setup: sudo, TTY login, display manager, SSH, LUKS
+    enroll       Enroll an additional / backup key (login + optional LUKS keyslot)
+    harden-luks  Remove the LUKS passphrase → key-only unlock (enrolls a recovery
+                 key first; requires an existing FIDO2 slot). DANGEROUS, one-way.
+    status       Show packages, registered keys, PAM coverage, and LUKS FIDO2 slots
+    help         Show this help
 
-  setup and enroll modify system files and require root (run with sudo).
+  setup, enroll, and harden-luks modify system files and require root (sudo).
 EOF
 }
 
@@ -883,6 +994,7 @@ main() {
     case "$action" in
         setup|"")           do_setup ;;
         enroll|add|add-key) do_enroll ;;
+        harden-luks|key-only) do_harden_luks ;;
         status|list|info)   do_status ;;
         help|-h|--help)     usage_yk ;;
         *) err "Unknown action: $action"; usage_yk; exit 1 ;;
