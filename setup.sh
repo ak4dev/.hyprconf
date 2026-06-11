@@ -439,6 +439,39 @@ configure_zprofile() {
     log_ok "Hyprland auto-start configured in ~/.zprofile"
 }
 
+# Additive per-file linker.  GNU stow is all-or-nothing: a single pre-existing
+# real file aborts the WHOLE package, so newly-added files (e.g. a new script
+# like yubikey-fido2-setup) never get a symlink even though they were pulled into
+# the repo.  This walks the package and creates a relative symlink for every file
+# whose target is still missing, while leaving existing real files (and links)
+# untouched — exactly what additive mode promises.
+_additive_link_package() {
+    local stow_dir="$1" package="$2" target_dir="$3"
+    local pkg_root="$stow_dir/$package"
+    local linked=0
+
+    # Ensure parent directories exist as real dirs (matches stow --no-folding).
+    while IFS= read -r dir; do
+        local rel="${dir#"$pkg_root"/}"
+        mkdir -p "$target_dir/$rel"
+    done < <(find "$pkg_root" -mindepth 1 -type d)
+
+    while IFS= read -r file; do
+        local rel="${file#"$pkg_root"/}"
+        local target="$target_dir/$rel"
+        # Skip anything already present — real user files are preserved and
+        # existing symlinks are left alone (broken links were cleaned earlier by
+        # purge_broken_symlinks).
+        [[ -e "$target" || -L "$target" ]] && continue
+        if ln -s "$(realpath -s --relative-to="$(dirname "$target")" "$file")" "$target"; then
+            linked=$((linked + 1))
+        fi
+    done < <(find "$pkg_root" \( -type f -o -type l \))
+
+    [[ $linked -gt 0 ]] && log_ok "Linked $linked new file(s) in $package."
+    return 0
+}
+
 force_stow_package() {
     local package="$1"
     local stow_dir="$2"
@@ -462,8 +495,12 @@ force_stow_package() {
 
     if ! stow -d "$stow_dir" -t "$target_dir" --no-folding --"$stow_mode" "$package" 2>/dev/null; then
         if [[ "$stow_mode" == "stow" ]]; then
-            # Additive-only mode: conflicts mean user has real files — preserve them.
-            log_warn "Skipping conflicts in $package (user files preserved). Run 'hyprconf sync --full' to reset to defaults."
+            # Additive-only mode: GNU stow aborts the entire package on the first
+            # conflict, which would leave newly-added files unlinked.  Fall back to
+            # per-file linking so new files still get symlinked while user files
+            # (the conflicts) are preserved.
+            log_warn "Conflicts in $package — linking new files individually (user files preserved). Run 'hyprconf sync --full' to reset to defaults."
+            _additive_link_package "$stow_dir" "$package" "$target_dir"
             return 0
         fi
 
