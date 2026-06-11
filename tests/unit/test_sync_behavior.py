@@ -267,6 +267,44 @@ class TestSyncPath:
         assert "_force" in func, \
             "clone_or_update_repo must have a _force parameter"
 
+    def test_default_pull_uses_autostash(self) -> None:
+        """The non-force pull must use --autostash.
+
+        Theme writes leave tracked stow files chronically dirty; a plain
+        `git pull --ff-only` aborts on those local changes and silently strands
+        newly-added files (e.g. yubikey-fido2-setup).  --autostash shelves the
+        dirty files so the fast-forward — and the new files — still land.
+        """
+        func = _extract_function("clone_or_update_repo")
+        assert "--autostash" in func, (
+            "Default (non-force) pull must use 'git pull --ff-only --autostash' so "
+            "a chronically-dirty working tree (theme writes) cannot block updates"
+        )
+
+    def test_autostash_conflict_is_resolved(self) -> None:
+        """A conflicted autostash re-apply must be resolved, not left in the tree.
+
+        Otherwise the unmerged index + conflict markers would break the next sync.
+        """
+        func = _extract_function("clone_or_update_repo")
+        assert "--diff-filter=U" in func, (
+            "Must enumerate conflicted paths after a failed autostash re-apply"
+        )
+        assert "checkout HEAD --" in func, (
+            "Conflicted paths must be reset to the upstream version (checkout HEAD)"
+        )
+        assert "stash drop" in func, (
+            "The leftover autostash entry must be dropped so stashes don't accumulate"
+        )
+
+    def test_active_theme_preserved_across_pull(self) -> None:
+        """The user's active theme selection must survive the pull/regenerate."""
+        func = _extract_function("clone_or_update_repo")
+        assert ".current-theme" in func, (
+            "clone_or_update_repo must preserve .current-theme so reapply_current_theme "
+            "regenerates colors for the user's selected theme, not the repo default"
+        )
+
     def test_force_and_full_combinable(self) -> None:
         """--force and --full must be combinable (loop-based parsing, not positional)."""
         src = _setup_text()
