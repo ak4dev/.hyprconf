@@ -116,7 +116,7 @@ workspace = 4, monitor:DP-1
 ```ini
 render {
     direct_scanout    = 1   # Reduces latency for fullscreen apps
-    cm_fs_passthrough = 1   # Pass HDR metadata for fullscreen apps
+    cm_auto_hdr        = 1   # Automatically enable HDR for fullscreen apps in HDR-capable color spaces
 }
 ```
 

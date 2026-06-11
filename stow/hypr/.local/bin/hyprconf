@@ -813,7 +813,7 @@ _option_meta() {
     # render
     render:direct_scanout)            echo "enum:0,1,2|0|Direct scanout: 0=off 1=on 2=auto(game content)" ;;
     render:expand_undersized_textures) echo "bool|true|Expand undersized textures along edge vs stretch" ;;
-    render:cm_fs_passthrough)         echo "enum:0,1,2|2|HDR passthrough for fullscreen: 0=off 1=always 2=hdr" ;;
+    render:cm_auto_hdr)               echo "bool|true|Automatically enable HDR for fullscreen apps in HDR-capable color spaces" ;;
     render:cm_enabled)                echo "bool|true|Enable color management pipeline" ;;
     # opengl
     opengl:nvidia_anti_flicker)       echo "bool|true|Reduce Nvidia flickering (may drop FPS on weak GPUs)" ;;
@@ -859,7 +859,7 @@ _section_keys() {
     misc) echo "disable_hyprland_logo disable_splash_rendering force_default_wallpaper vfr vrr mouse_move_enables_dpms key_press_enables_dpms animate_manual_resizes animate_mouse_windowdragging disable_autoreload enable_swallow swallow_regex swallow_exception_regex focus_on_activate mouse_move_focuses_monitor allow_session_lock_restore background_color close_special_on_empty initial_workspace_tracking middle_click_paste render_unfocused_fps disable_xdg_env_checks lockdead_screen_delay" ;;
     binds) echo "pass_mouse_when_bound scroll_event_delay workspace_back_and_forth hide_special_on_workspace_change allow_workspace_cycles workspace_center_on focus_preferred_method ignore_group_lock movefocus_cycles_fullscreen movefocus_cycles_groupfirst window_direction_monitor_fallback disable_keybind_grabbing allow_pin_fullscreen drag_threshold" ;;
     cursor) echo "no_hardware_cursors min_refresh_rate hotspot_padding inactive_timeout no_warps persistent_warps warp_on_change_workspace default_monitor zoom_factor zoom_rigid enable_hyprcursor hide_on_key_press hide_on_touch" ;;
-    render) echo "direct_scanout expand_undersized_textures cm_fs_passthrough cm_enabled" ;;
+    render) echo "direct_scanout expand_undersized_textures cm_auto_hdr cm_enabled" ;;
     opengl) echo "nvidia_anti_flicker" ;;
     xwayland) echo "enabled use_nearest_neighbor force_zero_scaling" ;;
     dwindle) echo "pseudotile force_split preserve_split smart_split smart_resizing permanent_direction_override use_active_for_splits default_split_ratio" ;;

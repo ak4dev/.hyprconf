@@ -292,7 +292,7 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
     "render": {
         "direct_scanout":             ("enum:0,1,2","0",   "Direct scanout: 0=off, 1=on, 2=auto (game content)"),
         "expand_undersized_textures": ("bool",       "true","Expand undersized textures along edge vs stretch"),
-        "cm_fs_passthrough":          ("enum:0,1,2", "2",   "HDR passthrough for fullscreen: 0=off, 1=always, 2=hdr"),
+        "cm_auto_hdr":                ("bool",       "true","Automatically enable HDR for fullscreen apps in HDR-capable color spaces"),
         "cm_enabled":                 ("bool",       "true","Enable color management pipeline"),
     },
 
