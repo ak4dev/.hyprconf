@@ -969,7 +969,17 @@ install_base_system() {
   log_step "Installing base system via pacstrap (this takes a few minutes)..."
   local pkgs=(base base-devel linux linux-firmware btrfs-progs networkmanager iwd openssh git zsh sudo nano)
   [[ -n "$CPU_UCODE" ]] && pkgs+=("$CPU_UCODE")
-  pacstrap /mnt "${pkgs[@]}"
+
+  local attempt
+  for attempt in 1 2 3; do
+    if pacstrap /mnt "${pkgs[@]}"; then
+      break
+    fi
+    (( attempt < 3 )) || log_die "pacstrap failed after 3 attempts — check network/mirror connectivity."
+    log_warn "pacstrap attempt $attempt failed (mirror error?) — retrying in 10s..."
+    sleep 10
+  done
+
   genfstab -U /mnt >> /mnt/etc/fstab
   log_ok "Base system installed. fstab generated."
 }
