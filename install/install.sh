@@ -1284,6 +1284,33 @@ run_setup_in_chroot() {
   log_ok "Dotfiles configured."
 }
 
+offer_yubikey_setup() {
+  [[ "${HYPRCONF_CI:-0}" == "1" ]] && return 0
+
+  printf '\n%s  ────────────────────────────────────────────────────────────────%s\n' "$DM" "$RS"
+  printf '%s  YubiKey FIDO2 setup (optional)%s\n'                                       "$GR" "$RS"
+  printf '%s  · Adds 2FA to sudo, TTY login, display manager, and SSH.%s\n'             "$DM" "$RS"
+  printf '%s  · Can also enroll the key as a LUKS unlock factor%s\n'                    "$DM" "$RS"
+  printf '%s    (your passphrase keeps working as a fallback).%s\n'                     "$DM" "$RS"
+  printf '%s  Insert a FIDO2 YubiKey now if you want to configure it.%s\n\n'            "$DM" "$RS"
+
+  printf '%s  Set up YubiKey now? [y/N]: %s' "$AM" "$RS"
+  read -r ans
+  [[ "$ans" =~ ^[Yy]$ ]] || return 0
+
+  # Temp NOPASSWD sudo so yubikey-fido2-setup's pacman/systemctl calls succeed
+  # non-interactively inside the chroot (mirrors run_setup_in_chroot).
+  echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > /mnt/etc/sudoers.d/zz-hyprconf-setup
+  chmod 440 /mnt/etc/sudoers.d/zz-hyprconf-setup
+
+  log_step "Launching YubiKey FIDO2 setup in chroot..."
+  arch-chroot /mnt env SUDO_USER="${USERNAME}" HYPRCONF_CHROOT=1 HYPRCONF_INSTALLER=1 \
+    bash "/home/${USERNAME}/.hyprconf/stow/hypr/.local/bin/yubikey-fido2-setup" setup \
+    || log_warn "YubiKey setup didn't finish — run 'hyprconf yubikey setup' after first boot to retry."
+
+  rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup
+}
+
 unmount_all() {
   log_step "Unmounting filesystems..."
   umount -R /mnt
@@ -1316,6 +1343,7 @@ arch_install() {
   copy_network_config_from_iso
   configure_in_chroot
   run_setup_in_chroot
+  offer_yubikey_setup
 
   # Inject test SSH public key before unmounting (CI only)
   if [[ "${HYPRCONF_CI:-0}" == "1" && -n "${HYPRCONF_CI_SSH_PUBKEY:-}" ]]; then
@@ -1332,7 +1360,10 @@ arch_install() {
   printf '\n%s  ════════════════════════════════════════════════════════════════%s\n' "$DM" "$RS"
   printf '%s  ✔ Arch Linux installed successfully!%s\n'                              "$GR" "$RS"
   printf '%s  · Remove the installation media and reboot.%s\n'                      "$DM" "$RS"
-  printf '%s  · Log in as %s — Hyprland starts automatically on tty1.%s\n\n'       "$DM" "$USERNAME" "$RS"
+  printf '%s  · Log in as %s — Hyprland starts automatically on tty1.%s\n'         "$DM" "$USERNAME" "$RS"
+  printf '%s  · Run "hyprconf yubikey setup" anytime to add FIDO2 login 2FA / LUKS unlock.%s\n' "$DM" "$RS"
+  printf '%s  · Once FIDO2 LUKS unlock is verified, "hyprconf yubikey harden-luks" removes%s\n' "$DM" "$RS"
+  printf '%s    the passphrase for key-only unlock (one-way — read the docs first).%s\n\n'      "$DM" "$RS"
 }
 
 # ════════════════════════════════════════════════════════════════════════════

@@ -415,9 +415,13 @@ PYEOF
         die "sshd config still invalid. Check $LOG for details."
     fi
 
-    systemctl restart sshd || die "sshd restart failed — check journalctl -xe"
-    ok "sshd restarted"
-    warn "IMPORTANT: Test SSH from another session before closing this terminal."
+    if [[ "${HYPRCONF_CHROOT:-0}" == "1" ]]; then
+        ok "sshd config validated — will apply on first boot (chroot: no live sshd to restart)"
+    else
+        systemctl restart sshd || die "sshd restart failed — check journalctl -xe"
+        ok "sshd restarted"
+        warn "IMPORTANT: Test SSH from another session before closing this terminal."
+    fi
 }
 
 # ── 7. LUKS ───────────────────────────────────────────────────────────────────
