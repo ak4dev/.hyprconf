@@ -406,7 +406,7 @@ Hot-swap presets activate at runtime via keybind or `hyprconf monitor set <prese
 | `Super + Shift + B` | `pcMonitors.bedroom` |
 | `Super + Shift + K` | `pcMonitors.kitchen` |
 
-`pcMonitorsK.conf` is an alternate desktop preset using Hyprland's newer `monitorv2` block syntax (DP-1 4K@240Hz, DP-2 4K@75Hz rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `hyprconf monitor set pcMonitorsK` → copies it to `monitors.conf` and reloads.
+`pcMonitors.K` is an alternate desktop preset using Hyprland's newer `monitorv2` block syntax (DP-1 4K@240Hz, DP-2 4K@75Hz rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `hyprconf monitor set K` → copies it to `monitors.conf` and reloads.
 
 ---
 

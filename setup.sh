@@ -681,20 +681,42 @@ _has_nvidia() {
 }
 
 
+# Symlink monitors.conf -> $hypr_conf_dir/$default_file, unless it's already a
+# valid symlink to a $glob_prefix* file in $hypr_conf_dir (e.g. a preset chosen
+# via switch_monitor.sh / `hyprconf monitor set`) — in which case the existing
+# choice is kept across setup/sync runs, mirroring reapply_current_theme's
+# persistence model for the theme switcher.
+_link_monitor_config() {
+    local monitors_conf="$1" hypr_conf_dir="$2" glob_prefix="$3" default_file="$4" label="$5"
+
+    if [[ -L "$monitors_conf" ]]; then
+        # Resolve the full symlink chain: switch_monitor.sh links monitors.conf
+        # to the *deployed* ~/.config/hypr/pcMonitors.* path (itself a Stow
+        # symlink back into $hypr_conf_dir), so a one-level readlink won't match
+        # $hypr_conf_dir directly — only the fully-resolved path will.
+        local current_target
+        current_target=$(readlink -f "$monitors_conf" 2>/dev/null)
+        if [[ -n "$current_target" && "$current_target" == "$hypr_conf_dir/$glob_prefix"* ]]; then
+            log_ok "$label — keeping existing monitor config: $(basename "$current_target")"
+            return 0
+        fi
+    fi
+
+    rm -f "$monitors_conf"
+    ln -sf "$hypr_conf_dir/$default_file" "$monitors_conf"
+    log_ok "$label — using $default_file"
+}
+
 detect_gpu_and_link_monitor_config() {
     log_step "Detecting device type for monitor config..."
 
     local monitors_conf="$HOME/.config/hypr/monitors.conf"
     local hypr_conf_dir="$STOW_DIR/hypr/.config/hypr"
 
-    rm -f "$monitors_conf"
-
     if _is_desktop; then
-        ln -sf "$hypr_conf_dir/pcMonitors.conf" "$monitors_conf"
-        log_ok "Desktop detected — using pcMonitors.conf"
+        _link_monitor_config "$monitors_conf" "$hypr_conf_dir" "pcMonitors" "pcMonitors.conf" "Desktop detected"
     else
-        ln -sf "$hypr_conf_dir/laptopMonitors.conf" "$monitors_conf"
-        log_ok "Laptop/portable detected — using laptopMonitors.conf"
+        _link_monitor_config "$monitors_conf" "$hypr_conf_dir" "laptopMonitors" "laptopMonitors.conf" "Laptop/portable detected"
         log_step "Enabling power-profiles-daemon..."
         if _in_chroot; then
             sudo systemctl enable power-profiles-daemon
@@ -878,6 +900,21 @@ setup_hardware_features() {
                 || log_warn "mkinitcpio -P failed — rebuild manually: sudo mkinitcpio -P"
         else
             log_ok "Nvidia early-KMS modules already present — skipping."
+        fi
+
+        # nvidia-drm modeset=1 is required for Wayland (wiki.hyprland.org/Nvidia) —
+        # without it Hyprland fails to start on Nvidia. The early-KMS modules above
+        # load nvidia_drm before the compositor, but the modeset parameter still
+        # needs to be set via modprobe.d. Appends rather than overwrites so any
+        # existing nvidia.conf options (e.g. NVreg_EnableGpuFirmware for VFIO) are kept.
+        local nvidia_modprobe=/etc/modprobe.d/nvidia.conf
+        if [[ ! -f "$nvidia_modprobe" ]] || ! grep -q "^options nvidia-drm modeset=1" "$nvidia_modprobe" 2>/dev/null; then
+            log_step "Setting nvidia-drm modeset=1 in $nvidia_modprobe..."
+            printf 'options nvidia-drm modeset=1\n' | sudo tee -a "$nvidia_modprobe" > /dev/null \
+                && log_ok "nvidia-drm modeset=1 set." \
+                || log_warn "Could not write $nvidia_modprobe — add 'options nvidia-drm modeset=1' manually."
+        else
+            log_ok "nvidia-drm modeset=1 already set."
         fi
     else
         log_ok "No Nvidia GPU detected — skipping Nvidia setup."
@@ -1175,6 +1212,10 @@ net.ipv4.conf.all.accept_redirects = 0
 net.ipv4.conf.default.accept_redirects = 0
 net.ipv6.conf.all.accept_redirects = 0
 net.ipv4.conf.all.send_redirects = 0
+# Prevent runtime kernel replacement via kexec — closes a path to load an
+# unsigned kernel without going through the boot chain. One-way: once set,
+# requires a reboot to clear.
+kernel.kexec_load_disabled = 1
 # OPT-IN: also disable unprivileged user namespaces.  Blocks a large class of
 # kernel LPEs but BREAKS Flatpak and the Chromium/Chrome sandbox.  Uncomment
 # only if you do not rely on those.

@@ -38,7 +38,7 @@
     │   │   ├── hypridle.conf
     │   │   ├── laptopMonitors.conf
     │   │   ├── pcMonitors.conf / .bedroom / .kitchen
-    │   │   ├── pcMonitorsK.conf        # Desktop alt preset (monitorv2 block syntax)
+    │   │   ├── pcMonitors.K             # Desktop alt preset (monitorv2 block syntax)
     │   │   ├── conf.d/
     │   │   │   ├── 00-hyprconf.conf        # Source guard (includes conf.d glob)
     │   │   │   └── 99-hyprconf-local.conf  # Machine-local overrides (hyprconf set)

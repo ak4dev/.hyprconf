@@ -17,6 +17,10 @@ hyprlock
 hypridle
 xdg-desktop-portal-hyprland
 
+# hyprsunset — blue-light filter used by `hyprconf nightlight`; falls back to
+# wlsunset if neither is installed. Optional; install with: pacman -S hyprsunset
+# hyprsunset
+
 # Audio (PipeWire stack + volume control)
 pipewire
 pipewire-pulse

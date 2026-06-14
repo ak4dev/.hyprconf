@@ -2580,7 +2580,9 @@ _addon_is_installed() {
         && pacman -Qi edk2-ovmf &>/dev/null
       ;;
     vfio)
-      pacman -Qi qemu-desktop &>/dev/null \
+      # qemu-full (e.g. from the dev addon) provides the same `qemu` virtual
+      # package as qemu-desktop and satisfies the vfio addon's QEMU requirement.
+      { pacman -Qi qemu-desktop &>/dev/null || pacman -Qi qemu-full &>/dev/null; } \
         && pacman -Qi edk2-ovmf &>/dev/null
       ;;
     *) return 1 ;;
