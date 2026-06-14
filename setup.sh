@@ -38,6 +38,19 @@ declare -ra HYPRCONF_SPARSE_PATHS=(
 # True when setup.sh is invoked by install.sh inside a chroot (no live systemd).
 _in_chroot() { [[ "${HYPRCONF_CHROOT:-0}" == "1" ]]; }
 
+# Retry a pacman command up to 3x — large transactions occasionally hit
+# transient mirror errors (SSL_ERROR_SYSCALL) mid-download. Already-fetched
+# packages stay cached, so retries only re-fetch what failed.
+pacman_retry() {
+    local attempt
+    for attempt in 1 2 3; do
+        "$@" && return 0
+        (( attempt < 3 )) || return 1
+        log_warn "pacman command failed (mirror error?) — retrying in 10s..."
+        sleep 10
+    done
+}
+
 print_header() {
   local mode="${1:-setup}"
   printf '\n%s  ──────────────────────────────────────────────────────────────%s\n' "$DM" "$RS"
@@ -85,7 +98,7 @@ configure_pacman() {
         sudo sed -i '/^\[multilib\]$/{n; s/^#Include/Include/}' "$conf"
         (( modified++ )) || true
         log_step "Refreshing package databases (multilib enabled)..."
-        sudo pacman -Sy --noconfirm
+        pacman_retry sudo pacman -Sy --noconfirm
     fi
 
     if [[ $modified -gt 0 ]]; then
@@ -98,7 +111,7 @@ configure_pacman() {
 
 install_packages() {
     log_step "Installing required packages..."
-    sudo pacman -Syu --noconfirm
+    pacman_retry sudo pacman -Syu --noconfirm
 
     if [[ ! -f "$HYPRCONF_DIR/packages" ]]; then
         log_die "packages file not found at $HYPRCONF_DIR/packages"
@@ -113,7 +126,7 @@ install_packages() {
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_step "Installing ${#missing[@]} missing package(s)..."
-        sudo pacman -S --noconfirm --needed "${missing[@]}"
+        pacman_retry sudo pacman -S --noconfirm --needed "${missing[@]}"
     fi
     log_ok "All packages installed."
 }
