@@ -17,30 +17,31 @@ Extra options (appended after scale, space-separated pairs):
 Special resolution values:  preferred  highres  highrr  disable
 Special position values:    auto  auto-right  auto-left  auto-up  auto-down
 """
+
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
-from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment
+from .file_edit import append_block, delete_line, read_lines, strip_comment, update_line
 from .paths import MONITORS_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Data type
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class MonitorConfig:
-    name:       str
-    resolution: str          # e.g. "3840x2160@120" or "preferred" or "disable"
-    position:   str          # e.g. "0x0" or "auto-right"
-    scale:      str          # e.g. "1.5"
-    extras:     str          # everything after scale on the original line
-    file_path:  Path
-    line_idx:   int
-    raw_line:   str
+    name: str
+    resolution: str  # e.g. "3840x2160@120" or "preferred" or "disable"
+    position: str  # e.g. "0x0" or "auto-right"
+    scale: str  # e.g. "1.5"
+    extras: str  # everything after scale on the original line
+    file_path: Path
+    line_idx: int
+    raw_line: str
 
     @property
     def is_disabled(self) -> bool:
@@ -61,7 +62,7 @@ class MonitorConfig:
 _MONITOR_RE = re.compile(r"^monitor\s*=\s*(.+)$", re.IGNORECASE)
 
 
-def read_monitor_configs(path: Optional[Path] = None) -> list[MonitorConfig]:
+def read_monitor_configs(path: Path | None = None) -> list[MonitorConfig]:
     """Parse monitor lines from *path* (default: monitors.conf).
 
     Returns a list of MonitorConfig objects.  Lines with fewer than 4
@@ -78,16 +79,23 @@ def read_monitor_configs(path: Optional[Path] = None) -> list[MonitorConfig]:
         if not m:
             continue
         fields = [f.strip() for f in m.group(1).split(",")]
-        name       = fields[0] if len(fields) > 0 else ""
+        name = fields[0] if len(fields) > 0 else ""
         resolution = fields[1] if len(fields) > 1 else ""
-        position   = fields[2] if len(fields) > 2 else ""
-        scale      = fields[3] if len(fields) > 3 else ""
-        extras     = ", ".join(fields[4:]) if len(fields) > 4 else ""
-        configs.append(MonitorConfig(
-            name=name, resolution=resolution, position=position,
-            scale=scale, extras=extras,
-            file_path=path, line_idx=idx, raw_line=raw,
-        ))
+        position = fields[2] if len(fields) > 2 else ""
+        scale = fields[3] if len(fields) > 3 else ""
+        extras = ", ".join(fields[4:]) if len(fields) > 4 else ""
+        configs.append(
+            MonitorConfig(
+                name=name,
+                resolution=resolution,
+                position=position,
+                scale=scale,
+                extras=extras,
+                file_path=path,
+                line_idx=idx,
+                raw_line=raw,
+            )
+        )
     return configs
 
 
@@ -95,9 +103,15 @@ def read_monitor_configs(path: Optional[Path] = None) -> list[MonitorConfig]:
 #  Writers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def upsert_monitor(name: str, resolution: str, position: str,
-                   scale: str, extras: str = "",
-                   file: Optional[Path] = None) -> bool:
+
+def upsert_monitor(
+    name: str,
+    resolution: str,
+    position: str,
+    scale: str,
+    extras: str = "",
+    file: Path | None = None,
+) -> bool:
     """Write or update a monitor line in *file* (default: monitors.conf).
 
     If a line for *name* already exists it is updated in-place; otherwise a
@@ -123,7 +137,7 @@ def delete_monitor(file_path: Path, line_idx: int) -> bool:
     return delete_line(file_path, line_idx)
 
 
-def enable_monitor(name: str, file: Optional[Path] = None) -> bool:
+def enable_monitor(name: str, file: Path | None = None) -> bool:
     """Switch a disabled monitor to ``preferred`` resolution."""
     if file is None:
         file = MONITORS_FILE
@@ -134,7 +148,7 @@ def enable_monitor(name: str, file: Optional[Path] = None) -> bool:
     return False
 
 
-def disable_monitor(name: str, file: Optional[Path] = None) -> bool:
+def disable_monitor(name: str, file: Path | None = None) -> bool:
     """Set a monitor to ``disable``."""
     if file is None:
         file = MONITORS_FILE
@@ -178,8 +192,7 @@ def _build_extras(d: dict[str, str]) -> str:
     return ", ".join(pairs)
 
 
-def get_monitor_fields(name: Optional[str] = None,
-                       file: Optional[Path] = None) -> str:
+def get_monitor_fields(name: str | None = None, file: Path | None = None) -> str:
     """Return a formatted table of configured monitors (or a single monitor).
 
     Output is a human-readable string suitable for terminal display.
@@ -207,8 +220,7 @@ def get_monitor_fields(name: Optional[str] = None,
     return "\n".join(lines)
 
 
-def update_monitor_field(name: str, field: str, value: str,
-                         file: Optional[Path] = None) -> bool:
+def update_monitor_field(name: str, field: str, value: str, file: Path | None = None) -> bool:
     """Update a single field of an existing monitor config.
 
     Handles the three basic positional fields (res, pos, scale) directly and
@@ -229,8 +241,8 @@ def update_monitor_field(name: str, field: str, value: str,
 
     if mc is None:
         # No existing entry — create a minimal one first
-        res   = value if field == "res"   else "preferred"
-        pos   = value if field == "pos"   else "auto"
+        res = value if field == "res" else "preferred"
+        pos = value if field == "pos" else "auto"
         scale = value if field == "scale" else "1"
         extras = ""
         if field in _EXTRAS_FIELDS:

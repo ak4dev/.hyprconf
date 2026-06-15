@@ -12,78 +12,128 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 # ── Shared hyprconf library ────────────────────────────────────────────────
 sys.path.insert(0, str(Path.home() / ".local" / "lib"))
-from hyprconf.schema import (    # noqa: E402
-    OPTION_SCHEMA,
-    SECTION_ORDER,
-    SECTION_LABELS,
-)
-from hyprconf.config import (    # noqa: E402
+from hyprconf.config import (  # noqa: E402
     MANAGED_MARKER as _MANAGED_MARKER,
+)
+from hyprconf.config import (
     read_persisted as _lib_read_persisted,
-    save_pending   as _lib_save_pending,
 )
-from hyprconf.paths import (     # noqa: E402
-    CFG_HOME as _CFG_HOME,
-    HYPR_DIR as _HYPR_DIR,
-    OVERRIDES_FILE as _OVERRIDES_FILE,
-    HYPRLAND_CONF  as _HYPRLAND_CONF,
-    KEYBINDS_FILE  as _KEYBINDS_FILE,
-    HYPRLOCK_FILE  as _HYPRLOCK_FILE,
-    HYPRIDLE_FILE  as _HYPRIDLE_FILE,
-    HYPRPAPER_FILE as _HYPRPAPER_FILE,
+from hyprconf.config import (
+    save_pending as _lib_save_pending,
 )
-from hyprconf.hyprctl import (   # noqa: E402
-    get_option  as _lib_hyprctl_get,
-    set_option  as _lib_hyprctl_apply,
+from hyprconf.file_edit import (
+    delete_line as _lib_delete_line,
+)
+from hyprconf.file_edit import (
+    read_lines as _lib_read_lines,
+)
+from hyprconf.file_edit import (  # noqa: E402
+    update_line as _lib_update_line,
+)
+from hyprconf.hyprctl import (  # noqa: E402
+    get_option as _lib_hyprctl_get,
+)
+from hyprconf.hyprctl import (
+    set_option as _lib_hyprctl_apply,
+)
+from hyprconf.hypridle import (
+    BLOCK_TYPES as _IDLE_BLOCK_TYPES,
+)
+from hyprconf.hypridle import (
+    add_hypridle_block as _lib_add_idle_block,
+)
+from hyprconf.hypridle import (  # noqa: E402
+    read_hypridle_blocks as _lib_idle_blocks,
+)
+from hyprconf.hyprlock import (
+    BLOCK_TYPES as _LOCK_BLOCK_TYPES,
+)
+from hyprconf.hyprlock import (
+    add_hyprlock_block as _lib_add_lock_block,
+)
+from hyprconf.hyprlock import (  # noqa: E402
+    read_hyprlock_blocks as _lib_lock_blocks,
+)
+from hyprconf.hyprpaper import (
+    add_preload as _lib_add_preload,
+)
+from hyprconf.hyprpaper import (
+    add_wallpaper_block as _lib_add_wp_block,
+)
+from hyprconf.hyprpaper import (  # noqa: E402
+    read_all as _lib_paper_read_all,
+)
+from hyprconf.keybinds import (
+    add_keybind as _lib_add_keybind,
 )
 from hyprconf.keybinds import (  # noqa: E402
-    read_keybinds_with_location  as _lib_keybinds_with_loc,
-    add_keybind                  as _lib_add_keybind,
-    update_keybind               as _lib_update_keybind,
+    read_keybinds_with_location as _lib_keybinds_with_loc,
 )
-from hyprconf.rules import (     # noqa: E402
-    read_window_rules_with_location    as _lib_win_rules,
-    read_workspace_rules_with_location as _lib_wksp_rules,
-    add_window_rule                    as _lib_add_win_rule,
-    add_workspace_rule                 as _lib_add_wksp_rule,
+from hyprconf.keybinds import (
+    update_keybind as _lib_update_keybind,
+)
+from hyprconf.monitors import (
+    MONITORS_FILE,
+)
+from hyprconf.monitors import (
+    delete_monitor as _lib_delete_monitor,
 )
 from hyprconf.monitors import (  # noqa: E402
     read_monitor_configs as _lib_monitor_configs,
-    upsert_monitor       as _lib_upsert_monitor,
-    delete_monitor       as _lib_delete_monitor,
-    MONITORS_FILE,
 )
-from hyprconf.hyprlock import (  # noqa: E402
-    read_hyprlock_blocks   as _lib_lock_blocks,
-    add_hyprlock_block     as _lib_add_lock_block,
-    BLOCK_TYPES            as _LOCK_BLOCK_TYPES,
+from hyprconf.monitors import (
+    upsert_monitor as _lib_upsert_monitor,
 )
-from hyprconf.hypridle import (  # noqa: E402
-    read_hypridle_blocks   as _lib_idle_blocks,
-    add_hypridle_block     as _lib_add_idle_block,
-    BLOCK_TYPES            as _IDLE_BLOCK_TYPES,
+from hyprconf.paths import (  # noqa: E402
+    CFG_HOME as _CFG_HOME,
 )
-from hyprconf.hyprpaper import (  # noqa: E402
-    read_all               as _lib_paper_read_all,
-    add_preload            as _lib_add_preload,
-    add_wallpaper_block    as _lib_add_wp_block,
+from hyprconf.paths import (
+    HYPR_DIR as _HYPR_DIR,
 )
-from hyprconf.file_edit import ( # noqa: E402
-    update_line  as _lib_update_line,
-    delete_line  as _lib_delete_line,
-    read_lines   as _lib_read_lines,
+from hyprconf.paths import (
+    HYPRIDLE_FILE as _HYPRIDLE_FILE,
 )
-
+from hyprconf.paths import (
+    HYPRLAND_CONF as _HYPRLAND_CONF,
+)
+from hyprconf.paths import (
+    HYPRLOCK_FILE as _HYPRLOCK_FILE,
+)
+from hyprconf.paths import (
+    HYPRPAPER_FILE as _HYPRPAPER_FILE,
+)
+from hyprconf.paths import (
+    KEYBINDS_FILE as _KEYBINDS_FILE,
+)
+from hyprconf.paths import (
+    OVERRIDES_FILE as _OVERRIDES_FILE,
+)
+from hyprconf.rules import (
+    add_window_rule as _lib_add_win_rule,
+)
+from hyprconf.rules import (
+    add_workspace_rule as _lib_add_wksp_rule,
+)
+from hyprconf.rules import (  # noqa: E402
+    read_window_rules_with_location as _lib_win_rules,
+)
+from hyprconf.rules import (
+    read_workspace_rules_with_location as _lib_wksp_rules,
+)
+from hyprconf.schema import (  # noqa: E402
+    OPTION_SCHEMA,
+    SECTION_LABELS,
+    SECTION_ORDER,
+)
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.message import Message
+from textual.screen import ModalScreen
 from textual.widgets import (
     DataTable,
     Footer,
@@ -98,35 +148,43 @@ from textual.widgets import (
 #  Paths
 # ──────────────────────────────────────────────────────────────────────────────
 
-CFG_HOME         = _CFG_HOME
-HYPR_DIR         = _HYPR_DIR
-OVERRIDES_FILE   = _OVERRIDES_FILE
-THEME_DIR        = HYPR_DIR / "scripts" / "theme-switcher" / "themes"
-CURRENT_THEME_F  = HYPR_DIR / ".current-theme"
-THEME_SCRIPT     = HYPR_DIR / "scripts" / "theme-switcher" / "switch_theme.py"
-KEYBINDS_CONF    = _KEYBINDS_FILE
-HYPRLAND_CONF    = _HYPRLAND_CONF
-HYPRLOCK_CONF    = _HYPRLOCK_FILE
-HYPRIDLE_CONF    = _HYPRIDLE_FILE
-HYPRPAPER_CONF   = _HYPRPAPER_FILE
-WALLPAPER_DIR    = Path.home() / "wallpaper"
-MANAGED_MARKER   = _MANAGED_MARKER
+CFG_HOME = _CFG_HOME
+HYPR_DIR = _HYPR_DIR
+OVERRIDES_FILE = _OVERRIDES_FILE
+THEME_DIR = HYPR_DIR / "scripts" / "theme-switcher" / "themes"
+CURRENT_THEME_F = HYPR_DIR / ".current-theme"
+THEME_SCRIPT = HYPR_DIR / "scripts" / "theme-switcher" / "switch_theme.py"
+KEYBINDS_CONF = _KEYBINDS_FILE
+HYPRLAND_CONF = _HYPRLAND_CONF
+HYPRLOCK_CONF = _HYPRLOCK_FILE
+HYPRIDLE_CONF = _HYPRIDLE_FILE
+HYPRPAPER_CONF = _HYPRPAPER_FILE
+WALLPAPER_DIR = Path.home() / "wallpaper"
+MANAGED_MARKER = _MANAGED_MARKER
 
 # Sections handled by file editing (not hyprctl keyword)
-FILE_SECTIONS = {"keybinds", "window_rules", "workspace_rules",
-                 "hyprlock", "hypridle", "hyprpaper", "monitors"}
+FILE_SECTIONS = {
+    "keybinds",
+    "window_rules",
+    "workspace_rules",
+    "hyprlock",
+    "hypridle",
+    "hyprpaper",
+    "monitors",
+}
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Theme colors (loaded once at startup, baked into CSS)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def _load_theme_colors() -> dict[str, str]:
     defaults = {
         "background": "#1e1e2e",
         "foreground": "#cdd6f4",
-        "accent":     "#89b4fa",
-        "comment":    "#585b70",
-        "name":       "default",
+        "accent": "#89b4fa",
+        "comment": "#585b70",
+        "name": "default",
     }
     try:
         name = CURRENT_THEME_F.read_text().strip()
@@ -134,9 +192,9 @@ def _load_theme_colors() -> dict[str, str]:
         return {
             "background": data.get("background", defaults["background"]),
             "foreground": data.get("foreground", defaults["foreground"]),
-            "accent":     data.get("accent",     defaults["accent"]),
-            "comment":    data.get("comment",     defaults["comment"]),
-            "name":       name,
+            "accent": data.get("accent", defaults["accent"]),
+            "comment": data.get("comment", defaults["comment"]),
+            "name": name,
         }
     except Exception:
         return defaults
@@ -156,13 +214,13 @@ def _dim(hex_color: str, factor: float = 0.7) -> str:
     return hex_color
 
 
-_TC   = _load_theme_colors()
-_BG   = _TC["background"]
-_FG   = _TC["foreground"]
-_ACC  = _TC["accent"]
-_CMT  = _TC["comment"]
-_BG2  = _dim(_BG, 0.80)   # sidebar / header background
-_BG3  = _dim(_BG, 0.88)   # table alternate row
+_TC = _load_theme_colors()
+_BG = _TC["background"]
+_FG = _TC["foreground"]
+_ACC = _TC["accent"]
+_CMT = _TC["comment"]
+_BG2 = _dim(_BG, 0.80)  # sidebar / header background
+_BG3 = _dim(_BG, 0.88)  # table alternate row
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  App CSS  (theme colors baked in at import time)
@@ -445,7 +503,7 @@ SliderBar:focus {{
 HYPRLAND_ACTIVE = bool(os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"))
 
 
-def _run(args: list[str], timeout: float = 3.0) -> Optional[str]:
+def _run(args: list[str], timeout: float = 3.0) -> str | None:
     try:
         r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
         return r.stdout.strip() if r.returncode == 0 else None
@@ -453,7 +511,7 @@ def _run(args: list[str], timeout: float = 3.0) -> Optional[str]:
         return None
 
 
-def hyprctl_get(section: str, key: str) -> Optional[str]:
+def hyprctl_get(section: str, key: str) -> str | None:
     return _lib_hyprctl_get(section, key)
 
 
@@ -461,12 +519,13 @@ def hyprctl_apply(section: str, key: str, value: str) -> bool:
     return _lib_hyprctl_apply(section, key, value)
 
 
-def read_persisted(section: str, key: str) -> Optional[str]:
+def read_persisted(section: str, key: str) -> str | None:
     return _lib_read_persisted(section, key)
 
 
-def get_current_value(section: str, key: str, default: str,
-                      pending: dict[str, dict[str, str]]) -> tuple[str, str]:
+def get_current_value(
+    section: str, key: str, default: str, pending: dict[str, dict[str, str]]
+) -> tuple[str, str]:
     """Return (value, source) where source in: pending | live | persisted | default."""
     if section in pending and key in pending[section]:
         return pending[section][key], "pending"
@@ -488,6 +547,7 @@ def save_pending(pending: dict[str, dict[str, str]]) -> tuple[bool, int]:
 # ──────────────────────────────────────────────────────────────────────────────
 #  Data helpers for read-only sections
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def get_monitors() -> list[dict]:
     if not HYPRLAND_ACTIVE:
@@ -517,13 +577,12 @@ def current_theme_name() -> str:
 def parse_keybinds() -> list[tuple[str, ...]]:
     """Return (kind, mods, key, dispatcher, args) tuples — no location data."""
     entries = _lib_keybinds_with_loc(KEYBINDS_CONF)
-    return [(e.kind, e.mods or "—", e.key, e.dispatcher, e.args)
-            for e in entries]
+    return [(e.kind, e.mods or "—", e.key, e.dispatcher, e.args) for e in entries]
 
 
 def _collect_rules(pattern: re.Pattern) -> list[str]:
     """Collect rule text lines matching pattern — kept for display compat."""
-    if re.search(r'workspace', pattern.pattern, re.I):
+    if re.search(r"workspace", pattern.pattern, re.I):
         return [e.rule for e in _lib_wksp_rules(HYPRLAND_CONF)]
     return [e.rule for e in _lib_win_rules(HYPRLAND_CONF)]
 
@@ -546,15 +605,13 @@ def _get_wallpapers() -> list[Path]:
 #  Numeric range + enum label helpers  (used by modal screens)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _parse_numeric_range(
-    description: str, type_: str
-) -> tuple[float, float, float, float]:
+
+def _parse_numeric_range(description: str, type_: str) -> tuple[float, float, float, float]:
     """Return (min_val, max_val, step, fine_step) parsed from a schema description."""
     # Match [X-Y] (handles negative lows like [-1.0-1.0]) or [X to Y]
-    m = re.search(r'\[(-?\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\]', description)
+    m = re.search(r"\[(-?\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)\]", description)
     if not m:
-        m = re.search(r'\[(-?\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)\]',
-                      description, re.IGNORECASE)
+        m = re.search(r"\[(-?\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)\]", description, re.IGNORECASE)
     if m:
         lo, hi = float(m.group(1)), float(m.group(2))
     elif type_ == "float":
@@ -570,12 +627,12 @@ def _parse_numeric_range(
 
     span = max(hi - lo, 0.001)
     if type_ == "float":
-        step      = max(0.01, round(span / 20, 4))
+        step = max(0.01, round(span / 20, 4))
         fine_step = max(0.01, round(span / 100, 4))
         if fine_step >= step:
             fine_step = round(step / 5, 4)
     else:
-        step      = max(1, int(round(span / 20)))
+        step = max(1, int(round(span / 20)))
         fine_step = max(1, int(round(span / 100)))
         if fine_step >= step:
             fine_step = max(1, step // 5)
@@ -583,19 +640,14 @@ def _parse_numeric_range(
     return lo, hi, float(step), float(fine_step)
 
 
-def _enrich_enum_labels(
-    description: str, choices: list[tuple[str, str]]
-) -> list[tuple[str, str]]:
+def _enrich_enum_labels(description: str, choices: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """Attach inline N=label annotations from the schema description, if present."""
     annotated: dict[str, str] = {}
-    for m in re.finditer(r'(\w+)=([^,\]\s][^,\]]*?)(?=[,\]\s]|$)', description):
+    for m in re.finditer(r"(\w+)=([^,\]\s][^,\]]*?)(?=[,\]\s]|$)", description):
         annotated[m.group(1).strip()] = m.group(2).strip()
     if not annotated:
         return choices
-    return [
-        (v, f"{v} — {annotated[v]}" if v in annotated else v)
-        for v, _ in choices
-    ]
+    return [(v, f"{v} — {annotated[v]}" if v in annotated else v) for v, _ in choices]
 
 
 def _parse_monitor_extras(extras: str) -> dict[str, str]:
@@ -610,11 +662,14 @@ def _parse_monitor_extras(extras: str) -> dict[str, str]:
 
 
 # Matches an absolute monitor position like "1920x0" or "-100x200".
-_ABS_POS_RE = re.compile(r'^(-?\d+)[xX](-?\d+)$')
+_ABS_POS_RE = re.compile(r"^(-?\d+)[xX](-?\d+)$")
 
 
 def _compute_logical_size(
-    phys_w: int, phys_h: int, scale: float, transform: int,
+    phys_w: int,
+    phys_h: int,
+    scale: float,
+    transform: int,
 ) -> tuple[float, float]:
     """Return (logical_width, logical_height) after applying scale and transform.
 
@@ -627,12 +682,12 @@ def _compute_logical_size(
 
 
 def _adjust_adjacent_monitor_positions(
-    edited_name:   str,
-    snapshot:      list[dict],  # ALL monitor dicts from hyprctl, captured BEFORE the edit
-    old_lw:        float,       # old logical width  of the edited monitor
-    old_lh:        float,       # old logical height of the edited monitor
-    new_lw:        float,       # new logical width
-    new_lh:        float,       # new logical height
+    edited_name: str,
+    snapshot: list[dict],  # ALL monitor dicts from hyprctl, captured BEFORE the edit
+    old_lw: float,  # old logical width  of the edited monitor
+    old_lh: float,  # old logical height of the edited monitor
+    new_lw: float,  # new logical width
+    new_lh: float,  # new logical height
 ) -> None:
     """Shift absolute-positioned monitors adjacent to the edited one to prevent overlaps.
 
@@ -654,9 +709,9 @@ def _adjust_adjacent_monitor_positions(
     if not edited:
         return
 
-    old_x      = float(edited.get("x", 0))
-    old_y      = float(edited.get("y", 0))
-    old_right  = old_x + old_lw
+    old_x = float(edited.get("x", 0))
+    old_y = float(edited.get("y", 0))
+    old_right = old_x + old_lw
     old_bottom = old_y + old_lh
 
     file_configs = _lib_monitor_configs()
@@ -666,11 +721,11 @@ def _adjust_adjacent_monitor_positions(
         if mname == edited_name:
             continue
 
-        mx      = float(mon.get("x", 0))
-        my      = float(mon.get("y", 0))
-        m_w     = int(mon.get("width",  1920))
-        m_h     = int(mon.get("height", 1080))
-        m_tr    = int(mon.get("transform", 0) or 0)
+        mx = float(mon.get("x", 0))
+        my = float(mon.get("y", 0))
+        m_w = int(mon.get("width", 1920))
+        m_h = int(mon.get("height", 1080))
+        m_tr = int(mon.get("transform", 0) or 0)
         m_scale = float(mon.get("scale", 1.0) or 1.0)
         m_lw, m_lh = _compute_logical_size(m_w, m_h, m_scale, m_tr)
 
@@ -697,9 +752,15 @@ def _adjust_adjacent_monitor_positions(
                 new_pos = f"{new_file_x}x{file_y}"
                 extras_str = file_mc.extras.strip()
                 _lib_upsert_monitor(mname, file_mc.resolution, new_pos, file_mc.scale, extras_str)
-                _run(["hyprctl", "keyword", "monitor",
-                      f"{mname},{file_mc.resolution},{new_pos},{file_mc.scale}"
-                      + (f",{extras_str}" if extras_str else "")])
+                _run(
+                    [
+                        "hyprctl",
+                        "keyword",
+                        "monitor",
+                        f"{mname},{file_mc.resolution},{new_pos},{file_mc.scale}"
+                        + (f",{extras_str}" if extras_str else ""),
+                    ]
+                )
                 continue
 
         # ── Vertical: shift monitors below the edited monitor ─────────────────
@@ -710,56 +771,66 @@ def _adjust_adjacent_monitor_positions(
                 new_pos = f"{file_x}x{new_file_y}"
                 extras_str = file_mc.extras.strip()
                 _lib_upsert_monitor(mname, file_mc.resolution, new_pos, file_mc.scale, extras_str)
-                _run(["hyprctl", "keyword", "monitor",
-                      f"{mname},{file_mc.resolution},{new_pos},{file_mc.scale}"
-                      + (f",{extras_str}" if extras_str else "")])
+                _run(
+                    [
+                        "hyprctl",
+                        "keyword",
+                        "monitor",
+                        f"{mname},{file_mc.resolution},{new_pos},{file_mc.scale}"
+                        + (f",{extras_str}" if extras_str else ""),
+                    ]
+                )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 #  Keybind edit / new screen
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class KeybindEditScreen(ModalScreen):
     """Add or edit a keybind."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
-    _FIELDS  = ("kb-kind", "kb-mods", "kb-key", "kb-disp", "kb-args")
+    _FIELDS = ("kb-kind", "kb-mods", "kb-key", "kb-disp", "kb-args")
 
-    def __init__(self, kind: str = "bind", mods: str = "", key: str = "",
-                 dispatcher: str = "", args: str = "") -> None:
+    def __init__(
+        self,
+        kind: str = "bind",
+        mods: str = "",
+        key: str = "",
+        dispatcher: str = "",
+        args: str = "",
+    ) -> None:
         super().__init__()
         self._kind = kind
         self._mods = mods
-        self._key  = key
+        self._key = key
         self._disp = dispatcher
         self._args = args
 
     def compose(self) -> ComposeResult:
         with Container(id="edit-dialog"):
             yield Label("   Keybind", id="edit-title")
-            yield Label("  Bind type: bind  bindl  bindr  binde  bindm  bindel  etc.",
-                        id="edit-meta")
-            yield Label("  Mods: SUPER  SUPER SHIFT  ALT  CTRL  (empty = no modifier)",
-                        classes="mon-field-hint")
+            yield Label(
+                "  Bind type: bind  bindl  bindr  binde  bindm  bindel  etc.", id="edit-meta"
+            )
+            yield Label(
+                "  Mods: SUPER  SUPER SHIFT  ALT  CTRL  (empty = no modifier)",
+                classes="mon-field-hint",
+            )
             yield Label("  Bind type", classes="mon-field-label")
-            yield Input(value=self._kind, id="kb-kind",  classes="mon-input",
-                        select_on_focus=True)
+            yield Input(value=self._kind, id="kb-kind", classes="mon-input", select_on_focus=True)
             yield Label("  Modifiers  (e.g. $mainMod SHIFT)", classes="mon-field-label")
-            yield Input(value=self._mods, id="kb-mods",  classes="mon-input",
-                        select_on_focus=True)
+            yield Input(value=self._mods, id="kb-mods", classes="mon-input", select_on_focus=True)
             yield Label("  Key  (e.g. T, F1, XF86AudioPlay)", classes="mon-field-label")
-            yield Input(value=self._key,  id="kb-key",   classes="mon-input",
-                        select_on_focus=True)
-            yield Label("  Dispatcher  (e.g. exec, togglefloating, workspace)",
-                        classes="mon-field-label")
-            yield Input(value=self._disp, id="kb-disp",  classes="mon-input",
-                        select_on_focus=True)
-            yield Label("  Arguments  (e.g. alacritty, 2, ...)",
-                        classes="mon-field-label")
-            yield Input(value=self._args, id="kb-args",  classes="mon-input",
-                        select_on_focus=True)
-            yield Label("  [Enter] next / apply on last   [Esc] cancel",
-                        id="edit-hint")
+            yield Input(value=self._key, id="kb-key", classes="mon-input", select_on_focus=True)
+            yield Label(
+                "  Dispatcher  (e.g. exec, togglefloating, workspace)", classes="mon-field-label"
+            )
+            yield Input(value=self._disp, id="kb-disp", classes="mon-input", select_on_focus=True)
+            yield Label("  Arguments  (e.g. alacritty, 2, ...)", classes="mon-field-label")
+            yield Input(value=self._args, id="kb-args", classes="mon-input", select_on_focus=True)
+            yield Label("  [Enter] next / apply on last   [Esc] cancel", id="edit-hint")
 
     def on_mount(self) -> None:
         self.query_one("#kb-kind", Input).focus()
@@ -768,19 +839,21 @@ class KeybindEditScreen(ModalScreen):
         # kb-kind gets an arrow-selectable list instead of free text
         if event.input.id == "kb-kind":
             kind_opts = [
-                ("bind",    "bind — standard keybind"),
-                ("bindl",   "bindl — fires while locked"),
-                ("bindr",   "bindr — fires on key release"),
-                ("binde",   "binde — repeats while held"),
-                ("bindm",   "bindm — mouse binding"),
-                ("bindel",  "bindel — locked + on release"),
+                ("bind", "bind — standard keybind"),
+                ("bindl", "bindl — fires while locked"),
+                ("bindr", "bindr — fires on key release"),
+                ("binde", "binde — repeats while held"),
+                ("bindm", "bindm — mouse binding"),
+                ("bindel", "bindel — locked + on release"),
                 ("bindrel", "bindrel — release binding"),
             ]
             current_kind = self.query_one("#kb-kind", Input).value.strip() or "bind"
-            def _set_kind(val: Optional[str]) -> None:
+
+            def _set_kind(val: str | None) -> None:
                 if val:
                     self.query_one("#kb-kind", Input).value = val
                 self.query_one("#kb-mods", Input).focus()
+
             self.app.push_screen(
                 OptionSelectScreen("Bind type", kind_opts, current_kind),
                 _set_kind,
@@ -794,7 +867,7 @@ class KeybindEditScreen(ModalScreen):
         else:
             kind = self.query_one("#kb-kind", Input).value.strip() or "bind"
             mods = self.query_one("#kb-mods", Input).value.strip()
-            key  = self.query_one("#kb-key",  Input).value.strip()
+            key = self.query_one("#kb-key", Input).value.strip()
             disp = self.query_one("#kb-disp", Input).value.strip()
             args = self.query_one("#kb-args", Input).value.strip()
             if not key or not disp:
@@ -810,63 +883,82 @@ class KeybindEditScreen(ModalScreen):
 #  Rule edit / new screen
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class RuleEditScreen(ModalScreen):
     """Add or edit a window rule or workspace rule."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
-    _FIELDS_WIN  = ("rule-action", "rule-filter1", "rule-filter2")
+    _FIELDS_WIN = ("rule-action", "rule-filter1", "rule-filter2")
     _FIELDS_WKSP = ("wksp-id", "wksp-opts")
 
-    def __init__(self, rule_type: str = "window",
-                 action: str = "", filter1: str = "",
-                 filter2: str = "", wksp_id: str = "",
-                 wksp_opts: str = "") -> None:
+    def __init__(
+        self,
+        rule_type: str = "window",
+        action: str = "",
+        filter1: str = "",
+        filter2: str = "",
+        wksp_id: str = "",
+        wksp_opts: str = "",
+    ) -> None:
         super().__init__()
         self._rule_type = rule_type
-        self._action    = action
-        self._filter1   = filter1
-        self._filter2   = filter2
-        self._wksp_id   = wksp_id
+        self._action = action
+        self._filter1 = filter1
+        self._filter2 = filter2
+        self._wksp_id = wksp_id
         self._wksp_opts = wksp_opts
 
     def compose(self) -> ComposeResult:
         with Container(id="edit-dialog"):
             if self._rule_type == "window":
                 yield Label("   Window Rule", id="edit-title")
-                yield Label("  Rule actions: float  tile  fullscreen  pin  opacity F  size W H",
-                            id="edit-meta")
-                yield Label("  Filters: class:REGEX  title:REGEX  xwayland:0|1  floating:0|1",
-                            classes="mon-field-hint")
-                yield Label("  Action  (e.g. float, opacity 0.9, size 800 600)",
-                            classes="mon-field-label")
-                yield Input(value=self._action,  id="rule-action",  classes="mon-input",
-                            select_on_focus=True)
-                yield Label("  Filter 1  (e.g. class:Alacritty)",
-                            classes="mon-field-label")
-                yield Input(value=self._filter1, id="rule-filter1", classes="mon-input",
-                            select_on_focus=True)
-                yield Label("  Filter 2  (optional, e.g. title:.*)",
-                            classes="mon-field-label")
-                yield Input(value=self._filter2, id="rule-filter2", classes="mon-input",
-                            select_on_focus=True)
-                yield Label("  [Enter] next / apply on last   [Esc] cancel",
-                            id="edit-hint")
+                yield Label(
+                    "  Rule actions: float  tile  fullscreen  pin  opacity F  size W H",
+                    id="edit-meta",
+                )
+                yield Label(
+                    "  Filters: class:REGEX  title:REGEX  xwayland:0|1  floating:0|1",
+                    classes="mon-field-hint",
+                )
+                yield Label(
+                    "  Action  (e.g. float, opacity 0.9, size 800 600)", classes="mon-field-label"
+                )
+                yield Input(
+                    value=self._action, id="rule-action", classes="mon-input", select_on_focus=True
+                )
+                yield Label("  Filter 1  (e.g. class:Alacritty)", classes="mon-field-label")
+                yield Input(
+                    value=self._filter1,
+                    id="rule-filter1",
+                    classes="mon-input",
+                    select_on_focus=True,
+                )
+                yield Label("  Filter 2  (optional, e.g. title:.*)", classes="mon-field-label")
+                yield Input(
+                    value=self._filter2,
+                    id="rule-filter2",
+                    classes="mon-input",
+                    select_on_focus=True,
+                )
+                yield Label("  [Enter] next / apply on last   [Esc] cancel", id="edit-hint")
             else:
                 yield Label("   Workspace Rule", id="edit-title")
-                yield Label("  Workspace ID: 1-10, special:NAME",
-                            id="edit-meta")
-                yield Label("  Options: monitor:NAME  default:true  persistent:true  on-created-empty:EXEC",
-                            classes="mon-field-hint")
-                yield Label("  Workspace ID  (e.g. 1, special:magic)",
-                            classes="mon-field-label")
-                yield Input(value=self._wksp_id,   id="wksp-id",   classes="mon-input",
-                            select_on_focus=True)
-                yield Label("  Options  (e.g. monitor:HDMI-A-1, default:true)",
-                            classes="mon-field-label")
-                yield Input(value=self._wksp_opts, id="wksp-opts", classes="mon-input",
-                            select_on_focus=True)
-                yield Label("  [Enter] next / apply on last   [Esc] cancel",
-                            id="edit-hint")
+                yield Label("  Workspace ID: 1-10, special:NAME", id="edit-meta")
+                yield Label(
+                    "  Options: monitor:NAME  default:true  persistent:true  on-created-empty:EXEC",
+                    classes="mon-field-hint",
+                )
+                yield Label("  Workspace ID  (e.g. 1, special:magic)", classes="mon-field-label")
+                yield Input(
+                    value=self._wksp_id, id="wksp-id", classes="mon-input", select_on_focus=True
+                )
+                yield Label(
+                    "  Options  (e.g. monitor:HDMI-A-1, default:true)", classes="mon-field-label"
+                )
+                yield Input(
+                    value=self._wksp_opts, id="wksp-opts", classes="mon-input", select_on_focus=True
+                )
+                yield Label("  [Enter] next / apply on last   [Esc] cancel", id="edit-hint")
 
     def on_mount(self) -> None:
         first_id = "rule-action" if self._rule_type == "window" else "wksp-id"
@@ -882,7 +974,7 @@ class RuleEditScreen(ModalScreen):
 
     def _submit(self) -> None:
         if self._rule_type == "window":
-            action  = self.query_one("#rule-action",  Input).value.strip()
+            action = self.query_one("#rule-action", Input).value.strip()
             filter1 = self.query_one("#rule-filter1", Input).value.strip()
             filter2 = self.query_one("#rule-filter2", Input).value.strip()
             if not action:
@@ -891,8 +983,8 @@ class RuleEditScreen(ModalScreen):
             filters = [f for f in [filter1, filter2] if f]
             self.dismiss(("window", action, filters))
         else:
-            wksp_id   = self.query_one("#wksp-id",   Input).value.strip()
-            wksp_opts = self.query_one("#wksp-opts",  Input).value.strip()
+            wksp_id = self.query_one("#wksp-id", Input).value.strip()
+            wksp_opts = self.query_one("#wksp-opts", Input).value.strip()
             if not wksp_id:
                 self.notify("Workspace ID is required.", severity="warning")
                 return
@@ -906,18 +998,18 @@ class RuleEditScreen(ModalScreen):
 #  Text line edit screen  (hyprlock / hypridle / hyprpaper lines)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TextLineEditScreen(ModalScreen):
     """Edit a single line in a config file."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
-    def __init__(self, file_path: Path, line_idx: int, line_text: str,
-                 prompt: str = "") -> None:
+    def __init__(self, file_path: Path, line_idx: int, line_text: str, prompt: str = "") -> None:
         super().__init__()
         self._file_path = file_path
-        self._line_idx  = line_idx
+        self._line_idx = line_idx
         self._line_text = line_text
-        self._prompt    = prompt
+        self._prompt = prompt
 
     def compose(self) -> ComposeResult:
         with Container(id="edit-dialog"):
@@ -928,10 +1020,10 @@ class TextLineEditScreen(ModalScreen):
             if self._prompt:
                 yield Label(f"  {self._prompt}", id="edit-meta")
             else:
-                yield Label("  Edit the line below and press Enter to save.",
-                            id="edit-meta")
-            yield Label("  Delete all text and press Enter to remove the line.",
-                        classes="mon-field-hint")
+                yield Label("  Edit the line below and press Enter to save.", id="edit-meta")
+            yield Label(
+                "  Delete all text and press Enter to remove the line.", classes="mon-field-hint"
+            )
             yield Input(value=self._line_text, id="edit-input", select_on_focus=False)
             yield Label("  [Enter] save   [Esc] cancel", id="edit-hint")
 
@@ -951,8 +1043,8 @@ class TextLineEditScreen(ModalScreen):
 #  Modal edit screen
 # ──────────────────────────────────────────────────────────────────────────────
 
-class EditScreen(ModalScreen):
 
+class EditScreen(ModalScreen):
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
 
     def __init__(
@@ -965,11 +1057,11 @@ class EditScreen(ModalScreen):
         description: str,
     ) -> None:
         super().__init__()
-        self._section     = section
-        self._key         = key
-        self._current     = current
-        self._type        = type_
-        self._default     = default
+        self._section = section
+        self._key = key
+        self._current = current
+        self._type = type_
+        self._default = default
         self._description = description
 
     def compose(self) -> ComposeResult:
@@ -981,8 +1073,7 @@ class EditScreen(ModalScreen):
             yield Label(f"  {self._section}:{self._key}", id="edit-title")
             yield Label(
                 f"  type: {type_label}   default: {self._default}\n"
-                f"  {self._description}"
-                + choices_line,
+                f"  {self._description}" + choices_line,
                 id="edit-meta",
             )
             yield Input(value=self._current, id="edit-input", select_on_focus=False)
@@ -1004,40 +1095,48 @@ class EditScreen(ModalScreen):
 #  Monitor edit screen
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class MonitorEditScreen(ModalScreen):
     """Edit a single monitor's configuration."""
 
     BINDINGS = [Binding("escape", "cancel", "Cancel")]
     _FIELDS = (
-        "mon-res", "mon-scale", "mon-pos", "mon-vrr",
-        "mon-bitdepth", "mon-cm", "mon-sdrbrightness", "mon-sdrsaturation",
-        "mon-transform", "mon-mirror",
+        "mon-res",
+        "mon-scale",
+        "mon-pos",
+        "mon-vrr",
+        "mon-bitdepth",
+        "mon-cm",
+        "mon-sdrbrightness",
+        "mon-sdrsaturation",
+        "mon-transform",
+        "mon-mirror",
     )
 
     def __init__(self, monitor: dict, extras: str = "", file_position: str = "") -> None:
         super().__init__()
         self._monitor = monitor
-        self._name    = monitor.get("name", "")
-        w             = monitor.get("width",  1920)
-        h             = monitor.get("height", 1080)
-        hz            = monitor.get("refreshRate", 60.0)
-        self._res     = f"{w}x{h}@{hz:.2f}"
-        self._scale   = str(monitor.get("scale", 1.0))
-        x             = monitor.get("x", 0)
-        y             = monitor.get("y", 0)
+        self._name = monitor.get("name", "")
+        w = monitor.get("width", 1920)
+        h = monitor.get("height", 1080)
+        hz = monitor.get("refreshRate", 60.0)
+        self._res = f"{w}x{h}@{hz:.2f}"
+        self._scale = str(monitor.get("scale", 1.0))
+        x = monitor.get("x", 0)
+        y = monitor.get("y", 0)
         # Prefer the persisted file position (e.g. "auto-right") over the
         # runtime-computed absolute coordinates from hyprctl so that Hyprland
         # can continue to auto-place monitors relative to the current scale.
-        self._pos     = file_position if file_position else f"{x}x{y}"
-        self._modes   = monitor.get("availableModes", [])
+        self._pos = file_position if file_position else f"{x}x{y}"
+        self._modes = monitor.get("availableModes", [])
         ex = _parse_monitor_extras(extras)
-        self._vrr           = ex.get("vrr", str(int(bool(monitor.get("vrr", False)))))
-        self._bitdepth      = ex.get("bitdepth", "")
-        self._cm            = ex.get("cm", "")
+        self._vrr = ex.get("vrr", str(int(bool(monitor.get("vrr", False)))))
+        self._bitdepth = ex.get("bitdepth", "")
+        self._cm = ex.get("cm", "")
         self._sdrbrightness = ex.get("sdrbrightness", "1.0")
         self._sdrsaturation = ex.get("sdrsaturation", "1.0")
-        self._transform     = ex.get("transform", "")
-        self._mirror        = ex.get("mirror", "")
+        self._transform = ex.get("transform", "")
+        self._mirror = ex.get("mirror", "")
 
     def compose(self) -> ComposeResult:
         modes_str = "  " + "  ".join(self._modes[:6]) if self._modes else "  (unavailable)"
@@ -1047,53 +1146,71 @@ class MonitorEditScreen(ModalScreen):
 
             # ── Basic ──────────────────────────────────────────────────
             yield Label("  ─── Basic", classes="mon-section-header")
-            yield Label("  Resolution @ Hz  (Enter to choose from available modes)",
-                        classes="mon-field-label")
+            yield Label(
+                "  Resolution @ Hz  (Enter to choose from available modes)",
+                classes="mon-field-label",
+            )
             yield Label(modes_str, classes="mon-field-hint")
-            yield Input(value=self._res,   id="mon-res",   classes="mon-input",
-                        select_on_focus=False)
-            yield Label("  Scale  (Enter to choose — or type a custom value)",
-                        classes="mon-field-label")
-            yield Input(value=self._scale, id="mon-scale", classes="mon-input",
-                        select_on_focus=False)
-            yield Label("  Position  XxY  (e.g. 0x0, auto, auto-right)",
-                        classes="mon-field-label")
-            yield Input(value=self._pos,   id="mon-pos",   classes="mon-input",
-                        select_on_focus=False)
-            yield Label("  VRR / Adaptive Sync  (Enter to choose)",
-                        classes="mon-field-label")
-            yield Input(value=self._vrr,   id="mon-vrr",   classes="mon-input",
-                        select_on_focus=False)
+            yield Input(value=self._res, id="mon-res", classes="mon-input", select_on_focus=False)
+            yield Label(
+                "  Scale  (Enter to choose — or type a custom value)", classes="mon-field-label"
+            )
+            yield Input(
+                value=self._scale, id="mon-scale", classes="mon-input", select_on_focus=False
+            )
+            yield Label("  Position  XxY  (e.g. 0x0, auto, auto-right)", classes="mon-field-label")
+            yield Input(value=self._pos, id="mon-pos", classes="mon-input", select_on_focus=False)
+            yield Label("  VRR / Adaptive Sync  (Enter to choose)", classes="mon-field-label")
+            yield Input(value=self._vrr, id="mon-vrr", classes="mon-input", select_on_focus=False)
 
             # ── Display quality ────────────────────────────────────────
             yield Label("  ─── Display quality", classes="mon-section-header")
-            yield Label("  Bit depth  (Enter to choose; 10-bit requires HDR-capable output)",
-                        classes="mon-field-label")
-            yield Input(value=self._bitdepth, id="mon-bitdepth", classes="mon-input",
-                        select_on_focus=False)
-            yield Label("  Color management  (Enter to choose preset)",
-                        classes="mon-field-label")
-            yield Input(value=self._cm, id="mon-cm", classes="mon-input",
-                        select_on_focus=False)
-            yield Label("  SDR brightness  (HDR mode only; Enter to adjust [0.5–3.0])",
-                        classes="mon-field-label")
-            yield Input(value=self._sdrbrightness, id="mon-sdrbrightness",
-                        classes="mon-input", select_on_focus=False)
-            yield Label("  SDR saturation  (HDR mode only; Enter to adjust [0.0–2.0])",
-                        classes="mon-field-label")
-            yield Input(value=self._sdrsaturation, id="mon-sdrsaturation",
-                        classes="mon-input", select_on_focus=False)
+            yield Label(
+                "  Bit depth  (Enter to choose; 10-bit requires HDR-capable output)",
+                classes="mon-field-label",
+            )
+            yield Input(
+                value=self._bitdepth, id="mon-bitdepth", classes="mon-input", select_on_focus=False
+            )
+            yield Label("  Color management  (Enter to choose preset)", classes="mon-field-label")
+            yield Input(value=self._cm, id="mon-cm", classes="mon-input", select_on_focus=False)
+            yield Label(
+                "  SDR brightness  (HDR mode only; Enter to adjust [0.5–3.0])",
+                classes="mon-field-label",
+            )
+            yield Input(
+                value=self._sdrbrightness,
+                id="mon-sdrbrightness",
+                classes="mon-input",
+                select_on_focus=False,
+            )
+            yield Label(
+                "  SDR saturation  (HDR mode only; Enter to adjust [0.0–2.0])",
+                classes="mon-field-label",
+            )
+            yield Input(
+                value=self._sdrsaturation,
+                id="mon-sdrsaturation",
+                classes="mon-input",
+                select_on_focus=False,
+            )
 
             # ── Advanced ───────────────────────────────────────────────
             yield Label("  ─── Advanced", classes="mon-section-header")
-            yield Label("  Transform / rotation  (Enter to choose)",
-                        classes="mon-field-label")
-            yield Input(value=self._transform, id="mon-transform", classes="mon-input",
-                        select_on_focus=False)
-            yield Label("  Mirror  (optional — name of monitor to mirror, e.g. DP-1)",
-                        classes="mon-field-label")
-            yield Input(value=self._mirror, id="mon-mirror", classes="mon-input",
-                        select_on_focus=False)
+            yield Label("  Transform / rotation  (Enter to choose)", classes="mon-field-label")
+            yield Input(
+                value=self._transform,
+                id="mon-transform",
+                classes="mon-input",
+                select_on_focus=False,
+            )
+            yield Label(
+                "  Mirror  (optional — name of monitor to mirror, e.g. DP-1)",
+                classes="mon-field-label",
+            )
+            yield Input(
+                value=self._mirror, id="mon-mirror", classes="mon-input", select_on_focus=False
+            )
 
             yield Label(
                 "  [Enter] open picker / apply on last   [Esc] cancel",
@@ -1110,10 +1227,12 @@ class MonitorEditScreen(ModalScreen):
             if self._modes:
                 mode_opts = [(m, m) for m in self._modes]
                 current_res = self.query_one("#mon-res", Input).value.strip()
-                def _apply_res(val: Optional[str]) -> None:
+
+                def _apply_res(val: str | None) -> None:
                     if val:
                         self.query_one("#mon-res", Input).value = val
                     self.query_one("#mon-scale", Input).focus()
+
                 self.app.push_screen(
                     OptionSelectScreen(f"Resolution — {self._name}", mode_opts, current_res),
                     _apply_res,
@@ -1124,17 +1243,19 @@ class MonitorEditScreen(ModalScreen):
 
         if fid == "mon-scale":
             scale_opts = [
-                ("1.0",  "1.0  — native (100 %)"),
+                ("1.0", "1.0  — native (100 %)"),
                 ("1.25", "1.25 — 125 %"),
-                ("1.5",  "1.5  — 150 %"),
-                ("2.0",  "2.0  — 200 % (HiDPI)"),
+                ("1.5", "1.5  — 150 %"),
+                ("2.0", "2.0  — 200 % (HiDPI)"),
                 ("auto", "auto — let Hyprland decide"),
             ]
             current_scale = self.query_one("#mon-scale", Input).value.strip()
-            def _apply_scale(val: Optional[str]) -> None:
+
+            def _apply_scale(val: str | None) -> None:
                 if val:
                     self.query_one("#mon-scale", Input).value = val
                 self.query_one("#mon-pos", Input).focus()
+
             self.app.push_screen(
                 OptionSelectScreen("Scale factor", scale_opts, current_scale),
                 _apply_scale,
@@ -1149,16 +1270,18 @@ class MonitorEditScreen(ModalScreen):
             if current_pos and current_pos not in _auto_keys:
                 pos_opts.append((current_pos, f"{current_pos}  (current)"))
             pos_opts += [
-                ("auto",       "auto        — let Hyprland decide"),
+                ("auto", "auto        — let Hyprland decide"),
                 ("auto-right", "auto-right  — to the right of existing monitors"),
-                ("auto-left",  "auto-left   — to the left  of existing monitors"),
-                ("auto-up",    "auto-up     — above existing monitors"),
-                ("auto-down",  "auto-down   — below existing monitors"),
+                ("auto-left", "auto-left   — to the left  of existing monitors"),
+                ("auto-up", "auto-up     — above existing monitors"),
+                ("auto-down", "auto-down   — below existing monitors"),
             ]
-            def _apply_pos(val: Optional[str]) -> None:
+
+            def _apply_pos(val: str | None) -> None:
                 if val is not None:
                     self.query_one("#mon-pos", Input).value = val
                 self.query_one("#mon-vrr", Input).focus()
+
             self.app.push_screen(
                 OptionSelectScreen("Position", pos_opts, current_pos),
                 _apply_pos,
@@ -1172,10 +1295,12 @@ class MonitorEditScreen(ModalScreen):
                 ("2", "2 — fullscreen only"),
             ]
             current_vrr = self.query_one("#mon-vrr", Input).value.strip()
-            def _apply_vrr(val: Optional[str]) -> None:
+
+            def _apply_vrr(val: str | None) -> None:
                 if val is not None:
                     self.query_one("#mon-vrr", Input).value = val
                 self.query_one("#mon-bitdepth", Input).focus()
+
             self.app.push_screen(
                 OptionSelectScreen("VRR / Adaptive Sync", vrr_opts, current_vrr),
                 _apply_vrr,
@@ -1184,15 +1309,17 @@ class MonitorEditScreen(ModalScreen):
 
         if fid == "mon-bitdepth":
             bd_opts = [
-                ("",   "— auto (default 8-bit)"),
-                ("8",  "8  — standard 8-bit colour"),
+                ("", "— auto (default 8-bit)"),
+                ("8", "8  — standard 8-bit colour"),
                 ("10", "10 — 10-bit wide colour (requires HDR-capable output)"),
             ]
             current_bd = self.query_one("#mon-bitdepth", Input).value.strip()
-            def _apply_bd(val: Optional[str]) -> None:
+
+            def _apply_bd(val: str | None) -> None:
                 if val is not None:
                     self.query_one("#mon-bitdepth", Input).value = val
                 self.query_one("#mon-cm", Input).focus()
+
             self.app.push_screen(
                 OptionSelectScreen("Bit depth", bd_opts, current_bd),
                 _apply_bd,
@@ -1201,22 +1328,24 @@ class MonitorEditScreen(ModalScreen):
 
         if fid == "mon-cm":
             cm_opts = [
-                ("",        "— default (sRGB)"),
-                ("auto",    "auto    — sRGB for 8-bit, wide for 10-bit if supported"),
-                ("srgb",    "srgb    — sRGB primaries"),
-                ("dcip3",   "dcip3   — DCI-P3 primaries"),
-                ("dp3",     "dp3     — Apple P3 primaries"),
-                ("adobe",   "adobe   — Adobe RGB primaries"),
-                ("wide",    "wide    — BT.2020 wide gamut"),
-                ("edid",    "edid    — primaries from EDID (may be inaccurate)"),
-                ("hdr",     "hdr     — HDR PQ transfer function (experimental)"),
+                ("", "— default (sRGB)"),
+                ("auto", "auto    — sRGB for 8-bit, wide for 10-bit if supported"),
+                ("srgb", "srgb    — sRGB primaries"),
+                ("dcip3", "dcip3   — DCI-P3 primaries"),
+                ("dp3", "dp3     — Apple P3 primaries"),
+                ("adobe", "adobe   — Adobe RGB primaries"),
+                ("wide", "wide    — BT.2020 wide gamut"),
+                ("edid", "edid    — primaries from EDID (may be inaccurate)"),
+                ("hdr", "hdr     — HDR PQ transfer function (experimental)"),
                 ("hdredid", "hdredid — HDR PQ with EDID primaries (experimental)"),
             ]
             current_cm = self.query_one("#mon-cm", Input).value.strip()
-            def _apply_cm(val: Optional[str]) -> None:
+
+            def _apply_cm(val: str | None) -> None:
                 if val is not None:
                     self.query_one("#mon-cm", Input).value = val
                 self.query_one("#mon-sdrbrightness", Input).focus()
+
             self.app.push_screen(
                 OptionSelectScreen("Color management preset", cm_opts, current_cm),
                 _apply_cm,
@@ -1225,16 +1354,24 @@ class MonitorEditScreen(ModalScreen):
 
         if fid == "mon-sdrbrightness":
             current_sbr = self.query_one("#mon-sdrbrightness", Input).value.strip()
-            def _apply_sbr(val: Optional[str]) -> None:
+
+            def _apply_sbr(val: str | None) -> None:
                 if val is not None:
                     self.query_one("#mon-sdrbrightness", Input).value = val
                 self.query_one("#mon-sdrsaturation", Input).focus()
+
             self.app.push_screen(
                 NumericEditScreen(
-                    "monitor", "sdrbrightness", current_sbr or "1.0",
-                    "float", "1.0",
+                    "monitor",
+                    "sdrbrightness",
+                    current_sbr or "1.0",
+                    "float",
+                    "1.0",
                     "SDR brightness multiplier in HDR mode. Typical range 1.0–2.0.",
-                    0.5, 3.0, 0.05, 0.01,
+                    0.5,
+                    3.0,
+                    0.05,
+                    0.01,
                 ),
                 _apply_sbr,
             )
@@ -1242,16 +1379,24 @@ class MonitorEditScreen(ModalScreen):
 
         if fid == "mon-sdrsaturation":
             current_ssat = self.query_one("#mon-sdrsaturation", Input).value.strip()
-            def _apply_ssat(val: Optional[str]) -> None:
+
+            def _apply_ssat(val: str | None) -> None:
                 if val is not None:
                     self.query_one("#mon-sdrsaturation", Input).value = val
                 self.query_one("#mon-transform", Input).focus()
+
             self.app.push_screen(
                 NumericEditScreen(
-                    "monitor", "sdrsaturation", current_ssat or "1.0",
-                    "float", "1.0",
+                    "monitor",
+                    "sdrsaturation",
+                    current_ssat or "1.0",
+                    "float",
+                    "1.0",
                     "SDR colour saturation multiplier in HDR mode. [0.0-2.0]",
-                    0.0, 2.0, 0.05, 0.01,
+                    0.0,
+                    2.0,
+                    0.05,
+                    0.01,
                 ),
                 _apply_ssat,
             )
@@ -1259,7 +1404,7 @@ class MonitorEditScreen(ModalScreen):
 
         if fid == "mon-transform":
             tr_opts = [
-                ("",  "— no transform"),
+                ("", "— no transform"),
                 ("0", "0 — normal"),
                 ("1", "1 — 90°"),
                 ("2", "2 — 180°"),
@@ -1270,10 +1415,12 @@ class MonitorEditScreen(ModalScreen):
                 ("7", "7 — flipped + 270°"),
             ]
             current_tr = self.query_one("#mon-transform", Input).value.strip()
-            def _apply_tr(val: Optional[str]) -> None:
+
+            def _apply_tr(val: str | None) -> None:
                 if val is not None:
                     self.query_one("#mon-transform", Input).value = val
                 self.query_one("#mon-mirror", Input).focus()
+
             self.app.push_screen(
                 OptionSelectScreen("Display transform", tr_opts, current_tr),
                 _apply_tr,
@@ -1285,16 +1432,16 @@ class MonitorEditScreen(ModalScreen):
             return
 
     def _submit(self) -> None:
-        res   = self.query_one("#mon-res",          Input).value.strip()
-        scale = self.query_one("#mon-scale",        Input).value.strip()
-        pos   = self.query_one("#mon-pos",          Input).value.strip()
-        vrr   = self.query_one("#mon-vrr",          Input).value.strip()
-        bd    = self.query_one("#mon-bitdepth",     Input).value.strip()
-        cm    = self.query_one("#mon-cm",           Input).value.strip()
-        sbr   = self.query_one("#mon-sdrbrightness",Input).value.strip()
-        ssat  = self.query_one("#mon-sdrsaturation",Input).value.strip()
-        tr    = self.query_one("#mon-transform",    Input).value.strip()
-        mir   = self.query_one("#mon-mirror",       Input).value.strip()
+        res = self.query_one("#mon-res", Input).value.strip()
+        scale = self.query_one("#mon-scale", Input).value.strip()
+        pos = self.query_one("#mon-pos", Input).value.strip()
+        vrr = self.query_one("#mon-vrr", Input).value.strip()
+        bd = self.query_one("#mon-bitdepth", Input).value.strip()
+        cm = self.query_one("#mon-cm", Input).value.strip()
+        sbr = self.query_one("#mon-sdrbrightness", Input).value.strip()
+        ssat = self.query_one("#mon-sdrsaturation", Input).value.strip()
+        tr = self.query_one("#mon-transform", Input).value.strip()
+        mir = self.query_one("#mon-mirror", Input).value.strip()
 
         keyword = f"{self._name},{res},{pos},{scale}"
         extras: list[str] = []
@@ -1324,6 +1471,7 @@ class MonitorEditScreen(ModalScreen):
 #  Option-select screen  (arrow-navigable list of discrete choices)
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class OptionSelectScreen(ModalScreen):
     """Scrollable, arrow-navigable list that returns the chosen value."""
 
@@ -1336,14 +1484,12 @@ class OptionSelectScreen(ModalScreen):
         current: str = "",
     ) -> None:
         super().__init__()
-        self._title   = title
-        self._options = options   # [(value, display_label), ...]
+        self._title = title
+        self._options = options  # [(value, display_label), ...]
         self._current = current
 
     def compose(self) -> ComposeResult:
-        initial = next(
-            (i for i, (v, _) in enumerate(self._options) if v == self._current), 0
-        )
+        initial = next((i for i, (v, _) in enumerate(self._options) if v == self._current), 0)
         items = [
             ListItem(
                 Label(f"  {'▶' if v == self._current else ' '} {lbl}"),
@@ -1376,18 +1522,19 @@ class OptionSelectScreen(ModalScreen):
 #  Numeric slider widget + screen
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class SliderBar(Static):
     """Focusable slider bar — arrow keys step through a numeric range."""
 
     can_focus = True
 
     BINDINGS = [
-        Binding("left",        "step(-1)",  "◄",    show=False),
-        Binding("right",       "step(1)",   "►",    show=False),
-        Binding("shift+left",  "fine(-1)",  "◄◄",   show=False),
-        Binding("shift+right", "fine(1)",   "►► ",  show=False),
-        Binding("home",        "to_min",    "min",  show=False),
-        Binding("end",         "to_max",    "max",  show=False),
+        Binding("left", "step(-1)", "◄", show=False),
+        Binding("right", "step(1)", "►", show=False),
+        Binding("shift+left", "fine(-1)", "◄◄", show=False),
+        Binding("shift+right", "fine(1)", "►► ", show=False),
+        Binding("home", "to_min", "min", show=False),
+        Binding("end", "to_max", "max", show=False),
     ]
 
     class Changed(Message):
@@ -1406,13 +1553,13 @@ class SliderBar(Static):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        self._min    = min_val
-        self._max    = max_val
-        self._step   = step
-        self._fine   = fine_step
+        self._min = min_val
+        self._max = max_val
+        self._step = step
+        self._fine = fine_step
         self._is_int = is_int
-        self._value  = self._clamp(value)
-        self._BAR_W  = 32
+        self._value = self._clamp(value)
+        self._BAR_W = 32
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1441,19 +1588,19 @@ class SliderBar(Static):
     # ── Rendering ─────────────────────────────────────────────────────────────
 
     def _redraw(self) -> None:
-        span   = self._max - self._min or 1.0
-        ratio  = max(0.0, min(1.0, (self._value - self._min) / span))
+        span = self._max - self._min or 1.0
+        ratio = max(0.0, min(1.0, (self._value - self._min) / span))
         filled = int(ratio * self._BAR_W)
-        bar    = "█" * filled + "░" * (self._BAR_W - filled)
+        bar = "█" * filled + "░" * (self._BAR_W - filled)
 
-        val_str  = self._fmt(self._value)
-        min_str  = self._fmt(self._min)
-        max_str  = self._fmt(self._max)
+        val_str = self._fmt(self._value)
+        min_str = self._fmt(self._min)
+        max_str = self._fmt(self._max)
         step_str = self._fmt(self._step)
         fine_str = self._fmt(self._fine)
 
         inner_w = self._BAR_W + 2
-        pad     = max(inner_w - len(min_str) - len(max_str), len(val_str) + 2)
+        pad = max(inner_w - len(min_str) - len(max_str), len(val_str) + 2)
         mid_row = min_str + val_str.center(pad) + max_str
 
         self.update(
@@ -1509,15 +1656,15 @@ class NumericEditScreen(ModalScreen):
     ) -> None:
         super().__init__()
         self._section = section
-        self._key     = key
-        self._type    = type_
+        self._key = key
+        self._type = type_
         self._default = default
-        self._desc    = description
-        self._is_int  = (type_ == "int")
-        self._min     = min_val
-        self._max     = max_val
-        self._step    = step
-        self._fine    = fine_step
+        self._desc = description
+        self._is_int = type_ == "int"
+        self._min = min_val
+        self._max = max_val
+        self._step = step
+        self._fine = fine_step
         try:
             self._init_val = float(current)
         except ValueError:
@@ -1544,8 +1691,12 @@ class NumericEditScreen(ModalScreen):
                 id="edit-meta",
             )
             yield SliderBar(
-                self._init_val, self._min, self._max,
-                self._step, self._fine, self._is_int,
+                self._init_val,
+                self._min,
+                self._max,
+                self._step,
+                self._fine,
+                self._is_int,
                 id="num-slider",
             )
             yield Input(
@@ -1600,37 +1751,37 @@ class NumericEditScreen(ModalScreen):
 #  Main application
 # ──────────────────────────────────────────────────────────────────────────────
 
-class HyprconfApp(App):
 
+class HyprconfApp(App):
     CSS = APP_CSS
 
     BINDINGS = [
-        Binding("q",      "quit",           "Quit"),
+        Binding("q", "quit", "Quit"),
         # Enter is handled exclusively via @on(DataTable.RowSelected) to avoid
         # double-calling action_edit_option when the DataTable's own binding
         # and the app-level binding both fire on the same keypress.
-        Binding("space",  "toggle_bool",    "Toggle",  show=True,  priority=False),
-        Binding("d",      "reset_option",   " Reset",  show=True),
-        Binding("n",      "new_entry",      " New",    show=True),
-        Binding("D",      "delete_entry",   " Delete", show=True),
-        Binding("r",      "refresh",        "Refresh", show=True),
-        Binding("s",      "save",           "Save",    show=True),
-        Binding("/",      "focus_search",   "Filter",  show=True),
-        Binding("escape", "escape_action",  "Clear",   show=False),
-        Binding("tab",    "switch_focus",   "Switch pane", show=False),
-        Binding("h",      "focus_sidebar",  "Sidebar", show=False),
-        Binding("l",      "focus_table",    "Table",   show=False),
+        Binding("space", "toggle_bool", "Toggle", show=True, priority=False),
+        Binding("d", "reset_option", " Reset", show=True),
+        Binding("n", "new_entry", " New", show=True),
+        Binding("D", "delete_entry", " Delete", show=True),
+        Binding("r", "refresh", "Refresh", show=True),
+        Binding("s", "save", "Save", show=True),
+        Binding("/", "focus_search", "Filter", show=True),
+        Binding("escape", "escape_action", "Clear", show=False),
+        Binding("tab", "switch_focus", "Switch pane", show=False),
+        Binding("h", "focus_sidebar", "Sidebar", show=False),
+        Binding("l", "focus_table", "Table", show=False),
     ]
 
-    def __init__(self, initial_section: Optional[str] = None, slim: bool = False) -> None:
+    def __init__(self, initial_section: str | None = None, slim: bool = False) -> None:
         super().__init__()
-        self._initial_section  = initial_section or "general"
-        self._current_section  = self._initial_section
-        self._slim             = slim
+        self._initial_section = initial_section or "general"
+        self._current_section = self._initial_section
+        self._slim = slim
         self._row_keys: list[str] = []
-        self._search_query     = ""
-        self._search_visible   = False
-        self._theme_name       = _TC["name"]
+        self._search_query = ""
+        self._search_visible = False
+        self._theme_name = _TC["name"]
         # pending[section][key] = value_str  — changes not yet written to disk
         self._pending: dict[str, dict[str, str]] = {}
         self._monitor_refresh_started = False
@@ -1638,13 +1789,15 @@ class HyprconfApp(App):
     # ── Layout ────────────────────────────────────────────────────────────────
 
     def compose(self) -> ComposeResult:
-        session_note = "session active" if HYPRLAND_ACTIVE else "no Hyprland session — defaults shown"
-        theme_info   = f"[theme: {self._theme_name}]"
+        session_note = (
+            "session active" if HYPRLAND_ACTIVE else "no Hyprland session — defaults shown"
+        )
+        theme_info = f"[theme: {self._theme_name}]"
 
         with Horizontal(id="brand-bar"):
             yield Static("hyprconf ░░▒▓", id="brand-left")
-            yield Static(session_note,    id="brand-status")
-            yield Static(theme_info,      id="brand-right")
+            yield Static(session_note, id="brand-status")
+            yield Static(theme_info, id="brand-right")
 
         with Horizontal(id="main-pane"):
             if not self._slim:
@@ -1654,7 +1807,10 @@ class HyprconfApp(App):
                     yield ListView(*self._build_list_items(), id="section-list")
 
             with Vertical(id="content"):
-                yield Static(f"  {SECTION_LABELS.get(self._initial_section, self._initial_section)}", id="section-title")
+                yield Static(
+                    f"  {SECTION_LABELS.get(self._initial_section, self._initial_section)}",
+                    id="section-title",
+                )
                 yield Static("", id="pending-bar")
                 yield DataTable(id="option-table", cursor_type="row", zebra_stripes=True)
 
@@ -1664,11 +1820,12 @@ class HyprconfApp(App):
         items: list[ListItem] = []
         for s in SECTION_ORDER:
             if s == "":
-                items.append(ListItem(Label("  ─────────────"), id="sep-divider",
-                                      classes="sep-item"))
+                items.append(
+                    ListItem(Label("  ─────────────"), id="sep-divider", classes="sep-item")
+                )
             else:
                 safe_id = "sec-" + s.replace(".", "__")
-                label   = SECTION_LABELS.get(s, s)
+                label = SECTION_LABELS.get(s, s)
                 items.append(ListItem(Label(f"  {label}"), id=safe_id))
         return items
 
@@ -1755,9 +1912,9 @@ class HyprconfApp(App):
         self._update_pending_bar()
 
     def _fill_options(self, table: DataTable, section: str) -> None:
-        table.add_column("KEY",         width=28)
-        table.add_column("VALUE",       width=22)
-        table.add_column("DEFAULT",     width=14)
+        table.add_column("KEY", width=28)
+        table.add_column("VALUE", width=22)
+        table.add_column("DEFAULT", width=14)
         table.add_column("DESCRIPTION", width=50)
         q = self._search_query
         for key, (_type, default, desc) in OPTION_SCHEMA[section].items():
@@ -1775,14 +1932,14 @@ class HyprconfApp(App):
             self._row_keys.append(key)
 
     def _fill_monitors(self, table: DataTable) -> None:
-        table.add_column("NAME",        width=14)
+        table.add_column("NAME", width=14)
         table.add_column("DESCRIPTION", width=24)
-        table.add_column("RESOLUTION",  width=12)
-        table.add_column("REFRESH Hz",  width=10)
-        table.add_column("SCALE",       width=7)
-        table.add_column("POSITION",    width=10)
-        table.add_column("WORKSPACE",   width=10)
-        table.add_column("VRR",         width=5)
+        table.add_column("RESOLUTION", width=12)
+        table.add_column("REFRESH Hz", width=10)
+        table.add_column("SCALE", width=7)
+        table.add_column("POSITION", width=10)
+        table.add_column("WORKSPACE", width=10)
+        table.add_column("VRR", width=5)
         monitors = get_monitors()
         if not monitors:
             msg = "(Hyprland not running)" if not HYPRLAND_ACTIVE else "(no monitors found)"
@@ -1806,9 +1963,9 @@ class HyprconfApp(App):
             self._row_keys.append(name)
 
     def _fill_keybinds(self, table: DataTable) -> None:
-        table.add_column("TYPE",     width=10)
-        table.add_column("MODS",     width=18)
-        table.add_column("KEY",      width=14)
+        table.add_column("TYPE", width=10)
+        table.add_column("MODS", width=18)
+        table.add_column("KEY", width=14)
         table.add_column("DISPATCH", width=18)
         table.add_column("ARGUMENT", width=36)
         entries = _lib_keybinds_with_loc(KEYBINDS_CONF)
@@ -1825,10 +1982,10 @@ class HyprconfApp(App):
             self._row_keys.append(f"__keybind__{e.file_path}::{e.line_idx}")
 
     def _fill_rules(self, table: DataTable, pat: re.Pattern, label: str) -> None:
-        table.add_column("#",    width=5)
+        table.add_column("#", width=5)
         table.add_column("RULE", width=110)
         is_workspace = "workspace" in label.lower()
-        entries = _lib_wksp_rules(HYPRLAND_CONF) if is_workspace                   else _lib_win_rules(HYPRLAND_CONF)
+        entries = _lib_wksp_rules(HYPRLAND_CONF) if is_workspace else _lib_win_rules(HYPRLAND_CONF)
         q = self._search_query
         if not entries:
             table.add_row("—", f"(no {label.lower()}s found)")
@@ -1850,7 +2007,7 @@ class HyprconfApp(App):
             blocks = _lib_idle_blocks()
 
         table.add_column("BLOCK / KEY", width=26)
-        table.add_column("VALUE",       width=80)
+        table.add_column("VALUE", width=80)
 
         if not blocks:
             path_label = str(HYPRLOCK_CONF if section == "hyprlock" else HYPRIDLE_CONF)
@@ -1881,10 +2038,10 @@ class HyprconfApp(App):
     def _fill_paper(self, table: DataTable) -> None:
         """Structured renderer for hyprpaper.conf."""
         table.add_column("TYPE / KEY", width=20)
-        table.add_column("VALUE",      width=80)
+        table.add_column("VALUE", width=80)
 
         data = _lib_paper_read_all()
-        q    = self._search_query
+        q = self._search_query
 
         # ── Settings and variables ────────────────────────────────────────────
         for s in data["settings"]:
@@ -1926,7 +2083,7 @@ class HyprconfApp(App):
                 table.add_row("[wallpapers]", "")
                 self._row_keys.append("__sep__")
             for blk in data["wallpaper_blocks"]:
-                mon  = blk.fields.get("monitor", "") or "(all)"
+                mon = blk.fields.get("monitor", "") or "(all)"
                 path = blk.fields.get("path", "")
                 if q and q not in mon.lower() and q not in path.lower():
                     continue
@@ -1937,7 +2094,7 @@ class HyprconfApp(App):
                     if fk in ("monitor", "path"):
                         continue  # shown in header
                     line_idx = blk.field_line_idx(fk)
-                    row_key  = (
+                    row_key = (
                         f"__blkfld__{blk.file_path}::{blk.start_line}::{blk.end_line}"
                         f"::{line_idx}::{fk}"
                     )
@@ -1958,8 +2115,8 @@ class HyprconfApp(App):
                 self._row_keys.append(f"__wp__{wp}")
 
     def _fill_themes(self, table: DataTable) -> None:
-        table.add_column("THEME",  width=34)
-        table.add_column("TYPE",   width=6)
+        table.add_column("THEME", width=34)
+        table.add_column("TYPE", width=6)
         table.add_column("STATUS", width=10)
         themes = list_themes()
         q = self._search_query
@@ -1980,9 +2137,9 @@ class HyprconfApp(App):
             self._row_keys.append(name)
 
     def _fill_hardware(self, table: DataTable) -> None:
-        table.add_column("COMPONENT",  width=24)
-        table.add_column("STATUS",     width=16)
-        table.add_column("ACTION",     width=28)
+        table.add_column("COMPONENT", width=24)
+        table.add_column("STATUS", width=16)
+        table.add_column("ACTION", width=28)
 
         def _has_touchscreen() -> bool:
             for f in _glob.iglob("/sys/class/input/*/device/uevent"):
@@ -1996,8 +2153,7 @@ class HyprconfApp(App):
                     # touch component is named "Wacom HID * Finger" on i2c bus
                     # but udev never sets ID_INPUT_TOUCHSCREEN=1 for wacom devices.
                     # Requiring i2c- bus avoids false-positives from USB Wacom tablets.
-                    if ('NAME="Wacom' in content and 'Finger' in content
-                            and 'PHYS="i2c-' in content):
+                    if 'NAME="Wacom' in content and "Finger" in content and 'PHYS="i2c-' in content:
                         return True
                 except OSError:
                     pass
@@ -2016,32 +2172,26 @@ class HyprconfApp(App):
         def _installed(name: str) -> bool:
             return shutil.which(name) is not None
 
-        ts_det   = _has_touchscreen()
-        acc_det  = _has_accelerometer()
+        ts_det = _has_touchscreen()
+        acc_det = _has_accelerometer()
         osk_inst = _installed("wvkbd-mobintl")
-        osk_run  = _proc_running("wvkbd-mobintl")
+        osk_run = _proc_running("wvkbd-mobintl")
         rot_inst = _installed("autorotate")
-        rot_run  = _proc_running("autorotate")
+        rot_run = _proc_running("autorotate")
 
-        table.add_row("Touchscreen",
-                      "✓ detected"   if ts_det   else "not detected", "")
+        table.add_row("Touchscreen", "✓ detected" if ts_det else "not detected", "")
         self._row_keys.append("")
-        table.add_row("Accelerometer",
-                      "✓ detected"   if acc_det  else "not detected", "")
+        table.add_row("Accelerometer", "✓ detected" if acc_det else "not detected", "")
         self._row_keys.append("")
         table.add_row("─" * 22, "─" * 14, "─" * 26)
         self._row_keys.append("")
 
         osk_status = "running" if osk_run else ("installed" if osk_inst else "not installed")
-        table.add_row("OSK (wvkbd)",
-                      osk_status,
-                      "Enter → toggle" if osk_inst else "")
+        table.add_row("OSK (wvkbd)", osk_status, "Enter → toggle" if osk_inst else "")
         self._row_keys.append("hw_osk_toggle" if osk_inst else "")
 
         rot_status = "running" if rot_run else ("installed" if rot_inst else "not installed")
-        table.add_row("Auto-rotation",
-                      rot_status,
-                      "Enter → toggle" if rot_inst else "")
+        table.add_row("Auto-rotation", rot_status, "Enter → toggle" if rot_inst else "")
         self._row_keys.append("hw_rotate_toggle" if rot_inst else "")
 
     def _refresh_monitors(self) -> None:
@@ -2103,18 +2253,22 @@ class HyprconfApp(App):
                     scr = KeybindEditScreen(
                         kind=entry.kind if entry else "bind",
                         mods=entry.mods if entry else "",
-                        key=entry.key  if entry else "",
+                        key=entry.key if entry else "",
                         dispatcher=entry.dispatcher if entry else "",
                         args=entry.args if entry else "",
                     )
+
                     def _handle_kb_edit(result, _fp=Path(file_path), _li=line_idx):
                         if result is None:
                             return
                         kind, mods, key, disp, args = result
                         ok = _lib_update_keybind(_fp, _li, kind, mods, key, disp, args)
-                        self.notify("Keybind updated" if ok else "Failed to update keybind",
-                                    severity="information" if ok else "error")
+                        self.notify(
+                            "Keybind updated" if ok else "Failed to update keybind",
+                            severity="information" if ok else "error",
+                        )
                         self._load_section(section)
+
                     self.push_screen(scr, _handle_kb_edit)
             return
 
@@ -2129,13 +2283,17 @@ class HyprconfApp(App):
                     lines_in_file = _lib_read_lines(Path(file_path))
                     current_line = lines_in_file[line_idx] if line_idx < len(lines_in_file) else ""
                     scr = TextLineEditScreen(Path(file_path), line_idx, current_line)
+
                     def _handle_rule_edit(result, _fp=Path(file_path), _li=line_idx):
                         if result is None:
                             return
                         ok = _lib_update_line(_fp, _li, result)
-                        self.notify("Rule updated" if ok else "Failed to update rule",
-                                    severity="information" if ok else "error")
+                        self.notify(
+                            "Rule updated" if ok else "Failed to update rule",
+                            severity="information" if ok else "error",
+                        )
                         self._load_section(section)
+
                     self.push_screen(scr, _handle_rule_edit)
             return
 
@@ -2151,7 +2309,7 @@ class HyprconfApp(App):
                     parts = payload.split("::")
                     if len(parts) >= 5:
                         file_path = parts[0]
-                        line_idx  = int(parts[3])
+                        line_idx = int(parts[3])
                         field_key = "::".join(parts[4:])
                         lines_in_file = _lib_read_lines(Path(file_path))
                         if line_idx < len(lines_in_file):
@@ -2160,9 +2318,14 @@ class HyprconfApp(App):
                         else:
                             current_val = ""
                         label = f"{field_key} ="
-                        scr   = TextLineEditScreen(Path(file_path), line_idx, current_val, prompt=label)
+                        scr = TextLineEditScreen(
+                            Path(file_path), line_idx, current_val, prompt=label
+                        )
+
                         def _handle_blkfld_edit(
-                            result, _fp=Path(file_path), _li=line_idx,
+                            result,
+                            _fp=Path(file_path),
+                            _li=line_idx,
                             _fk=field_key,
                         ):
                             if result is None:
@@ -2174,9 +2337,12 @@ class HyprconfApp(App):
                                 ok = _lib_update_line(_fp, _li, new_line)
                             else:
                                 ok = False
-                            self.notify("Field updated" if ok else "Failed to update field",
-                                        severity="information" if ok else "error")
+                            self.notify(
+                                "Field updated" if ok else "Failed to update field",
+                                severity="information" if ok else "error",
+                            )
                             self._load_section(section)
+
                         self.push_screen(scr, _handle_blkfld_edit)
 
                 # Block header row — no action on Enter (D to delete)
@@ -2189,20 +2355,26 @@ class HyprconfApp(App):
                     file_path, lidx = payload.rsplit("::", 1)
                     line_idx = int(lidx)
                     lines_in_file = _lib_read_lines(Path(file_path))
-                    current_line  = lines_in_file[line_idx] if line_idx < len(lines_in_file) else ""
+                    current_line = lines_in_file[line_idx] if line_idx < len(lines_in_file) else ""
                     scr = TextLineEditScreen(Path(file_path), line_idx, current_line)
+
                     def _handle_line_edit(result, _fp=Path(file_path), _li=line_idx):
                         if result is None:
                             return
                         if result.strip() == "":
                             ok = _lib_delete_line(_fp, _li)
-                            self.notify("Line deleted" if ok else "Failed to delete",
-                                        severity="information" if ok else "error")
+                            self.notify(
+                                "Line deleted" if ok else "Failed to delete",
+                                severity="information" if ok else "error",
+                            )
                         else:
                             ok = _lib_update_line(_fp, _li, result)
-                            self.notify("Line updated" if ok else "Failed to update",
-                                        severity="information" if ok else "error")
+                            self.notify(
+                                "Line updated" if ok else "Failed to update",
+                                severity="information" if ok else "error",
+                            )
                         self._load_section(section)
+
                     self.push_screen(scr, _handle_line_edit)
 
                 # Wallpaper picker row
@@ -2215,9 +2387,7 @@ class HyprconfApp(App):
             if 0 <= row_idx < len(self._row_keys) and self._row_keys[row_idx]:
                 monitor_name = self._row_keys[row_idx]
                 monitors = get_monitors()
-                mon_data = next(
-                    (m for m in monitors if m.get("name") == monitor_name), None
-                )
+                mon_data = next((m for m in monitors if m.get("name") == monitor_name), None)
                 if mon_data is None:
                     self.notify(
                         f"Could not retrieve data for {monitor_name}",
@@ -2228,14 +2398,14 @@ class HyprconfApp(App):
                 # Read persisted extras (bitdepth, cm, sdrbrightness, etc.) from monitors.conf
                 file_configs = _lib_monitor_configs()
                 file_mc = next((mc for mc in file_configs if mc.name == monitor_name), None)
-                file_extras   = file_mc.extras   if file_mc else ""
+                file_extras = file_mc.extras if file_mc else ""
                 file_position = file_mc.position if file_mc else ""
 
                 # Snapshot ALL monitors now (before the edit dialog opens) so
                 # that handle_monitor can detect which neighbours need adjusting.
                 monitors_snapshot = monitors
 
-                def handle_monitor(keyword: Optional[str]) -> None:
+                def handle_monitor(keyword: str | None) -> None:
                     if not keyword:
                         return
                     # Apply at runtime
@@ -2244,8 +2414,10 @@ class HyprconfApp(App):
                     parts = [p.strip() for p in keyword.split(",")]
                     if len(parts) >= 4:
                         _lib_upsert_monitor(
-                            name=parts[0], resolution=parts[1],
-                            position=parts[2], scale=parts[3],
+                            name=parts[0],
+                            resolution=parts[1],
+                            position=parts[2],
+                            scale=parts[3],
                             extras=", ".join(parts[4:]) if len(parts) > 4 else "",
                         )
                         self.notify(f"Monitor saved: {parts[0]}")
@@ -2253,12 +2425,14 @@ class HyprconfApp(App):
                         # ── Adjust adjacent monitors if logical size changed ──────────
                         # Skip when: special res keyword, scale=auto, or transform changed
                         # (transform swap changes which axis is "width" — safer to skip).
-                        new_res   = parts[1]
+                        new_res = parts[1]
                         new_scale_s = parts[3]
-                        new_extras_d = _parse_monitor_extras(", ".join(parts[4:]) if len(parts) > 4 else "")
+                        new_extras_d = _parse_monitor_extras(
+                            ", ".join(parts[4:]) if len(parts) > 4 else ""
+                        )
                         new_tr = int(new_extras_d.get("transform", "0") or "0")
                         old_tr = int(mon_data.get("transform", 0) or 0)
-                        res_m  = re.match(r'^(\d+)[xX](\d+)', new_res)
+                        res_m = re.match(r"^(\d+)[xX](\d+)", new_res)
                         if res_m and new_scale_s not in ("auto", "") and new_tr == old_tr:
                             try:
                                 old_scale = float(mon_data.get("scale", 1.0) or 1.0)
@@ -2266,14 +2440,22 @@ class HyprconfApp(App):
                                 old_lw, old_lh = _compute_logical_size(
                                     int(mon_data.get("width", 1920)),
                                     int(mon_data.get("height", 1080)),
-                                    old_scale, old_tr,
+                                    old_scale,
+                                    old_tr,
                                 )
                                 new_lw, new_lh = _compute_logical_size(
-                                    int(res_m.group(1)), int(res_m.group(2)),
-                                    new_scale, new_tr,
+                                    int(res_m.group(1)),
+                                    int(res_m.group(2)),
+                                    new_scale,
+                                    new_tr,
                                 )
                                 _adjust_adjacent_monitor_positions(
-                                    parts[0], monitors_snapshot, old_lw, old_lh, new_lw, new_lh,
+                                    parts[0],
+                                    monitors_snapshot,
+                                    old_lw,
+                                    old_lh,
+                                    new_lw,
+                                    new_lh,
                                 )
                             except (ValueError, ZeroDivisionError):
                                 pass
@@ -2283,7 +2465,9 @@ class HyprconfApp(App):
                         self.notify(f"hyprctl rejected: {keyword}", severity="error")
                     self._refresh_monitors()
 
-                self.push_screen(MonitorEditScreen(mon_data, file_extras, file_position), handle_monitor)
+                self.push_screen(
+                    MonitorEditScreen(mon_data, file_extras, file_position), handle_monitor
+                )
             return
 
         # ── Hardware ─────────────────────────────────────────────────────────
@@ -2293,7 +2477,9 @@ class HyprconfApp(App):
                 if rk == "hw_osk_toggle":
                     pid_r = subprocess.run(
                         ["pgrep", "-x", "wvkbd-mobintl"],
-                        capture_output=True, text=True, timeout=5,
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
                     )
                     if pid_r.returncode == 0:
                         for pid in pid_r.stdout.split():
@@ -2316,7 +2502,9 @@ class HyprconfApp(App):
                 elif rk == "hw_rotate_toggle":
                     pid_r = subprocess.run(
                         ["pgrep", "-x", "autorotate"],
-                        capture_output=True, text=True, timeout=5,
+                        capture_output=True,
+                        text=True,
+                        timeout=5,
                     )
                     if pid_r.returncode == 0:
                         for pid in pid_r.stdout.split():
@@ -2354,7 +2542,9 @@ class HyprconfApp(App):
         try:
             subprocess.run(
                 ["python3", str(THEME_SCRIPT), name],
-                check=True, capture_output=True, timeout=60,
+                check=True,
+                capture_output=True,
+                timeout=60,
             )
             self._theme_name = name
             self.query_one("#brand-right", Static).update(f"[theme: {name}]")
@@ -2379,9 +2569,9 @@ class HyprconfApp(App):
     def _new_block_entry(self, section: str, block_types: list) -> None:
         """Prompt for block type then add a new block with defaults."""
         label = "hyprlock" if section == "hyprlock" else "hypridle"
-        opts  = [(bt, bt) for bt in block_types]
+        opts = [(bt, bt) for bt in block_types]
 
-        def _handle(btype: Optional[str]) -> None:
+        def _handle(btype: str | None) -> None:
             if not btype:
                 return
             if section == "hyprlock":
@@ -2399,9 +2589,12 @@ class HyprconfApp(App):
     def _new_paper_entry(self) -> None:
         """Add a new wallpaper entry to hyprpaper.conf."""
         scr = TextLineEditScreen(
-            HYPRPAPER_CONF, -1, "",
+            HYPRPAPER_CONF,
+            -1,
+            "",
             prompt="Wallpaper path (absolute, e.g. /home/user/wallpaper/bg.jpg):",
         )
+
         def _handle(result) -> None:
             if not result or not result.strip():
                 return
@@ -2418,6 +2611,7 @@ class HyprconfApp(App):
             else:
                 self.notify("Failed to add wallpaper entry", severity="error")
             self._load_section("hyprpaper")
+
         self.push_screen(scr, _handle)
 
     # ── Actions ───────────────────────────────────────────────────────────────
@@ -2426,36 +2620,48 @@ class HyprconfApp(App):
         """Open a modal to add a new entry for the current file-based section."""
         section = self._current_section
         if section == "keybinds":
+
             def _handle(result) -> None:
                 if result is None:
                     return
                 kind, mods, key, disp, args = result
                 ok = _lib_add_keybind(kind, mods, key, disp, args, KEYBINDS_CONF)
-                self.notify("Keybind added" if ok else "Failed to add keybind",
-                            severity="information" if ok else "error")
+                self.notify(
+                    "Keybind added" if ok else "Failed to add keybind",
+                    severity="information" if ok else "error",
+                )
                 self._load_section(section)
+
             self.push_screen(KeybindEditScreen(), _handle)
 
         elif section == "window_rules":
+
             def _handle(result) -> None:
                 if result is None:
                     return
                 rule_type, action_or_id, filters_or_opts = result
                 ok = _lib_add_win_rule(action_or_id, filters_or_opts)
-                self.notify("Window rule added" if ok else "Failed to add rule",
-                            severity="information" if ok else "error")
+                self.notify(
+                    "Window rule added" if ok else "Failed to add rule",
+                    severity="information" if ok else "error",
+                )
                 self._load_section(section)
+
             self.push_screen(RuleEditScreen(rule_type="window"), _handle)
 
         elif section == "workspace_rules":
+
             def _handle(result) -> None:
                 if result is None:
                     return
                 rule_type, wksp_id, opts = result
                 ok = _lib_add_wksp_rule(wksp_id, opts)
-                self.notify("Workspace rule added" if ok else "Failed to add rule",
-                            severity="information" if ok else "error")
+                self.notify(
+                    "Workspace rule added" if ok else "Failed to add rule",
+                    severity="information" if ok else "error",
+                )
                 self._load_section(section)
+
             self.push_screen(RuleEditScreen(rule_type="workspace"), _handle)
 
         elif section == "hyprlock":
@@ -2469,23 +2675,36 @@ class HyprconfApp(App):
 
         elif section == "monitors":
             # New monitor: open MonitorEditScreen with an empty/placeholder dict
-            blank = {"name": "", "description": "", "width": 1920, "height": 1080,
-                     "refreshRate": 60.0, "scale": 1.0, "x": 0, "y": 0,
-                     "vrr": False, "availableModes": []}
+            blank = {
+                "name": "",
+                "description": "",
+                "width": 1920,
+                "height": 1080,
+                "refreshRate": 60.0,
+                "scale": 1.0,
+                "x": 0,
+                "y": 0,
+                "vrr": False,
+                "availableModes": [],
+            }
             scr = MonitorEditScreen(blank, "", "auto")
-            def _handle(keyword: Optional[str]) -> None:
+
+            def _handle(keyword: str | None) -> None:
                 if not keyword:
                     return
                 _run(["hyprctl", "keyword", "monitor", keyword])
                 parts = [p.strip() for p in keyword.split(",")]
                 if len(parts) >= 4:
                     _lib_upsert_monitor(
-                        name=parts[0], resolution=parts[1],
-                        position=parts[2], scale=parts[3],
+                        name=parts[0],
+                        resolution=parts[1],
+                        position=parts[2],
+                        scale=parts[3],
                         extras=", ".join(parts[4:]) if len(parts) > 4 else "",
                     )
                     self.notify(f"Monitor added: {parts[0]}")
                 self._refresh_monitors()
+
             self.push_screen(scr, _handle)
         else:
             self.notify(f"New entry not supported for: {section}", severity="warning")
@@ -2493,7 +2712,7 @@ class HyprconfApp(App):
     def action_delete_entry(self) -> None:
         """Delete the currently selected row from its config file."""
         section = self._current_section
-        table   = self.query_one("#option-table", DataTable)
+        table = self.query_one("#option-table", DataTable)
         row_idx = table.cursor_row
         if row_idx < 0 or row_idx >= len(self._row_keys):
             return
@@ -2501,8 +2720,10 @@ class HyprconfApp(App):
 
         def _do_delete(file_path: Path, line_idx: int, label: str) -> None:
             ok = _lib_delete_line(file_path, line_idx)
-            self.notify(f"{label} deleted" if ok else f"Failed to delete {label}",
-                        severity="information" if ok else "error")
+            self.notify(
+                f"{label} deleted" if ok else f"Failed to delete {label}",
+                severity="information" if ok else "error",
+            )
             self._load_section(section)
 
         if rk.startswith("__keybind__"):
@@ -2523,21 +2744,21 @@ class HyprconfApp(App):
         elif rk.startswith("__blkhdr__") or rk.startswith("__blkfld__"):
             # Both header and field rows delete the whole block
             prefix = "__blkhdr__" if rk.startswith("__blkhdr__") else "__blkfld__"
-            payload = rk[len(prefix):]
+            payload = rk[len(prefix) :]
             parts = payload.split("::")
-            file_path  = parts[0]
-            blk_start  = int(parts[1])
-            blk_end    = int(parts[2])
+            file_path = parts[0]
+            blk_start = int(parts[1])
+            blk_end = int(parts[2])
             if section == "hyprlock":
                 blocks = _lib_lock_blocks()
             elif section == "hypridle":
                 blocks = _lib_idle_blocks()
             else:
                 from hyprconf.block_conf import read_blocks
+
                 blocks = read_blocks(Path(file_path))
             blk = next(
-                (b for b in blocks
-                 if b.start_line == blk_start and b.end_line == blk_end),
+                (b for b in blocks if b.start_line == blk_start and b.end_line == blk_end),
                 None,
             )
             if blk is None:
@@ -2545,6 +2766,7 @@ class HyprconfApp(App):
                 self._load_section(section)
                 return
             from hyprconf.block_conf import delete_block as _delete_block
+
             ok = _delete_block(blk)
             self.notify(
                 f"Block [{blk.block_type}] deleted" if ok else "Failed to delete block",
@@ -2560,12 +2782,13 @@ class HyprconfApp(App):
                 ok = _lib_delete_monitor(mc.file_path, mc.line_idx)
                 # Also apply disable at runtime if active
                 _run(["hyprctl", "keyword", "monitor", f"{rk},disable"])
-                self.notify(f"Monitor {rk} removed" if ok else "Failed to remove monitor",
-                            severity="information" if ok else "error")
+                self.notify(
+                    f"Monitor {rk} removed" if ok else "Failed to remove monitor",
+                    severity="information" if ok else "error",
+                )
                 self._refresh_monitors()
             else:
-                self.notify(f"Monitor {rk!r} not found in monitors.conf",
-                            severity="warning")
+                self.notify(f"Monitor {rk!r} not found in monitors.conf", severity="warning")
         else:
             self.notify("Nothing to delete here.", severity="warning")
 
@@ -2573,7 +2796,7 @@ class HyprconfApp(App):
         section = self._current_section
         if section not in OPTION_SCHEMA:
             return
-        table   = self.query_one("#option-table", DataTable)
+        table = self.query_one("#option-table", DataTable)
         row_idx = table.cursor_row
         if row_idx < 0 or row_idx >= len(self._row_keys):
             return
@@ -2589,7 +2812,7 @@ class HyprconfApp(App):
             self._commit(section, key, new_val, row_idx)
             return
 
-        def handle_result(new_value: Optional[str]) -> None:
+        def handle_result(new_value: str | None) -> None:
             if new_value is None or new_value == current:
                 return
             self._commit(section, key, new_value, row_idx)
@@ -2605,8 +2828,7 @@ class HyprconfApp(App):
         elif type_ in ("int", "float"):
             lo, hi, step, fine = _parse_numeric_range(desc, type_)
             self.push_screen(
-                NumericEditScreen(section, key, current, type_, default, desc,
-                                  lo, hi, step, fine),
+                NumericEditScreen(section, key, current, type_, default, desc, lo, hi, step, fine),
                 handle_result,
             )
         else:
@@ -2619,7 +2841,7 @@ class HyprconfApp(App):
         section = self._current_section
         if section not in OPTION_SCHEMA:
             return
-        table   = self.query_one("#option-table", DataTable)
+        table = self.query_one("#option-table", DataTable)
         row_idx = table.cursor_row
         if row_idx < 0 or row_idx >= len(self._row_keys):
             return
@@ -2637,7 +2859,7 @@ class HyprconfApp(App):
         section = self._current_section
         if section not in OPTION_SCHEMA:
             return
-        table   = self.query_one("#option-table", DataTable)
+        table = self.query_one("#option-table", DataTable)
         row_idx = table.cursor_row
         if row_idx < 0 or row_idx >= len(self._row_keys):
             return
@@ -2675,6 +2897,7 @@ class HyprconfApp(App):
             ok, n = save_pending(self._pending)
             if not ok:
                 import sys
+
                 print(
                     "hyprconf-tui: WARNING — auto-save on exit failed. "
                     "Pending changes were not written to disk.",
@@ -2741,7 +2964,7 @@ class HyprconfApp(App):
     def _commit(self, section: str, key: str, value: str, row_idx: int) -> None:
         """Apply a value at runtime (if possible) and stage it as pending."""
         applied = hyprctl_apply(section, key, value)
-        status  = "applied" if applied else "config-only"
+        status = "applied" if applied else "config-only"
 
         if section not in self._pending:
             self._pending[section] = {}
@@ -2771,6 +2994,7 @@ class HyprconfApp(App):
 #  Entry point
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     all_sections = [s for s in SECTION_ORDER if s]
 
@@ -2779,7 +3003,8 @@ def main() -> None:
         prog="hyprconf tui",
     )
     parser.add_argument(
-        "--section", "-s",
+        "--section",
+        "-s",
         metavar="SECTION",
         help=f"Open at section. Available: {', '.join(all_sections)}",
     )
@@ -2801,8 +3026,7 @@ def main() -> None:
                 break
         else:
             parser.error(
-                f"Unknown section: {args.section}\n"
-                f"Valid sections: {', '.join(all_sections)}"
+                f"Unknown section: {args.section}\nValid sections: {', '.join(all_sections)}"
             )
 
     # --slim without --section: show slim view at default section

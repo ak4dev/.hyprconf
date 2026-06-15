@@ -1,4 +1,5 @@
 """Tests for stow/hypr/.local/bin/autorotate."""
+
 from __future__ import annotations
 
 import json
@@ -8,14 +9,12 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = (
-    Path(__file__).parent.parent.parent
-    / "stow" / "hypr" / ".local" / "bin" / "autorotate"
-)
+SCRIPT = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "bin" / "autorotate"
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _source_functions() -> str:
     """Return bash snippet that defines only the helper functions from autorotate.
@@ -57,14 +56,18 @@ fi
 # _transform_for — all orientations
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("orientation,expected", [
-    ("normal",    "0"),
-    ("bottom-up", "2"),
-    ("left-up",   "1"),
-    ("right-up",  "3"),
-    ("unknown",   "0"),
-    ("",          "0"),
-])
+
+@pytest.mark.parametrize(
+    "orientation,expected",
+    [
+        ("normal", "0"),
+        ("bottom-up", "2"),
+        ("left-up", "1"),
+        ("right-up", "3"),
+        ("unknown", "0"),
+        ("", "0"),
+    ],
+)
 def test_transform_for_all_orientations(orientation: str, expected: str) -> None:
     rc, out = _run_function(f"_transform_for '{orientation}'")
     assert rc == 0
@@ -74,6 +77,7 @@ def test_transform_for_all_orientations(orientation: str, expected: str) -> None
 # ---------------------------------------------------------------------------
 # _current_scale — reads scale from hyprctl monitors -j
 # ---------------------------------------------------------------------------
+
 
 def test_current_scale_returns_configured_scale(tmp_path: Path) -> None:
     monitor_json = json.dumps([{"name": "eDP-1", "scale": 1.5}])
@@ -108,6 +112,7 @@ def test_current_scale_returns_auto_on_hyprctl_failure(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # _apply_transform — full monitor keyword format
 # ---------------------------------------------------------------------------
+
 
 def test_apply_transform_uses_full_monitor_spec(tmp_path: Path) -> None:
     """hyprctl keyword monitor must receive NAME,preferred,auto,SCALE,transform,N."""
@@ -171,6 +176,7 @@ def test_apply_transform_does_not_use_short_spec(tmp_path: Path) -> None:
 # End-to-end: orientation change triggers correct hyprctl call
 # ---------------------------------------------------------------------------
 
+
 def test_e2e_orientation_change_applies_correct_transform(tmp_path: Path) -> None:
     """Feed a monitor-sensor line through the script; verify hyprctl keyword call."""
     monitor_json = json.dumps([{"name": "eDP-1", "scale": 1.0}])
@@ -201,7 +207,8 @@ fi
     # sleep 2 again — timeout stops it before any harm.
     subprocess.run(
         ["timeout", "6", "bash", str(SCRIPT)],
-        env=env, capture_output=True,
+        env=env,
+        capture_output=True,
     )
 
     recorded = calls.read_text().strip()
@@ -213,6 +220,7 @@ fi
 # ---------------------------------------------------------------------------
 # Touch device transform — applied alongside monitor transform
 # ---------------------------------------------------------------------------
+
 
 def test_apply_transform_also_sets_touchdevice_transform(tmp_path: Path) -> None:
     """input:touchdevice:transform must be updated whenever the monitor rotates."""
@@ -229,12 +237,15 @@ def test_apply_transform_also_sets_touchdevice_transform(tmp_path: Path) -> None
     )
 
 
-@pytest.mark.parametrize("orientation,expected_transform", [
-    ("normal",    "0"),
-    ("bottom-up", "2"),
-    ("left-up",   "1"),
-    ("right-up",  "3"),
-])
+@pytest.mark.parametrize(
+    "orientation,expected_transform",
+    [
+        ("normal", "0"),
+        ("bottom-up", "2"),
+        ("left-up", "1"),
+        ("right-up", "3"),
+    ],
+)
 def test_touchdevice_transform_matches_monitor_transform(
     tmp_path: Path, orientation: str, expected_transform: str
 ) -> None:

@@ -7,6 +7,7 @@ These tests exercise subprocess-level behaviour:
 
 They run as part of tier-2 (integration) so they do not require a VM.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -40,6 +41,7 @@ REQUIRED_IN_ARCHIVE = [
 # git archive
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="module")
 def release_archive(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build the release archive once and share it across tests in this module."""
@@ -47,11 +49,13 @@ def release_archive(tmp_path_factory: pytest.TempPathFactory) -> Path:
     archive = tmp / "release.tar.gz"
     result = subprocess.run(
         [
-            "git", "archive",
+            "git",
+            "archive",
             "--worktree-attributes",
             "--format=tar.gz",
             "--prefix=.hyprconf/",
-            "-o", str(archive),
+            "-o",
+            str(archive),
             "HEAD",
         ],
         cwd=REPO_ROOT,
@@ -69,9 +73,7 @@ def test_git_archive_excludes_dev_only_paths(release_archive: Path) -> None:
 
     for excluded in EXPORT_IGNORED:
         hits = [m for m in members if f".hyprconf/{excluded}" in m]
-        assert not hits, (
-            f"Export-ignored path {excluded!r} found in archive: {hits[:3]}"
-        )
+        assert not hits, f"Export-ignored path {excluded!r} found in archive: {hits[:3]}"
 
 
 def test_git_archive_includes_required_paths(release_archive: Path) -> None:
@@ -90,26 +92,29 @@ def test_git_archive_prefix_is_hyprconf(release_archive: Path) -> None:
     with tarfile.open(release_archive) as tf:
         members = [m.name for m in tf.getmembers()]
     non_prefixed = [m for m in members if not m.startswith(".hyprconf")]
-    assert not non_prefixed, (
-        f"Archive entries without .hyprconf/ prefix: {non_prefixed[:5]}"
-    )
+    assert not non_prefixed, f"Archive entries without .hyprconf/ prefix: {non_prefixed[:5]}"
 
 
 # ---------------------------------------------------------------------------
 # scripts/publish dry-run
 # ---------------------------------------------------------------------------
 
+
 def _on_dev_with_clean_tree() -> bool:
     """Return True iff we are on dev with an unmodified working tree."""
     branch = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=REPO_ROOT, capture_output=True, text=True,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
     )
     if branch.stdout.strip() != "dev":
         return False
     status = subprocess.run(
         ["git", "status", "--porcelain"],
-        cwd=REPO_ROOT, capture_output=True, text=True,
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
     )
     return status.stdout.strip() == ""
 
@@ -128,8 +133,12 @@ def test_publish_dry_run_succeeds() -> None:
 
     result = subprocess.run(
         [
-            "bash", "scripts/publish",
-            "--dry-run", "--skip-tests", "--skip-deploy", "--skip-tag",
+            "bash",
+            "scripts/publish",
+            "--dry-run",
+            "--skip-tests",
+            "--skip-deploy",
+            "--skip-tag",
         ],
         cwd=REPO_ROOT,
         capture_output=True,
@@ -137,19 +146,13 @@ def test_publish_dry_run_succeeds() -> None:
         timeout=60,
     )
     assert result.returncode == 0, (
-        f"scripts/publish --dry-run failed\n"
-        f"stdout:\n{result.stdout}\n"
-        f"stderr:\n{result.stderr}"
+        f"scripts/publish --dry-run failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     # The pipeline must emit the "Done" confirmation.
-    assert "Done" in result.stdout, (
-        f"Expected 'Done' in publish output:\n{result.stdout}"
-    )
+    assert "Done" in result.stdout, f"Expected 'Done' in publish output:\n{result.stdout}"
     # A release archive must have been written to dist/.
     dist_archives = list((REPO_ROOT / "dist").glob("hyprconf-*.tar.gz"))
-    assert dist_archives, (
-        "No hyprconf-*.tar.gz found in dist/ after --dry-run"
-    )
+    assert dist_archives, "No hyprconf-*.tar.gz found in dist/ after --dry-run"
 
 
 def test_publish_script_updates_local_stable_branch() -> None:
@@ -169,6 +172,7 @@ def test_publish_script_updates_local_stable_branch() -> None:
     )
     # Specifically it must update the stable branch, not some other branch.
     import re
+
     assert re.search(r'git branch -f[^"]*"?\$\{?STABLE_BRANCH\}?"?\s+HEAD', text), (
         "scripts/publish must force-move the local stable branch to HEAD "
         "after 'git push origin HEAD:stable'"

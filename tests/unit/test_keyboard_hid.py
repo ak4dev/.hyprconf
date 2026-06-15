@@ -1,4 +1,5 @@
 """Tests for Keychron / Lemokey keyboard HID permissions udev rule."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,25 +23,25 @@ class TestSetupKeyboardHidPermissionsFunction:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
         body = text[idx : idx + 2500]
-        assert '3434' in body
+        assert "3434" in body
 
     def test_vendor_id_lemokey(self) -> None:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
         body = text[idx : idx + 2500]
-        assert '362d' in body
+        assert "362d" in body
 
     def test_uaccess_tag(self) -> None:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
         body = text[idx : idx + 2500]
-        assert 'uaccess' in body
+        assert "uaccess" in body
 
     def test_hidraw_subsystem(self) -> None:
         text = _setup_text()
         idx = text.index("setup_keyboard_hid_permissions()")
         body = text[idx : idx + 2500]
-        assert 'hidraw' in body
+        assert "hidraw" in body
 
     def test_udevadm_reload(self) -> None:
         text = _setup_text()
@@ -81,7 +82,6 @@ class TestSetupKeyboardHidPermissionsFunction:
 class TestSyncServicesCallsFunction:
     def test_called_from_sync_services(self) -> None:
         text = _setup_text()
-        idx = text.index("sync_services()")
         # Find the function definition (not the call site)
         fn_idx = text.index("sync_services() {")
         body = text[fn_idx : fn_idx + 3000]

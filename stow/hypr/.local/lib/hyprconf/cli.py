@@ -40,19 +40,19 @@ from pathlib import Path
 # Allow running as a script without installing the package.
 sys.path.insert(0, str(Path.home() / ".local" / "lib"))
 
+import hyprconf.hyprctl as _hyprctl  # noqa: E402
+from hyprconf.config import read_persisted, upsert_option  # noqa: E402
 from hyprconf.schema import (  # noqa: E402
     OPTION_SCHEMA,
-    SECTION_ORDER,
     SECTION_LABELS,
+    SECTION_ORDER,
+    format_type_short,
     get_all_sections,
     get_option_meta,
     get_section_keys,
-    validate_value,
-    format_type_short,
     schema_to_dict,
+    validate_value,
 )
-from hyprconf.config import read_persisted, upsert_option  # noqa: E402
-import hyprconf.hyprctl as _hyprctl  # noqa: E402
 
 # ── Terminal colours ───────────────────────────────────────────────────────────
 
@@ -74,10 +74,11 @@ _REPL_SECTIONS: list[str] = [s for s in SECTION_ORDER if s and s in OPTION_SCHEM
 #  get
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_get(args: list[str]) -> int:
     """hyprconf get [section] [key]"""
     section = args[0] if args else ""
-    key     = args[1] if len(args) > 1 else ""
+    key = args[1] if len(args) > 1 else ""
 
     if not section:
         print(f"{_B}Available sections:{_R}")
@@ -109,7 +110,7 @@ def cmd_get(args: list[str]) -> int:
     # Section table
     print(f"{_B}{section}{_R}")
     print(f"  {'KEY':<38}  {'CURRENT':<22}  DEFAULT")
-    print(f"  {'─'*38}  {'─'*22}  {'─'*12}")
+    print(f"  {'─' * 38}  {'─' * 22}  {'─' * 12}")
     for k in get_section_keys(section):
         meta = get_option_meta(section, k)
         if meta is None:
@@ -138,6 +139,7 @@ def _get_live_or_persisted(section: str, key: str, default: str) -> str:
 #  set
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_set(args: list[str]) -> int:
     """hyprconf set <section> <key> <value…>"""
     if len(args) < 3:
@@ -149,8 +151,8 @@ def cmd_set(args: list[str]) -> int:
         return 1
 
     section = args[0]
-    key     = args[1]
-    value   = " ".join(args[2:])
+    key = args[1]
+    value = " ".join(args[2:])
 
     if section not in OPTION_SCHEMA:
         print(f"{_Y}Unknown section: {section}  (run: hyprconf get){_R}", file=sys.stderr)
@@ -159,8 +161,7 @@ def cmd_set(args: list[str]) -> int:
     meta = get_option_meta(section, key)
     if meta is None:
         print(
-            f"{_Y}Unknown option '{key}' in section '{section}'  "
-            f"(try: hyprconf get {section}){_R}",
+            f"{_Y}Unknown option '{key}' in section '{section}'  (try: hyprconf get {section}){_R}",
             file=sys.stderr,
         )
         return 1
@@ -174,12 +175,11 @@ def cmd_set(args: list[str]) -> int:
     if _hyprctl.set_option(section, key, value):
         print(f"{_B}Applied:{_R}  {_C}{section}:{key}{_R} = {value}")
     else:
-        print(
-            f"{_Y}Warning: Hyprland not running — change written to config only.{_R}"
-        )
+        print(f"{_Y}Warning: Hyprland not running — change written to config only.{_R}")
 
     upsert_option(section, key, value)
     from hyprconf.config import OVERRIDES_FILE
+
     print(f"{_B}Persisted:{_R} {OVERRIDES_FILE}")
     return 0
 
@@ -187,6 +187,7 @@ def cmd_set(args: list[str]) -> int:
 # ════════════════════════════════════════════════════════════════════════════
 #  configure  — interactive IOS-style REPL
 # ════════════════════════════════════════════════════════════════════════════
+
 
 def cmd_configure(_args: list[str]) -> int:
     """Interactive Cisco IOS-style configuration REPL."""
@@ -261,7 +262,7 @@ def _repl_help_root() -> None:
     for s in _REPL_SECTIONS:
         keys = get_section_keys(s)
         first = keys[0] if keys else ""
-        hint  = f"<{first}> ..." if first else ""
+        hint = f"<{first}> ..." if first else ""
         print(f"  {s:<22}  {hint}")
     print()
     print(f"  {'?':<22}  Show this help")
@@ -272,7 +273,7 @@ def _repl_help_root() -> None:
 def _repl_help_section(section: str) -> None:
     print(f"\n{_B}  {section} options:{_R}")
     print(f"  {'KEY':<40}  {'TYPE':<12}  {'DEFAULT':<18}  DESCRIPTION")
-    print(f"  {'─'*40}  {'─'*12}  {'─'*18}")
+    print(f"  {'─' * 40}  {'─' * 12}  {'─' * 18}")
     for k in get_section_keys(section):
         meta = get_option_meta(section, k)
         if meta is None:
@@ -310,6 +311,7 @@ def _repl_query(section: str, key: str) -> None:
 #  schema
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_schema(args: list[str]) -> int:
     """hyprconf schema dump | validate | list-sections | keys <section>"""
     sub = args[0] if args else ""
@@ -321,13 +323,13 @@ def cmd_schema(args: list[str]) -> int:
     if sub == "list-sections":
         for s in get_all_sections():
             label = SECTION_LABELS.get(s, s)
-            keys  = len(OPTION_SCHEMA[s])
+            keys = len(OPTION_SCHEMA[s])
             print(f"  {s:<24}  {label:<18}  ({keys} keys)")
         # Special sections managed outside OPTION_SCHEMA
         for s, label, note in (
-            ("monitors", "Monitors",  "use: hyprconf get monitors"),
-            ("theme",    "Theme",     "use: hyprconf theme"),
-            ("hardware", "Hardware",  "use: hyprconf hardware"),
+            ("monitors", "Monitors", "use: hyprconf get monitors"),
+            ("theme", "Theme", "use: hyprconf theme"),
+            ("hardware", "Hardware", "use: hyprconf hardware"),
         ):
             print(f"  {s:<24}  {label:<18}  ({note})")
         return 0
@@ -344,6 +346,7 @@ def cmd_schema(args: list[str]) -> int:
 
     if sub == "validate":
         from hyprconf.config import read_all_persisted
+
         managed = read_all_persisted()
         errors = 0
         for hkey, value in managed.items():
@@ -369,13 +372,17 @@ def cmd_schema(args: list[str]) -> int:
         print("All managed options are valid.")
         return 0
 
-    print(f"{_Y}Usage: hyprconf schema dump|validate|list-sections|keys <section>{_R}", file=sys.stderr)
+    print(
+        f"{_Y}Usage: hyprconf schema dump|validate|list-sections|keys <section>{_R}",
+        file=sys.stderr,
+    )
     return 1
 
 
 # ════════════════════════════════════════════════════════════════════════════
 #  autodetect
 # ════════════════════════════════════════════════════════════════════════════
+
 
 def cmd_autodetect(args: list[str]) -> int:
     """Scan existing Hyprland config and non-destructively import it."""
@@ -402,6 +409,7 @@ def cmd_autodetect(args: list[str]) -> int:
 
     n = migrate(result)
     from hyprconf.config import OVERRIDES_FILE
+
     print(f"  Wrote {n} option(s) to {OVERRIDES_FILE}")
     return 0
 
@@ -410,9 +418,10 @@ def cmd_autodetect(args: list[str]) -> int:
 #  Entry point
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def main() -> int:
     args = sys.argv[1:]
-    cmd  = args[0] if args else ""
+    cmd = args[0] if args else ""
     rest = args[1:]
 
     if cmd == "get":
@@ -451,12 +460,13 @@ def main() -> int:
 #  keybind
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_keybind(args: list[str]) -> int:
     """hyprconf keybind list|add|delete|update"""
     from hyprconf.keybinds import (
-        read_keybinds_with_location,
         add_keybind,
         delete_keybind,
+        read_keybinds_with_location,
         update_keybind,
     )
 
@@ -468,7 +478,7 @@ def cmd_keybind(args: list[str]) -> int:
             print("  No keybinds found.")
             return 0
         print(f"  {'#':<4} {'KIND':<8} {'MODS':<22} {'KEY':<10} {'DISPATCHER':<18} ARGS")
-        print(f"  {'─'*4} {'─'*8} {'─'*22} {'─'*10} {'─'*18} {'─'*20}")
+        print(f"  {'─' * 4} {'─' * 8} {'─' * 22} {'─' * 10} {'─' * 18} {'─' * 20}")
         for i, e in enumerate(entries, 1):
             mods = e.mods if e.mods else "(none)"
             args_str = e.args or ""
@@ -484,20 +494,25 @@ def cmd_keybind(args: list[str]) -> int:
                 file=sys.stderr,
             )
             return 1
-        kind       = args[1]
-        mods       = "" if args[2] == "-" else args[2]
-        key        = args[3]
+        kind = args[1]
+        mods = "" if args[2] == "-" else args[2]
+        key = args[3]
         dispatcher = args[4]
-        kbargs     = " ".join(args[5:]) if len(args) > 5 else ""
+        kbargs = " ".join(args[5:]) if len(args) > 5 else ""
         if not add_keybind(kind, mods, key, dispatcher, kbargs):
             print(f"{_Y}Failed to write keybind{_R}", file=sys.stderr)
             return 1
-        print(f"  {_B}Added:{_R}  {kind} = {mods}, {key}, {dispatcher}{', ' + kbargs if kbargs else ''}")
+        print(
+            f"  {_B}Added:{_R}  {kind} = {mods}, {key}, {dispatcher}{', ' + kbargs if kbargs else ''}"
+        )
         return 0
 
     if sub == "delete":
         if len(args) < 2 or not args[1].isdigit():
-            print(f"{_Y}Usage: hyprconf keybind delete <index>  (1-based from 'keybind list'){_R}", file=sys.stderr)
+            print(
+                f"{_Y}Usage: hyprconf keybind delete <index>  (1-based from 'keybind list'){_R}",
+                file=sys.stderr,
+            )
             return 1
         entries = read_keybinds_with_location()
         idx = int(args[1]) - 1
@@ -524,16 +539,18 @@ def cmd_keybind(args: list[str]) -> int:
         if idx < 0 or idx >= len(entries):
             print(f"{_Y}Index {args[1]} out of range (1–{len(entries)}){_R}", file=sys.stderr)
             return 1
-        e    = entries[idx]
+        e = entries[idx]
         kind = args[2]
         mods = "" if args[3] == "-" else args[3]
-        key  = args[4]
+        key = args[4]
         disp = args[5]
         kbargs = " ".join(args[6:]) if len(args) > 6 else ""
         if not update_keybind(e.file_path, e.line_idx, kind, mods, key, disp, kbargs):
             print(f"{_Y}Failed to update keybind{_R}", file=sys.stderr)
             return 1
-        print(f"  {_B}Updated:{_R}  [{args[1]}] → {kind} = {mods}, {key}, {disp}{', ' + kbargs if kbargs else ''}")
+        print(
+            f"  {_B}Updated:{_R}  [{args[1]}] → {kind} = {mods}, {key}, {disp}{', ' + kbargs if kbargs else ''}"
+        )
         return 0
 
     print(f"{_Y}Usage: hyprconf keybind list|add|delete|update{_R}", file=sys.stderr)
@@ -544,20 +561,21 @@ def cmd_keybind(args: list[str]) -> int:
 #  rule
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_rule(args: list[str]) -> int:
     """hyprconf rule window|workspace …"""
     from hyprconf.rules import (
-        read_window_rules_with_location,
-        read_workspace_rules_with_location,
         add_window_rule,
         add_workspace_rule,
         delete_rule,
+        read_window_rules_with_location,
+        read_workspace_rules_with_location,
         update_window_rule,
         update_workspace_rule,
     )
 
     kind = args[0] if args else ""
-    sub  = args[1] if len(args) > 1 else ""
+    sub = args[1] if len(args) > 1 else ""
 
     if kind == "window":
         if sub == "list" or not sub:
@@ -566,7 +584,7 @@ def cmd_rule(args: list[str]) -> int:
                 print("  No window rules found.")
                 return 0
             print(f"  {'#':<4} {'FILE':<20} {'LINE':<6} RULE")
-            print(f"  {'─'*4} {'─'*20} {'─'*6} {'─'*50}")
+            print(f"  {'─' * 4} {'─' * 20} {'─' * 6} {'─' * 50}")
             for i, e in enumerate(entries, 1):
                 print(f"  {i:<4} {e.file_path.name:<20} {e.line_idx + 1:<6} {e.rule}")
             return 0
@@ -581,7 +599,7 @@ def cmd_rule(args: list[str]) -> int:
                     file=sys.stderr,
                 )
                 return 1
-            rule_str   = args[2]
+            rule_str = args[2]
             filter_str = args[3]
             add_window_rule(rule_str, [filter_str])
             print(f"  {_B}Added:{_R}  windowrule = {rule_str}, {filter_str}")
@@ -605,7 +623,10 @@ def cmd_rule(args: list[str]) -> int:
 
         if sub == "update":
             if len(args) < 5 or not args[2].isdigit():
-                print(f"{_Y}Usage: hyprconf rule window update <index> <rule> <filter>{_R}", file=sys.stderr)
+                print(
+                    f"{_Y}Usage: hyprconf rule window update <index> <rule> <filter>{_R}",
+                    file=sys.stderr,
+                )
                 return 1
             entries = read_window_rules_with_location()
             idx = int(args[2]) - 1
@@ -629,7 +650,7 @@ def cmd_rule(args: list[str]) -> int:
                 print("  No workspace rules found.")
                 return 0
             print(f"  {'#':<4} {'FILE':<20} {'LINE':<6} RULE")
-            print(f"  {'─'*4} {'─'*20} {'─'*6} {'─'*50}")
+            print(f"  {'─' * 4} {'─' * 20} {'─' * 6} {'─' * 50}")
             for i, e in enumerate(entries, 1):
                 print(f"  {i:<4} {e.file_path.name:<20} {e.line_idx + 1:<6} {e.rule}")
             return 0
@@ -642,7 +663,7 @@ def cmd_rule(args: list[str]) -> int:
                     file=sys.stderr,
                 )
                 return 1
-            ws_id   = args[2]
+            ws_id = args[2]
             options = args[3]
             add_workspace_rule(ws_id, options)
             print(f"  {_B}Added:{_R}  workspace = {ws_id}, {options}")
@@ -666,7 +687,10 @@ def cmd_rule(args: list[str]) -> int:
 
         if sub == "update":
             if len(args) < 5 or not args[2].isdigit():
-                print(f"{_Y}Usage: hyprconf rule workspace update <index> <ws_id> <options>{_R}", file=sys.stderr)
+                print(
+                    f"{_Y}Usage: hyprconf rule workspace update <index> <ws_id> <options>{_R}",
+                    file=sys.stderr,
+                )
                 return 1
             entries = read_workspace_rules_with_location()
             idx = int(args[2]) - 1
@@ -691,11 +715,16 @@ def cmd_rule(args: list[str]) -> int:
 #  monitor
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_monitor(args: list[str]) -> int:
     """hyprconf monitor list|set|delete|field"""
     from hyprconf.monitors import (
-        read_monitor_configs, upsert_monitor, delete_monitor,
-        get_monitor_fields, update_monitor_field, _MONITOR_FIELDS,
+        _MONITOR_FIELDS,
+        delete_monitor,
+        get_monitor_fields,
+        read_monitor_configs,
+        update_monitor_field,
+        upsert_monitor,
     )
 
     sub = args[0] if args else ""
@@ -714,7 +743,7 @@ def cmd_monitor(args: list[str]) -> int:
                     file=sys.stderr,
                 )
                 return 1
-            name  = args[2]
+            name = args[2]
             field = args[3]
             value = args[4]
             try:
@@ -726,7 +755,10 @@ def cmd_monitor(args: list[str]) -> int:
                 return 1
             print(f"  {_B}Set:{_R}  {name}  {field} = {value}")
             return 0
-        print(f"{_Y}Usage: hyprconf monitor field show [<name>] | set <name> <field> <value>{_R}", file=sys.stderr)
+        print(
+            f"{_Y}Usage: hyprconf monitor field show [<name>] | set <name> <field> <value>{_R}",
+            file=sys.stderr,
+        )
         return 1
 
     if sub == "list" or not sub:
@@ -735,11 +767,10 @@ def cmd_monitor(args: list[str]) -> int:
             print("  No monitor configs found.")
             return 0
         print(f"  {'NAME':<18} {'RESOLUTION':<16} {'POSITION':<12} {'SCALE':<8} EXTRAS")
-        print(f"  {'─'*18} {'─'*16} {'─'*12} {'─'*8} {'─'*20}")
+        print(f"  {'─' * 18} {'─' * 16} {'─' * 12} {'─' * 8} {'─' * 20}")
         for m in configs:
             print(
-                f"  {m.name:<18} {m.resolution:<16} {m.position:<12} "
-                f"{m.scale:<8} {m.extras or ''}"
+                f"  {m.name:<18} {m.resolution:<16} {m.position:<12} {m.scale:<8} {m.extras or ''}"
             )
         return 0
 
@@ -752,15 +783,17 @@ def cmd_monitor(args: list[str]) -> int:
                 file=sys.stderr,
             )
             return 1
-        name       = args[1]
+        name = args[1]
         resolution = args[2]
-        position   = args[3]
-        scale      = args[4]
-        extras     = " ".join(args[5:]) if len(args) > 5 else ""
+        position = args[3]
+        scale = args[4]
+        extras = " ".join(args[5:]) if len(args) > 5 else ""
         if not upsert_monitor(name, resolution, position, scale, extras):
             print(f"{_Y}Failed to write monitor config{_R}", file=sys.stderr)
             return 1
-        print(f"  {_B}Set:{_R}  {name}  {resolution}  {position}  scale={scale}{', ' + extras if extras else ''}")
+        print(
+            f"  {_B}Set:{_R}  {name}  {resolution}  {position}  scale={scale}{', ' + extras if extras else ''}"
+        )
         return 0
 
     if sub == "delete":
@@ -787,14 +820,15 @@ def cmd_monitor(args: list[str]) -> int:
 #  lock  — hyprlock.conf management
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_lock(args: list[str]) -> int:
     """hyprconf lock list|add|delete|set"""
     from hyprconf.hyprlock import (
-        read_hyprlock_blocks,
+        BLOCK_TYPES,
         add_hyprlock_block,
         delete_hyprlock_block,
+        read_hyprlock_blocks,
         update_hyprlock_field,
-        BLOCK_TYPES,
     )
 
     sub = args[0] if args else ""
@@ -805,7 +839,7 @@ def cmd_lock(args: list[str]) -> int:
             print("  No hyprlock blocks found.")
             return 0
         print(f"  {'#':<4} {'TYPE':<14} {'FIELDS'}")
-        print(f"  {'─'*4} {'─'*14} {'─'*50}")
+        print(f"  {'─' * 4} {'─' * 14} {'─' * 50}")
         for i, b in enumerate(blocks, 1):
             fields_preview = "  ".join(f"{k}={v}" for k, v in list(b.fields.items())[:4])
             print(f"  {i:<4} {b.block_type:<14} {fields_preview}")
@@ -815,8 +849,7 @@ def cmd_lock(args: list[str]) -> int:
         block_type = args[1] if len(args) > 1 else ""
         if not block_type or block_type not in BLOCK_TYPES:
             print(
-                f"{_Y}Usage: hyprconf lock add <type>\n"
-                f"  Types: {', '.join(BLOCK_TYPES)}{_R}",
+                f"{_Y}Usage: hyprconf lock add <type>\n  Types: {', '.join(BLOCK_TYPES)}{_R}",
                 file=sys.stderr,
             )
             return 1
@@ -826,7 +859,10 @@ def cmd_lock(args: list[str]) -> int:
 
     if sub == "delete":
         if len(args) < 2 or not args[1].isdigit():
-            print(f"{_Y}Usage: hyprconf lock delete <index>  (1-based from 'lock list'){_R}", file=sys.stderr)
+            print(
+                f"{_Y}Usage: hyprconf lock delete <index>  (1-based from 'lock list'){_R}",
+                file=sys.stderr,
+            )
             return 1
         blocks = read_hyprlock_blocks()
         idx = int(args[1]) - 1
@@ -852,8 +888,8 @@ def cmd_lock(args: list[str]) -> int:
         if not (0 <= idx < len(blocks)):
             print(f"{_Y}Index out of range (1–{len(blocks)}){_R}", file=sys.stderr)
             return 1
-        b     = blocks[idx]
-        key   = args[2]
+        b = blocks[idx]
+        key = args[2]
         value = " ".join(args[3:])
         ok = update_hyprlock_field(b.file_path, b.start_line, b.end_line, key, value)
         print(f"  {_B}Set:{_R}  [{args[1]}] {b.block_type}.{key} = {value}")
@@ -867,14 +903,15 @@ def cmd_lock(args: list[str]) -> int:
 #  idle  — hypridle.conf management
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_idle(args: list[str]) -> int:
     """hyprconf idle list|add|delete|set"""
     from hyprconf.hypridle import (
-        read_hypridle_blocks,
+        BLOCK_TYPES,
         add_hypridle_block,
         delete_hypridle_block,
+        read_hypridle_blocks,
         update_hypridle_field,
-        BLOCK_TYPES,
     )
 
     sub = args[0] if args else ""
@@ -885,7 +922,7 @@ def cmd_idle(args: list[str]) -> int:
             print("  No hypridle blocks found.")
             return 0
         print(f"  {'#':<4} {'TYPE':<12} {'FIELDS'}")
-        print(f"  {'─'*4} {'─'*12} {'─'*60}")
+        print(f"  {'─' * 4} {'─' * 12} {'─' * 60}")
         for i, b in enumerate(blocks, 1):
             fields_preview = "  ".join(f"{k}={v}" for k, v in b.fields.items())
             print(f"  {i:<4} {b.block_type:<12} {fields_preview}")
@@ -907,7 +944,10 @@ def cmd_idle(args: list[str]) -> int:
 
     if sub == "delete":
         if len(args) < 2 or not args[1].isdigit():
-            print(f"{_Y}Usage: hyprconf idle delete <index>  (1-based from 'idle list'){_R}", file=sys.stderr)
+            print(
+                f"{_Y}Usage: hyprconf idle delete <index>  (1-based from 'idle list'){_R}",
+                file=sys.stderr,
+            )
             return 1
         blocks = read_hypridle_blocks()
         idx = int(args[1]) - 1
@@ -932,8 +972,8 @@ def cmd_idle(args: list[str]) -> int:
         if not (0 <= idx < len(blocks)):
             print(f"{_Y}Index out of range (1–{len(blocks)}){_R}", file=sys.stderr)
             return 1
-        b     = blocks[idx]
-        key   = args[2]
+        b = blocks[idx]
+        key = args[2]
         value = " ".join(args[3:])
         ok = update_hypridle_field(b.file_path, b.start_line, b.end_line, key, value)
         print(f"  {_B}Set:{_R}  [{args[1]}] {b.block_type}.{key} = {value}")
@@ -947,19 +987,20 @@ def cmd_idle(args: list[str]) -> int:
 #  paper  — hyprpaper.conf management
 # ════════════════════════════════════════════════════════════════════════════
 
+
 def cmd_paper(args: list[str]) -> int:
     """hyprconf paper list|set-wallpaper|add-preload|delete-wallpaper|delete-preload|setting"""
     from hyprconf.hyprpaper import (
-        read_all,
-        read_wallpaper_blocks,
-        read_wallpaper_lines,
-        read_preloads,
         add_preload,
         delete_preload,
-        set_wallpaper_line,
         delete_wallpaper_block,
         delete_wallpaper_line,
+        read_all,
+        read_preloads,
+        read_wallpaper_blocks,
+        read_wallpaper_lines,
         set_setting,
+        set_wallpaper_line,
     )
 
     sub = args[0] if args else ""
@@ -984,9 +1025,9 @@ def cmd_paper(args: list[str]) -> int:
         if data["wallpaper_blocks"]:
             print(f"\n{_B}  Wallpapers (block format):{_R}")
             for i, b in enumerate(data["wallpaper_blocks"], 1):
-                mon  = b.fields.get("monitor", "")  or "(all)"
+                mon = b.fields.get("monitor", "") or "(all)"
                 path = b.fields.get("path", "")
-                fit  = b.fields.get("fit_mode", "")
+                fit = b.fields.get("fit_mode", "")
                 print(f"  {i:<4} wallpaper {{ monitor={mon}  path={path}  fit_mode={fit} }}")
 
         if not any([data["preloads"], data["wallpaper_lines"], data["wallpaper_blocks"]]):
@@ -1003,7 +1044,7 @@ def cmd_paper(args: list[str]) -> int:
             )
             return 1
         monitor = "" if args[1] == "-" else args[1]
-        path    = args[2]
+        path = args[2]
         ok = set_wallpaper_line(monitor, path)
         print(f"  {_B}Set:{_R}  wallpaper = {monitor or '(all)'}, {path}")
         return 0 if ok else 1
@@ -1025,27 +1066,30 @@ def cmd_paper(args: list[str]) -> int:
         if not (0 <= idx < len(preloads)):
             print(f"{_Y}Index out of range{_R}", file=sys.stderr)
             return 1
-        p  = preloads[idx]
+        p = preloads[idx]
         ok = delete_preload(p.file_path, p.line_idx)
         print(f"  {_B}Deleted:{_R}  preload = {p.path}")
         return 0 if ok else 1
 
     if sub == "delete-wallpaper":
         if len(args) < 2 or not args[1].isdigit():
-            print(f"{_Y}Usage: hyprconf paper delete-wallpaper <index>  (from 'paper list'){_R}", file=sys.stderr)
+            print(
+                f"{_Y}Usage: hyprconf paper delete-wallpaper <index>  (from 'paper list'){_R}",
+                file=sys.stderr,
+            )
             return 1
         idx = int(args[1]) - 1
         # Try line format first, then block format
-        wlines  = read_wallpaper_lines()
+        wlines = read_wallpaper_lines()
         wblocks = read_wallpaper_blocks()
         if 0 <= idx < len(wlines):
-            w  = wlines[idx]
+            w = wlines[idx]
             ok = delete_wallpaper_line(w.file_path, w.line_idx)
             print(f"  {_B}Deleted:{_R}  wallpaper = {w.monitor}, {w.path}")
             return 0 if ok else 1
         bidx = idx - len(wlines)
         if 0 <= bidx < len(wblocks):
-            b  = wblocks[bidx]
+            b = wblocks[bidx]
             ok = delete_wallpaper_block(b.file_path, b.start_line, b.end_line)
             print(f"  {_B}Deleted:{_R}  wallpaper block (monitor={b.fields.get('monitor', '')})")
             return 0 if ok else 1
@@ -1061,7 +1105,7 @@ def cmd_paper(args: list[str]) -> int:
                 file=sys.stderr,
             )
             return 1
-        key   = args[1]
+        key = args[1]
         value = " ".join(args[2:])
         ok = set_setting(key, value)
         print(f"  {_B}Set:{_R}  {key} = {value}")

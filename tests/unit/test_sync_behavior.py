@@ -9,14 +9,12 @@ Covers:
 - --sync --full flag — forces full restow on stable branch
 - 99-hyprconf-local.conf not present in stow package (machine-local only)
 """
+
 from __future__ import annotations
 
 import os
 import subprocess
-import tempfile
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 SETUP_SH = REPO_ROOT / "setup.sh"
@@ -27,6 +25,7 @@ CONF_D = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "conf.d"
 # Static analysis helpers
 # ---------------------------------------------------------------------------
 
+
 def _setup_text() -> str:
     return SETUP_SH.read_text()
 
@@ -35,7 +34,9 @@ def _extract_function(name: str) -> str:
     """Return the body of a bash function from setup.sh via awk."""
     result = subprocess.run(
         ["awk", f"/^{name}\\(\\)/,/^\\}}$/", str(SETUP_SH)],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout
 
@@ -45,13 +46,16 @@ def _run_bash_fragment(script: str, env: dict | None = None) -> subprocess.Compl
     full_env = {**os.environ, **(env or {})}
     return subprocess.run(
         ["bash", "-c", script],
-        capture_output=True, text=True, env=full_env,
+        capture_output=True,
+        text=True,
+        env=full_env,
     )
 
 
 # ---------------------------------------------------------------------------
 # 1. migrate_user_conf — function existence and static structure
 # ---------------------------------------------------------------------------
+
 
 class TestMigrateUserConf:
     def test_function_exists(self) -> None:
@@ -79,7 +83,7 @@ class TestMigrateUserConf:
     def test_called_before_clone_in_sync(self) -> None:
         src = _setup_text()
         sync_idx = src.index('"--sync"')
-        sync_block = src[sync_idx:sync_idx + 1500]
+        sync_block = src[sync_idx : sync_idx + 1500]
         mi_pos = sync_block.find("migrate_user_conf")
         cu_pos = sync_block.find("clone_or_update_repo")
         assert mi_pos != -1, "migrate_user_conf not found in --sync block"
@@ -104,10 +108,15 @@ class TestMigrateUserConf:
 
         fn_script = self._make_runner(tmp_path)
         result = subprocess.run(
-            ["bash", fn_script], capture_output=True, text=True,
-            env={**os.environ, "HOME": str(tmp_path),
-                 "HYPRCONF_DIR": str(tmp_path),
-                 "STOW_DIR": str(tmp_path / "stow")},
+            ["bash", fn_script],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "HOME": str(tmp_path),
+                "HYPRCONF_DIR": str(tmp_path),
+                "STOW_DIR": str(tmp_path / "stow"),
+            },
         )
         assert result.returncode == 0, result.stderr
         # The live file must now be a REAL FILE (not a symlink)
@@ -121,10 +130,15 @@ class TestMigrateUserConf:
         live_conf_d.mkdir(parents=True)
         fn_script = self._make_runner(tmp_path)
         result = subprocess.run(
-            ["bash", fn_script], capture_output=True, text=True,
-            env={**os.environ, "HOME": str(tmp_path),
-                 "HYPRCONF_DIR": str(tmp_path),
-                 "STOW_DIR": str(tmp_path / "stow")},
+            ["bash", fn_script],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "HOME": str(tmp_path),
+                "HYPRCONF_DIR": str(tmp_path),
+                "STOW_DIR": str(tmp_path / "stow"),
+            },
         )
         assert result.returncode == 0
 
@@ -137,10 +151,15 @@ class TestMigrateUserConf:
 
         fn_script = self._make_runner(tmp_path)
         subprocess.run(
-            ["bash", fn_script], capture_output=True, text=True,
-            env={**os.environ, "HOME": str(tmp_path),
-                 "HYPRCONF_DIR": str(tmp_path),
-                 "STOW_DIR": str(tmp_path / "stow")},
+            ["bash", fn_script],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "HOME": str(tmp_path),
+                "HYPRCONF_DIR": str(tmp_path),
+                "STOW_DIR": str(tmp_path / "stow"),
+            },
         )
         # Content must be unchanged
         assert live_file.read_text() == "$mainMod = ALT\n# custom\n"
@@ -152,9 +171,7 @@ class TestMigrateUserConf:
         script_path.write_text(
             "#!/usr/bin/env bash\nset -euo pipefail\n"
             "log_ok() { :; }\n"
-            "log_warn() { :; }\n"
-            + fn_body
-            + "\nmigrate_user_conf\n"
+            "log_warn() { :; }\n" + fn_body + "\nmigrate_user_conf\n"
         )
         script_path.chmod(0o755)
         return str(script_path)
@@ -164,6 +181,7 @@ class TestMigrateUserConf:
 # 2. force_stow_package — additive-only mode
 # ---------------------------------------------------------------------------
 
+
 class TestForceStowPackageMode:
     def test_accepts_mode_parameter(self) -> None:
         body = _extract_function("force_stow_package")
@@ -172,15 +190,19 @@ class TestForceStowPackageMode:
     def test_uses_stow_mode_flag(self) -> None:
         body = _extract_function("force_stow_package")
         # The mode string must be passed to stow (--restow or --stow)
-        assert '"$stow_mode"' in body or "--$stow_mode" in body or '"--${stow_mode}"' in body \
-            or "--\"$stow_mode\"" in body
+        assert (
+            '"$stow_mode"' in body
+            or "--$stow_mode" in body
+            or '"--${stow_mode}"' in body
+            or '--"$stow_mode"' in body
+        )
 
     def test_additive_mode_skips_backup(self) -> None:
         body = _extract_function("force_stow_package")
         # In additive (stow) mode, conflicts should be skipped, not backed up
         assert "stow" in body and "restow" in body
         # Must have a branch that handles stow mode differently from restow
-        assert '"stow"' in body or "== stow" in body or "== \"stow\"" in body
+        assert '"stow"' in body or "== stow" in body or '== "stow"' in body
 
     def test_additive_mode_preserves_user_files(self) -> None:
         body = _extract_function("force_stow_package")
@@ -191,6 +213,7 @@ class TestForceStowPackageMode:
 # ---------------------------------------------------------------------------
 # 4. stow_all_packages — mode passthrough
 # ---------------------------------------------------------------------------
+
 
 class TestStowAllPackagesMode:
     def test_accepts_mode_parameter(self) -> None:
@@ -208,6 +231,7 @@ class TestStowAllPackagesMode:
 # 5. --sync path — branch-aware stow mode and --full flag
 # ---------------------------------------------------------------------------
 
+
 class TestSyncPath:
     def test_sync_always_uses_additive_stow_by_default(self) -> None:
         """Sync must use additive-only stow by default, regardless of branch.
@@ -216,15 +240,17 @@ class TestSyncPath:
         """
         src = _setup_text()
         sync_idx = src.index('"--sync"')
-        sync_block = src[sync_idx:sync_idx + 3000]
-        assert '"stow"' in sync_block or "_stow_mode=\"stow\"" in sync_block \
-            or "_stow_mode='stow'" in sync_block, \
-            "--sync path must default to additive stow mode"
+        sync_block = src[sync_idx : sync_idx + 3000]
+        assert (
+            '"stow"' in sync_block
+            or '_stow_mode="stow"' in sync_block
+            or "_stow_mode='stow'" in sync_block
+        ), "--sync path must default to additive stow mode"
 
     def test_full_flag_forces_restow(self) -> None:
         src = _setup_text()
         sync_idx = src.index('"--sync"')
-        sync_block = src[sync_idx:sync_idx + 3000]
+        sync_block = src[sync_idx : sync_idx + 3000]
         assert "--full" in sync_block, "--sync must support --full flag"
         assert "restow" in sync_block, "--full must select restow mode"
 
@@ -232,40 +258,41 @@ class TestSyncPath:
         """setup_hardware_features (installs wvkbd/iio-sensor-proxy) must run on sync."""
         src = _setup_text()
         sync_idx = src.index('"--sync"')
-        sync_block = src[sync_idx:sync_idx + 2000]
-        assert "setup_hardware_features" in sync_block, \
+        sync_block = src[sync_idx : sync_idx + 2000]
+        assert "setup_hardware_features" in sync_block, (
             "setup_hardware_features must be called in sync path for install/sync parity"
+        )
 
     def test_force_flag_triggers_hard_reset(self) -> None:
         """--force must trigger git reset --hard instead of --ff-only pull."""
         func = _extract_function("clone_or_update_repo")
-        assert "reset --hard" in func, \
+        assert "reset --hard" in func, (
             "clone_or_update_repo must use git reset --hard when force is true"
+        )
 
     def test_force_flag_accepted_in_sync_block(self) -> None:
         """The --sync arg parser must recognise --force."""
         src = _setup_text()
         sync_idx = src.index('"--sync"')
-        sync_block = src[sync_idx:sync_idx + 1000]
-        assert "--force" in sync_block, \
-            "--sync path must support --force flag"
+        sync_block = src[sync_idx : sync_idx + 1000]
+        assert "--force" in sync_block, "--sync path must support --force flag"
 
     def test_force_passed_to_clone_or_update(self) -> None:
         """The sync block must pass the force flag to clone_or_update_repo."""
         src = _setup_text()
         sync_idx = src.index('"--sync"')
-        sync_block = src[sync_idx:sync_idx + 2000]
+        sync_block = src[sync_idx : sync_idx + 2000]
         assert "clone_or_update_repo" in sync_block
         # Must be called with the force variable, not bare
         clone_line = [l for l in sync_block.splitlines() if "clone_or_update_repo" in l][0]
-        assert "_sync_force" in clone_line, \
+        assert "_sync_force" in clone_line, (
             "clone_or_update_repo must receive the _sync_force argument"
+        )
 
     def test_clone_or_update_repo_accepts_force_param(self) -> None:
         """clone_or_update_repo must accept a force parameter."""
         func = _extract_function("clone_or_update_repo")
-        assert "_force" in func, \
-            "clone_or_update_repo must have a _force parameter"
+        assert "_force" in func, "clone_or_update_repo must have a _force parameter"
 
     def test_default_pull_uses_autostash(self) -> None:
         """The non-force pull must use --autostash.
@@ -309,14 +336,16 @@ class TestSyncPath:
         """--force and --full must be combinable (loop-based parsing, not positional)."""
         src = _setup_text()
         sync_idx = src.index('"--sync"')
-        sync_block = src[sync_idx:sync_idx + 500]
-        assert "for _arg" in sync_block or "for arg" in sync_block, \
+        sync_block = src[sync_idx : sync_idx + 500]
+        assert "for _arg" in sync_block or "for arg" in sync_block, (
             "Sync arg parsing must use a loop so flags are combinable in any order"
+        )
 
 
 # ---------------------------------------------------------------------------
 # 7a. hyprconf binary — dispatcher must forward $@ to cmd_sync
 # ---------------------------------------------------------------------------
+
 
 class TestDispatcherForwarding:
     """Verify the main() dispatcher passes arguments to cmd_sync."""
@@ -341,9 +370,8 @@ class TestDispatcherForwarding:
         text = self._hyprconf_text()
         # Find cmd_sync function body
         idx = text.index("cmd_sync()")
-        body = text[idx:idx + 200]
-        assert '"$@"' in body, \
-            "cmd_sync must pass '$@' to SETUP_SCRIPT --sync"
+        body = text[idx : idx + 200]
+        assert '"$@"' in body, "cmd_sync must pass '$@' to SETUP_SCRIPT --sync"
 
     def test_help_text_includes_force_and_full(self) -> None:
         """Help text must document both --force and --full flags."""
@@ -355,6 +383,7 @@ class TestDispatcherForwarding:
 # ---------------------------------------------------------------------------
 # 7. sync_services wifi backend fix — sync-patchable networking
 # ---------------------------------------------------------------------------
+
 
 class TestSyncServicesWifi:
     def test_sync_services_writes_nm_wifi_backend_conf(self) -> None:
@@ -417,6 +446,7 @@ class TestSyncServicesWifi:
 # 6. 99-hyprconf-local.conf must NOT be tracked in stow package
 # ---------------------------------------------------------------------------
 
+
 class TestUserConfNotStowed:
     def test_99_conf_not_in_stow_package(self) -> None:
         local_conf = CONF_D / "99-hyprconf-local.conf"
@@ -427,8 +457,9 @@ class TestUserConfNotStowed:
 
     def test_gitignore_excludes_99_conf(self) -> None:
         gitignore = CONF_D / ".gitignore"
-        assert gitignore.exists(), \
+        assert gitignore.exists(), (
             "conf.d/.gitignore must exist to prevent committing machine-local user configs"
+        )
         assert "99-hyprconf-local.conf" in gitignore.read_text()
 
     def test_create_directories_creates_user_conf_as_real_file(self) -> None:
@@ -436,6 +467,7 @@ class TestUserConfNotStowed:
         src = _setup_text()
         # The function must create the file (cat > or similar)
         cd_idx = src.index("create_directories()")
-        cd_body = src[cd_idx:cd_idx + 800]
-        assert "99-hyprconf-local.conf" in cd_body, \
+        cd_body = src[cd_idx : cd_idx + 800]
+        assert "99-hyprconf-local.conf" in cd_body, (
             "create_directories must handle 99-hyprconf-local.conf"
+        )

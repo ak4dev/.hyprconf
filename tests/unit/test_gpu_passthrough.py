@@ -7,6 +7,7 @@ display, and the CLI dispatch in the hyprconf binary.
 All system interfaces (lspci, /sys/bus/pci, modprobe, systemctl, etc.)
 are mocked via a fake sysfs tree and wrapper scripts placed on PATH.
 """
+
 from __future__ import annotations
 
 import os
@@ -19,13 +20,15 @@ import pytest
 
 SCRIPT = (
     Path(__file__).parent.parent.parent
-    / "stow" / "hypr" / ".config" / "hypr" / "scripts" / "gpu-passthrough.sh"
+    / "stow"
+    / "hypr"
+    / ".config"
+    / "hypr"
+    / "scripts"
+    / "gpu-passthrough.sh"
 )
 
-HYPRCONF_BIN = (
-    Path(__file__).parent.parent.parent
-    / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
-)
+HYPRCONF_BIN = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 
 
 # ---------------------------------------------------------------------------
@@ -64,7 +67,9 @@ def _make_fake_bins(
     lspci_output: str = LSPCI_TWO_NVIDIA,
     lsmod_output: str = "vfio_pci               12345  0\nvfio_iommu_type1       45678  0\n",
     pacman_installed: tuple[str, ...] = (
-        "qemu-desktop", "edk2-ovmf", "dmidecode",
+        "qemu-desktop",
+        "edk2-ovmf",
+        "dmidecode",
     ),
     modinfo_available: tuple[str, ...] = ("vfio", "vfio_pci", "vfio_iommu_type1"),
     cpu_vendor: str = "intel",
@@ -75,24 +80,32 @@ def _make_fake_bins(
     bin_dir.mkdir(parents=True, exist_ok=True)
 
     # lspci
-    _make_executable(bin_dir / "lspci", textwrap.dedent(f"""\
+    _make_executable(
+        bin_dir / "lspci",
+        textwrap.dedent(f"""\
         #!/usr/bin/env bash
         cat << 'LSPCI_EOF'
 {lspci_output.rstrip()}
 LSPCI_EOF
-    """))
+    """),
+    )
 
     # lsmod
-    _make_executable(bin_dir / "lsmod", textwrap.dedent(f"""\
+    _make_executable(
+        bin_dir / "lsmod",
+        textwrap.dedent(f"""\
         #!/usr/bin/env bash
         cat << 'LSMOD_EOF'
 {lsmod_output.rstrip()}
 LSMOD_EOF
-    """))
+    """),
+    )
 
     # pacman -Qi
     installed_set = " ".join(pacman_installed)
-    _make_executable(bin_dir / "pacman", textwrap.dedent(f"""\
+    _make_executable(
+        bin_dir / "pacman",
+        textwrap.dedent(f"""\
         #!/usr/bin/env bash
         if [[ "$1" == "-Qi" ]]; then
             for pkg in {installed_set}; do
@@ -101,30 +114,39 @@ LSMOD_EOF
             exit 1
         fi
         exit 0
-    """))
+    """),
+    )
 
     # modinfo
     mods_available = " ".join(modinfo_available)
-    _make_executable(bin_dir / "modinfo", textwrap.dedent(f"""\
+    _make_executable(
+        bin_dir / "modinfo",
+        textwrap.dedent(f"""\
         #!/usr/bin/env bash
         for m in {mods_available}; do
             if [[ "$1" == "$m" ]]; then exit 0; fi
         done
         exit 1
-    """))
+    """),
+    )
 
     # modprobe (no-op)
     _make_executable(bin_dir / "modprobe", "#!/usr/bin/env bash\nexit 0\n")
 
     # sudo (pass-through — strip flags like -n before exec)
-    _make_executable(bin_dir / "sudo", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "sudo",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         while [[ "${1:-}" == -* ]]; do shift; done
         exec "$@"
-    """))
+    """),
+    )
 
     # systemctl (no-op — mode-based system does not check services)
-    _make_executable(bin_dir / "systemctl", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "systemctl",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         if [[ "$1" == "is-active" && "$2" == "--quiet" ]]; then
             exit 0
@@ -137,22 +159,28 @@ LSMOD_EOF
             exit 0
         fi
         exit 0
-    """))
+    """),
+    )
 
     # id
-    _make_executable(bin_dir / "id", textwrap.dedent(f"""\
+    _make_executable(
+        bin_dir / "id",
+        textwrap.dedent(f"""\
         #!/usr/bin/env bash
         if [[ "$1" == "-nG" ]]; then
             echo "{user_groups}"
             exit 0
         fi
         echo "1000"
-    """))
+    """),
+    )
 
     # grep wrapper for /proc/cmdline + /proc/cpuinfo
     cmdline_content = "intel_iommu=on iommu=pt" if iommu_enabled else "quiet splash"
     cpuinfo_vendor = "GenuineIntel" if cpu_vendor == "intel" else "AuthenticAMD"
-    _make_executable(bin_dir / "grep", textwrap.dedent(f"""\
+    _make_executable(
+        bin_dir / "grep",
+        textwrap.dedent(f"""\
         #!/usr/bin/env bash
         # For /proc/ reads, return fake data; otherwise use real grep
         for arg in "$@"; do
@@ -168,16 +196,22 @@ LSMOD_EOF
             fi
         done
         exec /usr/bin/grep "$@"
-    """))
+    """),
+    )
 
     # uname
-    _make_executable(bin_dir / "uname", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "uname",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         if [[ "$1" == "-r" ]]; then echo "6.10.0-test"; fi
-    """))
+    """),
+    )
 
     # cat wrapper for /proc files
-    _make_executable(bin_dir / "cat", textwrap.dedent(f"""\
+    _make_executable(
+        bin_dir / "cat",
+        textwrap.dedent(f"""\
         #!/usr/bin/env bash
         for arg in "$@"; do
             if [[ "$arg" == "/proc/cmdline" ]]; then
@@ -191,95 +225,138 @@ LSMOD_EOF
             fi
         done
         exec /usr/bin/cat "$@"
-    """))
+    """),
+    )
 
     # dmesg (minimal stub)
-    _make_executable(bin_dir / "dmesg", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "dmesg",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         echo "[    0.123] DMAR: IOMMU enabled"
         echo "[    1.234] vfio_pci: loaded"
-    """))
+    """),
+    )
 
     # usermod (no-op)
     _make_executable(bin_dir / "usermod", "#!/usr/bin/env bash\nexit 0\n")
 
     # tee (write stdin to file — mimics real tee for sudo tee)
-    _make_executable(bin_dir / "tee", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "tee",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         /usr/bin/tee "$@"
-    """))
+    """),
+    )
 
     # bootctl
-    _make_executable(bin_dir / "bootctl", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "bootctl",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exit 1
-    """))
+    """),
+    )
 
     # basename — need real one
-    _make_executable(bin_dir / "basename", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "basename",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/basename "$@"
-    """))
+    """),
+    )
 
     # readlink
-    _make_executable(bin_dir / "readlink", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "readlink",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/readlink "$@"
-    """))
+    """),
+    )
 
     # xargs
-    _make_executable(bin_dir / "xargs", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "xargs",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/xargs "$@"
-    """))
+    """),
+    )
 
     # date
-    _make_executable(bin_dir / "date", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "date",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         echo "2025-01-01 00:00:00"
-    """))
+    """),
+    )
 
     # ls
-    _make_executable(bin_dir / "ls", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "ls",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/ls "$@"
-    """))
+    """),
+    )
 
     # wc
-    _make_executable(bin_dir / "wc", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "wc",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/wc "$@"
-    """))
+    """),
+    )
 
     # head
-    _make_executable(bin_dir / "head", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "head",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/head "$@"
-    """))
+    """),
+    )
 
     # cut
-    _make_executable(bin_dir / "cut", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "cut",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/cut "$@"
-    """))
+    """),
+    )
 
     # awk
-    _make_executable(bin_dir / "awk", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "awk",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/awk "$@"
-    """))
+    """),
+    )
 
     # sed
-    _make_executable(bin_dir / "sed", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "sed",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/sed "$@"
-    """))
+    """),
+    )
 
     # tr
-    _make_executable(bin_dir / "tr", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "tr",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/tr "$@"
-    """))
+    """),
+    )
 
     # printf — use builtin, don't shadow
     # echo — use builtin, don't shadow
@@ -288,7 +365,9 @@ LSMOD_EOF
     _make_executable(bin_dir / "virt-manager", "#!/usr/bin/env bash\nexit 0\n")
 
     # virsh (fake VM manager)
-    _make_executable(bin_dir / "virsh", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "virsh",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         # Skip connection URI args (-c qemu:///system) inserted by _gpu_virsh
         while [[ "${1:-}" == "-c" ]]; do shift 2; done
@@ -311,10 +390,13 @@ XML
         if [[ "$1" == "nodedev-detach" ]]; then exit 0; fi
         if [[ "$1" == "nodedev-reattach" ]]; then exit 0; fi
         exit 0
-    """))
+    """),
+    )
 
     # dmidecode (fake SMBIOS data)
-    _make_executable(bin_dir / "dmidecode", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "dmidecode",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         cat << 'DMI'
 System Information
@@ -322,16 +404,20 @@ System Information
 \tProduct Name: ROG STRIX B550-F
 \tSerial Number: ABC123XYZ
 DMI
-    """))
+    """),
+    )
 
     # virt-xml (no-op)
     _make_executable(bin_dir / "virt-xml", "#!/usr/bin/env bash\nexit 0\n")
 
     # mktemp
-    _make_executable(bin_dir / "mktemp", textwrap.dedent("""\
+    _make_executable(
+        bin_dir / "mktemp",
+        textwrap.dedent("""\
         #!/usr/bin/env bash
         exec /usr/bin/mktemp "$@"
-    """))
+    """),
+    )
 
 
 def _make_fake_sysfs(
@@ -347,10 +433,30 @@ def _make_fake_sysfs(
     """
     if gpus is None:
         gpus = {
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
-            "02:00.0": {"driver": "nvidia", "iommu_group": "2", "vendor": "0x10de", "device": "0x2684"},
-            "02:00.1": {"driver": "snd_hda_intel", "iommu_group": "2", "vendor": "0x10de", "device": "0x22be"},
+            "01:00.0": {
+                "driver": "nvidia",
+                "iommu_group": "1",
+                "vendor": "0x10de",
+                "device": "0x2484",
+            },
+            "01:00.1": {
+                "driver": "snd_hda_intel",
+                "iommu_group": "1",
+                "vendor": "0x10de",
+                "device": "0x228b",
+            },
+            "02:00.0": {
+                "driver": "nvidia",
+                "iommu_group": "2",
+                "vendor": "0x10de",
+                "device": "0x2684",
+            },
+            "02:00.1": {
+                "driver": "snd_hda_intel",
+                "iommu_group": "2",
+                "vendor": "0x10de",
+                "device": "0x22be",
+            },
         }
 
     pci_dir = sysfs_root / "bus" / "pci" / "devices"
@@ -559,6 +665,7 @@ def _source_and_run(
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def fake_env(tmp_path):
     """Provide a full fake environment with sysfs, bins, and HOME."""
@@ -581,6 +688,7 @@ def fake_env(tmp_path):
 # ---------------------------------------------------------------------------
 # _gpu_detect
 # ---------------------------------------------------------------------------
+
 
 class TestGpuDetect:
     def test_detect_finds_two_nvidia_gpus(self, fake_env):
@@ -615,6 +723,7 @@ class TestGpuDetect:
 # _gpu_classify
 # ---------------------------------------------------------------------------
 
+
 class TestGpuClassify:
     def test_classify_igpu(self, fake_env):
         r = _source_and_run("_gpu_classify", ["00:02.0", "Intel UHD"], **fake_env)
@@ -633,6 +742,7 @@ class TestGpuClassify:
 # _gpu_is_display_gpu
 # ---------------------------------------------------------------------------
 
+
 class TestGpuIsDisplayGpu:
     def test_display_gpu_detected(self, tmp_path):
         """GPU with a connected DRM connector is identified as display GPU."""
@@ -642,14 +752,20 @@ class TestGpuIsDisplayGpu:
         _make_fake_sysfs(
             sysfs_root,
             gpus={
-                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
-                             "vendor": "0x10de", "device": "0x2484"},
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
             },
             display_connectors={"01:00.0": ["connected"]},
         )
         r = _source_and_run(
-            "_gpu_is_display_gpu", ["01:00.0"],
-            bin_dir=bin_dir, sysfs_root=sysfs_root,
+            "_gpu_is_display_gpu",
+            ["01:00.0"],
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
         )
         assert r.returncode == 0
 
@@ -661,13 +777,19 @@ class TestGpuIsDisplayGpu:
         _make_fake_sysfs(
             sysfs_root,
             gpus={
-                "02:00.0": {"driver": "nvidia", "iommu_group": "2",
-                             "vendor": "0x10de", "device": "0x2684"},
+                "02:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "2",
+                    "vendor": "0x10de",
+                    "device": "0x2684",
+                },
             },
         )
         r = _source_and_run(
-            "_gpu_is_display_gpu", ["02:00.0"],
-            bin_dir=bin_dir, sysfs_root=sysfs_root,
+            "_gpu_is_display_gpu",
+            ["02:00.0"],
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
         )
         assert r.returncode != 0
 
@@ -679,14 +801,20 @@ class TestGpuIsDisplayGpu:
         _make_fake_sysfs(
             sysfs_root,
             gpus={
-                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
-                             "vendor": "0x10de", "device": "0x2484"},
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
             },
             display_connectors={"01:00.0": ["disconnected", "disconnected"]},
         )
         r = _source_and_run(
-            "_gpu_is_display_gpu", ["01:00.0"],
-            bin_dir=bin_dir, sysfs_root=sysfs_root,
+            "_gpu_is_display_gpu",
+            ["01:00.0"],
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
         )
         assert r.returncode != 0
 
@@ -698,14 +826,20 @@ class TestGpuIsDisplayGpu:
         _make_fake_sysfs(
             sysfs_root,
             gpus={
-                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
-                             "vendor": "0x10de", "device": "0x2484"},
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
             },
             display_connectors={"01:00.0": ["disconnected", "connected"]},
         )
         r = _source_and_run(
-            "_gpu_is_display_gpu", ["01:00.0"],
-            bin_dir=bin_dir, sysfs_root=sysfs_root,
+            "_gpu_is_display_gpu",
+            ["01:00.0"],
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
         )
         assert r.returncode == 0
 
@@ -713,6 +847,7 @@ class TestGpuIsDisplayGpu:
 # ---------------------------------------------------------------------------
 # _gpu_current_driver
 # ---------------------------------------------------------------------------
+
 
 class TestGpuCurrentDriver:
     def test_returns_nvidia_driver(self, fake_env):
@@ -723,16 +858,27 @@ class TestGpuCurrentDriver:
         bin_dir = tmp_path / "bin"
         sysfs_root = tmp_path / "sys"
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "03:00.0": {"driver": "", "iommu_group": "5", "vendor": "0x10de", "device": "0x0000"},
-        })
-        r = _source_and_run("_gpu_current_driver", ["03:00.0"], bin_dir=bin_dir, sysfs_root=sysfs_root)
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "03:00.0": {
+                    "driver": "",
+                    "iommu_group": "5",
+                    "vendor": "0x10de",
+                    "device": "0x0000",
+                },
+            },
+        )
+        r = _source_and_run(
+            "_gpu_current_driver", ["03:00.0"], bin_dir=bin_dir, sysfs_root=sysfs_root
+        )
         assert r.stdout.strip() == "none"
 
 
 # ---------------------------------------------------------------------------
 # _gpu_iommu_group
 # ---------------------------------------------------------------------------
+
 
 class TestGpuIommuGroup:
     def test_returns_correct_group(self, fake_env):
@@ -759,6 +905,7 @@ class TestGpuIommuGroup:
 # _gpu_iommu_devices
 # ---------------------------------------------------------------------------
 
+
 class TestGpuIommuDevices:
     def test_lists_all_devices_in_group(self, fake_env):
         r = _source_and_run("_gpu_iommu_devices", ["01:00.0"], **fake_env)
@@ -777,6 +924,7 @@ class TestGpuIommuDevices:
 # ---------------------------------------------------------------------------
 # _gpu_resolve
 # ---------------------------------------------------------------------------
+
 
 class TestGpuResolve:
     def test_resolve_pci_address_passthrough(self, fake_env):
@@ -823,6 +971,7 @@ class TestGpuResolve:
 # ---------------------------------------------------------------------------
 # _gpu_audit
 # ---------------------------------------------------------------------------
+
 
 class TestGpuAudit:
     def test_audit_all_pass(self, fake_env):
@@ -890,6 +1039,7 @@ class TestGpuAudit:
 # _gpu_status
 # ---------------------------------------------------------------------------
 
+
 class TestGpuStatus:
     def test_status_shows_gpus(self, fake_env):
         r = _source_and_run("_gpu_status", **fake_env)
@@ -925,6 +1075,7 @@ class TestGpuStatus:
 # _gpu_save_config / _gpu_load_config
 # ---------------------------------------------------------------------------
 
+
 class TestGpuConfig:
     def test_save_creates_config_file(self, fake_env):
         conf_dir = fake_env["home_dir"] / ".config" / "hyprconf"
@@ -947,7 +1098,7 @@ class TestGpuConfig:
             'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
         )
         r = _source_and_run(
-            "_gpu_load_config && echo \"LOADED:$GPU_PCI_ADDR\"",
+            '_gpu_load_config && echo "LOADED:$GPU_PCI_ADDR"',
             [],
             **fake_env,
         )
@@ -962,6 +1113,7 @@ class TestGpuConfig:
 # ---------------------------------------------------------------------------
 # _gpu_setup
 # ---------------------------------------------------------------------------
+
 
 class TestGpuSetup:
     def test_setup_detects_cpu_vendor(self, fake_env):
@@ -979,7 +1131,12 @@ class TestGpuSetup:
         _make_fake_sysfs(sysfs_root)
         r = _source_and_run("_gpu_setup", bin_dir=bin_dir, sysfs_root=sysfs_root)
         assert "IOMMU not enabled" in r.stdout
-        assert "amd_iommu=on" in r.stdout or "intel_iommu=on" in r.stdout or "reboot" in r.stdout.lower() or "Could not auto-apply" in r.stdout
+        assert (
+            "amd_iommu=on" in r.stdout
+            or "intel_iommu=on" in r.stdout
+            or "reboot" in r.stdout.lower()
+            or "Could not auto-apply" in r.stdout
+        )
 
     def test_setup_amd_cpu(self, tmp_path):
         bin_dir = tmp_path / "bin"
@@ -1003,12 +1160,17 @@ class TestGpuSetup:
         _make_fake_bins(bin_dir)
         _make_fake_sysfs(sysfs_root)
         r = _source_and_run("_gpu_setup", bin_dir=bin_dir, sysfs_root=sysfs_root)
-        assert "VFIO modprobe" in r.stdout or "disable_vga" in r.stdout or "already configured" in r.stdout
+        assert (
+            "VFIO modprobe" in r.stdout
+            or "disable_vga" in r.stdout
+            or "already configured" in r.stdout
+        )
 
 
 # ---------------------------------------------------------------------------
 # _gpu_host_smbios
 # ---------------------------------------------------------------------------
+
 
 class TestGpuHostSmbios:
     def test_reads_smbios_data(self, tmp_path):
@@ -1148,33 +1310,35 @@ class TestGpuVmSmbiosArgs:
         _make_fake_bins(bin_dir)
         _make_fake_sysfs(sysfs_root)
 
-        dmi_dir = self._make_dmi(sysfs_root, {
-            "bios_vendor": "American Megatrends Inc.",
-            "bios_version": "3201",
-            "bios_date": "01/04/2024",
-            "sys_vendor": "ASUSTeK Computer Inc.",
-            "product_name": "ROG STRIX B550-F",
-            "product_version": "1.0",
-            "product_serial": "ABC123",
-            "product_uuid": "12345678-1234-1234-1234-123456789abc",
-            "product_family": "GAMING",
-            "board_vendor": "ASUSTeK Computer Inc.",
-            "board_name": "ROG STRIX B550-F GAMING",
-            "board_version": "Rev 1.xx",
-            "board_serial": "BRD456",
-            "chassis_vendor": "ASUSTeK Computer Inc.",
-            "chassis_version": "1.0",
-            "chassis_serial": "CHS789",
-            "chassis_asset_tag": "ATG001",
-            "chassis_type": "3",
-        })
+        dmi_dir = self._make_dmi(
+            sysfs_root,
+            {
+                "bios_vendor": "American Megatrends Inc.",
+                "bios_version": "3201",
+                "bios_date": "01/04/2024",
+                "sys_vendor": "ASUSTeK Computer Inc.",
+                "product_name": "ROG STRIX B550-F",
+                "product_version": "1.0",
+                "product_serial": "ABC123",
+                "product_uuid": "12345678-1234-1234-1234-123456789abc",
+                "product_family": "GAMING",
+                "board_vendor": "ASUSTeK Computer Inc.",
+                "board_name": "ROG STRIX B550-F GAMING",
+                "board_version": "Rev 1.xx",
+                "board_serial": "BRD456",
+                "chassis_vendor": "ASUSTeK Computer Inc.",
+                "chassis_version": "1.0",
+                "chassis_serial": "CHS789",
+                "chassis_asset_tag": "ATG001",
+                "chassis_type": "3",
+            },
+        )
 
         # Create fake /proc/cpuinfo for type 4 fallback
         proc_dir = tmp_path / "proc"
         proc_dir.mkdir()
         (proc_dir / "cpuinfo").write_text(
-            "vendor_id\t: AuthenticAMD\n"
-            "model name\t: AMD Ryzen 9 5950X\n"
+            "vendor_id\t: AuthenticAMD\nmodel name\t: AMD Ryzen 9 5950X\n"
         )
 
         cmd = textwrap.dedent(f"""\
@@ -1301,10 +1465,13 @@ class TestGpuVmSmbiosArgs:
         _make_fake_sysfs(sysfs_root)
 
         # Only provide minimal type 1 data — no serial, uuid, family
-        dmi_dir = self._make_dmi(sysfs_root, {
-            "sys_vendor": "LENOVO",
-            "product_name": "ThinkPad",
-        })
+        dmi_dir = self._make_dmi(
+            sysfs_root,
+            {
+                "sys_vendor": "LENOVO",
+                "product_name": "ThinkPad",
+            },
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -1371,10 +1538,13 @@ class TestGpuVmSmbiosArgs:
         _make_fake_bins(bin_dir)
         _make_fake_sysfs(sysfs_root)
 
-        dmi_dir = self._make_dmi(sysfs_root, {
-            "sys_vendor": "LENOVO",
-            "product_uuid": "Not Available",
-        })
+        dmi_dir = self._make_dmi(
+            sysfs_root,
+            {
+                "sys_vendor": "LENOVO",
+                "product_uuid": "Not Available",
+            },
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -1458,7 +1628,8 @@ class TestGpuVmSmbiosArgs:
 
         # Create a fake dmidecode that outputs realistic memory info
         fake_dmidecode = bin_dir / "dmidecode"
-        fake_dmidecode.write_text(textwrap.dedent("""\
+        fake_dmidecode.write_text(
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             echo "# dmidecode 3.5"
             echo "Memory Device"
@@ -1467,7 +1638,8 @@ class TestGpuVmSmbiosArgs:
             echo "	Serial Number: 00000001"
             echo "	Part Number: F4-3600C16-16GVKC"
             echo "	Locator: DIMM_A1"
-        """))
+        """)
+        )
         fake_dmidecode.chmod(0o755)
 
         # Create a fake sudo that just runs the command
@@ -1576,9 +1748,17 @@ class TestGpuVmComposeSmbios:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         # Create fake DMI entries
         dmi_dir = sysfs_root / "devices" / "virtual" / "dmi" / "id"
@@ -1689,7 +1869,10 @@ class TestGpuVmComposeSmbios:
         assert "-smbios type=3" in compose
         assert "type=3" in compose
         # CPU_FLAGS env var
-        assert 'CPU_FLAGS: "-hypervisor,hv_vendor_id=AuthenticAMD,family=25,model=33,stepping=2"' in compose
+        assert (
+            'CPU_FLAGS: "-hypervisor,hv_vendor_id=AuthenticAMD,family=25,model=33,stepping=2"'
+            in compose
+        )
         # MACHINE env var
         assert 'MACHINE: "q35"' in compose
         # Disk spoofing in ARGUMENTS
@@ -1733,9 +1916,17 @@ class TestGpuVmComposeSmbios:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
         # No DMI directory at all
 
         conf_dir = home_dir / ".config" / "hyprconf"
@@ -1797,9 +1988,17 @@ class TestGpuVmComposeSmbios:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -1846,9 +2045,17 @@ class TestGpuVmComposeSmbios:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -1936,8 +2143,6 @@ class TestGpuVmOem:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-
-        oem_dir = home_dir / ".local" / "share" / "hyprconf" / "windows-vm-oem"
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -2095,14 +2300,16 @@ class TestGpuVmDiskFlags:
 
         # Create fake lsblk that responds to per-field queries
         lsblk = bin_dir / "lsblk"
-        lsblk.write_text(textwrap.dedent('''\
+        lsblk.write_text(
+            textwrap.dedent("""\
             #!/bin/bash
             case "$@" in
                 *MODEL*nvme*)  echo "Samsung SSD 970 EVO Plus 2TB";;
                 *SERIAL*nvme*) echo "S4P2NJ0R123456";;
                 *) echo "";;
             esac
-        '''))
+        """)
+        )
         lsblk.chmod(0o755)
 
         cmd = textwrap.dedent(f"""\
@@ -2129,7 +2336,7 @@ class TestGpuVmDiskFlags:
 
         # Create fake lsblk that returns nothing for all queries
         lsblk = bin_dir / "lsblk"
-        lsblk.write_text('#!/bin/bash\nexit 0\n')
+        lsblk.write_text("#!/bin/bash\nexit 0\n")
         lsblk.chmod(0o755)
 
         cmd = textwrap.dedent(f"""\
@@ -2150,6 +2357,7 @@ class TestGpuVmDiskFlags:
 # Mode system (replaces bind/unbind/pass)
 # ---------------------------------------------------------------------------
 
+
 class TestGpuModeVm:
     """Test _gpu_mode_vm (bind GPU to vfio-pci)."""
 
@@ -2160,10 +2368,23 @@ class TestGpuModeVm:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
+            },
+        )
         # Write config
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -2172,7 +2393,9 @@ class TestGpuModeVm:
             'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
             'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
         )
-        r = _source_and_run("_gpu_mode_vm", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir)
+        r = _source_and_run(
+            "_gpu_mode_vm", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir
+        )
         assert r.returncode == 0
         assert "already" in r.stdout.lower() or "vfio-pci" in r.stdout
 
@@ -2186,10 +2409,18 @@ class TestGpuModeVm:
         _make_fake_sysfs(
             sysfs_root,
             gpus={
-                "01:00.0": {"driver": "nvidia", "iommu_group": "1",
-                             "vendor": "0x10de", "device": "0x2484"},
-                "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1",
-                             "vendor": "0x10de", "device": "0x228b"},
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "snd_hda_intel",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
             },
             display_connectors={"01:00.0": ["connected"]},
         )
@@ -2201,7 +2432,10 @@ class TestGpuModeVm:
             'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
         )
         r = _source_and_run(
-            "_gpu_mode_vm", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+            "_gpu_mode_vm",
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
+            home_dir=home_dir,
         )
         assert r.returncode != 0
         combined = (r.stderr + r.stdout).lower()
@@ -2224,12 +2458,23 @@ class TestGpuModeVm:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1",
-                         "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1",
-                         "vendor": "0x10de", "device": "0x228b"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "snd_hda_intel",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -2239,12 +2484,23 @@ class TestGpuModeVm:
             'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
         )
 
-        r = _source_and_run(
-            "_gpu_mode_vm", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+        _source_and_run(
+            "_gpu_mode_vm",
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
+            home_dir=home_dir,
         )
         # The bind may "fail" (no real kernel) but driver_override must be set
-        override_0 = (sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.0" / "driver_override").read_text().strip()
-        override_1 = (sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.1" / "driver_override").read_text().strip()
+        override_0 = (
+            (sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.0" / "driver_override")
+            .read_text()
+            .strip()
+        )
+        override_1 = (
+            (sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.1" / "driver_override")
+            .read_text()
+            .strip()
+        )
         assert override_0 == "vfio-pci", f"GPU driver_override: {override_0!r}"
         assert override_1 == "vfio-pci", f"Audio driver_override: {override_1!r}"
 
@@ -2259,10 +2515,17 @@ class TestGpuModeHost:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "02:00.0": {"driver": "nvidia", "iommu_group": "2",
-                         "vendor": "0x10de", "device": "0x2684"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "02:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "2",
+                    "vendor": "0x10de",
+                    "device": "0x2684",
+                },
+            },
+        )
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
         (conf_dir / "gpu-passthrough.conf").write_text(
@@ -2270,7 +2533,9 @@ class TestGpuModeHost:
             'GPU_VENDOR_DEVICE="10de:2684"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
             'GPU_IOMMU_GROUP="2"\nGPU_IOMMU_DEVICES="02:00.0"\n'
         )
-        r = _source_and_run("_gpu_mode_host", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir)
+        r = _source_and_run(
+            "_gpu_mode_host", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir
+        )
         assert r.returncode == 0
         assert "already" in r.stdout.lower()
 
@@ -2290,12 +2555,23 @@ class TestGpuModeHost:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1",
-                         "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "vfio-pci", "iommu_group": "1",
-                         "vendor": "0x10de", "device": "0x228b"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
+            },
+        )
         # Pre-set driver_override to vfio-pci (simulates prior mode_vm)
         dev0 = sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.0"
         dev1 = sysfs_root / "bus" / "pci" / "devices" / "0000:01:00.1"
@@ -2311,7 +2587,10 @@ class TestGpuModeHost:
         )
 
         _source_and_run(
-            "_gpu_mode_host", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+            "_gpu_mode_host",
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
+            home_dir=home_dir,
         )
         # driver_override must be cleared (empty)
         override_0 = (dev0 / "driver_override").read_text().strip()
@@ -2329,10 +2608,17 @@ class TestGpuModeNone:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "02:00.0": {"driver": None, "iommu_group": "2",
-                         "vendor": "0x10de", "device": "0x2684"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "02:00.0": {
+                    "driver": None,
+                    "iommu_group": "2",
+                    "vendor": "0x10de",
+                    "device": "0x2684",
+                },
+            },
+        )
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
         (conf_dir / "gpu-passthrough.conf").write_text(
@@ -2340,7 +2626,9 @@ class TestGpuModeNone:
             'GPU_VENDOR_DEVICE="10de:2684"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
             'GPU_IOMMU_GROUP="2"\nGPU_IOMMU_DEVICES="02:00.0"\n'
         )
-        r = _source_and_run("_gpu_mode_none", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir)
+        r = _source_and_run(
+            "_gpu_mode_none", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir
+        )
         assert r.returncode == 0
         assert "already" in r.stdout.lower() or "none" in r.stdout.lower()
 
@@ -2362,15 +2650,25 @@ class TestGpuModeGet:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
         (conf_dir / "gpu-passthrough.conf").write_text(
             'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
         )
-        r = _source_and_run("_gpu_mode_get", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir)
+        r = _source_and_run(
+            "_gpu_mode_get", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir
+        )
         assert r.returncode == 0
         assert "host" in r.stdout.lower()
 
@@ -2380,7 +2678,11 @@ class TestGpuModeGet:
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
         r = _source_and_run("_gpu_mode_get", bin_dir=bin_dir, home_dir=home_dir)
-        assert "No GPU configured" in r.stdout or "not configured" in r.stdout.lower() or r.returncode != 0
+        assert (
+            "No GPU configured" in r.stdout
+            or "not configured" in r.stdout.lower()
+            or r.returncode != 0
+        )
 
 
 class TestGpuBlacklist:
@@ -2428,8 +2730,7 @@ class TestGpuBlacklist:
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
         (conf_dir / "gpu-passthrough.conf").write_text(
-            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\n'
-            'GPU_AUDIO_IDS="10de:228b"\n'
+            'GPU_PCI_ADDR="01:00.0"\nGPU_VENDOR_DEVICE="10de:2484"\nGPU_AUDIO_IDS="10de:228b"\n'
         )
 
         blacklist_file = tmp_path / "blacklist-gpu-passthrough.conf"
@@ -2512,6 +2813,7 @@ class TestGpuBlacklist:
 # ---------------------------------------------------------------------------
 # Boot-time vfio-pci binding helpers
 # ---------------------------------------------------------------------------
+
 
 class TestGpuBootTimeBinding:
     """Test boot-time vfio-pci.ids binding helpers."""
@@ -2744,10 +3046,20 @@ class TestGpuBootTimeBinding:
 # Boot-time binding audit checks
 # ---------------------------------------------------------------------------
 
+
 class TestGpuAuditBootBinding:
     """Test audit checks for multi-NVIDIA boot-time binding."""
 
-    def _run_audit_with_cmdline(self, tmp_path, cmdline_content, lspci_output, *, mkinitcpio_content="", vfio_conf_content="", vm_entry_exists=False):
+    def _run_audit_with_cmdline(
+        self,
+        tmp_path,
+        cmdline_content,
+        lspci_output,
+        *,
+        mkinitcpio_content="",
+        vfio_conf_content="",
+        vm_entry_exists=False,
+    ):
         """Helper to run _gpu_audit with faked /proc/cmdline."""
         bin_dir = tmp_path / "bin"
         home_dir = tmp_path / "home"
@@ -2755,7 +3067,9 @@ class TestGpuAuditBootBinding:
         _make_fake_bins(bin_dir, lspci_output=lspci_output, iommu_enabled=True)
 
         # Override grep to return our custom cmdline
-        _make_executable(bin_dir / "grep", textwrap.dedent(f"""\
+        _make_executable(
+            bin_dir / "grep",
+            textwrap.dedent(f"""\
             #!/usr/bin/env bash
             for arg in "$@"; do
                 if [[ "$arg" == "/proc/cmdline" ]]; then
@@ -2777,7 +3091,8 @@ class TestGpuAuditBootBinding:
                 fi
             done
             exec /usr/bin/grep "$@"
-        """))
+        """),
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -2800,7 +3115,9 @@ class TestGpuAuditBootBinding:
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["HOME"] = str(home_dir)
 
-        return subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5)
+        return subprocess.run(
+            ["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=5
+        )
 
     def test_audit_boot_binding_present(self, tmp_path):
         """Audit reports ✔ when VM boot entry exists for multi-NVIDIA."""
@@ -2825,6 +3142,7 @@ class TestGpuAuditBootBinding:
         # Should return warnings about missing boot entry
         combined = r.stdout + r.stderr
         assert "boot entry" in combined.lower() or "setup" in combined.lower()
+
 
 class TestGpuDiagnose:
     def test_diagnose_creates_report(self, fake_env):
@@ -2860,6 +3178,7 @@ class TestGpuDiagnose:
 # ---------------------------------------------------------------------------
 # _gpu_unbind_vtconsoles
 # ---------------------------------------------------------------------------
+
 
 class TestGpuUnbindVtconsoles:
     """Test VT console and EFI framebuffer unbinding before GPU driver unbind."""
@@ -2959,6 +3278,7 @@ class TestGpuUnbindVtconsoles:
 # _gpu_unload_nvidia_modules failure path
 # ---------------------------------------------------------------------------
 
+
 class TestGpuUnloadNvidiaModulesFailure:
     """Test that _gpu_unload_nvidia_modules fails when modules can't be unloaded."""
 
@@ -2971,13 +3291,16 @@ class TestGpuUnloadNvidiaModulesFailure:
         )
 
         # Override modprobe to fail on removal
-        _make_executable(bin_dir / "modprobe", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "modprobe",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "$1" == "-r" ]]; then
                 exit 1
             fi
             exit 0
-        """))
+        """),
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -3002,19 +3325,25 @@ class TestGpuUnloadNvidiaModulesFailure:
 
         # After modprobe -r, simulate that modules are gone
         # by making lsmod return empty after removal
-        _make_executable(bin_dir / "modprobe", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "modprobe",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "$1" == "-r" ]]; then
                 exit 0
             fi
             exit 0
-        """))
+        """),
+        )
 
         # lsmod returns empty (all modules unloaded)
-        _make_executable(bin_dir / "lsmod", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "lsmod",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             echo ""
-        """))
+        """),
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -3040,17 +3369,33 @@ class TestGpuUnloadNvidiaModulesFailure:
             bin_dir,
             lsmod_output="nvidia_drm       12345  1\nnvidia         98765  1\n",
         )
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "snd_hda_intel",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
+            },
+        )
 
         # modprobe -r always fails
-        _make_executable(bin_dir / "modprobe", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "modprobe",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "$1" == "-r" ]]; then exit 1; fi
             exit 0
-        """))
+        """),
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -3103,17 +3448,27 @@ class TestGpuUnloadNvidiaModulesFailure:
             lsmod_output="nvidia_drm       12345  1\nnvidia         98765  1\n",
         )
         # GPU has NO driver (zombie state from previous failed attempt)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": None, "iommu_group": "1",
-                         "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": None,
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         # modprobe -r fails (modules in use)
-        _make_executable(bin_dir / "modprobe", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "modprobe",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "$1" == "-r" ]]; then exit 1; fi
             exit 0
-        """))
+        """),
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -3164,8 +3519,12 @@ class TestGpuUnloadNvidiaModulesFailure:
         _make_fake_sysfs(
             sysfs_root,
             gpus={
-                "01:00.0": {"driver": "vfio-pci", "iommu_group": "1",
-                             "vendor": "0x10de", "device": "0x2484"},
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
             },
             display_connectors={"01:00.0": ["connected"]},
         )
@@ -3204,6 +3563,7 @@ class TestGpuUnloadNvidiaModulesFailure:
         r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
         assert r.returncode == 0
         assert "already" in r.stdout.lower() or "vfio-pci" in r.stdout
+
     def test_script_sources_cleanly(self, fake_env):
         """gpu-passthrough.sh sources without syntax errors."""
         r = subprocess.run(
@@ -3223,6 +3583,7 @@ class TestGpuUnloadNvidiaModulesFailure:
 # ---------------------------------------------------------------------------
 # CLI dispatch (hyprconf hardware gpu ...)
 # ---------------------------------------------------------------------------
+
 
 class TestCliDispatch:
     """Test the CLI dispatch in hyprconf binary for gpu subcommands.
@@ -3245,6 +3606,7 @@ class TestCliDispatch:
         script_dest = script_dir / "gpu-passthrough.sh"
         if not script_dest.exists():
             import shutil
+
             shutil.copy2(SCRIPT, script_dest)
 
         env = os.environ.copy()
@@ -3315,7 +3677,11 @@ class TestCliDispatch:
         """mode with no arg should show current mode."""
         r = self._run_hyprconf(["mode"], fake_env["bin_dir"], fake_env["home_dir"])
         # Shows mode or errors about no config
-        assert r.returncode == 0 or "not configured" in r.stdout.lower() or "No GPU configured" in r.stdout
+        assert (
+            r.returncode == 0
+            or "not configured" in r.stdout.lower()
+            or "No GPU configured" in r.stdout
+        )
 
     def test_gpu_unknown_subcommand_errors(self, fake_env):
         r = self._run_hyprconf(["foobar"], fake_env["bin_dir"], fake_env["home_dir"])
@@ -3333,6 +3699,7 @@ class TestCliDispatch:
 # ---------------------------------------------------------------------------
 # Audio device detection
 # ---------------------------------------------------------------------------
+
 
 class TestGpuAudioDevice:
     def test_audio_device_found(self, fake_env):
@@ -3359,6 +3726,7 @@ class TestGpuAudioDevice:
 # ---------------------------------------------------------------------------
 # _gpu_detect audio + IOMMU group listing
 # ---------------------------------------------------------------------------
+
 
 class TestGpuDetectEnhanced:
     def test_detect_shows_audio_device(self, fake_env):
@@ -3387,13 +3755,34 @@ class TestGpuDetectEnhanced:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir, lspci_output=lspci_with_usb)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
-            "01:00.2": {"driver": "xhci_hcd", "iommu_group": "1", "vendor": "0x10de", "device": "0x2489"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "snd_hda_intel",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
+                "01:00.2": {
+                    "driver": "xhci_hcd",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2489",
+                },
+            },
+        )
         r = _source_and_run(
-            "_gpu_detect", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+            "_gpu_detect",
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
+            home_dir=home_dir,
         )
         assert r.returncode == 0
         assert "USB controller" in r.stdout
@@ -3410,12 +3799,28 @@ class TestGpuDetectEnhanced:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir, lspci_output=lspci_with_bridge)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "00:01.0": {"driver": "pcieport", "iommu_group": "1", "vendor": "0x8086", "device": "0x1901"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "00:01.0": {
+                    "driver": "pcieport",
+                    "iommu_group": "1",
+                    "vendor": "0x8086",
+                    "device": "0x1901",
+                },
+            },
+        )
         r = _source_and_run(
-            "_gpu_detect", bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+            "_gpu_detect",
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
+            home_dir=home_dir,
         )
         assert r.returncode == 0
         assert "PCI bridge" in r.stdout
@@ -3424,6 +3829,7 @@ class TestGpuDetectEnhanced:
 # ---------------------------------------------------------------------------
 # _gpu_report
 # ---------------------------------------------------------------------------
+
 
 class TestGpuReport:
     def test_report_has_system_section(self, fake_env):
@@ -3482,6 +3888,7 @@ class TestGpuReport:
 # _gpu_setup_select (interactive GPU selection)
 # ---------------------------------------------------------------------------
 
+
 class TestGpuSetupSelect:
     def test_single_gpu_auto_selects(self, tmp_path):
         """With only one GPU, selection is automatic (no user input needed)."""
@@ -3492,13 +3899,23 @@ class TestGpuSetupSelect:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir, lspci_output=lspci_single)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         r = _source_and_run(
             "_gpu_setup_select",
-            bin_dir=bin_dir, sysfs_root=sysfs_root, home_dir=home_dir,
+            bin_dir=bin_dir,
+            sysfs_root=sysfs_root,
+            home_dir=home_dir,
         )
         assert r.returncode == 0
         assert "selecting it automatically" in r.stdout.lower() or "configured" in r.stdout.lower()
@@ -3625,6 +4042,7 @@ class TestGpuSetupSelect:
 # Config persistence wiring
 # ---------------------------------------------------------------------------
 
+
 class TestGpuConfigWiring:
     def test_status_shows_configured_gpu(self, fake_env):
         """Status shows configured GPU when config exists."""
@@ -3648,6 +4066,7 @@ class TestGpuConfigWiring:
 # ---------------------------------------------------------------------------
 # Limine bootloader support in setup
 # ---------------------------------------------------------------------------
+
 
 class TestGpuSetupLimine:
     def test_setup_limine_detection(self, tmp_path):
@@ -3710,9 +4129,7 @@ class TestGpuSetupLimine:
 
         limine_default = tmp_path / "etc" / "default" / "limine"
         limine_default.parent.mkdir(parents=True, exist_ok=True)
-        limine_default.write_text(
-            'KERNEL_CMDLINE[default]="quiet intel_iommu=on iommu=pt"\n'
-        )
+        limine_default.write_text('KERNEL_CMDLINE[default]="quiet intel_iommu=on iommu=pt"\n')
 
         _make_fake_bins(bin_dir, iommu_enabled=False, cpu_vendor="intel")
 
@@ -3757,10 +4174,23 @@ class TestGpuVmGenerateCompose:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -3794,10 +4224,10 @@ class TestGpuVmGenerateCompose:
 
         compose = r.stdout
         assert "dockurr/windows" in compose
-        assert "RAM_SIZE: \"16G\"" in compose
-        assert "CPU_CORES: \"6\"" in compose
-        assert "DISK_SIZE: \"128G\"" in compose
-        assert "USERNAME: \"testuser\"" in compose
+        assert 'RAM_SIZE: "16G"' in compose
+        assert 'CPU_CORES: "6"' in compose
+        assert 'DISK_SIZE: "128G"' in compose
+        assert 'USERNAME: "testuser"' in compose
         assert "vfio-pci,host=01:00.0" in compose
         assert "vfio-pci,host=01:00.1" in compose
         assert "/dev/vfio/1:/dev/vfio/1" in compose
@@ -3812,10 +4242,24 @@ class TestGpuVmGenerateCompose:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "00:01.0": {"driver": "pcieport", "iommu_group": "1", "vendor": "0x8086", "device": "0x1901", "class": "0604"},
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "00:01.0": {
+                    "driver": "pcieport",
+                    "iommu_group": "1",
+                    "vendor": "0x8086",
+                    "device": "0x1901",
+                    "class": "0604",
+                },
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -3958,9 +4402,17 @@ class TestGpuVmStatus:
         sysfs_root = tmp_path / "sys"
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -3975,14 +4427,17 @@ class TestGpuVmStatus:
         )
 
         # Mock docker to report container not found
-        _make_executable(bin_dir / "docker", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "docker",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "$1" == "inspect" ]]; then
                 echo "" >&2
                 exit 1
             fi
             exit 0
-        """))
+        """),
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -4015,10 +4470,23 @@ class TestGpuNvidiaUsedByOtherGpu:
         _make_fake_bins(bin_dir)
 
         # Two GPUs: 01:00.0 is our passthrough GPU, 02:00.0 is the display GPU
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "02:00.0": {"driver": "nvidia", "iommu_group": "2", "vendor": "0x10de", "device": "0x2684"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "02:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "2",
+                    "vendor": "0x10de",
+                    "device": "0x2684",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -4056,10 +4524,23 @@ class TestGpuNvidiaUsedByOtherGpu:
         _make_fake_bins(bin_dir)
 
         # Single GPU setup — only the passthrough GPU is on nvidia
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "snd_hda_intel",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -4097,9 +4578,17 @@ class TestGpuNvidiaUsedByOtherGpu:
         _make_fake_bins(bin_dir)
 
         # All GPUs on vfio-pci — no nvidia driver dir
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -4137,11 +4626,29 @@ class TestGpuNvidiaUsedByOtherGpu:
 
         _make_fake_bins(bin_dir)
         # Multi-GPU: 01:00.x = passthrough (nvidia), 02:00.0 = display (nvidia)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-            "01:00.1": {"driver": "snd_hda_intel", "iommu_group": "1", "vendor": "0x10de", "device": "0x228b"},
-            "02:00.0": {"driver": "nvidia", "iommu_group": "2", "vendor": "0x10de", "device": "0x2684"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+                "01:00.1": {
+                    "driver": "snd_hda_intel",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x228b",
+                },
+                "02:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "2",
+                    "vendor": "0x10de",
+                    "device": "0x2684",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -4205,6 +4712,7 @@ class TestGpuNvidiaUsedByOtherGpu:
 # ---------------------------------------------------------------------------
 # _gpu_has_other_nvidia_gpu (lspci-based multi-GPU detection)
 # ---------------------------------------------------------------------------
+
 
 class TestGpuHasOtherNvidiaGpu:
     """Tests for _gpu_has_other_nvidia_gpu lspci-based multi-GPU detection."""
@@ -4412,20 +4920,22 @@ class TestGpuVmUsbConfig:
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
         # Fake lsusb that reports test devices as connected
-        _make_executable(bin_dir / "lsusb", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "lsusb",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "${1:-}" == "-d" ]]; then
                 echo "Bus 001 Device 002: ID $2 Test Device"
                 exit 0
             fi
             echo "Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub"
-        """))
+        """),
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
         (conf_dir / "gpu-vm-usb.conf").write_text(
-            "046d:c52b  Logitech Receiver\n"
-            "0951:16a5  Kingston HyperX\n"
+            "046d:c52b  Logitech Receiver\n0951:16a5  Kingston HyperX\n"
         )
 
         cmd = textwrap.dedent(f"""\
@@ -4472,7 +4982,9 @@ class TestGpuVmUsbConfig:
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
         # Fake lsusb: only 046d:c52b is connected, 0951:16a5 is not
-        _make_executable(bin_dir / "lsusb", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "lsusb",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "${1:-}" == "-d" ]]; then
                 case "$2" in
@@ -4480,13 +4992,13 @@ class TestGpuVmUsbConfig:
                     *) exit 1 ;;
                 esac
             fi
-        """))
+        """),
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
         (conf_dir / "gpu-vm-usb.conf").write_text(
-            "046d:c52b  Logitech Receiver\n"
-            "0951:16a5  Kingston HyperX\n"
+            "046d:c52b  Logitech Receiver\n0951:16a5  Kingston HyperX\n"
         )
 
         cmd = textwrap.dedent(f"""\
@@ -4515,12 +5027,15 @@ class TestGpuVmUsbListHost:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+        _make_executable(
+            bin_dir / "lsusb",
+            textwrap.dedent(f"""\
             #!/usr/bin/env bash
             cat << 'EOF'
 {LSUSB_SAMPLE.rstrip()}
 EOF
-        """))
+        """),
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -4551,18 +5066,19 @@ class TestGpuVmUsbShow:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+        _make_executable(
+            bin_dir / "lsusb",
+            textwrap.dedent(f"""\
             #!/usr/bin/env bash
             cat << 'EOF'
 {LSUSB_SAMPLE.rstrip()}
 EOF
-        """))
+        """),
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
-        (conf_dir / "gpu-vm-usb.conf").write_text(
-            "046d:c52b  Logitech Receiver\n"
-        )
+        (conf_dir / "gpu-vm-usb.conf").write_text("046d:c52b  Logitech Receiver\n")
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -4586,12 +5102,15 @@ EOF
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+        _make_executable(
+            bin_dir / "lsusb",
+            textwrap.dedent(f"""\
             #!/usr/bin/env bash
             cat << 'EOF'
 {LSUSB_SAMPLE.rstrip()}
 EOF
-        """))
+        """),
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -4620,17 +5139,28 @@ class TestGpuVmComposeWithUsb:
 
         _make_fake_bins(bin_dir)
         # Fake lsusb that reports test devices as connected
-        _make_executable(bin_dir / "lsusb", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "lsusb",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "${1:-}" == "-d" ]]; then
                 echo "Bus 001 Device 002: ID $2 Test Device"
                 exit 0
             fi
             echo "Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub"
-        """))
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        """),
+        )
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -4644,8 +5174,7 @@ class TestGpuVmComposeWithUsb:
             'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
         )
         (conf_dir / "gpu-vm-usb.conf").write_text(
-            "046d:c52b  Logitech Receiver\n"
-            "0951:16a5  Kingston HyperX\n"
+            "046d:c52b  Logitech Receiver\n0951:16a5  Kingston HyperX\n"
         )
 
         cmd = textwrap.dedent(f"""\
@@ -4680,9 +5209,17 @@ class TestGpuVmComposeWithUsb:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "vfio-pci", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        })
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "vfio-pci",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -4763,9 +5300,18 @@ class TestGpuVmLaunchForce:
         home_dir.mkdir()
 
         _make_fake_bins(bin_dir)
-        _make_fake_sysfs(sysfs_root, gpus={
-            "01:00.0": {"driver": "nvidia", "iommu_group": "1", "vendor": "0x10de", "device": "0x2484"},
-        }, display_connectors={"01:00.0": ["connected"]})
+        _make_fake_sysfs(
+            sysfs_root,
+            gpus={
+                "01:00.0": {
+                    "driver": "nvidia",
+                    "iommu_group": "1",
+                    "vendor": "0x10de",
+                    "device": "0x2484",
+                },
+            },
+            display_connectors={"01:00.0": ["connected"]},
+        )
 
         conf_dir = home_dir / ".config" / "hyprconf"
         conf_dir.mkdir(parents=True)
@@ -4813,8 +5359,12 @@ class TestGpuVmLaunchForce:
         env = os.environ.copy()
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["HOME"] = str(home_dir)
-        r = subprocess.run(["bash", "-c", cmd_no_force], capture_output=True, text=True, env=env, timeout=15)
-        assert "Monitor connected to GPU" in r.stderr, f"Expected display safety error, got: {r.stderr}"
+        r = subprocess.run(
+            ["bash", "-c", cmd_no_force], capture_output=True, text=True, env=env, timeout=15
+        )
+        assert "Monitor connected to GPU" in r.stderr, (
+            f"Expected display safety error, got: {r.stderr}"
+        )
         assert "SHOULD_NOT_REACH" not in r.stdout
 
         # Verify WITH force it gets past the display check
@@ -4843,7 +5393,9 @@ class TestGpuVmLaunchForce:
             echo "FORCE_OK"
         """)
 
-        r = subprocess.run(["bash", "-c", cmd_force], capture_output=True, text=True, env=env, timeout=15)
+        r = subprocess.run(
+            ["bash", "-c", cmd_force], capture_output=True, text=True, env=env, timeout=15
+        )
         assert "FORCE_OK" in r.stdout, f"stdout: {r.stdout}\nstderr: {r.stderr}"
 
 
@@ -4856,13 +5408,16 @@ class TestGpuVmIsRunning:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_executable(bin_dir / "docker", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "docker",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "$1" == "inspect" ]]; then
                 echo "running"
                 exit 0
             fi
-        """))
+        """),
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -4888,13 +5443,16 @@ class TestGpuVmIsRunning:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_executable(bin_dir / "docker", textwrap.dedent("""\
+        _make_executable(
+            bin_dir / "docker",
+            textwrap.dedent("""\
             #!/usr/bin/env bash
             if [[ "$1" == "inspect" ]]; then
                 echo ""
                 exit 1
             fi
-        """))
+        """),
+        )
 
         cmd = textwrap.dedent(f"""\
             set -euo pipefail
@@ -4924,6 +5482,7 @@ class TestGpuVmUsbCliDispatch:
         script_dest = script_dir / "gpu-passthrough.sh"
         if not script_dest.exists():
             import shutil
+
             shutil.copy2(SCRIPT, script_dest)
 
         env = os.environ.copy()
@@ -4944,12 +5503,15 @@ class TestGpuVmUsbCliDispatch:
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+        _make_executable(
+            bin_dir / "lsusb",
+            textwrap.dedent(f"""\
             #!/usr/bin/env bash
             cat << 'EOF'
 {LSUSB_SAMPLE.rstrip()}
 EOF
-        """))
+        """),
+        )
 
         r = self._run_hyprconf(["vm", "usb"], bin_dir, home_dir)
         assert r.returncode == 0
@@ -4961,12 +5523,15 @@ EOF
         home_dir = tmp_path / "home"
         home_dir.mkdir()
         _make_fake_bins(bin_dir)
-        _make_executable(bin_dir / "lsusb", textwrap.dedent(f"""\
+        _make_executable(
+            bin_dir / "lsusb",
+            textwrap.dedent(f"""\
             #!/usr/bin/env bash
             cat << 'EOF'
 {LSUSB_SAMPLE.rstrip()}
 EOF
-        """))
+        """),
+        )
 
         r = self._run_hyprconf(["vm", "usb", "list"], bin_dir, home_dir)
         assert r.returncode == 0

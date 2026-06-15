@@ -7,10 +7,10 @@ machines). The theme switcher used to write absolute include/color_theme paths
 through the stow symlinks, leaking /home/<user>/ into the tracked repo — these
 tests lock the door on that regressing.
 """
+
 from __future__ import annotations
 
 import importlib.util
-import os
 import re
 from pathlib import Path
 
@@ -67,12 +67,10 @@ def test_kitty_conf_uses_tilde_include() -> None:
 # paths under $HOME (kitty.conf is stowed, so absolute paths would leak to git).
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def switch_theme_module():
-    path = (
-        REPO_ROOT
-        / "stow/hypr/.config/hypr/scripts/theme-switcher/switch_theme.py"
-    )
+    path = REPO_ROOT / "stow/hypr/.config/hypr/scripts/theme-switcher/switch_theme.py"
     spec = importlib.util.spec_from_file_location("switch_theme_pii", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

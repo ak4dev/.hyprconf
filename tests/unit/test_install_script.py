@@ -4,13 +4,12 @@ network config copy, and wifi post-install guidance.
 
 All tests are static-analysis only (no live disk, no TTY required).
 """
+
 from __future__ import annotations
 
 import os
 import subprocess
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 INSTALL_SH = REPO_ROOT / "install" / "install.sh"
@@ -23,7 +22,9 @@ def _text() -> str:
 def _extract_function(name: str) -> str:
     result = subprocess.run(
         ["awk", f"/^{name}\\(\\)/,/^\\}}$/", str(INSTALL_SH)],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout
 
@@ -32,13 +33,16 @@ def _run_bash(script: str, env: dict | None = None) -> subprocess.CompletedProce
     full_env = {**os.environ, **(env or {})}
     return subprocess.run(
         ["bash", "-c", script],
-        capture_output=True, text=True, env=full_env,
+        capture_output=True,
+        text=True,
+        env=full_env,
     )
 
 
 # ---------------------------------------------------------------------------
 # install.sh exists and is a valid bash script
 # ---------------------------------------------------------------------------
+
 
 def test_install_sh_exists() -> None:
     assert INSTALL_SH.exists(), "install/install.sh not found"
@@ -47,7 +51,8 @@ def test_install_sh_exists() -> None:
 def test_install_sh_bash_syntax() -> None:
     result = subprocess.run(
         ["bash", "-n", str(INSTALL_SH)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, f"bash -n failed:\n{result.stderr}"
 
@@ -55,6 +60,7 @@ def test_install_sh_bash_syntax() -> None:
 # ---------------------------------------------------------------------------
 # ESP auto-creation: < 1 GiB → no prompt
 # ---------------------------------------------------------------------------
+
 
 class TestEspAutoCreate:
     def test_size_check_present(self) -> None:
@@ -82,22 +88,19 @@ class TestEspAutoCreate:
         # The choice prompt must come AFTER the else keyword for the size check.
         size_pos = func.index("esp_size_bytes < 1024")
         choice_pos = func.index("How should we handle EFI")
-        assert choice_pos > size_pos, (
-            "'How should we handle EFI' must appear after the size check"
-        )
+        assert choice_pos > size_pos, "'How should we handle EFI' must appear after the size check"
 
 
 # ---------------------------------------------------------------------------
 # arrow_select: /dev/tty input, first-render flag, escape timeout
 # ---------------------------------------------------------------------------
 
+
 class TestArrowSelect:
     def test_reads_from_dev_tty(self) -> None:
         """arrow_select opens /dev/tty for keyboard input (fd 8), not stdin."""
         func = _extract_function("arrow_select")
-        assert "exec 8</dev/tty" in func, (
-            "arrow_select must open /dev/tty for reading on fd 8"
-        )
+        assert "exec 8</dev/tty" in func, "arrow_select must open /dev/tty for reading on fd 8"
 
     def test_read_uses_fd8(self) -> None:
         """All interactive read calls in arrow_select use -u8."""
@@ -122,15 +125,12 @@ class TestArrowSelect:
     def test_does_not_check_stdin_tty(self) -> None:
         """arrow_select no longer requires stdin to be a TTY (uses /dev/tty directly)."""
         func = _extract_function("arrow_select")
-        assert "[[ -t 0 ]]" not in func, (
-            "arrow_select must not gate on stdin being a TTY"
-        )
+        assert "[[ -t 0 ]]" not in func, "arrow_select must not gate on stdin being a TTY"
 
     def test_returns_nonzero_when_no_tty(self) -> None:
         """arrow_select returns 1 gracefully when /dev/tty cannot be opened."""
         result = _run_bash(
-            "source /dev/stdin <<'EOF'\n"
-            + INSTALL_SH.read_text() + "\n"
+            "source /dev/stdin <<'EOF'\n" + INSTALL_SH.read_text() + "\n"
             "EOF\n"
             # Redirect /dev/tty to /dev/null so open fails, then call arrow_select
             "arrow_select 'test' a b c 9>/dev/null 2>/dev/null; echo exit:$?",
@@ -142,6 +142,7 @@ class TestArrowSelect:
 # ---------------------------------------------------------------------------
 # _ensure_fzf: exists, installs via pacman if missing
 # ---------------------------------------------------------------------------
+
 
 class TestEnsureFzf:
     def test_function_exists(self) -> None:
@@ -175,6 +176,7 @@ class TestEnsureFzf:
 # ---------------------------------------------------------------------------
 # _pick_timezone: fzf invoked with /dev/tty I/O
 # ---------------------------------------------------------------------------
+
 
 class TestPickTimezone:
     def test_fzf_pipes_candidates_and_captures_selection(self) -> None:
@@ -213,13 +215,12 @@ class TestPickTimezone:
 # binary_install: scripts are symlinked alongside the binary
 # ---------------------------------------------------------------------------
 
+
 class TestBinaryInstallScripts:
     def test_hyprconf_tui_is_linked(self) -> None:
         """binary_install must link hyprconf-tui script directory."""
         func = _extract_function("binary_install")
-        assert "hyprconf-tui" in func, (
-            "binary_install must link the hyprconf-tui script directory"
-        )
+        assert "hyprconf-tui" in func, "binary_install must link the hyprconf-tui script directory"
 
     def test_theme_switcher_is_linked(self) -> None:
         """binary_install must link theme-switcher directory."""
@@ -231,16 +232,12 @@ class TestBinaryInstallScripts:
     def test_switch_monitor_sh_is_linked(self) -> None:
         """binary_install must link switch_monitor.sh."""
         func = _extract_function("binary_install")
-        assert "switch_monitor.sh" in func, (
-            "binary_install must link switch_monitor.sh"
-        )
+        assert "switch_monitor.sh" in func, "binary_install must link switch_monitor.sh"
 
     def test_toggle_native_display_is_linked(self) -> None:
         """binary_install must link toggle-native-display."""
         func = _extract_function("binary_install")
-        assert "toggle-native-display" in func, (
-            "binary_install must link toggle-native-display"
-        )
+        assert "toggle-native-display" in func, "binary_install must link toggle-native-display"
 
     def test_scripts_destination_dir_created(self) -> None:
         """binary_install must create the scripts destination directory."""
@@ -262,12 +259,15 @@ class TestBinaryInstallScripts:
 # Network config copy and wifi guidance
 # ---------------------------------------------------------------------------
 
+
 class TestNetworkConfig:
     def test_iwd_in_pacstrap(self) -> None:
         """iwd must be in the pacstrap package list so wifi works out of the box."""
         text = _text()
         # The package list is declared as `local pkgs=(...)` then passed to pacstrap
-        pkg_list_lines = [l for l in text.splitlines() if "local pkgs=(" in l and "networkmanager" in l]
+        pkg_list_lines = [
+            l for l in text.splitlines() if "local pkgs=(" in l and "networkmanager" in l
+        ]
         assert pkg_list_lines, "No pacstrap package list (local pkgs=...) found in install.sh"
         assert any("iwd" in l for l in pkg_list_lines), (
             "iwd must be in the pacstrap packages — without it or wpa_supplicant, "
@@ -304,6 +304,4 @@ class TestNetworkConfig:
         iwd_pos = func.find("/var/lib/iwd")
         assert nm_pos != -1, "Function must check for NM profiles"
         assert iwd_pos != -1, "Function must check for iwd profiles"
-        assert nm_pos < iwd_pos, (
-            "NM profile copy must be attempted before iwd profile import"
-        )
+        assert nm_pos < iwd_pos, "NM profile copy must be attempted before iwd profile import"

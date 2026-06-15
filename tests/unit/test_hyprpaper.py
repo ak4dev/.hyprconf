@@ -1,18 +1,13 @@
 """Tests for hyprconf.hyprpaper — hyprpaper config reader/writer."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from hyprconf.hyprpaper import (
-    PreloadEntry,
-    SettingEntry,
-    WallpaperLine,
     add_preload,
     add_wallpaper_block,
     delete_preload,
-    delete_wallpaper_block,
     delete_wallpaper_line,
     read_all,
     read_preloads,
@@ -52,6 +47,7 @@ wallpaper {
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _paper_file(hypr_dir: Path, content: str = LINE_BASED_CONF) -> Path:
     p = hypr_dir / "hyprpaper.conf"
     p.write_text(content)
@@ -61,6 +57,7 @@ def _paper_file(hypr_dir: Path, content: str = LINE_BASED_CONF) -> Path:
 # ---------------------------------------------------------------------------
 # read_preloads
 # ---------------------------------------------------------------------------
+
 
 def test_reads_preloads(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir)
@@ -92,6 +89,7 @@ def test_read_preloads_missing_file(hypr_dir: Path) -> None:
 # read_wallpaper_lines
 # ---------------------------------------------------------------------------
 
+
 def test_reads_wallpaper_lines(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir)
     lines = read_wallpaper_lines(p)
@@ -112,6 +110,7 @@ def test_wallpaper_line_path(hypr_dir: Path) -> None:
 # read_wallpaper_blocks
 # ---------------------------------------------------------------------------
 
+
 def test_reads_wallpaper_blocks(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir, BLOCK_BASED_CONF)
     blocks = read_wallpaper_blocks(p)
@@ -131,6 +130,7 @@ def test_reads_no_blocks_from_line_based(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # read_settings
 # ---------------------------------------------------------------------------
+
 
 def test_reads_settings(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir)
@@ -160,6 +160,7 @@ def test_setting_value(hypr_dir: Path) -> None:
 # read_all
 # ---------------------------------------------------------------------------
 
+
 def test_read_all_keys(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir)
     result = read_all(p)
@@ -180,6 +181,7 @@ def test_read_all_counts(hypr_dir: Path) -> None:
 # add_preload
 # ---------------------------------------------------------------------------
 
+
 def test_add_preload(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir, "")
     assert add_preload("~/wallpapers/new.jpg", file=p) is True
@@ -199,6 +201,7 @@ def test_add_preload_preserves_existing(hypr_dir: Path) -> None:
 # delete_preload
 # ---------------------------------------------------------------------------
 
+
 def test_delete_preload(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir, "preload = ~/a.jpg\npreload = ~/b.jpg\n")
     preloads = read_preloads(p)
@@ -212,6 +215,7 @@ def test_delete_preload(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # set_wallpaper_line
 # ---------------------------------------------------------------------------
+
 
 def test_set_wallpaper_line_appends(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir, "")
@@ -241,6 +245,7 @@ def test_set_wallpaper_line_preserves_other_monitors(hypr_dir: Path) -> None:
 # delete_wallpaper_line
 # ---------------------------------------------------------------------------
 
+
 def test_delete_wallpaper_line(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir, "wallpaper = HDMI-A-1,~/a.jpg\nwallpaper = DP-1,~/b.jpg\n")
     lines = read_wallpaper_lines(p)
@@ -253,6 +258,7 @@ def test_delete_wallpaper_line(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # add_wallpaper_block
 # ---------------------------------------------------------------------------
+
 
 def test_add_wallpaper_block(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir, "")
@@ -267,6 +273,7 @@ def test_add_wallpaper_block(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # set_setting
 # ---------------------------------------------------------------------------
+
 
 def test_set_setting_appends(hypr_dir: Path) -> None:
     p = _paper_file(hypr_dir, "")
@@ -289,11 +296,14 @@ def test_set_setting_updates_existing(hypr_dir: Path) -> None:
 # update_wallpaper_block_field (covers L228)
 # ---------------------------------------------------------------------------
 
+
 def test_update_wallpaper_block_field(hypr_dir: Path) -> None:
     from hyprconf.hyprpaper import (
-        HYPRPAPER_FILE, add_wallpaper_block, read_wallpaper_blocks,
-        update_wallpaper_block_field,
+        HYPRPAPER_FILE,
+        add_wallpaper_block,
+        read_wallpaper_blocks,
     )
+
     HYPRPAPER_FILE.write_text("")
     add_wallpaper_block("eDP-1", "/tmp/wall.png", "cover", file=HYPRPAPER_FILE)
     blocks = read_wallpaper_blocks(HYPRPAPER_FILE)
@@ -308,8 +318,10 @@ def test_update_wallpaper_block_field(hypr_dir: Path) -> None:
 # set_setting with $variable key (covers L250: key.startswith("$") branch)
 # ---------------------------------------------------------------------------
 
+
 def test_set_setting_updates_variable_key(hypr_dir: Path) -> None:
-    from hyprconf.hyprpaper import HYPRPAPER_FILE, set_setting, read_settings
+    from hyprconf.hyprpaper import HYPRPAPER_FILE, read_settings, set_setting
+
     HYPRPAPER_FILE.write_text("$WALLPAPER = /old/path\n")
     result = set_setting("$WALLPAPER", "/new/path", file=HYPRPAPER_FILE)
     assert result is True

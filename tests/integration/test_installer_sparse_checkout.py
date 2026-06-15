@@ -11,6 +11,7 @@ These tests verify:
 3. A real git repository can be sparse-checked-out with those file patterns
    in ``--no-cone`` mode without error.
 """
+
 from __future__ import annotations
 
 import re
@@ -31,6 +32,7 @@ EXPECTED_FILE_ENTRIES = {"README.md", "packages", "setup.sh"}
 # ---------------------------------------------------------------------------
 # Static analysis: --no-cone must be used, --cone must not
 # ---------------------------------------------------------------------------
+
 
 def test_install_sh_uses_no_cone_in_apply_sparse_checkout() -> None:
     """apply_sparse_checkout in install/install.sh must use --no-cone."""
@@ -75,6 +77,7 @@ def test_setup_sh_uses_no_cone_in_apply_repo_sparse_checkout() -> None:
 # Static analysis: sparse-paths arrays must contain file-level entries
 # ---------------------------------------------------------------------------
 
+
 def _extract_bash_array(text: str, name: str) -> list[str]:
     """Return the values of a bash ``declare -ra NAME=( ... )`` array."""
     match = re.search(
@@ -92,9 +95,7 @@ def test_repo_sparse_paths_contains_file_entries() -> None:
     text = INSTALL_SH.read_text()
     paths = {p.lstrip("/") for p in _extract_bash_array(text, "REPO_SPARSE_PATHS")}
     missing = EXPECTED_FILE_ENTRIES - paths
-    assert not missing, (
-        f"REPO_SPARSE_PATHS is missing expected file entries: {missing}"
-    )
+    assert not missing, f"REPO_SPARSE_PATHS is missing expected file entries: {missing}"
 
 
 def test_hyprconf_sparse_paths_contains_file_entries() -> None:
@@ -102,26 +103,30 @@ def test_hyprconf_sparse_paths_contains_file_entries() -> None:
     text = SETUP_SH.read_text()
     paths = {p.lstrip("/") for p in _extract_bash_array(text, "HYPRCONF_SPARSE_PATHS")}
     missing = EXPECTED_FILE_ENTRIES - paths
-    assert not missing, (
-        f"HYPRCONF_SPARSE_PATHS is missing expected file entries: {missing}"
-    )
+    assert not missing, f"HYPRCONF_SPARSE_PATHS is missing expected file entries: {missing}"
 
 
 # ---------------------------------------------------------------------------
 # Functional: --no-cone accepts file patterns without error
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def temp_git_repo(tmp_path: Path) -> Path:
     """Create a minimal git repository with files and directories."""
     repo = tmp_path / "origin"
     repo.mkdir()
-    subprocess.run(["git", "init", "--initial-branch=main", str(repo)],
-                   check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"],
-                   check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"],
-                   check=True, capture_output=True)
+    subprocess.run(
+        ["git", "init", "--initial-branch=main", str(repo)], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "config", "user.name", "Test"], check=True, capture_output=True
+    )
     # Mimic repo structure: top-level files + a directory
     (repo / "README.md").write_text("# test\n")
     (repo / "packages").write_text("zsh\n")
@@ -129,16 +134,14 @@ def temp_git_repo(tmp_path: Path) -> Path:
     stow_dir = repo / "stow"
     stow_dir.mkdir()
     (stow_dir / "dotfile").write_text("dotfile content\n")
-    subprocess.run(["git", "-C", str(repo), "add", "."],
-                   check=True, capture_output=True)
-    subprocess.run(["git", "-C", str(repo), "commit", "-m", "init"],
-                   check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "commit", "-m", "init"], check=True, capture_output=True
+    )
     return repo
 
 
-def test_no_cone_sparse_checkout_accepts_file_patterns(
-    temp_git_repo: Path, tmp_path: Path
-) -> None:
+def test_no_cone_sparse_checkout_accepts_file_patterns(temp_git_repo: Path, tmp_path: Path) -> None:
     """
     Cloning with --sparse and then applying --no-cone sparse-checkout set
     with file-level patterns must succeed (exit 0) and check out those files.
@@ -146,12 +149,14 @@ def test_no_cone_sparse_checkout_accepts_file_patterns(
     clone = tmp_path / "clone"
     subprocess.run(
         ["git", "clone", "--depth=1", "--sparse", str(temp_git_repo), str(clone)],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     # Switch to --no-cone mode
     result = subprocess.run(
         ["git", "-C", str(clone), "sparse-checkout", "init", "--no-cone"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, f"sparse-checkout init --no-cone failed: {result.stderr}"
 
@@ -159,7 +164,8 @@ def test_no_cone_sparse_checkout_accepts_file_patterns(
     patterns = ["README.md", "packages", "setup.sh", "stow"]
     result = subprocess.run(
         ["git", "-C", str(clone), "sparse-checkout", "set"] + patterns,
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, (
         f"sparse-checkout set failed with --no-cone and file patterns: {result.stderr}"
@@ -172,9 +178,7 @@ def test_no_cone_sparse_checkout_accepts_file_patterns(
         )
 
 
-def test_cone_mode_fails_on_file_patterns(
-    temp_git_repo: Path, tmp_path: Path
-) -> None:
+def test_cone_mode_fails_on_file_patterns(temp_git_repo: Path, tmp_path: Path) -> None:
     """
     Cone mode must reject file-level patterns — this confirms why --no-cone
     is necessary.  If git ever changes this behaviour the test will catch it.
@@ -182,16 +186,27 @@ def test_cone_mode_fails_on_file_patterns(
     clone = tmp_path / "clone_cone"
     subprocess.run(
         ["git", "clone", "--depth=1", "--sparse", str(temp_git_repo), str(clone)],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "-C", str(clone), "sparse-checkout", "init", "--cone"],
         capture_output=True,
     )
     result = subprocess.run(
-        ["git", "-C", str(clone), "sparse-checkout", "set",
-         "README.md", "packages", "setup.sh", "stow"],
-        capture_output=True, text=True,
+        [
+            "git",
+            "-C",
+            str(clone),
+            "sparse-checkout",
+            "set",
+            "README.md",
+            "packages",
+            "setup.sh",
+            "stow",
+        ],
+        capture_output=True,
+        text=True,
     )
     # Cone mode must fail (non-zero exit) or emit a fatal error for file names.
     failed = result.returncode != 0 or "fatal" in result.stderr.lower()

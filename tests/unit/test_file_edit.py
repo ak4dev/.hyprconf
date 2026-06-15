@@ -1,10 +1,10 @@
 """Tests for hyprconf.file_edit — the atomic line-editing primitives."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-
 from hyprconf.file_edit import (
     append_block,
     delete_line,
@@ -15,10 +15,10 @@ from hyprconf.file_edit import (
     update_line,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _file(tmp_path: Path, content: str) -> Path:
     p = tmp_path / "test.conf"
@@ -29,6 +29,7 @@ def _file(tmp_path: Path, content: str) -> Path:
 # ---------------------------------------------------------------------------
 # read_lines
 # ---------------------------------------------------------------------------
+
 
 def test_read_lines_normal(tmp_path: Path) -> None:
     p = _file(tmp_path, "a\nb\nc\n")
@@ -47,6 +48,7 @@ def test_read_lines_empty_file(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # update_line
 # ---------------------------------------------------------------------------
+
 
 def test_update_line_first(tmp_path: Path) -> None:
     p = _file(tmp_path, "a\nb\nc\n")
@@ -75,6 +77,7 @@ def test_update_line_negative_index(tmp_path: Path) -> None:
 # delete_line
 # ---------------------------------------------------------------------------
 
+
 def test_delete_line_middle(tmp_path: Path) -> None:
     p = _file(tmp_path, "a\nb\nc\n")
     assert delete_line(p, 1) is True
@@ -95,6 +98,7 @@ def test_delete_line_out_of_range(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # delete_lines
 # ---------------------------------------------------------------------------
+
 
 def test_delete_lines_range(tmp_path: Path) -> None:
     p = _file(tmp_path, "a\nb\nc\nd\n")
@@ -117,6 +121,7 @@ def test_delete_lines_invalid_range(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # append_block
 # ---------------------------------------------------------------------------
+
 
 def test_append_block_to_empty(tmp_path: Path) -> None:
     p = _file(tmp_path, "")
@@ -150,6 +155,7 @@ def test_append_block_creates_parent_dirs(tmp_path: Path) -> None:
 # insert_line / insert_lines
 # ---------------------------------------------------------------------------
 
+
 def test_insert_line_at_start(tmp_path: Path) -> None:
     p = _file(tmp_path, "a\nb\n")
     assert insert_line(p, 0, "X") is True
@@ -172,6 +178,7 @@ def test_insert_lines_batch(tmp_path: Path) -> None:
 # Atomicity: write never partially corrupts a file
 # ---------------------------------------------------------------------------
 
+
 def test_update_line_is_atomic(tmp_path: Path) -> None:
     """A successful update should not leave temp files behind."""
     p = _file(tmp_path, "a\nb\nc\n")
@@ -184,10 +191,12 @@ def test_update_line_is_atomic(tmp_path: Path) -> None:
 # _write_lines — exception cleanup (covers L47-52)
 # ---------------------------------------------------------------------------
 
+
 def test_write_lines_cleans_up_tmp_on_error(tmp_path: Path) -> None:
     """If an error occurs mid-write, the temp file should be removed."""
-    from hyprconf.file_edit import _write_lines
     import unittest.mock as _mock
+
+    from hyprconf.file_edit import _write_lines
 
     p = tmp_path / "subdir" / "test.conf"
     p.parent.mkdir()
@@ -236,9 +245,11 @@ def test_write_lines_follows_symlink(tmp_path: Path) -> None:
 # OSError paths in mutation primitives (covers L99-100, 115-116, 131-132, 147-148)
 # ---------------------------------------------------------------------------
 
+
 def test_append_block_returns_false_on_oserror(tmp_path: Path) -> None:
-    from hyprconf.file_edit import append_block
     import unittest.mock as _mock
+
+    from hyprconf.file_edit import append_block
 
     p = tmp_path / "test.conf"
     p.write_text("line\n")
@@ -248,8 +259,9 @@ def test_append_block_returns_false_on_oserror(tmp_path: Path) -> None:
 
 
 def test_delete_lines_returns_false_on_oserror(tmp_path: Path) -> None:
-    from hyprconf.file_edit import delete_lines
     import unittest.mock as _mock
+
+    from hyprconf.file_edit import delete_lines
 
     p = tmp_path / "test.conf"
     p.write_text("a\nb\nc\n")
@@ -259,8 +271,9 @@ def test_delete_lines_returns_false_on_oserror(tmp_path: Path) -> None:
 
 
 def test_insert_lines_returns_false_on_oserror(tmp_path: Path) -> None:
-    from hyprconf.file_edit import insert_lines
     import unittest.mock as _mock
+
+    from hyprconf.file_edit import insert_lines
 
     p = tmp_path / "test.conf"
     p.write_text("a\nb\n")
@@ -270,8 +283,9 @@ def test_insert_lines_returns_false_on_oserror(tmp_path: Path) -> None:
 
 
 def test_insert_line_returns_false_on_oserror(tmp_path: Path) -> None:
-    from hyprconf.file_edit import insert_line
     import unittest.mock as _mock
+
+    from hyprconf.file_edit import insert_line
 
     p = tmp_path / "test.conf"
     p.write_text("a\nb\n")
@@ -285,17 +299,15 @@ def test_insert_line_returns_false_on_oserror(tmp_path: Path) -> None:
 # (covers L50-51: the inner except OSError: pass inside the outer except)
 # ---------------------------------------------------------------------------
 
+
 def test_write_lines_double_exception_is_ignored(tmp_path: Path) -> None:
     """If os.replace AND os.unlink both raise, _write_lines re-raises the replace error."""
-    import os
     import unittest.mock as _mock
+
     from hyprconf.file_edit import _write_lines
 
     p = tmp_path / "double.conf"
     p.write_text("original\n")
-
-    orig_replace = os.replace
-    orig_unlink = os.unlink
 
     def bad_replace(src, dst):
         raise OSError("replace failed")
@@ -303,11 +315,10 @@ def test_write_lines_double_exception_is_ignored(tmp_path: Path) -> None:
     def bad_unlink(path):
         raise OSError("unlink failed")
 
-    with _mock.patch("os.replace", bad_replace), \
-         _mock.patch("os.unlink", bad_unlink):
+    with _mock.patch("os.replace", bad_replace), _mock.patch("os.unlink", bad_unlink):
         try:
             _write_lines(p, ["new content"])
-            assert False, "Expected OSError"
+            raise AssertionError("Expected OSError")
         except OSError as e:
             assert "replace failed" in str(e)
 
@@ -319,68 +330,82 @@ def test_write_lines_double_exception_is_ignored(tmp_path: Path) -> None:
 # strip_comment / COMMENT_RE
 # ---------------------------------------------------------------------------
 
+
 def test_strip_comment_removes_inline_comment() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("key = value  # comment") == "key = value"
 
 
 def test_strip_comment_removes_line_comment() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("# full line comment") == ""
 
 
 def test_strip_comment_preserves_plain_line() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("key = value") == "key = value"
 
 
 def test_strip_comment_strips_surrounding_whitespace() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("   key = value   ") == "key = value"
 
 
 def test_strip_comment_preserves_hex_color_6() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("col.active_border = #ff0000") == "col.active_border = #ff0000"
 
 
 def test_strip_comment_preserves_hex_color_8() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("col.active_border = #ff0000ee") == "col.active_border = #ff0000ee"
 
 
 def test_strip_comment_preserves_hex_with_trailing_comment() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("col = #ff0000 # red") == "col = #ff0000"
 
 
 def test_strip_comment_preserves_multiple_hex() -> None:
     from hyprconf.file_edit import strip_comment
+
     result = strip_comment("gradient = #aabbcc #ddeeff 45deg")
     assert result == "gradient = #aabbcc #ddeeff 45deg"
 
 
 def test_strip_comment_on_hash_only_line() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("#") == ""
 
 
 def test_strip_comment_preserves_midline_hex_with_comment() -> None:
     from hyprconf.file_edit import strip_comment
+
     result = strip_comment("col = #112233 #445566  # gradient colors")
     assert result == "col = #112233 #445566"
 
 
 def test_strip_comment_preserves_hex_color_3() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("color = #abc") == "color = #abc"
 
 
 def test_strip_comment_preserves_hex_color_4() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("color = #abcd") == "color = #abcd"
 
 
 def test_strip_comment_preserves_hex_3_with_trailing_comment() -> None:
     from hyprconf.file_edit import strip_comment
+
     assert strip_comment("color = #f0a # accent") == "color = #f0a"

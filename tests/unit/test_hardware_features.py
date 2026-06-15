@@ -1,18 +1,21 @@
 """Tests for update_wvkbd() in switch_theme.py."""
+
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch, call
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 THEME_SWITCHER = (
     Path(__file__).parent.parent.parent
-    / "stow" / "hypr" / ".config" / "hypr"
-    / "scripts" / "theme-switcher" / "switch_theme.py"
+    / "stow"
+    / "hypr"
+    / ".config"
+    / "hypr"
+    / "scripts"
+    / "theme-switcher"
+    / "switch_theme.py"
 )
 
 # Import the module directly from its file path.
@@ -30,19 +33,20 @@ spec.loader.exec_module(st)  # type: ignore[union-attr]
 DARK_THEME = {
     "background": "#1e1e2e",
     "foreground": "#cdd6f4",
-    "accent":     "#89b4fa",
+    "accent": "#89b4fa",
 }
 
 LIGHT_THEME = {
     "background": "#eff1f5",
     "foreground": "#4c4f69",
-    "accent":     "#1e66f5",
+    "accent": "#1e66f5",
 }
 
 
 # ---------------------------------------------------------------------------
 # update_wvkbd — colors file written correctly
 # ---------------------------------------------------------------------------
+
 
 def test_update_wvkbd_writes_colors_file(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -81,20 +85,24 @@ def test_update_wvkbd_no_background_skips_gracefully(tmp_path, monkeypatch):
 # update_wvkbd — restarts wvkbd when running
 # ---------------------------------------------------------------------------
 
+
 def test_update_wvkbd_restarts_when_running(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
     pgrep_result = MagicMock(returncode=0, stdout="12345\n")
     popen_mock = MagicMock()
 
-    with patch("subprocess.run", return_value=pgrep_result) as mock_run, \
-         patch("subprocess.Popen", return_value=popen_mock) as mock_popen, \
-         patch("shutil.which", return_value="/usr/local/bin/wvkbd-launcher"):
+    with (
+        patch("subprocess.run", return_value=pgrep_result) as mock_run,
+        patch("subprocess.Popen", return_value=popen_mock) as mock_popen,
+        patch("shutil.which", return_value="/usr/local/bin/wvkbd-launcher"),
+    ):
         st.update_wvkbd(DARK_THEME)
 
     mock_run.assert_called_once_with(
         ["pgrep", "-x", "wvkbd-mobintl"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     mock_popen.assert_called_once_with(["/usr/local/bin/wvkbd-launcher"])
 
@@ -104,9 +112,11 @@ def test_update_wvkbd_no_restart_when_not_running(tmp_path, monkeypatch):
 
     pgrep_result = MagicMock(returncode=1, stdout="")
 
-    with patch("subprocess.run", return_value=pgrep_result), \
-         patch("subprocess.Popen") as mock_popen, \
-         patch("shutil.which", return_value="/usr/local/bin/wvkbd-launcher"):
+    with (
+        patch("subprocess.run", return_value=pgrep_result),
+        patch("subprocess.Popen") as mock_popen,
+        patch("shutil.which", return_value="/usr/local/bin/wvkbd-launcher"),
+    ):
         st.update_wvkbd(DARK_THEME)
 
     mock_popen.assert_not_called()
@@ -117,9 +127,11 @@ def test_update_wvkbd_no_restart_when_launcher_missing(tmp_path, monkeypatch):
 
     pgrep_result = MagicMock(returncode=0, stdout="12345\n")
 
-    with patch("subprocess.run", return_value=pgrep_result), \
-         patch("subprocess.Popen") as mock_popen, \
-         patch("shutil.which", return_value=None):
+    with (
+        patch("subprocess.run", return_value=pgrep_result),
+        patch("subprocess.Popen") as mock_popen,
+        patch("shutil.which", return_value=None),
+    ):
         st.update_wvkbd(DARK_THEME)
 
     mock_popen.assert_not_called()
@@ -138,6 +150,7 @@ def test_update_wvkbd_handles_write_error_gracefully(tmp_path, monkeypatch, caps
 # ---------------------------------------------------------------------------
 # apply_theme — calls update_wvkbd when wvkbd-mobintl is in PATH
 # ---------------------------------------------------------------------------
+
 
 def test_apply_theme_calls_update_wvkbd_when_wvkbd_present(monkeypatch):
     calls: list[str] = []
@@ -209,12 +222,15 @@ def test_apply_theme_skips_update_wvkbd_when_wvkbd_absent(monkeypatch):
 # schema — hardware section registered
 # ---------------------------------------------------------------------------
 
+
 def test_schema_has_hardware_section():
-    import importlib, sys
+    import importlib
+
     LIB_DIR = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "lib"
     if str(LIB_DIR) not in sys.path:
         sys.path.insert(0, str(LIB_DIR))
     import hyprconf.schema as schema
+
     importlib.reload(schema)
     assert "hardware" in schema.SECTION_ORDER
     assert schema.SECTION_LABELS.get("hardware") == "Hardware"
@@ -227,6 +243,7 @@ def test_schema_has_hardware_section():
 # Touchscreen detection — standard + Wacom I2C Finger path
 # ---------------------------------------------------------------------------
 
+
 def _run_touchscreen_detection(uevent_files: dict) -> bool:
     """
     Reimplementation of the shared _has_touchscreen() logic for unit testing.
@@ -237,8 +254,7 @@ def _run_touchscreen_detection(uevent_files: dict) -> bool:
             return True
         if "ID_INPUT_TOUCH=1" in content:
             return True
-        if ('NAME="Wacom' in content and 'Finger' in content
-                and 'PHYS="i2c-' in content):
+        if 'NAME="Wacom' in content and "Finger" in content and 'PHYS="i2c-' in content:
             return True
     return False
 
@@ -246,8 +262,7 @@ def _run_touchscreen_detection(uevent_files: dict) -> bool:
 def test_touchscreen_detected_via_standard_udev_tag():
     files = {
         "/sys/class/input/event0/device/uevent": (
-            "NAME=\"ELAN Touchscreen\"\nPHYS=\"i2c-ELAN0001:00\"\n"
-            "ID_INPUT=1\nID_INPUT_TOUCHSCREEN=1\n"
+            'NAME="ELAN Touchscreen"\nPHYS="i2c-ELAN0001:00"\nID_INPUT=1\nID_INPUT_TOUCHSCREEN=1\n'
         )
     }
     assert _run_touchscreen_detection(files) is True
@@ -257,7 +272,7 @@ def test_touchscreen_detected_via_id_input_touch():
     """Devices like ASUS ROG Ally use ID_INPUT_TOUCH=1 instead of ID_INPUT_TOUCHSCREEN=1."""
     files = {
         "/sys/class/input/event0/device/uevent": (
-            "NAME=\"ILITEK ILITEK-TP\"\nPHYS=\"usb-0000:c4:00.3-3/input0\"\n"
+            'NAME="ILITEK ILITEK-TP"\nPHYS="usb-0000:c4:00.3-3/input0"\n'
             "ID_INPUT=1\nID_INPUT_TOUCH=1\n"
         )
     }
@@ -267,8 +282,7 @@ def test_touchscreen_detected_via_id_input_touch():
 def test_touchscreen_not_detected_when_absent():
     files = {
         "/sys/class/input/event0/device/uevent": (
-            "NAME=\"AT Translated Set 2 keyboard\"\n"
-            "ID_INPUT=1\nID_INPUT_KEY=1\n"
+            'NAME="AT Translated Set 2 keyboard"\nID_INPUT=1\nID_INPUT_KEY=1\n'
         )
     }
     assert _run_touchscreen_detection(files) is False
@@ -278,12 +292,11 @@ def test_touchscreen_detected_via_wacom_i2c_finger():
     """ThinkPad X13 Yoga Gen 3: Wacom I2C HID touch layer — no ID_INPUT_TOUCHSCREEN."""
     files = {
         "/sys/class/input/event8/device/uevent": (
-            "PRODUCT=18/56a/5288/100\nNAME=\"Wacom HID 5288 Pen\"\n"
-            "PHYS=\"i2c-WACF2200:00\"\n"
+            'PRODUCT=18/56a/5288/100\nNAME="Wacom HID 5288 Pen"\nPHYS="i2c-WACF2200:00"\n'
         ),
         "/sys/class/input/event9/device/uevent": (
-            "PRODUCT=18/56a/5288/100\nNAME=\"Wacom HID 5288 Finger\"\n"
-            "PHYS=\"i2c-WACF2200:00\"\n"
+            'PRODUCT=18/56a/5288/100\nNAME="Wacom HID 5288 Finger"\n'
+            'PHYS="i2c-WACF2200:00"\n'
             "ABS=260800000000003\n"
         ),
     }
@@ -294,8 +307,7 @@ def test_wacom_pen_alone_does_not_trigger_touchscreen():
     """Pen-only node must not count as a touchscreen."""
     files = {
         "/sys/class/input/event8/device/uevent": (
-            "PRODUCT=18/56a/5288/100\nNAME=\"Wacom HID 5288 Pen\"\n"
-            "PHYS=\"i2c-WACF2200:00\"\n"
+            'PRODUCT=18/56a/5288/100\nNAME="Wacom HID 5288 Pen"\nPHYS="i2c-WACF2200:00"\n'
         ),
     }
     assert _run_touchscreen_detection(files) is False
@@ -305,8 +317,7 @@ def test_usb_wacom_tablet_does_not_trigger_touchscreen():
     """External USB Wacom tablet with a Finger node must not trigger detection."""
     files = {
         "/sys/class/input/event3/device/uevent": (
-            "NAME=\"Wacom Intuos Pro M Finger\"\n"
-            "PHYS=\"usb-0000:00:14.0-3/input1\"\n"
+            'NAME="Wacom Intuos Pro M Finger"\nPHYS="usb-0000:00:14.0-3/input1"\n'
         ),
     }
     assert _run_touchscreen_detection(files) is False
@@ -316,15 +327,16 @@ def test_usb_wacom_tablet_does_not_trigger_touchscreen():
 # update_touch_panel() — switch_theme.py
 # ---------------------------------------------------------------------------
 
+
 def test_update_touch_panel_writes_colors_file(tmp_path, monkeypatch):
     colors_file = tmp_path / ".config" / "touch-panel" / "colors"
     monkeypatch.setattr(st, "TOUCH_PANEL_COLORS_FILE", str(colors_file))
     st.update_touch_panel(DARK_THEME)
     assert colors_file.exists()
     content = colors_file.read_text()
-    assert '#1e1e2e' in content
-    assert '#cdd6f4' in content
-    assert '#89b4fa' in content
+    assert "#1e1e2e" in content
+    assert "#cdd6f4" in content
+    assert "#89b4fa" in content
 
 
 def test_update_touch_panel_creates_config_dir(tmp_path, monkeypatch):
@@ -360,6 +372,7 @@ def test_update_touch_panel_signals_running_panel(tmp_path, monkeypatch):
     monkeypatch.setattr(st.os, "kill", lambda pid, sig: kill_calls.append((pid, sig)))
 
     import signal
+
     st.update_touch_panel(DARK_THEME)
     assert (12345, signal.SIGUSR1) in kill_calls
 
@@ -388,6 +401,7 @@ def test_update_touch_panel_no_signal_when_not_running(tmp_path, monkeypatch):
 
 SETUP_SH = Path(__file__).parent.parent.parent / "setup.sh"
 
+
 def _run_write_hardware_conf(
     tmp_path: Path,
     *,
@@ -405,7 +419,7 @@ def _run_write_hardware_conf(
         start = src.find(f"{name}()")
         assert start != -1, f"{name}() not found in setup.sh"
         end = src.find("\n}", start)
-        return src[src.rfind("\n", 0, start) + 1: end + 2]
+        return src[src.rfind("\n", 0, start) + 1 : end + 2]
 
     write_func = _extract_func(source, "write_hardware_conf")
 
@@ -415,9 +429,9 @@ def _run_write_hardware_conf(
     script = f"""
 set -euo pipefail
 HOME="{tmp_path}"
-_has_touchscreen()   {{ {'return 0' if has_touch  else 'return 1'}; }}
-_has_accelerometer() {{ {'return 0' if has_accel  else 'return 1'}; }}
-_has_nvidia()        {{ {'return 0' if has_nvidia else 'return 1'}; }}
+_has_touchscreen()   {{ {"return 0" if has_touch else "return 1"}; }}
+_has_accelerometer() {{ {"return 0" if has_accel else "return 1"}; }}
+_has_nvidia()        {{ {"return 0" if has_nvidia else "return 1"}; }}
 log_ok() {{ :; }}
 {write_func}
 write_hardware_conf
@@ -456,6 +470,7 @@ def test_write_hardware_conf_no_legacy_touch_output_key(tmp_path):
 # touch-panel-launcher + touch-panel-watch emission
 # ---------------------------------------------------------------------------
 
+
 def test_write_hardware_conf_emits_launcher_when_touch_detected(tmp_path):
     """touch-panel-launcher must be in exec-once when touchscreen is present."""
     conf = _run_write_hardware_conf(tmp_path, has_touch=True)
@@ -492,6 +507,7 @@ def test_write_hardware_conf_no_legacy_touch_panel_exec(tmp_path):
 # ---------------------------------------------------------------------------
 # write_hardware_conf() — Nvidia GPU env var generation
 # ---------------------------------------------------------------------------
+
 
 def test_write_hardware_conf_emits_libva_driver_when_nvidia(tmp_path):
     """LIBVA_DRIVER_NAME=nvidia must be set when Nvidia GPU is detected."""
@@ -541,9 +557,7 @@ def _run_launcher(tmp_path: Path, *, has_kbd: bool) -> subprocess.CompletedProce
     if has_kbd:
         uevent_dir = fake_sys / "event0" / "device"
         uevent_dir.mkdir(parents=True)
-        (uevent_dir / "uevent").write_text(
-            "ID_INPUT_KEYBOARD=1\nPHYS=usb-0000:00:14.0-2\n"
-        )
+        (uevent_dir / "uevent").write_text("ID_INPUT_KEYBOARD=1\nPHYS=usb-0000:00:14.0-2\n")
     else:
         # Create an input device that is NOT a keyboard (mouse)
         uevent_dir = fake_sys / "event0" / "device"
@@ -551,10 +565,8 @@ def _run_launcher(tmp_path: Path, *, has_kbd: bool) -> subprocess.CompletedProce
         (uevent_dir / "uevent").write_text("ID_INPUT_MOUSE=1\n")
 
     source = LAUNCHER.read_text()
-    patched = (
-        source
-        .replace("/sys/class/input", str(fake_sys))
-        .replace("exec touch-panel", "echo EXEC_TOUCH_PANEL")
+    patched = source.replace("/sys/class/input", str(fake_sys)).replace(
+        "exec touch-panel", "echo EXEC_TOUCH_PANEL"
     )
     return subprocess.run(["bash", "-c", patched], capture_output=True, text=True)
 
@@ -573,7 +585,6 @@ def test_launcher_starts_panel_when_no_keyboard(tmp_path):
     assert "EXEC_TOUCH_PANEL" in result.stdout
 
 
-
 # _hex_to_rgba — touch-panel CSS helper
 # ---------------------------------------------------------------------------
 
@@ -585,8 +596,8 @@ def _run_hex_to_rgba(hex_color: str, alpha: float) -> str:
     source = TOUCH_PANEL.read_text()
     # Extract just the _hex_to_rgba function
     start = source.index("def _hex_to_rgba(")
-    end   = source.index("\ndef ", start + 1)
-    func  = source[start:end]
+    end = source.index("\ndef ", start + 1)
+    func = source[start:end]
     script = f"{func}\nprint(_hex_to_rgba({hex_color!r}, {alpha}))"
     result = subprocess.run(["python3", "-c", script], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -617,10 +628,11 @@ def test_hex_to_rgba_fallback_invalid():
 # reapply_current_theme
 # ---------------------------------------------------------------------------
 
+
 def _run_reapply_current_theme(
     tmp_path: Path,
     *,
-    state_content: str | None = None,   # None → no state file
+    state_content: str | None = None,  # None → no state file
     script_present: bool = True,
     python_exit_code: int = 0,
 ) -> tuple[int, str, str]:
@@ -633,7 +645,7 @@ def _run_reapply_current_theme(
     start = source.find("reapply_current_theme()")
     assert start != -1, "reapply_current_theme() not found in setup.sh"
     end = source.find("\n}", start)
-    func = source[source.rfind("\n", 0, start) + 1: end + 2]
+    func = source[source.rfind("\n", 0, start) + 1 : end + 2]
 
     # Set up fake home
     config_hypr = tmp_path / ".config" / "hypr"
@@ -651,9 +663,7 @@ def _run_reapply_current_theme(
 
     # Stub python3 to capture the args it was called with
     fake_python = tmp_path / "fake_python3"
-    fake_python.write_text(
-        f"#!/usr/bin/env bash\necho \"called: $@\"\nexit {python_exit_code}\n"
-    )
+    fake_python.write_text(f'#!/usr/bin/env bash\necho "called: $@"\nexit {python_exit_code}\n')
     fake_python.chmod(0o755)
 
     bash_script = f"""
@@ -693,5 +703,5 @@ def test_reapply_current_theme_warns_on_script_failure(tmp_path):
     rc, out, _ = _run_reapply_current_theme(
         tmp_path, state_content="catppuccin-mocha\n", python_exit_code=1
     )
-    assert rc == 0           # reapply_current_theme itself must not fail
+    assert rc == 0  # reapply_current_theme itself must not fail
     assert "WARN" in out

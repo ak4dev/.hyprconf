@@ -10,6 +10,7 @@ Two layers:
     kill-switch (both Proton-delegated and generic-nftables) are exercised
     without a live VPN, root, or real netfilter changes.
 """
+
 from __future__ import annotations
 
 import json
@@ -45,6 +46,7 @@ def _bin_text() -> str:
 # Static analysis: reachability + validity
 # ===========================================================================
 
+
 def test_script_exists_in_stowed_bin() -> None:
     assert SCRIPT.exists(), (
         "hyprconf-vpn must live under stow/hypr/.local/bin so it is stowed onto "
@@ -62,9 +64,7 @@ def test_script_shebang() -> None:
 
 
 def test_script_bash_syntax() -> None:
-    result = subprocess.run(
-        ["bash", "-n", str(SCRIPT)], capture_output=True, text=True
-    )
+    result = subprocess.run(["bash", "-n", str(SCRIPT)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
 
 
@@ -77,11 +77,11 @@ def test_json_output_has_no_color_escapes() -> None:
 # Static analysis: core-package + CLI wiring
 # ===========================================================================
 
+
 def test_core_packages_include_vpn_plugin() -> None:
     pkgs = PACKAGES.read_text(encoding="utf-8")
     active = [
-        ln.strip() for ln in pkgs.splitlines()
-        if ln.strip() and not ln.lstrip().startswith("#")
+        ln.strip() for ln in pkgs.splitlines() if ln.strip() and not ln.lstrip().startswith("#")
     ]
     assert "networkmanager-openvpn" in active, (
         "networkmanager-openvpn must be a core package — the user's existing "
@@ -111,6 +111,7 @@ def test_cli_vpn_handles_missing_helper() -> None:
 # ===========================================================================
 # Static analysis: the `vpn` addon (ProtonVPN CLI)
 # ===========================================================================
+
 
 def test_vpn_addon_registered() -> None:
     # Resilient to other addons being added/reordered — just require `vpn` in
@@ -146,6 +147,7 @@ def test_vpn_addon_post_install_is_non_interactive() -> None:
 # Static analysis: waybar module + doctor integration
 # ===========================================================================
 
+
 def test_doctor_runs_vpn_check() -> None:
     txt = _bin_text()
     assert "_doctor_check_vpn()" in txt
@@ -171,8 +173,21 @@ def test_waybar_module_wired() -> None:
 # the fake dir, the host's real protonvpn/nmcli/nft can never leak in and block
 # (real `protonvpn config list` hangs on its daemon).
 _SYS_BINS = (
-    "bash", "awk", "grep", "sort", "install", "tee", "rm", "dirname", "cat",
-    "sed", "env", "mkdir", "head", "tail", "timeout",
+    "bash",
+    "awk",
+    "grep",
+    "sort",
+    "install",
+    "tee",
+    "rm",
+    "dirname",
+    "cat",
+    "sed",
+    "env",
+    "mkdir",
+    "head",
+    "tail",
+    "timeout",
 )
 
 
@@ -194,12 +209,12 @@ def _run_vpn(
     tmp: Path,
     args: list[str],
     *,
-    active: str = "",          # lines for `-f NAME,TYPE connection show --active`
-    active_dev: str = "",      # lines for `-f DEVICE,TYPE connection show --active`
-    profiles: str = "",        # lines for `-f NAME,TYPE connection show`
-    vpn_data: str = "",        # lines for `-f vpn.data connection show <name>`
+    active: str = "",  # lines for `-f NAME,TYPE connection show --active`
+    active_dev: str = "",  # lines for `-f DEVICE,TYPE connection show --active`
+    profiles: str = "",  # lines for `-f NAME,TYPE connection show`
+    vpn_data: str = "",  # lines for `-f vpn.data connection show <name>`
     proton: bool = False,
-    proton_ks: str = "off",    # value `protonvpn config list` reports
+    proton_ks: str = "off",  # value `protonvpn config list` reports
     with_nft: bool = False,
     nft_table_present: bool = False,
     up_rc: int = 0,
@@ -221,7 +236,10 @@ def _run_vpn(
     (tmp / "profiles.txt").write_text(profiles)
     (tmp / "vpndata.txt").write_text(vpn_data)
 
-    _make_fake_bin(fake, "nmcli", f"""
+    _make_fake_bin(
+        fake,
+        "nmcli",
+        f"""
 echo "nmcli $*" >> "{calls}"
 args="$*"
 case "$args" in
@@ -234,10 +252,14 @@ case "$args" in
   *"connection import"*) exit {import_rc} ;;
   *) exit 0 ;;
 esac
-""")
+""",
+    )
 
     if proton:
-        _make_fake_bin(fake, "protonvpn", f"""
+        _make_fake_bin(
+            fake,
+            "protonvpn",
+            f"""
 echo "protonvpn $*" >> "{calls}"
 if [[ "$1 $2" == "config list" ]]; then
   echo "kill-switch: {proton_ks}"
@@ -247,15 +269,20 @@ if [[ "$1 $2 $3" == "config set kill-switch" ]]; then
   exit 0
 fi
 exit 0
-""")
+""",
+        )
 
     if with_nft:
         present = "0" if nft_table_present else "1"
-        _make_fake_bin(fake, "nft", f"""
+        _make_fake_bin(
+            fake,
+            "nft",
+            f"""
 echo "nft $*" >> "{calls}"
 if [[ "$1 $2" == "list table" ]]; then exit {present}; fi
 exit 0
-""")
+""",
+        )
         # sudo → run the rest directly (so real tee/install write to the tmp
         # KS file); fake nft/wg are picked up from PATH.
         _make_fake_bin(fake, "sudo", 'exec "$@"\n')
@@ -263,7 +290,7 @@ exit 0
 
     if have_pacman:
         # Pretend the OpenVPN plugin is installed so import doesn't warn-skip.
-        _make_fake_bin(fake, "pacman", 'exit 0\n')
+        _make_fake_bin(fake, "pacman", "exit 0\n")
 
     env = os.environ.copy()
     # Hermetic PATH — only the fake dir. The host's real protonvpn/nmcli/nft
@@ -274,7 +301,9 @@ exit 0
 
     result = subprocess.run(
         [str(fake / "bash"), str(SCRIPT), *args],
-        env=env, capture_output=True, text=True,
+        env=env,
+        capture_output=True,
+        text=True,
     )
     recorded = []
     if calls.exists():
@@ -290,10 +319,9 @@ _PROFILES = "myvpn:vpn\nWired connection 1:802-3-ethernet\n"
 
 # --- status ---------------------------------------------------------------
 
+
 def test_status_reports_active_vpn(tmp_path: Path) -> None:
-    rc, out, _, _ = _run_vpn(
-        tmp_path, ["status"], active=_ACTIVE, active_dev=_ACTIVE_DEV
-    )
+    rc, out, _, _ = _run_vpn(tmp_path, ["status"], active=_ACTIVE, active_dev=_ACTIVE_DEV)
     assert rc == 0
     assert "myvpn" in out
     assert "tun0" in out
@@ -306,9 +334,7 @@ def test_status_reports_disconnected(tmp_path: Path) -> None:
 
 
 def test_status_json_is_valid_and_classed(tmp_path: Path) -> None:
-    rc, out, _, _ = _run_vpn(
-        tmp_path, ["status", "--json"], active=_ACTIVE, active_dev=_ACTIVE_DEV
-    )
+    rc, out, _, _ = _run_vpn(tmp_path, ["status", "--json"], active=_ACTIVE, active_dev=_ACTIVE_DEV)
     assert rc == 0
     data = json.loads(out.strip())
     assert set(data) == {"text", "tooltip", "class"}
@@ -330,20 +356,21 @@ def test_status_json_escapes_quotes_in_profile_name(tmp_path: Path) -> None:
     # backslash; the waybar tooltip must stay valid JSON (no broken/injected
     # payload) and carry the name verbatim once parsed.
     rc, out, _, _ = _run_vpn(
-        tmp_path, ["status", "--json"],
-        active='my"quoted"vpn:vpn\n', active_dev=_ACTIVE_DEV,
+        tmp_path,
+        ["status", "--json"],
+        active='my"quoted"vpn:vpn\n',
+        active_dev=_ACTIVE_DEV,
     )
     assert rc == 0
-    data = json.loads(out.strip())          # must parse — proves no malformed JSON
+    data = json.loads(out.strip())  # must parse — proves no malformed JSON
     assert 'my"quoted"vpn' in data["tooltip"]
 
 
 # --- list -----------------------------------------------------------------
 
+
 def test_list_shows_only_vpn_profiles(tmp_path: Path) -> None:
-    rc, out, _, _ = _run_vpn(
-        tmp_path, ["list"], profiles=_PROFILES, active=_ACTIVE
-    )
+    rc, out, _, _ = _run_vpn(tmp_path, ["list"], profiles=_PROFILES, active=_ACTIVE)
     assert rc == 0
     assert "myvpn" in out
     assert "Wired connection 1" not in out  # 802-3-ethernet is not a VPN profile
@@ -357,17 +384,17 @@ def test_list_empty(tmp_path: Path) -> None:
 
 # --- connect / disconnect -------------------------------------------------
 
+
 def test_connect_uses_sole_profile_by_default(tmp_path: Path) -> None:
-    rc, _, _, calls = _run_vpn(
-        tmp_path, ["connect"], profiles="myvpn:vpn\n"
-    )
+    rc, _, _, calls = _run_vpn(tmp_path, ["connect"], profiles="myvpn:vpn\n")
     assert rc == 0
     assert any("connection up myvpn" in c for c in calls)
 
 
 def test_connect_requires_name_when_ambiguous(tmp_path: Path) -> None:
     rc, _, err, calls = _run_vpn(
-        tmp_path, ["connect"],
+        tmp_path,
+        ["connect"],
         profiles="a:vpn\nb:wireguard\n",
     )
     assert rc == 1
@@ -382,16 +409,12 @@ def test_connect_forwards_explicit_name(tmp_path: Path) -> None:
 
 
 def test_connect_propagates_failure(tmp_path: Path) -> None:
-    rc, _, _, _ = _run_vpn(
-        tmp_path, ["connect", "myvpn"], profiles="", up_rc=1
-    )
+    rc, _, _, _ = _run_vpn(tmp_path, ["connect", "myvpn"], profiles="", up_rc=1)
     assert rc == 1
 
 
 def test_disconnect_defaults_to_active(tmp_path: Path) -> None:
-    rc, _, _, calls = _run_vpn(
-        tmp_path, ["disconnect"], active=_ACTIVE
-    )
+    rc, _, _, calls = _run_vpn(tmp_path, ["disconnect"], active=_ACTIVE)
     assert rc == 0
     assert any("connection down myvpn" in c for c in calls)
 
@@ -405,7 +428,9 @@ def test_toggle_disconnects_when_active(tmp_path: Path) -> None:
 
 def test_toggle_connects_when_inactive(tmp_path: Path) -> None:
     rc, _, _, calls = _run_vpn(
-        tmp_path, ["toggle"], active="",
+        tmp_path,
+        ["toggle"],
+        active="",
         profiles="myvpn:vpn\n",
     )
     assert rc == 0
@@ -414,6 +439,7 @@ def test_toggle_connects_when_inactive(tmp_path: Path) -> None:
 
 
 # --- import ---------------------------------------------------------------
+
 
 def test_import_detects_openvpn(tmp_path: Path) -> None:
     f = tmp_path / "server.ovpn"
@@ -447,37 +473,36 @@ def test_import_rejects_unrecognized(tmp_path: Path) -> None:
 
 # --- killswitch: Proton delegation ----------------------------------------
 
+
 def test_killswitch_on_delegates_to_proton(tmp_path: Path) -> None:
-    rc, _, _, calls = _run_vpn(
-        tmp_path, ["killswitch", "on"], proton=True
-    )
+    rc, _, _, calls = _run_vpn(tmp_path, ["killswitch", "on"], proton=True)
     assert rc == 0
     assert any("config set kill-switch standard" in c for c in calls)
 
 
 def test_killswitch_off_delegates_to_proton(tmp_path: Path) -> None:
-    rc, _, _, calls = _run_vpn(
-        tmp_path, ["killswitch", "off"], proton=True
-    )
+    rc, _, _, calls = _run_vpn(tmp_path, ["killswitch", "off"], proton=True)
     assert rc == 0
     assert any("config set kill-switch off" in c for c in calls)
 
 
 def test_killswitch_status_reads_proton(tmp_path: Path) -> None:
-    rc, out, _, _ = _run_vpn(
-        tmp_path, ["killswitch", "status"], proton=True, proton_ks="standard"
-    )
+    rc, out, _, _ = _run_vpn(tmp_path, ["killswitch", "status"], proton=True, proton_ks="standard")
     assert rc == 0
     assert "ON" in out
 
 
 # --- killswitch: generic nftables -----------------------------------------
 
+
 def test_killswitch_on_generic_writes_and_applies(tmp_path: Path) -> None:
     rc, _, _, calls = _run_vpn(
-        tmp_path, ["killswitch", "on"],
-        active=_ACTIVE, active_dev=_ACTIVE_DEV,
-        with_nft=True, proton=False,
+        tmp_path,
+        ["killswitch", "on"],
+        active=_ACTIVE,
+        active_dev=_ACTIVE_DEV,
+        with_nft=True,
+        proton=False,
     )
     assert rc == 0
     # Ruleset written to the (tmp) KS file and applied via nft -f.
@@ -486,23 +511,24 @@ def test_killswitch_on_generic_writes_and_applies(tmp_path: Path) -> None:
     body = ks.read_text()
     assert "table inet hyprconf_killswitch" in body
     assert "policy drop" in body
-    assert "tun0" in body                      # detected tunnel device
+    assert "tun0" in body  # detected tunnel device
     assert "ct state established,related accept" in body
     assert any("nft -f" in c for c in calls)
 
 
 def test_killswitch_off_generic_deletes_table(tmp_path: Path) -> None:
-    rc, _, _, calls = _run_vpn(
-        tmp_path, ["killswitch", "off"], with_nft=True, proton=False
-    )
+    rc, _, _, calls = _run_vpn(tmp_path, ["killswitch", "off"], with_nft=True, proton=False)
     assert rc == 0
     assert any("delete table inet hyprconf_killswitch" in c for c in calls)
 
 
 def test_killswitch_status_generic_reports_table(tmp_path: Path) -> None:
     rc, out, _, _ = _run_vpn(
-        tmp_path, ["killswitch", "status"],
-        with_nft=True, nft_table_present=True, proton=False,
+        tmp_path,
+        ["killswitch", "status"],
+        with_nft=True,
+        nft_table_present=True,
+        proton=False,
     )
     assert rc == 0
     assert "ON" in out
@@ -512,14 +538,16 @@ def test_killswitch_status_generic_reports_table(tmp_path: Path) -> None:
 def test_generic_killswitch_ruleset_is_valid_nft_syntax(tmp_path: Path) -> None:
     # Generate the real ruleset, then syntax-check it with the real nft.
     _run_vpn(
-        tmp_path, ["killswitch", "on"],
-        active=_ACTIVE, active_dev=_ACTIVE_DEV, with_nft=True, proton=False,
+        tmp_path,
+        ["killswitch", "on"],
+        active=_ACTIVE,
+        active_dev=_ACTIVE_DEV,
+        with_nft=True,
+        proton=False,
     )
     ks = tmp_path / "killswitch.nft"
     assert ks.exists()
-    check = subprocess.run(
-        [_REAL_NFT, "-c", "-f", str(ks)], capture_output=True, text=True
-    )
+    check = subprocess.run([_REAL_NFT, "-c", "-f", str(ks)], capture_output=True, text=True)
     # `-c` is parse/dry-run, but unprivileged nft still initializes a netlink
     # cache against the live ruleset, which needs CAP_NET_ADMIN. Such failures
     # ("Operation not permitted" / "permission denied" / "cache initialization
@@ -534,6 +562,7 @@ def test_generic_killswitch_ruleset_is_valid_nft_syntax(tmp_path: Path) -> None:
 
 
 # --- dispatch -------------------------------------------------------------
+
 
 def test_unknown_subcommand_errors(tmp_path: Path) -> None:
     rc, _, err, _ = _run_vpn(tmp_path, ["bogus"])

@@ -11,12 +11,12 @@ so no compositor connection is required, and exercise:
 - _on_launcher collapses the menu and spawns hyprlauncher
 - _reload_colors updates CSS without changing expand state
 """
+
 from __future__ import annotations
 
 import importlib.util
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -30,8 +30,9 @@ TOUCH_PANEL_PATH = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "touch-panel
 # Ensure gi is importable and GTK3 is available before we start.
 pytest.importorskip("gi", reason="python-gobject not installed")
 
-import gi  # noqa: E402
 from importlib.machinery import SourceFileLoader  # noqa: E402
+
+import gi  # noqa: E402
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("GtkLayerShell", "0.1")
@@ -48,6 +49,7 @@ TouchPanel = _tp_mod.TouchPanel
 # Fixtures
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def panel():
     """TouchPanel with layer-shell and CSS init mocked to avoid compositor."""
@@ -63,6 +65,7 @@ def panel():
 # ---------------------------------------------------------------------------
 # Expand-box initial state
 # ---------------------------------------------------------------------------
+
 
 def test_expand_box_has_no_show_all(panel: TouchPanel) -> None:
     """no_show_all must be set so show_all() cannot un-hide the menu."""
@@ -87,6 +90,7 @@ def test_initial_expanded_flag_is_false(panel: TouchPanel) -> None:
 # ---------------------------------------------------------------------------
 # FAB toggle
 # ---------------------------------------------------------------------------
+
 
 def test_fab_first_tap_expands(panel: TouchPanel) -> None:
     panel._on_fab(panel._btn_fab)
@@ -119,6 +123,7 @@ def test_fab_expand_makes_child_buttons_visible(panel: TouchPanel) -> None:
 # OSK button
 # ---------------------------------------------------------------------------
 
+
 def test_on_osk_spawns_wvkbd_toggle(
     panel: TouchPanel, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -150,6 +155,7 @@ def test_on_osk_silent_when_toggle_missing(
 # Launcher button
 # ---------------------------------------------------------------------------
 
+
 def test_on_launcher_spawns_hyprlauncher(panel: TouchPanel) -> None:
     with patch.object(_tp_mod.subprocess, "Popen") as mock_popen:
         panel._on_launcher(panel._btn_launcher)
@@ -172,6 +178,7 @@ def test_on_launcher_collapses_menu(panel: TouchPanel) -> None:
 # ---------------------------------------------------------------------------
 # Color reload
 # ---------------------------------------------------------------------------
+
 
 def test_reload_colors_preserves_collapsed_state(panel: TouchPanel, tmp_path: Path) -> None:
     """SIGUSR1 color reload must not change the panel's expand state."""
@@ -197,14 +204,15 @@ def test_reload_colors_preserves_expanded_state(panel: TouchPanel) -> None:
 # touch-panel-launcher grep regression
 # ---------------------------------------------------------------------------
 
+
 def test_touch_panel_launcher_uses_grep_E_for_phys() -> None:
     """Regression: touch-panel-launcher must use grep -E (ERE) for PHYS pattern,
     not the GNU-only BRE \\+ extension."""
     launcher = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "touch-panel-launcher"
     source = launcher.read_text()
     # Must NOT use BRE \+ (GNU extension that's not POSIX)
-    assert r"grep -q '^PHYS=.\+'" not in source, \
+    assert r"grep -q '^PHYS=.\+'" not in source, (
         "touch-panel-launcher still uses non-POSIX BRE \\+ — should use grep -E"
+    )
     # Must use ERE form
-    assert "grep -E" in source, \
-        "touch-panel-launcher must use grep -E for PHYS pattern"
+    assert "grep -E" in source, "touch-panel-launcher must use grep -E for PHYS pattern"

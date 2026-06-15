@@ -1,4 +1,5 @@
 """Tests for stow/hypr/.config/hypr/scripts/adjust-gaps."""
+
 from __future__ import annotations
 
 import json
@@ -9,11 +10,14 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-import pytest
-
 SCRIPT = (
     Path(__file__).parent.parent.parent
-    / "stow" / "hypr" / ".config" / "hypr" / "scripts" / "adjust-gaps"
+    / "stow"
+    / "hypr"
+    / ".config"
+    / "hypr"
+    / "scripts"
+    / "adjust-gaps"
 )
 
 
@@ -56,20 +60,28 @@ def _run(direction: str, gaps_in: int, gaps_out: int) -> tuple[int, list[str]]:
         fake_hyprctl = fake_dir / "hyprctl"
         calls_file = fake_dir / "calls.txt"
 
-        json_in = json.dumps({
-            "option": "general:gaps_in", "int": 0, "float": 0.0,
-            "str": "", "custom": f"{gaps_in} {gaps_in} {gaps_in} {gaps_in}",
-            "set": True,
-        })
-        json_out = json.dumps({
-            "option": "general:gaps_out", "int": 0, "float": 0.0,
-            "str": "", "custom": f"{gaps_out} {gaps_out} {gaps_out} {gaps_out}",
-            "set": True,
-        })
-
-        fake_hyprctl.write_text(
-            _fake_hyprctl_script(calls_file, json_in, json_out)
+        json_in = json.dumps(
+            {
+                "option": "general:gaps_in",
+                "int": 0,
+                "float": 0.0,
+                "str": "",
+                "custom": f"{gaps_in} {gaps_in} {gaps_in} {gaps_in}",
+                "set": True,
+            }
         )
+        json_out = json.dumps(
+            {
+                "option": "general:gaps_out",
+                "int": 0,
+                "float": 0.0,
+                "str": "",
+                "custom": f"{gaps_out} {gaps_out} {gaps_out} {gaps_out}",
+                "set": True,
+            }
+        )
+
+        fake_hyprctl.write_text(_fake_hyprctl_script(calls_file, json_in, json_out))
         fake_hyprctl.chmod(0o755)
 
         env = os.environ.copy()
@@ -94,6 +106,7 @@ def _run(direction: str, gaps_in: int, gaps_out: int) -> tuple[int, list[str]]:
 # ---------------------------------------------------------------------------
 # Increase
 # ---------------------------------------------------------------------------
+
 
 def test_increase_by_step():
     rc, calls = _run("+", gaps_in=10, gaps_out=20)
@@ -120,6 +133,7 @@ def test_increase_large_values():
 # ---------------------------------------------------------------------------
 # Decrease
 # ---------------------------------------------------------------------------
+
 
 def test_decrease_by_step():
     rc, calls = _run("-", gaps_in=15, gaps_out=25)
@@ -168,13 +182,15 @@ def test_decrease_positive_result_does_not_abort():
 # Regression: broken/empty hyprctl output must not crash
 # ---------------------------------------------------------------------------
 
+
 def test_increase_with_broken_hyprctl_output_defaults_to_zero(tmp_path):
     """Regression: if hyprctl getoption returns non-JSON output, python3
     json.load raises and the '|| echo 0' fallback must kick in."""
     fake_hyprctl = tmp_path / "hyprctl"
     calls_file = tmp_path / "calls.txt"
 
-    fake_hyprctl.write_text(textwrap.dedent(f"""\
+    fake_hyprctl.write_text(
+        textwrap.dedent(f"""\
         #!/usr/bin/env bash
         if [[ "$1" == "getoption" ]]; then
             echo "option: general:gaps_in = 10"
@@ -187,7 +203,8 @@ def test_increase_with_broken_hyprctl_output_defaults_to_zero(tmp_path):
                 fi
             done
         fi
-    """))
+    """)
+    )
     fake_hyprctl.chmod(0o755)
 
     env = os.environ.copy()
@@ -217,18 +234,26 @@ def test_increase_with_int_field_fallback():
         fake_hyprctl = fake_dir / "hyprctl"
         calls_file = fake_dir / "calls.txt"
 
-        json_in = json.dumps({
-            "option": "general:gaps_in", "int": 8, "float": 0.0,
-            "str": "", "set": True,
-        })
-        json_out = json.dumps({
-            "option": "general:gaps_out", "int": 15, "float": 0.0,
-            "str": "", "set": True,
-        })
-
-        fake_hyprctl.write_text(
-            _fake_hyprctl_script(calls_file, json_in, json_out)
+        json_in = json.dumps(
+            {
+                "option": "general:gaps_in",
+                "int": 8,
+                "float": 0.0,
+                "str": "",
+                "set": True,
+            }
         )
+        json_out = json.dumps(
+            {
+                "option": "general:gaps_out",
+                "int": 15,
+                "float": 0.0,
+                "str": "",
+                "set": True,
+            }
+        )
+
+        fake_hyprctl.write_text(_fake_hyprctl_script(calls_file, json_in, json_out))
         fake_hyprctl.chmod(0o755)
 
         env = os.environ.copy()

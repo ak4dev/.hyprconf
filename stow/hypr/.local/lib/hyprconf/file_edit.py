@@ -7,13 +7,13 @@ monitors) build on top of these functions.
 All mutations are atomic: the file is written to a sibling temp file and then
 renamed into place, so a crash mid-write can never corrupt the config.
 """
+
 from __future__ import annotations
 
 import os
 import re
 import tempfile
 from pathlib import Path
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Shared parsing helpers (used by block_conf, hyprpaper, keybinds, monitors)
@@ -54,6 +54,7 @@ def resolve_source_paths(directive_value: str, relative_to: Path) -> list[Path]:
 #  Read helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def read_lines(path: Path) -> list[str]:
     """Return the file's lines (without trailing newline on each).
 
@@ -68,6 +69,7 @@ def read_lines(path: Path) -> list[str]:
 # ─────────────────────────────────────────────────────────────────────────────
 #  Atomic write helper
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def _write_lines(path: Path, lines: list[str]) -> None:
     """Write *lines* to *path* atomically (temp-file + rename).
@@ -109,6 +111,7 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
 #  Mutation primitives
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def update_line(path: Path, line_idx: int, new_content: str) -> bool:
     """Replace line *line_idx* (0-based) with *new_content*.
 
@@ -144,7 +147,7 @@ def append_block(path: Path, block: str) -> bool:
     lines = read_lines(path)
     block_lines = block.splitlines()
     if lines and lines[-1].strip():
-        lines.append("")          # blank separator
+        lines.append("")  # blank separator
     lines.extend(block_lines)
     try:
         _write_lines(path, lines)
@@ -161,7 +164,7 @@ def delete_lines(path: Path, start_idx: int, end_idx: int) -> bool:
     lines = read_lines(path)
     if not (0 <= start_idx <= end_idx < len(lines)):
         return False
-    del lines[start_idx:end_idx + 1]
+    del lines[start_idx : end_idx + 1]
     try:
         _write_lines(path, lines)
         return True

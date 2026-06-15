@@ -1,9 +1,8 @@
 """Tests for hyprconf.hypridle — hypridle config block reader/writer."""
+
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
 
 from hyprconf.hypridle import (
     BLOCK_DEFAULTS,
@@ -40,6 +39,7 @@ listener {
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _idle_file(hypr_dir: Path, content: str = HYPRIDLE_CONF) -> Path:
     p = hypr_dir / "hypridle.conf"
     p.write_text(content)
@@ -49,6 +49,7 @@ def _idle_file(hypr_dir: Path, content: str = HYPRIDLE_CONF) -> Path:
 # ---------------------------------------------------------------------------
 # read_hypridle_blocks
 # ---------------------------------------------------------------------------
+
 
 def test_reads_all_blocks(hypr_dir: Path) -> None:
     p = _idle_file(hypr_dir)
@@ -87,12 +88,17 @@ def test_empty_file_returns_empty(hypr_dir: Path) -> None:
 # update_hypridle_field
 # ---------------------------------------------------------------------------
 
+
 def test_update_general_field(hypr_dir: Path) -> None:
     p = _idle_file(hypr_dir)
     blocks = read_hypridle_blocks(p)
     general = next(b for b in blocks if b.block_type == "general")
-    assert update_hypridle_field(p, general.start_line, general.end_line,
-                                 "ignore_dbus_inhibit", "true") is True
+    assert (
+        update_hypridle_field(
+            p, general.start_line, general.end_line, "ignore_dbus_inhibit", "true"
+        )
+        is True
+    )
     updated = read_hypridle_blocks(p)
     updated_general = next(b for b in updated if b.block_type == "general")
     assert updated_general.fields["ignore_dbus_inhibit"] == "true"
@@ -122,6 +128,7 @@ def test_update_inserts_new_field(hypr_dir: Path) -> None:
 # delete_hypridle_block
 # ---------------------------------------------------------------------------
 
+
 def test_delete_listener_block(hypr_dir: Path) -> None:
     p = _idle_file(hypr_dir)
     blocks = read_hypridle_blocks(p)
@@ -145,6 +152,7 @@ def test_delete_all_blocks(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # add_hypridle_block
 # ---------------------------------------------------------------------------
+
 
 def test_add_general_block_uses_defaults(hypr_dir: Path) -> None:
     p = _idle_file(hypr_dir, "")
@@ -183,6 +191,7 @@ def test_add_listener_skips_empty_on_resume(hypr_dir: Path) -> None:
 # add_listener convenience function
 # ---------------------------------------------------------------------------
 
+
 def test_add_listener_shortcut(hypr_dir: Path) -> None:
     p = _idle_file(hypr_dir, "")
     assert add_listener("180", "hyprlock", path=p) is True
@@ -193,8 +202,7 @@ def test_add_listener_shortcut(hypr_dir: Path) -> None:
 
 def test_add_listener_with_on_resume(hypr_dir: Path) -> None:
     p = _idle_file(hypr_dir, "")
-    add_listener("600", "hyprctl dispatch dpms off",
-                 on_resume="hyprctl dispatch dpms on", path=p)
+    add_listener("600", "hyprctl dispatch dpms off", on_resume="hyprctl dispatch dpms on", path=p)
     blocks = read_hypridle_blocks(p)
     assert blocks[0].fields["on-resume"] == "hyprctl dispatch dpms on"
 
@@ -202,6 +210,7 @@ def test_add_listener_with_on_resume(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # Schema constants
 # ---------------------------------------------------------------------------
+
 
 def test_block_types_known(hypr_dir: Path) -> None:
     assert "general" in BLOCK_TYPES

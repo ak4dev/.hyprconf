@@ -11,10 +11,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from typing import Optional
-
 
 # ── Session detection ──────────────────────────────────────────────────────────
+
 
 def is_active() -> bool:
     """Return True if a Hyprland session is currently running."""
@@ -23,7 +22,8 @@ def is_active() -> bool:
 
 # ── Low-level runner ───────────────────────────────────────────────────────────
 
-def _run(args: list[str], timeout: float = 3.0) -> Optional[str]:
+
+def _run(args: list[str], timeout: float = 3.0) -> str | None:
     """Run a command, return stdout on success or None on failure."""
     try:
         result = subprocess.run(
@@ -39,7 +39,8 @@ def _run(args: list[str], timeout: float = 3.0) -> Optional[str]:
 
 # ── Option read ────────────────────────────────────────────────────────────────
 
-def get_option(section: str, key: str) -> Optional[str]:
+
+def get_option(section: str, key: str) -> str | None:
     """Read the current live value of a Hyprland option via hyprctl getoption.
 
     Returns the most human-readable field from the JSON response, or None if
@@ -64,7 +65,7 @@ def get_option(section: str, key: str) -> Optional[str]:
         # col field: ARGB integer → hex string
         col = d.get("col")
         if col is not None and int(col) != 0:
-            return f"0x{int(col) & 0xffffffff:08x}"
+            return f"0x{int(col) & 0xFFFFFFFF:08x}"
         # Prefer float when it has a meaningful fractional component
         f = d.get("float", 0.0)
         i = d.get("int", 0)
@@ -83,6 +84,7 @@ def get_option(section: str, key: str) -> Optional[str]:
 
 # ── Option write ───────────────────────────────────────────────────────────────
 
+
 def set_option(section: str, key: str, value: str) -> bool:
     """Apply a Hyprland option at runtime via hyprctl keyword.
 
@@ -96,6 +98,7 @@ def set_option(section: str, key: str, value: str) -> bool:
 
 
 # ── Monitors ───────────────────────────────────────────────────────────────────
+
 
 def get_monitors() -> list[dict]:
     """Return the current monitor list as parsed JSON, or [] on failure."""
@@ -120,6 +123,7 @@ def set_monitor(keyword: str) -> bool:
 
 # ── Reload ─────────────────────────────────────────────────────────────────────
 
+
 def reload() -> bool:
     """Signal Hyprland to reload its configuration."""
     if not is_active():
@@ -128,6 +132,7 @@ def reload() -> bool:
 
 
 # ── Generic dispatch ───────────────────────────────────────────────────────────
+
 
 def dispatch(action: str, *args: str) -> bool:
     """Send a hyprctl dispatch command."""

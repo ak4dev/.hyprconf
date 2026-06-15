@@ -11,36 +11,46 @@ Format:
 Bind flags (may be combined): l (locked), r (release), e (repeat),
                                n (non-consuming), m (mouse), t (transparent).
 """
+
 from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
-from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment, SOURCE_RE, resolve_source_paths
+from .file_edit import (
+    SOURCE_RE,
+    append_block,
+    delete_line,
+    read_lines,
+    resolve_source_paths,
+    strip_comment,
+    update_line,
+)
 from .paths import KEYBINDS_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Data types
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class KeybindEntry(NamedTuple):
-    kind:       str          # bind / bindl / bindel / etc.
-    mods:       str          # e.g. "$mainMod SHIFT" or ""
-    key:        str          # e.g. "T" or "XF86AudioPlay"
-    dispatcher: str          # e.g. "exec"
-    args:       str          # e.g. "alacritty"
-    file_path:  Path         # source file
-    line_idx:   int          # 0-based line index in file_path
-    raw_line:   str          # verbatim line (for display / round-trip)
+    kind: str  # bind / bindl / bindel / etc.
+    mods: str  # e.g. "$mainMod SHIFT" or ""
+    key: str  # e.g. "T" or "XF86AudioPlay"
+    dispatcher: str  # e.g. "exec"
+    args: str  # e.g. "alacritty"
+    file_path: Path  # source file
+    line_idx: int  # 0-based line index in file_path
+    raw_line: str  # verbatim line (for display / round-trip)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Parsing
 # ─────────────────────────────────────────────────────────────────────────────
 
-_BIND_RE    = re.compile(r"^(bind[a-zA-Z]*)\s*=\s*(.+)$")
-_VAR_RE     = re.compile(r"^\$([A-Za-z0-9_]+)\s*=\s*(.+)$")
+_BIND_RE = re.compile(r"^(bind[a-zA-Z]*)\s*=\s*(.+)$")
+_VAR_RE = re.compile(r"^\$([A-Za-z0-9_]+)\s*=\s*(.+)$")
 
 
 def _expand_vars(text: str, vars_: dict[str, str]) -> str:
@@ -50,7 +60,7 @@ def _expand_vars(text: str, vars_: dict[str, str]) -> str:
 
 
 def read_keybinds_with_location(
-    path: Optional[Path] = None,
+    path: Path | None = None,
     *,
     follow_sources: bool = False,
 ) -> list[KeybindEntry]:
@@ -96,19 +106,21 @@ def read_keybinds_with_location(
                 while len(parts) < 4:
                     parts.append("")
                 mods = _expand_vars(parts[0], local_vars)
-                key  = _expand_vars(parts[1], local_vars)
+                key = _expand_vars(parts[1], local_vars)
                 disp = parts[2]
                 args = _expand_vars(",".join(parts[3:]), local_vars)
-                entries.append(KeybindEntry(
-                    kind=kind,
-                    mods=mods,
-                    key=key,
-                    dispatcher=disp,
-                    args=args.strip(),
-                    file_path=p,
-                    line_idx=idx,
-                    raw_line=raw,
-                ))
+                entries.append(
+                    KeybindEntry(
+                        kind=kind,
+                        mods=mods,
+                        key=key,
+                        dispatcher=disp,
+                        args=args.strip(),
+                        file_path=p,
+                        line_idx=idx,
+                        raw_line=raw,
+                    )
+                )
 
     _parse(path, {})
     return entries
@@ -118,21 +130,21 @@ def read_keybinds_with_location(
 #  Writers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _format_bind_line(kind: str, mods: str, key: str,
-                      dispatcher: str, args: str) -> str:
+
+def _format_bind_line(kind: str, mods: str, key: str, dispatcher: str, args: str) -> str:
     """Produce a canonical ``bind = …`` line."""
     kind = kind.strip() or "bind"
     mods = mods.strip()
-    key  = key.strip()
+    key = key.strip()
     disp = dispatcher.strip()
     args = args.strip()
     # Align nicely: pad mods and key fields
     return f"{kind} = {mods}, {key}, {disp}, {args}"
 
 
-def add_keybind(kind: str, mods: str, key: str,
-                dispatcher: str, args: str,
-                file: Optional[Path] = None) -> bool:
+def add_keybind(
+    kind: str, mods: str, key: str, dispatcher: str, args: str, file: Path | None = None
+) -> bool:
     """Append a new keybind to *file* (default: keybinds.conf).
 
     Returns True on success.
@@ -151,9 +163,9 @@ def delete_keybind(file_path: Path, line_idx: int) -> bool:
     return delete_line(file_path, line_idx)
 
 
-def update_keybind(file_path: Path, line_idx: int,
-                   kind: str, mods: str, key: str,
-                   dispatcher: str, args: str) -> bool:
+def update_keybind(
+    file_path: Path, line_idx: int, kind: str, mods: str, key: str, dispatcher: str, args: str
+) -> bool:
     """Replace the keybind at *line_idx* in *file_path*.
 
     Returns True on success.
@@ -166,7 +178,9 @@ def update_keybind(file_path: Path, line_idx: int,
 #  Convenience: simple list (no location, for read-only display)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def read_keybinds(path: Optional[Path] = None) -> list[tuple[str, str, str, str, str]]:
+
+def read_keybinds(path: Path | None = None) -> list[tuple[str, str, str, str, str]]:
     """Return (kind, mods, key, dispatcher, args) tuples — no location data."""
-    return [(e.kind, e.mods, e.key, e.dispatcher, e.args)
-            for e in read_keybinds_with_location(path)]
+    return [
+        (e.kind, e.mods, e.key, e.dispatcher, e.args) for e in read_keybinds_with_location(path)
+    ]

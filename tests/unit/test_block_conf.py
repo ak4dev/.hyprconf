@@ -1,22 +1,20 @@
 """Tests for hyprconf.block_conf — generic block-based config parser/writer."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from hyprconf.block_conf import (
-    ConfigBlock,
     add_block,
     delete_block,
     read_blocks,
     update_block_field,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _conf(tmp_path: Path, content: str) -> Path:
     p = tmp_path / "test.conf"
@@ -66,6 +64,7 @@ general
 # ---------------------------------------------------------------------------
 # read_blocks
 # ---------------------------------------------------------------------------
+
 
 def test_read_empty_file(tmp_path: Path) -> None:
     p = tmp_path / "empty.conf"
@@ -121,13 +120,16 @@ def test_read_split_brace_style(tmp_path: Path) -> None:
 
 
 def test_read_ignores_comments(tmp_path: Path) -> None:
-    p = _conf(tmp_path, """\
+    p = _conf(
+        tmp_path,
+        """\
 # Top comment
 general {
     # Inner comment
     key = value  # inline comment
 }
-""")
+""",
+    )
     blocks = read_blocks(p)
     assert blocks[0].fields["key"] == "value"
 
@@ -145,6 +147,7 @@ def test_field_line_idx(tmp_path: Path) -> None:
     idx = b.field_line_idx("lock_cmd")
     assert idx > 0
     from hyprconf.file_edit import read_lines
+
     line = read_lines(p)[idx]
     assert "lock_cmd" in line
 
@@ -158,6 +161,7 @@ def test_field_line_idx_missing_key(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # update_block_field
 # ---------------------------------------------------------------------------
+
 
 def test_update_existing_field(tmp_path: Path) -> None:
     p = _conf(tmp_path, SIMPLE_CONF)
@@ -180,6 +184,7 @@ def test_update_preserves_indentation(tmp_path: Path) -> None:
     b = read_blocks(p)[0]
     update_block_field(p, b.start_line, b.end_line, "lock_cmd", "new_cmd")
     from hyprconf.file_edit import read_lines
+
     lines = read_lines(p)
     lock_line = next(l for l in lines if "lock_cmd" in l)
     assert lock_line.startswith("    ")
@@ -188,6 +193,7 @@ def test_update_preserves_indentation(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # delete_block
 # ---------------------------------------------------------------------------
+
 
 def test_delete_only_block(tmp_path: Path) -> None:
     p = _conf(tmp_path, SIMPLE_CONF)
@@ -212,6 +218,7 @@ def test_delete_one_of_many(tmp_path: Path) -> None:
 # add_block
 # ---------------------------------------------------------------------------
 
+
 def test_add_block_to_empty(tmp_path: Path) -> None:
     p = tmp_path / "new.conf"
     p.write_text("")
@@ -227,6 +234,7 @@ def test_add_block_with_label(tmp_path: Path) -> None:
     p.write_text("")
     add_block(p, "background", {"path": "~/wallpaper.jpg"}, label="main")
     from hyprconf.file_edit import read_lines
+
     content = "\n".join(read_lines(p))
     assert "background = main {" in content
 
@@ -245,6 +253,7 @@ def test_add_multiple_blocks(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # ConfigBlock helpers
 # ---------------------------------------------------------------------------
+
 
 def test_config_block_get_default(tmp_path: Path) -> None:
     p = _conf(tmp_path, SIMPLE_CONF)
@@ -274,6 +283,7 @@ def test_config_block_is_disabled_false(tmp_path: Path) -> None:
 # Unclosed block at EOF (covers L166-167)
 # ---------------------------------------------------------------------------
 
+
 def test_unclosed_block_included_with_last_line_as_end(tmp_path: Path) -> None:
     content = "background {\n    path = /tmp/wall.jpg\n    color = 0xff000000\n"
     p = _conf(tmp_path, content)
@@ -287,8 +297,10 @@ def test_unclosed_block_included_with_last_line_as_end(tmp_path: Path) -> None:
 # update_block_field — returns False when end_line out of range (covers L207)
 # ---------------------------------------------------------------------------
 
+
 def test_update_block_field_returns_false_when_end_out_of_range(tmp_path: Path) -> None:
     from hyprconf.block_conf import update_block_field
+
     content = "background {\n    path = /tmp/wall.jpg\n}\n"
     p = _conf(tmp_path, content)
     # key not found, and end_line 99 is beyond file length → return False
@@ -300,6 +312,7 @@ def test_update_block_field_returns_false_when_end_out_of_range(tmp_path: Path) 
 # update_block_field — scans up to end_line inclusive (regression for off-by-one)
 # ---------------------------------------------------------------------------
 
+
 def test_update_block_field_finds_key_on_last_content_line(tmp_path: Path) -> None:
     """Ensure a key on the line immediately before the closing brace is found.
 
@@ -307,7 +320,8 @@ def test_update_block_field_finds_key_on_last_content_line(tmp_path: Path) -> No
     ``range(start, end_line + 1)``, which could miss the last content line in
     unclosed blocks where end_line equals the last content line index.
     """
-    from hyprconf.block_conf import update_block_field, read_blocks
+    from hyprconf.block_conf import read_blocks, update_block_field
+
     # Block where 'path' is on line 1, '}' is on line 2 → end_line == 2
     content = "background {\n    path = /tmp/old.jpg\n}\n"
     p = _conf(tmp_path, content)

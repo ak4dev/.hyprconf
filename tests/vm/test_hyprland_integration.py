@@ -11,42 +11,51 @@ Start the VM first:
 Then run:
     pytest tests/vm/ --run-vm
 """
+
 from __future__ import annotations
 
 import json
 import subprocess
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # SSH helper
 # ---------------------------------------------------------------------------
 
+
 class VMClient:
     """Thin wrapper around SSH commands to the test VM."""
 
-    def __init__(self, host: str = "127.0.0.1", port: int = 2222,
-                 user: str = "hyprtest", key: Path | None = None) -> None:
+    def __init__(
+        self,
+        host: str = "127.0.0.1",
+        port: int = 2222,
+        user: str = "hyprtest",
+        key: Path | None = None,
+    ) -> None:
         self.host = host
         self.port = port
         self.user = user
-        self.key  = key or Path.home() / ".ssh" / "hyprconf_vm_key"
+        self.key = key or Path.home() / ".ssh" / "hyprconf_vm_key"
 
     def run(self, cmd: str, *, check: bool = True) -> subprocess.CompletedProcess:
         ssh_args = [
             "ssh",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "ConnectTimeout=10",
-            "-i", str(self.key),
-            "-p", str(self.port),
+            "-o",
+            "StrictHostKeyChecking=no",
+            "-o",
+            "ConnectTimeout=10",
+            "-i",
+            str(self.key),
+            "-p",
+            str(self.port),
             f"{self.user}@{self.host}",
             cmd,
         ]
-        return subprocess.run(ssh_args, capture_output=True, text=True,
-                              check=check)
+        return subprocess.run(ssh_args, capture_output=True, text=True, check=check)
 
     def read_file(self, remote_path: str) -> str:
         result = self.run(f"cat {remote_path}")
@@ -61,6 +70,7 @@ class VMClient:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture(scope="session")
 def vm() -> Generator[VMClient, None, None]:
@@ -77,6 +87,7 @@ def vm() -> Generator[VMClient, None, None]:
 # ---------------------------------------------------------------------------
 # Connectivity
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_vm_ssh_reachable(vm: VMClient) -> None:
@@ -95,6 +106,7 @@ def test_hyprconf_on_path(vm: VMClient) -> None:
 # hyprconf sync
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_sync_completes_successfully(vm: VMClient) -> None:
     result = vm.run("hyprconf sync --no-reload 2>&1", check=False)
@@ -105,6 +117,7 @@ def test_sync_completes_successfully(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # Live get/set via hyprctl
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_set_gaps_in_reflected_by_get(vm: VMClient) -> None:
@@ -124,6 +137,7 @@ def test_set_gaps_in_persists_to_file(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # Monitor config
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_monitor_list_returns_output(vm: VMClient) -> None:
@@ -145,6 +159,7 @@ def test_set_monitor_writes_monitors_conf(vm: VMClient) -> None:
 # Hyprland health check
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_hyprland_config_has_no_errors(vm: VMClient) -> None:
     """Hyprland --verify-config passes without errors on the installed config."""
@@ -156,6 +171,7 @@ def test_hyprland_config_has_no_errors(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # hyprconf get
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_get_section_table(vm: VMClient) -> None:
@@ -184,6 +200,7 @@ def test_get_unknown_section_exits_nonzero(vm: VMClient) -> None:
 # hyprconf set
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_set_writes_overrides_file(vm: VMClient) -> None:
     """hyprconf set <section> <key> <value> writes to the overrides conf."""
@@ -204,6 +221,7 @@ def test_set_invalid_section_exits_nonzero(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # hyprconf schema
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_schema_dump_outputs_valid_json(vm: VMClient) -> None:
@@ -235,6 +253,7 @@ def test_schema_keys_section(vm: VMClient) -> None:
 # hyprconf autodetect
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_autodetect_runs_without_error(vm: VMClient) -> None:
     """hyprconf autodetect completes without crashing."""
@@ -245,6 +264,7 @@ def test_autodetect_runs_without_error(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # hyprconf keybind
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_keybind_list_returns_output(vm: VMClient) -> None:
@@ -258,8 +278,7 @@ def test_keybind_add_creates_entry(vm: VMClient) -> None:
     """hyprconf keybind add appends a new keybind line."""
     before = vm.run("hyprconf keybind list 2>&1", check=False)
     before_count = sum(
-        1 for l in before.stdout.splitlines()
-        if l.strip() and l.strip()[0].isdigit()
+        1 for l in before.stdout.splitlines() if l.strip() and l.strip()[0].isdigit()
     )
 
     add = vm.run(
@@ -270,10 +289,7 @@ def test_keybind_add_creates_entry(vm: VMClient) -> None:
     assert "Added" in add.stdout
 
     after = vm.run("hyprconf keybind list 2>&1", check=False)
-    after_count = sum(
-        1 for l in after.stdout.splitlines()
-        if l.strip() and l.strip()[0].isdigit()
-    )
+    after_count = sum(1 for l in after.stdout.splitlines() if l.strip() and l.strip()[0].isdigit())
     assert after_count == before_count + 1
 
 
@@ -283,9 +299,7 @@ def test_keybind_delete_removes_entry(vm: VMClient) -> None:
     # Ensure the sentinel keybind exists (add if missing)
     listing = vm.run("hyprconf keybind list 2>&1", check=False)
     if "hyprconf-test-sentinel" not in listing.stdout:
-        vm.run(
-            "hyprconf keybind add bind SUPER F12 exec hyprconf-test-sentinel 2>&1"
-        )
+        vm.run("hyprconf keybind add bind SUPER F12 exec hyprconf-test-sentinel 2>&1")
         listing = vm.run("hyprconf keybind list 2>&1", check=False)
 
     # Find its 1-based index
@@ -307,6 +321,7 @@ def test_keybind_delete_removes_entry(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # hyprconf rule
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_rule_window_list_runs_without_error(vm: VMClient) -> None:
@@ -335,9 +350,7 @@ def test_rule_window_delete_removes_entry(vm: VMClient) -> None:
     # Ensure test rule exists
     listing = vm.run("hyprconf rule window list 2>&1", check=False)
     if "hyprconf-test-window" not in listing.stdout:
-        vm.run(
-            "hyprconf rule window add float 'class:hyprconf-test-window' 2>&1"
-        )
+        vm.run("hyprconf rule window add float 'class:hyprconf-test-window' 2>&1")
         listing = vm.run("hyprconf rule window list 2>&1", check=False)
 
     idx = None
@@ -358,6 +371,7 @@ def test_rule_window_delete_removes_entry(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # hyprconf monitor (set / delete — list already covered above)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_monitor_set_writes_config(vm: VMClient) -> None:
@@ -399,6 +413,7 @@ def test_monitor_delete_removes_entry(vm: VMClient) -> None:
 # hyprconf lock
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_lock_list_runs_without_error(vm: VMClient) -> None:
     """hyprconf lock list does not crash."""
@@ -411,8 +426,7 @@ def test_lock_add_set_delete(vm: VMClient) -> None:
     """hyprconf lock add creates a block; set updates a field; delete removes it."""
     before = vm.run("hyprconf lock list 2>&1", check=False)
     before_count = sum(
-        1 for l in before.stdout.splitlines()
-        if l.strip() and l.strip()[0].isdigit()
+        1 for l in before.stdout.splitlines() if l.strip() and l.strip()[0].isdigit()
     )
 
     add = vm.run("hyprconf lock add background 2>&1", check=False)
@@ -439,6 +453,7 @@ def test_lock_add_set_delete(vm: VMClient) -> None:
 # hyprconf idle
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_idle_list_runs_without_error(vm: VMClient) -> None:
     """hyprconf idle list does not crash."""
@@ -451,8 +466,7 @@ def test_idle_add_set_delete(vm: VMClient) -> None:
     """hyprconf idle add listener creates a block; set updates timeout; delete removes it."""
     before = vm.run("hyprconf idle list 2>&1", check=False)
     before_count = sum(
-        1 for l in before.stdout.splitlines()
-        if l.strip() and l.strip()[0].isdigit()
+        1 for l in before.stdout.splitlines() if l.strip() and l.strip()[0].isdigit()
     )
 
     add = vm.run("hyprconf idle add listener 2>&1", check=False)
@@ -479,18 +493,20 @@ def test_idle_add_set_delete(vm: VMClient) -> None:
 # hyprconf sync (idempotency)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_sync_is_idempotent(vm: VMClient) -> None:
     """Running hyprconf sync twice both succeed."""
-    first  = vm.run("hyprconf sync --no-reload 2>&1", check=False)
+    first = vm.run("hyprconf sync --no-reload 2>&1", check=False)
     second = vm.run("hyprconf sync --no-reload 2>&1", check=False)
-    assert first.returncode  == 0, f"First sync failed:\n{first.stdout}"
+    assert first.returncode == 0, f"First sync failed:\n{first.stdout}"
     assert second.returncode == 0, f"Second sync failed:\n{second.stdout}"
 
 
 # ---------------------------------------------------------------------------
 # hyprconf tui
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_tui_launches_cleanly(vm: VMClient) -> None:
@@ -505,14 +521,13 @@ def test_tui_launches_cleanly(vm: VMClient) -> None:
         "rc=$?; [[ $rc -eq 0 || $rc -eq 124 ]] && echo PASS || echo FAIL:$rc",
         check=False,
     )
-    assert "PASS" in result.stdout, (
-        f"TUI did not launch cleanly: stdout={result.stdout!r}"
-    )
+    assert "PASS" in result.stdout, f"TUI did not launch cleanly: stdout={result.stdout!r}"
 
 
 # ---------------------------------------------------------------------------
 # hyprconf theme
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_theme_list_shows_themes(vm: VMClient) -> None:
@@ -542,6 +557,7 @@ def test_theme_set_switches_theme(vm: VMClient) -> None:
 # hyprconf repair
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_repair_runs_successfully(vm: VMClient) -> None:
     """hyprconf repair exits 0 and reports no issues."""
@@ -553,6 +569,7 @@ def test_repair_runs_successfully(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # hyprconf show
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_show_keybinds_outputs_table(vm: VMClient) -> None:
@@ -566,6 +583,7 @@ def test_show_keybinds_outputs_table(vm: VMClient) -> None:
 # hyprconf set mainMod
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_set_mainmod_writes_overrides_file(vm: VMClient) -> None:
     """hyprconf set mainMod SUPER persists $mainMod in the overrides file."""
@@ -578,6 +596,7 @@ def test_set_mainmod_writes_overrides_file(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # hyprconf paper
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_paper_list_runs_without_error(vm: VMClient) -> None:
@@ -603,6 +622,7 @@ def test_paper_set_wallpaper_writes_config(vm: VMClient) -> None:
 # hyprconf deploy
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_deploy_list_runs_without_error(vm: VMClient) -> None:
     """hyprconf deploy list exits 0 (empty list is valid)."""
@@ -613,6 +633,7 @@ def test_deploy_list_runs_without_error(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # hyprconf configure
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_configure_requires_interactive_tty(vm: VMClient) -> None:
@@ -626,6 +647,7 @@ def test_configure_requires_interactive_tty(vm: VMClient) -> None:
 # hyprconf display
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.vm
 def test_display_unknown_subcommand_exits_nonzero(vm: VMClient) -> None:
     """hyprconf display <unknown> exits non-zero with an error message."""
@@ -637,6 +659,7 @@ def test_display_unknown_subcommand_exits_nonzero(vm: VMClient) -> None:
 # ---------------------------------------------------------------------------
 # Branch model — dev → stable release model
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.vm
 def test_repo_has_stable_remote_ref(vm: VMClient) -> None:

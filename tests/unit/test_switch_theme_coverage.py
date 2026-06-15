@@ -12,12 +12,11 @@ Covers (29 functions):
   ensure_firefox_theme_payload, wofi_select,
   _generate_btop_theme, update_btop
 """
+
 from __future__ import annotations
 
 import importlib.util
 import json
-import os
-import signal
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -26,8 +25,13 @@ import pytest
 
 THEME_SWITCHER = (
     Path(__file__).parent.parent.parent
-    / "stow" / "hypr" / ".config" / "hypr"
-    / "scripts" / "theme-switcher" / "switch_theme.py"
+    / "stow"
+    / "hypr"
+    / ".config"
+    / "hypr"
+    / "scripts"
+    / "theme-switcher"
+    / "switch_theme.py"
 )
 
 spec = importlib.util.spec_from_file_location("switch_theme", THEME_SWITCHER)
@@ -37,19 +41,20 @@ spec.loader.exec_module(st)  # type: ignore[union-attr]
 DARK_THEME = {
     "background": "#282a36",
     "foreground": "#f8f8f2",
-    "accent":     "#8be9fd",
-    "comment":    "#6272a4",
-    "green":      "#50fa7b",
-    "red":        "#ff5555",
-    "cyan":       "#8be9fd",
-    "orange":     "#ffb86c",
-    "purple":     "#bd93f9",
-    "yellow":     "#f1fa8c",
+    "accent": "#8be9fd",
+    "comment": "#6272a4",
+    "green": "#50fa7b",
+    "red": "#ff5555",
+    "cyan": "#8be9fd",
+    "orange": "#ffb86c",
+    "purple": "#bd93f9",
+    "yellow": "#f1fa8c",
 }
 
 # ---------------------------------------------------------------------------
 # Colour utility functions
 # ---------------------------------------------------------------------------
+
 
 def test_hex_to_rgb_str_basic():
     assert st.hex_to_rgb_str("#ff0080") == "255,0,128"
@@ -101,6 +106,7 @@ def test_is_dark_color_pure_white():
 # detect_repo_root
 # ---------------------------------------------------------------------------
 
+
 def test_detect_repo_root_finds_hyprconf(tmp_path):
     # Build a fake dir tree: tmp/.hyprconf/a/b/c
     repo = tmp_path / ".hyprconf"
@@ -120,6 +126,7 @@ def test_detect_repo_root_returns_self_when_named_hyprconf(tmp_path):
 # ---------------------------------------------------------------------------
 # get_all_themes / read_state / write_state / get_adjacent_theme
 # ---------------------------------------------------------------------------
+
 
 def test_get_all_themes_lists_json_files(tmp_path, monkeypatch):
     (tmp_path / "aaa.json").write_text("{}")
@@ -206,6 +213,7 @@ def test_get_adjacent_theme_no_state_returns_first(tmp_path, monkeypatch):
 # load_json_file / load_vscode_base_defaults / parse_user_js
 # ---------------------------------------------------------------------------
 
+
 def test_load_json_file_valid(tmp_path):
     f = tmp_path / "settings.json"
     f.write_text('{"key": "value"}')
@@ -231,8 +239,9 @@ def test_load_vscode_base_defaults_finds_candidate(tmp_path, monkeypatch):
 
 
 def test_load_vscode_base_defaults_returns_empty_when_none_exist(tmp_path, monkeypatch):
-    monkeypatch.setattr(st, "VSCODE_BASE_SETTINGS_CANDIDATES",
-                        [str(tmp_path / "a.json"), str(tmp_path / "b.json")])
+    monkeypatch.setattr(
+        st, "VSCODE_BASE_SETTINGS_CANDIDATES", [str(tmp_path / "a.json"), str(tmp_path / "b.json")]
+    )
     assert st.load_vscode_base_defaults() == {}
 
 
@@ -242,7 +251,7 @@ def test_parse_user_js_parses_prefs(tmp_path):
         'user_pref("extensions.autoUpdate", false);\n'
         'user_pref("browser.startup.page", 1);\n'
         'user_pref("browser.uiCustomization.state", "compact");\n'
-        '// comment line\n'
+        "// comment line\n"
     )
     result = st.parse_user_js(str(f))
     assert result["extensions.autoUpdate"] is False
@@ -258,11 +267,15 @@ def test_parse_user_js_missing_returns_empty(tmp_path):
 # generate_kitty_theme / load_kitty_theme
 # ---------------------------------------------------------------------------
 
+
 def test_generate_kitty_theme_creates_file(tmp_path, monkeypatch):
     themes_dir = tmp_path / "themes"
-    monkeypatch.setattr(st.os.path, "expanduser",
-                        lambda p: str(themes_dir) if "kitty/themes" in p else p)
-    monkeypatch.setattr(st.os, "makedirs", lambda *a, **kw: themes_dir.mkdir(parents=True, exist_ok=True))
+    monkeypatch.setattr(
+        st.os.path, "expanduser", lambda p: str(themes_dir) if "kitty/themes" in p else p
+    )
+    monkeypatch.setattr(
+        st.os, "makedirs", lambda *a, **kw: themes_dir.mkdir(parents=True, exist_ok=True)
+    )
 
     out_path = st.generate_kitty_theme(DARK_THEME)
     assert out_path.endswith("generated.conf")
@@ -302,9 +315,7 @@ def test_load_kitty_theme_replaces_old_include(tmp_path):
 
     kitty_conf = tmp_path / "kitty.conf"
     # Use a path that starts with "~/.config/kitty/themes/" so is_theme_include() matches
-    kitty_conf.write_text(
-        "font_size 12.0\ninclude ~/.config/kitty/themes/old.conf\n"
-    )
+    kitty_conf.write_text("font_size 12.0\ninclude ~/.config/kitty/themes/old.conf\n")
 
     with patch.object(st, "KITTY_CONFIG_FILE", str(kitty_conf)):
         st.load_kitty_theme(str(new_theme))
@@ -326,7 +337,7 @@ def test_load_kitty_theme_creates_conf_when_absent(tmp_path):
 
     assert kitty_conf.exists()
     content = kitty_conf.read_text()
-    assert f"include" in content
+    assert "include" in content
     assert str(theme_conf) in content
 
 
@@ -361,7 +372,8 @@ def test_update_dunst_updates_colors(tmp_path, monkeypatch):
 
     # Prevent pgrep from restarting dunst during test
     monkeypatch.setattr(
-        st.subprocess, "run",
+        st.subprocess,
+        "run",
         lambda cmd, **kw: MagicMock(returncode=1, stdout=""),
     )
     monkeypatch.setattr(st.subprocess, "Popen", lambda *a, **kw: None)
@@ -383,6 +395,7 @@ def test_update_dunst_skips_when_no_config(tmp_path, monkeypatch, capsys):
 # ---------------------------------------------------------------------------
 # update_hyprland_borders
 # ---------------------------------------------------------------------------
+
 
 def test_update_hyprland_borders_writes_conf(tmp_path, monkeypatch):
     conf = tmp_path / "theme-colors.conf"
@@ -541,6 +554,7 @@ def test_update_waybar_raises_when_css_missing(tmp_path, monkeypatch):
 # update_vscode
 # ---------------------------------------------------------------------------
 
+
 def test_update_vscode_skips_when_no_vscode_key(monkeypatch):
     monkeypatch.setattr(st, "CODE_CLI", "/usr/bin/code-oss")
     # Should not raise or write anything
@@ -549,12 +563,14 @@ def test_update_vscode_skips_when_no_vscode_key(monkeypatch):
 
 def test_update_vscode_writes_settings(tmp_path, monkeypatch):
     settings_file = tmp_path / "settings.json"
-    settings_file.write_text('{}')
+    settings_file.write_text("{}")
     monkeypatch.setattr(st, "CODE_SETTINGS_FILE", str(settings_file))
     monkeypatch.setattr(st, "CODE_CLI", "/usr/bin/code-oss")
     monkeypatch.setattr(st, "load_vscode_base_defaults", lambda: {})
     # Patch ext_dir.iterdir to avoid real filesystem
-    monkeypatch.setattr(Path, "exists", lambda self: str(self) in (str(settings_file), str(settings_file.parent)))
+    monkeypatch.setattr(
+        Path, "exists", lambda self: str(self) in (str(settings_file), str(settings_file.parent))
+    )
 
     theme = {
         **DARK_THEME,
@@ -577,10 +593,12 @@ def test_update_vscode_skips_when_no_cli(monkeypatch):
 # reload_hyprland
 # ---------------------------------------------------------------------------
 
+
 def test_reload_hyprland_calls_hyprctl(monkeypatch):
     calls = []
-    monkeypatch.setattr(st.subprocess, "run",
-                        lambda cmd, **kw: calls.append(cmd) or MagicMock(returncode=0))
+    monkeypatch.setattr(
+        st.subprocess, "run", lambda cmd, **kw: calls.append(cmd) or MagicMock(returncode=0)
+    )
     st.reload_hyprland()
     assert ["hyprctl", "reload"] in calls
 
@@ -599,11 +617,13 @@ def test_reload_hyprland_handles_failure(monkeypatch, capsys):
 # notify_theme_change
 # ---------------------------------------------------------------------------
 
+
 def test_notify_theme_change_calls_notify_send(monkeypatch):
     popen_calls = []
-    monkeypatch.setattr(st.shutil, "which", lambda name: "/usr/bin/notify-send" if name == "notify-send" else None)
-    monkeypatch.setattr(st.subprocess, "Popen",
-                        lambda cmd, **kw: popen_calls.append(cmd))
+    monkeypatch.setattr(
+        st.shutil, "which", lambda name: "/usr/bin/notify-send" if name == "notify-send" else None
+    )
+    monkeypatch.setattr(st.subprocess, "Popen", lambda cmd, **kw: popen_calls.append(cmd))
     st.notify_theme_change("dracula", DARK_THEME)
     assert any("notify-send" in " ".join(c) for c in popen_calls)
 
@@ -617,6 +637,7 @@ def test_notify_theme_change_skips_when_not_found(monkeypatch):
 # ---------------------------------------------------------------------------
 # resolve_code_config_root
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_code_config_root_returns_existing(tmp_path, monkeypatch):
     existing = tmp_path / "Code - OSS"
@@ -636,6 +657,7 @@ def test_resolve_code_config_root_returns_first_candidate_when_none_exist(tmp_pa
 # ---------------------------------------------------------------------------
 # resolve_firefox_theme_id
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_firefox_theme_id_from_theme_id_key(tmp_path):
     profile = tmp_path
@@ -672,6 +694,7 @@ def test_resolve_firefox_theme_id_handles_missing_addons_json(tmp_path):
 # ensure_firefox_theme_payload
 # ---------------------------------------------------------------------------
 
+
 def test_ensure_firefox_theme_payload_returns_none_when_no_extension(tmp_path):
     result = st.ensure_firefox_theme_payload(tmp_path, {})
     assert result is None
@@ -687,10 +710,11 @@ def test_ensure_firefox_theme_payload_returns_none_when_no_source_dir(tmp_path, 
 # wofi_select
 # ---------------------------------------------------------------------------
 
+
 def test_wofi_select_returns_selected_theme(tmp_path, monkeypatch):
     # Set up minimal theme list
     for name in ["aaa", "bbb"]:
-        (tmp_path / f"{name}.json").write_text('{}')
+        (tmp_path / f"{name}.json").write_text("{}")
     monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
     monkeypatch.setattr(st, "STATE_FILE", str(tmp_path / ".current-theme"))
 
@@ -720,6 +744,7 @@ def test_wofi_select_returns_none_when_wofi_missing(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 # _generate_btop_theme / update_btop
 # ---------------------------------------------------------------------------
+
 
 def test_generate_btop_theme_creates_theme_file(tmp_path, monkeypatch):
     monkeypatch.setattr(st, "BTOP_CUSTOM_THEMES_DIR", str(tmp_path))
@@ -790,7 +815,7 @@ def test_update_btop_uses_absolute_path_directly(tmp_path, monkeypatch):
     conf = tmp_path / "btop.conf"
     conf.write_text('color_theme = "/usr/share/btop/themes/default.theme"\n')
     custom_theme = tmp_path / "custom.theme"
-    custom_theme.write_text("theme[main_bg]=\"#000000\"\n")
+    custom_theme.write_text('theme[main_bg]="#000000"\n')
     monkeypatch.setattr(st, "BTOP_CONF_FILE", str(conf))
     monkeypatch.setattr(st, "BTOP_CUSTOM_THEMES_DIR", str(tmp_path))
 
@@ -804,6 +829,7 @@ def test_update_btop_uses_absolute_path_directly(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # load_theme_json / filter_themes / appearance
 # ---------------------------------------------------------------------------
+
 
 def test_load_theme_json_returns_dict(tmp_path, monkeypatch):
     data = {"background": "#000", "appearance": "dark"}
@@ -899,10 +925,17 @@ def test_generate_theme_sets_dark_appearance(tmp_path, monkeypatch):
     img_obj = Image.new("RGB", (100, 100), (20, 20, 20))
     draw = ImageDraw.Draw(img_obj)
     # Add varied colors so quantize can extract 8 distinct palette entries
-    for i, color in enumerate([
-        (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0),
-        (255, 0, 255), (0, 255, 255), (128, 128, 128),
-    ]):
+    for i, color in enumerate(
+        [
+            (255, 0, 0),
+            (0, 255, 0),
+            (0, 0, 255),
+            (255, 255, 0),
+            (255, 0, 255),
+            (0, 255, 255),
+            (128, 128, 128),
+        ]
+    ):
         draw.rectangle([i * 14, 0, i * 14 + 13, 13], fill=color)
     img_obj.save(str(img))
 
@@ -925,10 +958,17 @@ def test_generate_theme_sets_light_appearance(tmp_path, monkeypatch):
     img_obj = Image.new("RGB", (100, 100), (240, 240, 240))
     draw = ImageDraw.Draw(img_obj)
     # Tiny colored pixels so quantize sees variety but bg stays dominant
-    for i, color in enumerate([
-        (200, 50, 50), (50, 200, 50), (50, 50, 200), (200, 200, 50),
-        (200, 50, 200), (50, 200, 200), (180, 180, 180),
-    ]):
+    for i, color in enumerate(
+        [
+            (200, 50, 50),
+            (50, 200, 50),
+            (50, 50, 200),
+            (200, 200, 50),
+            (200, 50, 200),
+            (50, 200, 200),
+            (180, 180, 180),
+        ]
+    ):
         draw.point((i, 0), fill=color)
     img_obj.save(str(img))
 

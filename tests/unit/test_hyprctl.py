@@ -1,4 +1,5 @@
 """Tests for hyprconf.hyprctl — thin wrapper around hyprctl IPC."""
+
 from __future__ import annotations
 
 import json
@@ -14,10 +15,10 @@ if str(LIB_DIR) not in sys.path:
 
 import hyprconf.hyprctl as _hctl
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _mock_active(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pretend a Hyprland session is running."""
@@ -38,6 +39,7 @@ def _fake_run(stdout: str = "", returncode: int = 0):
 # is_active
 # ---------------------------------------------------------------------------
 
+
 def test_is_active_true(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_active(monkeypatch)
     assert _hctl.is_active() is True
@@ -52,6 +54,7 @@ def test_is_active_false(monkeypatch: pytest.MonkeyPatch) -> None:
 # _run
 # ---------------------------------------------------------------------------
 
+
 def test_run_returns_stdout_on_success() -> None:
     with mock.patch("subprocess.run", return_value=_fake_run("ok", 0)):
         assert _hctl._run(["echo", "ok"]) == "ok"
@@ -64,6 +67,7 @@ def test_run_returns_none_on_nonzero() -> None:
 
 def test_run_returns_none_on_timeout() -> None:
     import subprocess
+
     with mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 3)):
         assert _hctl._run(["sleep", "99"]) is None
 
@@ -76,6 +80,7 @@ def test_run_returns_none_on_file_not_found() -> None:
 # ---------------------------------------------------------------------------
 # get_option
 # ---------------------------------------------------------------------------
+
 
 def test_get_option_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_inactive(monkeypatch)
@@ -128,6 +133,7 @@ def test_get_option_returns_none_when_run_fails(monkeypatch: pytest.MonkeyPatch)
 # set_option
 # ---------------------------------------------------------------------------
 
+
 def test_set_option_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_inactive(monkeypatch)
     assert _hctl.set_option("general", "gaps_in", "5") is False
@@ -150,6 +156,7 @@ def test_set_option_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 # get_monitors
 # ---------------------------------------------------------------------------
 
+
 def test_get_monitors_success() -> None:
     monitors = [{"name": "HDMI-A-1", "width": 3840}]
     with mock.patch.object(_hctl, "_run", return_value=json.dumps(monitors)):
@@ -170,6 +177,7 @@ def test_get_monitors_returns_empty_on_bad_json() -> None:
 # set_monitor
 # ---------------------------------------------------------------------------
 
+
 def test_set_monitor_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_inactive(monkeypatch)
     assert _hctl.set_monitor("HDMI-A-1,preferred,auto,1") is False
@@ -186,6 +194,7 @@ def test_set_monitor_success(monkeypatch: pytest.MonkeyPatch) -> None:
 # reload
 # ---------------------------------------------------------------------------
 
+
 def test_reload_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_inactive(monkeypatch)
     assert _hctl.reload() is False
@@ -201,6 +210,7 @@ def test_reload_success(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
+
 
 def test_dispatch_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_inactive(monkeypatch)
@@ -223,6 +233,7 @@ def test_dispatch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 # get_option — key formatting (dotted section → colon key)
 # ---------------------------------------------------------------------------
+
 
 def test_get_option_converts_dots_to_colons(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_active(monkeypatch)

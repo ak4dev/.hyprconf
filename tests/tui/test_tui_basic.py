@@ -9,12 +9,13 @@ Design principles:
 - Pilot actions are kept minimal — we test state, not keypress sequences.
 - Heavy monkeypatching keeps external deps (hyprctl, file I/O) isolated.
 """
+
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -23,8 +24,8 @@ import pytest
 # ---------------------------------------------------------------------------
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-LIB_DIR   = REPO_ROOT / "stow" / "hypr" / ".local" / "lib"
-TUI_DIR   = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "scripts" / "hyprconf-tui"
+LIB_DIR = REPO_ROOT / "stow" / "hypr" / ".local" / "lib"
+TUI_DIR = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "scripts" / "hyprconf-tui"
 
 for p in (str(LIB_DIR), str(TUI_DIR)):
     if p not in sys.path:
@@ -33,12 +34,11 @@ for p in (str(LIB_DIR), str(TUI_DIR)):
 # Textual is required for TUI tests — skip gracefully if absent
 pytest.importorskip("textual", reason="python-textual not installed")
 
-from textual.pilot import Pilot  # noqa: E402 — after importorskip
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def patched_tui_env(hypr_dir: Path, monkeypatch: pytest.MonkeyPatch):
@@ -57,13 +57,17 @@ def patched_tui_env(hypr_dir: Path, monkeypatch: pytest.MonkeyPatch):
 
     # Seed a minimal current-theme file so the TUI doesn't error on startup
     theme_file = hypr_dir / ".current-theme"
-    theme_file.write_text(json.dumps({
-        "name": "test-theme",
-        "background": "#1d2021",
-        "foreground": "#ebdbb2",
-        "accent": "#fabd2f",
-        "comment": "#928374",
-    }))
+    theme_file.write_text(
+        json.dumps(
+            {
+                "name": "test-theme",
+                "background": "#1d2021",
+                "foreground": "#ebdbb2",
+                "accent": "#fabd2f",
+                "comment": "#928374",
+            }
+        )
+    )
 
     return hypr_dir
 
@@ -72,9 +76,11 @@ def patched_tui_env(hypr_dir: Path, monkeypatch: pytest.MonkeyPatch):
 # Import the app (deferred so importorskip has a chance to run)
 # ---------------------------------------------------------------------------
 
+
 def _get_app_class():
     try:
         import main as tui_main
+
         return tui_main.HyprconfApp
     except ImportError:
         pytest.skip("TUI main.py not importable — check sys.path")
@@ -84,11 +90,12 @@ def _get_app_class():
 # Smoke test: app starts without crashing
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_app_starts(patched_tui_env: Path) -> None:
     HyprconfApp = _get_app_class()
     app = HyprconfApp()
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)):
         # The brand bar should be present
         brand = app.query_one("#brand-bar")
         assert brand is not None
@@ -98,12 +105,14 @@ async def test_app_starts(patched_tui_env: Path) -> None:
 # Smoke test: sidebar is populated
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_sidebar_has_items(patched_tui_env: Path) -> None:
     from textual.widgets import ListView
+
     HyprconfApp = _get_app_class()
     app = HyprconfApp()
-    async with app.run_test(size=(120, 40)) as pilot:
+    async with app.run_test(size=(120, 40)):
         sidebar = app.query_one("#section-list", ListView)
         assert len(sidebar) > 0
 
@@ -112,15 +121,17 @@ async def test_sidebar_has_items(patched_tui_env: Path) -> None:
 # Smoke test: option table loads when a section is selected
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_section_loads_options(patched_tui_env: Path) -> None:
     from textual.widgets import DataTable
+
     HyprconfApp = _get_app_class()
     app = HyprconfApp()
     async with app.run_test(size=(120, 40)) as pilot:
         # Press down in the sidebar and Enter to select a section
-        await pilot.press("tab")   # focus sidebar
-        await pilot.press("enter") # select first item
+        await pilot.press("tab")  # focus sidebar
+        await pilot.press("enter")  # select first item
         await pilot.pause()
         table = app.query_one("#option-table", DataTable)
         assert table.row_count > 0
@@ -130,9 +141,11 @@ async def test_section_loads_options(patched_tui_env: Path) -> None:
 # OptionSelectScreen: opens and cancels cleanly
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_option_select_screen_cancel(patched_tui_env: Path) -> None:
     import main as tui_main
+
     HyprconfApp = _get_app_class()
     OptionSelectScreen = tui_main.OptionSelectScreen
 
@@ -141,9 +154,11 @@ async def test_option_select_screen_cancel(patched_tui_env: Path) -> None:
     app = HyprconfApp()
     async with app.run_test(size=(80, 24)) as pilot:
         await app.push_screen(
-            OptionSelectScreen(title="Pick a value",
-                               options=[("alpha", "alpha"), ("beta", "beta"), ("gamma", "gamma")],
-                               current="beta"),
+            OptionSelectScreen(
+                title="Pick a value",
+                options=[("alpha", "alpha"), ("beta", "beta"), ("gamma", "gamma")],
+                current="beta",
+            ),
             callback=lambda v: received.append(v),
         )
         await pilot.pause()
@@ -157,9 +172,11 @@ async def test_option_select_screen_cancel(patched_tui_env: Path) -> None:
 # OptionSelectScreen: select an item with Enter
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_option_select_screen_select(patched_tui_env: Path) -> None:
     import main as tui_main
+
     HyprconfApp = _get_app_class()
     OptionSelectScreen = tui_main.OptionSelectScreen
 
@@ -168,9 +185,11 @@ async def test_option_select_screen_select(patched_tui_env: Path) -> None:
     app = HyprconfApp()
     async with app.run_test(size=(80, 24)) as pilot:
         await app.push_screen(
-            OptionSelectScreen(title="Pick a value",
-                               options=[("alpha", "alpha"), ("beta", "beta"), ("gamma", "gamma")],
-                               current="alpha"),
+            OptionSelectScreen(
+                title="Pick a value",
+                options=[("alpha", "alpha"), ("beta", "beta"), ("gamma", "gamma")],
+                current="alpha",
+            ),
             callback=lambda v: received.append(v),
         )
         await pilot.pause()
@@ -184,15 +203,19 @@ async def test_option_select_screen_select(patched_tui_env: Path) -> None:
 # SliderBar: value clamps to min/max
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_slider_bar_clamps_at_max(patched_tui_env: Path) -> None:
     import main as tui_main
+
     HyprconfApp = _get_app_class()
     SliderBar = tui_main.SliderBar
 
     app = HyprconfApp()
     async with app.run_test(size=(80, 24)) as pilot:
-        slider = SliderBar(min_val=0, max_val=1.0, value=0.9, step=0.1, fine_step=0.01, is_int=False)
+        slider = SliderBar(
+            min_val=0, max_val=1.0, value=0.9, step=0.1, fine_step=0.01, is_int=False
+        )
         await app.mount(slider)
         await pilot.pause()
         # Move up past max
@@ -205,6 +228,7 @@ async def test_slider_bar_clamps_at_max(patched_tui_env: Path) -> None:
 @pytest.mark.asyncio
 async def test_slider_bar_clamps_at_min(patched_tui_env: Path) -> None:
     import main as tui_main
+
     HyprconfApp = _get_app_class()
     SliderBar = tui_main.SliderBar
 
@@ -220,6 +244,7 @@ async def test_slider_bar_clamps_at_min(patched_tui_env: Path) -> None:
 @pytest.mark.asyncio
 async def test_slider_bar_home_end(patched_tui_env: Path) -> None:
     import main as tui_main
+
     HyprconfApp = _get_app_class()
     SliderBar = tui_main.SliderBar
 
@@ -234,25 +259,26 @@ async def test_slider_bar_home_end(patched_tui_env: Path) -> None:
         assert slider.value == 100
 
 
-
 # ---------------------------------------------------------------------------
 # Hardware section: loads without error
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_hardware_section_loads(patched_tui_env: Path) -> None:
-    from textual.widgets import DataTable
     from unittest.mock import patch as _patch
-    import subprocess as _sp
+
+    from textual.widgets import DataTable
 
     HyprconfApp = _get_app_class()
     app = HyprconfApp()
 
     # Patch sysfs and pgrep calls so the test is hermetic
-    with _patch("glob.iglob", return_value=iter([])), \
-         _patch("subprocess.run", return_value=MagicMock(returncode=1, stdout="")) :
+    with (
+        _patch("glob.iglob", return_value=iter([])),
+        _patch("subprocess.run", return_value=MagicMock(returncode=1, stdout="")),
+    ):
         async with app.run_test(size=(120, 40)) as pilot:
-            import main as tui_main
             app._load_section("hardware")
             await pilot.pause()
             table = app.query_one("#option-table", DataTable)
@@ -262,6 +288,7 @@ async def test_hardware_section_loads(patched_tui_env: Path) -> None:
 # ---------------------------------------------------------------------------
 # Auto-save on exit (on_unmount fires regardless of exit mechanism: q or Ctrl+C)
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_pending_changes_saved_on_quit(patched_tui_env: Path) -> None:
@@ -318,7 +345,7 @@ async def test_pending_changes_saved_on_ctrlc(patched_tui_env: Path) -> None:
         return True, sum(len(v) for v in pending.values())
 
     with patch("main.save_pending", side_effect=_fake_save):
-        async with app.run_test(size=(120, 40)) as pilot:
+        async with app.run_test(size=(120, 40)):
             app._pending = {"decoration": {"rounding": "8"}}
             # Simulate Ctrl+C exit path (app.exit() directly, not via action_quit)
             app.exit()
@@ -331,6 +358,7 @@ async def test_pending_changes_saved_on_ctrlc(patched_tui_env: Path) -> None:
 async def test_action_refresh_reloads_section(patched_tui_env: Path) -> None:
     """Pressing r must reload the current section without error."""
     from textual.widgets import DataTable
+
     HyprconfApp = _get_app_class()
     app = HyprconfApp()
 
@@ -341,13 +369,11 @@ async def test_action_refresh_reloads_section(patched_tui_env: Path) -> None:
         assert table.row_count > 0
 
 
-
 @pytest.mark.asyncio
-async def test_on_unmount_logs_stderr_on_save_failure(
-    patched_tui_env: Path, capsys
-) -> None:
+async def test_on_unmount_logs_stderr_on_save_failure(patched_tui_env: Path, capsys) -> None:
     """on_unmount must print a warning to stderr when save_pending returns False."""
     import sys
+
     HyprconfApp = _get_app_class()
     app = HyprconfApp()
 
@@ -363,19 +389,23 @@ async def test_on_unmount_logs_stderr_on_save_failure(
     def _failing_save(pending):
         return False, 0
 
-    with patch("main.save_pending", side_effect=_failing_save), \
-         patch("builtins.print", side_effect=_capture_print):
+    with (
+        patch("main.save_pending", side_effect=_failing_save),
+        patch("builtins.print", side_effect=_capture_print),
+    ):
         async with app.run_test(size=(120, 40)) as pilot:
             app._pending = {"general": {"border_size": "5"}}
             await pilot.press("q")
 
-    assert any("auto-save" in msg.lower() or "WARNING" in msg for msg in stderr_msgs), \
+    assert any("auto-save" in msg.lower() or "WARNING" in msg for msg in stderr_msgs), (
         "on_unmount must print a warning to stderr when save_pending fails"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Regression: block-field editing — line with no '=' must not crash
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_blkfld_no_equals_line_yields_empty_current_val(
@@ -385,7 +415,9 @@ async def test_blkfld_no_equals_line_yields_empty_current_val(
     yield an empty current value, not raise an IndexError."""
     # Reproduce the logic that was previously `split("=", 1)[1]`
     # This test verifies the guard is in place in the TUI source.
-    import main as tui_main, inspect
+    import inspect
+
+    import main as tui_main
 
     src = inspect.getsource(tui_main.HyprconfApp.on_row_selected)
     # Old (buggy) pattern: split("=", 1)[1].strip()
@@ -393,25 +425,28 @@ async def test_blkfld_no_equals_line_yields_empty_current_val(
         "TUI still uses unguarded split()[1] — IndexError regression"
     )
     # New pattern must check len before indexing
-    assert 'len(_parts) > 1' in src, (
-        "TUI must guard split result with len() check before indexing"
-    )
+    assert "len(_parts) > 1" in src, "TUI must guard split result with len() check before indexing"
 
 
 # ---------------------------------------------------------------------------
 # Regression: _set_wallpaper must use hyprpaper IPC, not hyprctl keyword
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_set_wallpaper_uses_hyprpaper_ipc(
-    patched_tui_env: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    patched_tui_env: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Regression: _set_wallpaper must call `hyprctl hyprpaper wallpaper`
     (hyprpaper's own IPC), NOT `hyprctl keyword hyprpaper:wallpaper`."""
     import main as tui_main
 
     run_calls: list[list[str]] = []
-    monkeypatch.setattr(tui_main, "_run", lambda args, **kw: (run_calls.append(list(args)), "ok")[1])
+    monkeypatch.setattr(
+        tui_main, "_run", lambda args, **kw: (run_calls.append(list(args)), "ok")[1]
+    )
 
     fake_wp = tmp_path / "bg.png"
     fake_wp.write_bytes(b"")
@@ -423,13 +458,14 @@ async def test_set_wallpaper_uses_hyprpaper_ipc(
         await pilot.pause()
 
     # Must call hyprctl hyprpaper wallpaper …
-    assert any(
-        len(a) >= 3 and a[:3] == ["hyprctl", "hyprpaper", "wallpaper"]
-        for a in run_calls
-    ), "Expected `hyprctl hyprpaper wallpaper` call — hyprpaper has its own IPC"
+    assert any(len(a) >= 3 and a[:3] == ["hyprctl", "hyprpaper", "wallpaper"] for a in run_calls), (
+        "Expected `hyprctl hyprpaper wallpaper` call — hyprpaper has its own IPC"
+    )
     # Must NOT call hyprctl keyword … hyprpaper …
     assert not any(
-        len(a) >= 2 and a[0] == "hyprctl" and a[1] == "keyword"
+        len(a) >= 2
+        and a[0] == "hyprctl"
+        and a[1] == "keyword"
         and any("hyprpaper" in str(x) for x in a)
         for a in run_calls
     ), "`hyprctl keyword hyprpaper` is wrong — hyprpaper is not a Hyprland option section"
@@ -439,8 +475,10 @@ async def test_set_wallpaper_uses_hyprpaper_ipc(
 # Monitor position helper unit tests (pure Python, no TUI required)
 # ---------------------------------------------------------------------------
 
+
 def test_compute_logical_size_no_rotation():
     import main as tui_main
+
     lw, lh = tui_main._compute_logical_size(3840, 2160, 2.0, 0)
     assert lw == 1920.0
     assert lh == 1080.0
@@ -448,6 +486,7 @@ def test_compute_logical_size_no_rotation():
 
 def test_compute_logical_size_swaps_axes_on_90_rotation():
     import main as tui_main
+
     # transform=1 means 90° — physical 1920x1080 becomes logical 540x960
     lw, lh = tui_main._compute_logical_size(1920, 1080, 2.0, 1)
     assert lw == 540.0
@@ -456,6 +495,7 @@ def test_compute_logical_size_swaps_axes_on_90_rotation():
 
 def test_compute_logical_size_swaps_axes_on_270_rotation():
     import main as tui_main
+
     lw, lh = tui_main._compute_logical_size(1920, 1080, 1.0, 3)
     assert lw == 1080.0
     assert lh == 1920.0
@@ -463,6 +503,7 @@ def test_compute_logical_size_swaps_axes_on_270_rotation():
 
 def test_compute_logical_size_does_not_swap_on_180():
     import main as tui_main
+
     lw, lh = tui_main._compute_logical_size(1920, 1080, 1.0, 2)
     assert lw == 1920.0
     assert lh == 1080.0
@@ -471,9 +512,19 @@ def test_compute_logical_size_does_not_swap_on_180():
 def test_monitor_edit_screen_uses_file_position():
     """MonitorEditScreen should show the persisted file position, not hyprctl coords."""
     import main as tui_main
-    mon = {"name": "HDMI-A-1", "width": 1920, "height": 1080, "refreshRate": 60.0,
-           "scale": 1.0, "x": 1920, "y": 0, "transform": 0, "vrr": False,
-           "availableModes": []}
+
+    mon = {
+        "name": "HDMI-A-1",
+        "width": 1920,
+        "height": 1080,
+        "refreshRate": 60.0,
+        "scale": 1.0,
+        "x": 1920,
+        "y": 0,
+        "transform": 0,
+        "vrr": False,
+        "availableModes": [],
+    }
     screen = tui_main.MonitorEditScreen(mon, "", "auto-right")
     assert screen._pos == "auto-right"
 
@@ -481,9 +532,19 @@ def test_monitor_edit_screen_uses_file_position():
 def test_monitor_edit_screen_falls_back_to_hyprctl_coords():
     """When no file_position provided, fall back to the hyprctl x/y coordinates."""
     import main as tui_main
-    mon = {"name": "HDMI-A-1", "width": 1920, "height": 1080, "refreshRate": 60.0,
-           "scale": 1.0, "x": 1920, "y": 0, "transform": 0, "vrr": False,
-           "availableModes": []}
+
+    mon = {
+        "name": "HDMI-A-1",
+        "width": 1920,
+        "height": 1080,
+        "refreshRate": 60.0,
+        "scale": 1.0,
+        "x": 1920,
+        "y": 0,
+        "transform": 0,
+        "vrr": False,
+        "availableModes": [],
+    }
     screen = tui_main.MonitorEditScreen(mon, "")
     assert screen._pos == "1920x0"
 
@@ -491,9 +552,19 @@ def test_monitor_edit_screen_falls_back_to_hyprctl_coords():
 def test_monitor_edit_screen_blank_new_defaults_to_auto():
     """Blank new-monitor dialog should default position to 'auto'."""
     import main as tui_main
-    blank = {"name": "", "description": "", "width": 1920, "height": 1080,
-             "refreshRate": 60.0, "scale": 1.0, "x": 0, "y": 0,
-             "vrr": False, "availableModes": []}
+
+    blank = {
+        "name": "",
+        "description": "",
+        "width": 1920,
+        "height": 1080,
+        "refreshRate": 60.0,
+        "scale": 1.0,
+        "x": 0,
+        "y": 0,
+        "vrr": False,
+        "availableModes": [],
+    }
     screen = tui_main.MonitorEditScreen(blank, "", "auto")
     assert screen._pos == "auto"
 
@@ -503,29 +574,49 @@ def test_adjust_adjacent_no_change_when_delta_small():
     import main as tui_main
 
     upsert_calls: list = []
-    run_calls:    list = []
+    run_calls: list = []
 
     snapshot = [
-        {"name": "DP-1",    "x": 0,    "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
-        {"name": "HDMI-A-1","x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {
+            "name": "DP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
+        {
+            "name": "HDMI-A-1",
+            "x": 1920,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
     ]
     fake_file_mc = MagicMock()
-    fake_file_mc.name     = "HDMI-A-1"
+    fake_file_mc.name = "HDMI-A-1"
     fake_file_mc.position = "1920x0"
     fake_file_mc.resolution = "1920x1080@60"
-    fake_file_mc.scale    = "1.0"
-    fake_file_mc.extras   = ""
+    fake_file_mc.scale = "1.0"
+    fake_file_mc.extras = ""
 
     with (
         patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_file_mc]),
-        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
-        patch.object(tui_main, "_run",                side_effect=lambda *a, **kw: run_calls.append(a)),
+        patch.object(
+            tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)
+        ),
+        patch.object(tui_main, "_run", side_effect=lambda *a, **kw: run_calls.append(a)),
     ):
         # delta = 0 — no change
-        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 1920.0, 1080.0)
+        tui_main._adjust_adjacent_monitor_positions(
+            "DP-1", snapshot, 1920.0, 1080.0, 1920.0, 1080.0
+        )
 
     assert upsert_calls == [], "no upsert expected for zero delta"
-    assert run_calls    == [], "no run expected for zero delta"
+    assert run_calls == [], "no run expected for zero delta"
 
 
 def test_adjust_adjacent_shifts_monitor_to_the_right():
@@ -533,27 +624,47 @@ def test_adjust_adjacent_shifts_monitor_to_the_right():
     import main as tui_main
 
     upsert_calls: list = []
-    run_calls:    list = []
+    run_calls: list = []
 
     # DP-1 at origin (1920 logical wide); HDMI-A-1 butted against its right edge
     snapshot = [
-        {"name": "DP-1",    "x": 0,    "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
-        {"name": "HDMI-A-1","x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {
+            "name": "DP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
+        {
+            "name": "HDMI-A-1",
+            "x": 1920,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
     ]
     fake_file_mc = MagicMock()
-    fake_file_mc.name       = "HDMI-A-1"
-    fake_file_mc.position   = "1920x0"
+    fake_file_mc.name = "HDMI-A-1"
+    fake_file_mc.position = "1920x0"
     fake_file_mc.resolution = "1920x1080@60"
-    fake_file_mc.scale      = "1.0"
-    fake_file_mc.extras     = ""
+    fake_file_mc.scale = "1.0"
+    fake_file_mc.extras = ""
 
     with (
         patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_file_mc]),
-        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
-        patch.object(tui_main, "_run",                side_effect=lambda *a, **kw: run_calls.append(a)),
+        patch.object(
+            tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)
+        ),
+        patch.object(tui_main, "_run", side_effect=lambda *a, **kw: run_calls.append(a)),
     ):
         # DP-1 grew from 1920 to 2560 logical pixels wide (e.g. scale lowered)
-        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0)
+        tui_main._adjust_adjacent_monitor_positions(
+            "DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0
+        )
 
     assert len(upsert_calls) == 1, "exactly one adjacent monitor should have been repositioned"
     # New position should be 2560x0 (shifted by +640)
@@ -567,22 +678,42 @@ def test_adjust_adjacent_skips_auto_positions():
     upsert_calls: list = []
 
     snapshot = [
-        {"name": "DP-1",    "x": 0,    "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
-        {"name": "HDMI-A-1","x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {
+            "name": "DP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
+        {
+            "name": "HDMI-A-1",
+            "x": 1920,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
     ]
     fake_file_mc = MagicMock()
-    fake_file_mc.name       = "HDMI-A-1"
-    fake_file_mc.position   = "auto-right"  # <-- auto, must be skipped
+    fake_file_mc.name = "HDMI-A-1"
+    fake_file_mc.position = "auto-right"  # <-- auto, must be skipped
     fake_file_mc.resolution = "1920x1080@60"
-    fake_file_mc.scale      = "1.0"
-    fake_file_mc.extras     = ""
+    fake_file_mc.scale = "1.0"
+    fake_file_mc.extras = ""
 
     with (
         patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_file_mc]),
-        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
-        patch.object(tui_main, "_run",                return_value="ok"),
+        patch.object(
+            tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)
+        ),
+        patch.object(tui_main, "_run", return_value="ok"),
     ):
-        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0)
+        tui_main._adjust_adjacent_monitor_positions(
+            "DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0
+        )
 
     assert upsert_calls == [], "auto-right monitor must not be adjusted"
 
@@ -595,11 +726,37 @@ def test_adjust_adjacent_handles_chain():
 
     # Three monitors in a row: DP-1 (0), MON-B (1920), MON-C (3840)
     snapshot = [
-        {"name": "DP-1", "x": 0,    "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
-        {"name": "MON-B","x": 1920, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
-        {"name": "MON-C","x": 3840, "y": 0, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {
+            "name": "DP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
+        {
+            "name": "MON-B",
+            "x": 1920,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
+        {
+            "name": "MON-C",
+            "x": 3840,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
     ]
-    fake_b = MagicMock(name="MON-B", position="1920x0", resolution="1920x1080@60", scale="1.0", extras="")
+    fake_b = MagicMock(
+        name="MON-B", position="1920x0", resolution="1920x1080@60", scale="1.0", extras=""
+    )
     fake_b.name = "MON-B"
     fake_b.position = "1920x0"
     fake_b.resolution = "1920x1080@60"
@@ -614,11 +771,15 @@ def test_adjust_adjacent_handles_chain():
 
     with (
         patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_b, fake_c]),
-        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
-        patch.object(tui_main, "_run",                return_value="ok"),
+        patch.object(
+            tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)
+        ),
+        patch.object(tui_main, "_run", return_value="ok"),
     ):
         # DP-1 grows from 1920 to 2560 → delta +640
-        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0)
+        tui_main._adjust_adjacent_monitor_positions(
+            "DP-1", snapshot, 1920.0, 1080.0, 2560.0, 1080.0
+        )
 
     positions = {c[0]: c[2] for c in upsert_calls}
     assert positions.get("MON-B") == "2560x0", "MON-B should shift by +640"
@@ -632,23 +793,43 @@ def test_adjust_adjacent_shifts_monitor_below():
     upsert_calls: list = []
 
     snapshot = [
-        {"name": "DP-1",    "x": 0, "y": 0,    "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
-        {"name": "HDMI-A-1","x": 0, "y": 1080, "width": 1920, "height": 1080, "scale": 1.0, "transform": 0},
+        {
+            "name": "DP-1",
+            "x": 0,
+            "y": 0,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
+        {
+            "name": "HDMI-A-1",
+            "x": 0,
+            "y": 1080,
+            "width": 1920,
+            "height": 1080,
+            "scale": 1.0,
+            "transform": 0,
+        },
     ]
     fake_file_mc = MagicMock()
-    fake_file_mc.name       = "HDMI-A-1"
-    fake_file_mc.position   = "0x1080"
+    fake_file_mc.name = "HDMI-A-1"
+    fake_file_mc.position = "0x1080"
     fake_file_mc.resolution = "1920x1080@60"
-    fake_file_mc.scale      = "1.0"
-    fake_file_mc.extras     = ""
+    fake_file_mc.scale = "1.0"
+    fake_file_mc.extras = ""
 
     with (
         patch.object(tui_main, "_lib_monitor_configs", return_value=[fake_file_mc]),
-        patch.object(tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)),
-        patch.object(tui_main, "_run",                return_value="ok"),
+        patch.object(
+            tui_main, "_lib_upsert_monitor", side_effect=lambda *a, **kw: upsert_calls.append(a)
+        ),
+        patch.object(tui_main, "_run", return_value="ok"),
     ):
         # DP-1 grew from 1080 to 1440 logical pixels tall
-        tui_main._adjust_adjacent_monitor_positions("DP-1", snapshot, 1920.0, 1080.0, 1920.0, 1440.0)
+        tui_main._adjust_adjacent_monitor_positions(
+            "DP-1", snapshot, 1920.0, 1080.0, 1920.0, 1440.0
+        )
 
     assert len(upsert_calls) == 1
     assert upsert_calls[0][2] == "0x1440"

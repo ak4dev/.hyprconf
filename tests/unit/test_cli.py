@@ -3,15 +3,13 @@
 Covers every cmd_* function and the main() dispatcher.
 All tests run without a live Hyprland session; hyprctl calls are patched.
 """
+
 from __future__ import annotations
 
-import io
 import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 LIB_DIR = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "lib"
 if str(LIB_DIR) not in sys.path:
@@ -39,6 +37,7 @@ def _active(monkeypatch):
 # ===========================================================================
 # cmd_get
 # ===========================================================================
+
 
 def test_get_no_args_lists_sections(hypr_dir, capsys, monkeypatch):
     _inactive(monkeypatch)
@@ -79,6 +78,7 @@ def test_get_unknown_key_returns_error(hypr_dir, capsys, monkeypatch):
 def test_get_shows_persisted_value(hypr_dir, capsys, monkeypatch):
     _inactive(monkeypatch)
     from hyprconf.config import upsert_option
+
     upsert_option("general", "gaps_in", "42")
     rc = cli.cmd_get(["general", "gaps_in"])
     assert rc == 0
@@ -89,6 +89,7 @@ def test_get_shows_persisted_value(hypr_dir, capsys, monkeypatch):
 # ===========================================================================
 # cmd_set
 # ===========================================================================
+
 
 def test_set_too_few_args(hypr_dir, capsys, monkeypatch):
     _inactive(monkeypatch)
@@ -119,6 +120,7 @@ def test_set_success_inactive(hypr_dir, capsys, monkeypatch):
     rc = cli.cmd_set(["general", "gaps_in", "12"])
     assert rc == 0
     from hyprconf.config import read_persisted
+
     assert read_persisted("general", "gaps_in") == "12"
 
 
@@ -128,6 +130,7 @@ def test_set_success_active(hypr_dir, capsys, monkeypatch):
         rc = cli.cmd_set(["general", "gaps_in", "7"])
     assert rc == 0
     from hyprconf.config import read_persisted
+
     assert read_persisted("general", "gaps_in") == "7"
 
 
@@ -140,6 +143,7 @@ def test_set_multi_word_value(hypr_dir, capsys, monkeypatch):
 # ===========================================================================
 # cmd_configure — non-TTY path + helper functions
 # ===========================================================================
+
 
 def test_configure_requires_tty(hypr_dir, capsys, monkeypatch):
     _inactive(monkeypatch)
@@ -162,11 +166,13 @@ def test_repl_help_section_prints_keys(hypr_dir, capsys):
 def test_repl_reset_sets_default(hypr_dir, monkeypatch):
     _inactive(monkeypatch)
     from hyprconf.schema import get_option_meta
+
     meta = get_option_meta("general", "gaps_in")
     assert meta is not None
     _, default, _ = meta
     cli._repl_reset("general", "gaps_in")
     from hyprconf.config import read_persisted
+
     assert read_persisted("general", "gaps_in") == default
 
 
@@ -193,6 +199,7 @@ def test_repl_query_unknown_key(hypr_dir, capsys):
 # ===========================================================================
 # cmd_schema
 # ===========================================================================
+
 
 def test_schema_no_subcommand_returns_error(hypr_dir, capsys):
     rc = cli.cmd_schema([])
@@ -242,6 +249,7 @@ def test_schema_validate_no_errors(hypr_dir, capsys, monkeypatch):
 def test_schema_validate_with_valid_persisted(hypr_dir, capsys, monkeypatch):
     _inactive(monkeypatch)
     from hyprconf.config import upsert_option
+
     upsert_option("general", "gaps_in", "8")
     rc = cli.cmd_schema(["validate"])
     assert rc == 0
@@ -251,8 +259,10 @@ def test_schema_validate_with_valid_persisted(hypr_dir, capsys, monkeypatch):
 # cmd_autodetect
 # ===========================================================================
 
+
 def test_autodetect_no_config_found(hypr_dir, capsys, monkeypatch):
     import hyprconf.autodetect as _auto
+
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [hypr_dir / "nope_missing.conf"])
     rc = cli.cmd_autodetect([])
     assert rc == 0
@@ -262,10 +272,12 @@ def test_autodetect_no_config_found(hypr_dir, capsys, monkeypatch):
 
 def test_autodetect_with_config(hypr_dir, capsys, monkeypatch):
     import hyprconf.autodetect as _auto
+
     cfg = hypr_dir / "detect_test.conf"
     cfg.write_text("general {\n    gaps_in = 5\n}\n")
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
     import hyprconf.config as _config_mod
+
     monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE", hypr_dir / "nope.conf")
     rc = cli.cmd_autodetect([])
     assert rc == 0
@@ -277,8 +289,10 @@ def test_autodetect_with_config(hypr_dir, capsys, monkeypatch):
 # cmd_keybind
 # ===========================================================================
 
+
 def test_keybind_list_empty(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("")
     rc = cli.cmd_keybind(["list"])
     assert rc == 0
@@ -286,6 +300,7 @@ def test_keybind_list_empty(hypr_dir, capsys):
 
 def test_keybind_list_with_entries(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("bind = SUPER, T, exec, kitty\n")
     rc = cli.cmd_keybind(["list"])
     assert rc == 0
@@ -295,6 +310,7 @@ def test_keybind_list_with_entries(hypr_dir, capsys):
 
 def test_keybind_list_no_subcommand(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("")
     rc = cli.cmd_keybind([])
     assert rc == 0
@@ -302,6 +318,7 @@ def test_keybind_list_no_subcommand(hypr_dir, capsys):
 
 def test_keybind_add_valid(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("")
     rc = cli.cmd_keybind(["add", "bind", "SUPER", "T", "exec", "kitty"])
     assert rc == 0
@@ -310,6 +327,7 @@ def test_keybind_add_valid(hypr_dir, capsys):
 
 def test_keybind_add_with_dash_mods(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("")
     rc = cli.cmd_keybind(["add", "bind", "-", "XF86AudioMute", "exec", "amixer toggle"])
     assert rc == 0
@@ -322,15 +340,18 @@ def test_keybind_add_too_few_args(hypr_dir, capsys):
 
 def test_keybind_delete_valid(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("bind = SUPER, T, exec, kitty\n")
     rc = cli.cmd_keybind(["delete", "1"])
     assert rc == 0
     from hyprconf.keybinds import read_keybinds_with_location
+
     assert read_keybinds_with_location(KEYBINDS_FILE) == []
 
 
 def test_keybind_delete_out_of_range(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("")
     rc = cli.cmd_keybind(["delete", "99"])
     assert rc == 1
@@ -343,6 +364,7 @@ def test_keybind_delete_non_digit(hypr_dir, capsys):
 
 def test_keybind_update_valid(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("bind = SUPER, T, exec, kitty\n")
     rc = cli.cmd_keybind(["update", "1", "bind", "SUPER", "F", "exec", "firefox"])
     assert rc == 0
@@ -352,6 +374,7 @@ def test_keybind_update_valid(hypr_dir, capsys):
 
 def test_keybind_update_too_few_args(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("bind = SUPER, T, exec, kitty\n")
     rc = cli.cmd_keybind(["update", "1", "bind"])
     assert rc == 1
@@ -359,6 +382,7 @@ def test_keybind_update_too_few_args(hypr_dir, capsys):
 
 def test_keybind_update_out_of_range(hypr_dir, capsys):
     from hyprconf.keybinds import KEYBINDS_FILE
+
     KEYBINDS_FILE.write_text("bind = SUPER, T, exec, kitty\n")
     rc = cli.cmd_keybind(["update", "99", "bind", "SUPER", "T", "exec", "kitty"])
     assert rc == 1
@@ -372,6 +396,7 @@ def test_keybind_unknown_subcommand(hypr_dir, capsys):
 # ===========================================================================
 # cmd_rule — window
 # ===========================================================================
+
 
 def test_rule_window_list_empty(hypr_dir, capsys):
     rc = cli.cmd_rule(["window", "list"])
@@ -387,6 +412,7 @@ def test_rule_window_add_valid(hypr_dir, capsys):
     rc = cli.cmd_rule(["window", "add", "float", "class:kitty"])
     assert rc == 0
     from hyprconf.rules import WINRULES_FILE
+
     assert "float" in WINRULES_FILE.read_text()
 
 
@@ -396,7 +422,8 @@ def test_rule_window_add_too_few_args(hypr_dir, capsys):
 
 
 def test_rule_window_delete_valid(hypr_dir, capsys):
-    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WINRULES_FILE
+
     WINRULES_FILE.write_text("windowrulev2 = float, class:kitty\n")
     HYPRLAND_CONF.write_text(f"source = {WINRULES_FILE}\n")
     rc = cli.cmd_rule(["window", "delete", "1"])
@@ -404,7 +431,8 @@ def test_rule_window_delete_valid(hypr_dir, capsys):
 
 
 def test_rule_window_delete_out_of_range(hypr_dir, capsys):
-    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WINRULES_FILE
+
     WINRULES_FILE.write_text("")
     HYPRLAND_CONF.write_text(f"source = {WINRULES_FILE}\n")
     rc = cli.cmd_rule(["window", "delete", "99"])
@@ -412,7 +440,8 @@ def test_rule_window_delete_out_of_range(hypr_dir, capsys):
 
 
 def test_rule_window_update_valid(hypr_dir, capsys):
-    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WINRULES_FILE
+
     WINRULES_FILE.write_text("windowrulev2 = float, class:kitty\n")
     HYPRLAND_CONF.write_text(f"source = {WINRULES_FILE}\n")
     rc = cli.cmd_rule(["window", "update", "1", "tile", "class:alacritty"])
@@ -421,6 +450,7 @@ def test_rule_window_update_valid(hypr_dir, capsys):
 
 def test_rule_window_update_too_few_args(hypr_dir, capsys):
     from hyprconf.rules import WINRULES_FILE
+
     WINRULES_FILE.write_text("windowrulev2 = float, class:kitty\n")
     rc = cli.cmd_rule(["window", "update", "1", "tile"])
     assert rc == 1
@@ -435,6 +465,7 @@ def test_rule_window_unknown_subcommand(hypr_dir, capsys):
 # cmd_rule — workspace
 # ===========================================================================
 
+
 def test_rule_workspace_list_empty(hypr_dir, capsys):
     rc = cli.cmd_rule(["workspace", "list"])
     assert rc == 0
@@ -444,6 +475,7 @@ def test_rule_workspace_add_valid(hypr_dir, capsys):
     rc = cli.cmd_rule(["workspace", "add", "1", "monitor:HDMI-A-1"])
     assert rc == 0
     from hyprconf.rules import WKSPRULES_FILE
+
     assert "workspace = 1" in WKSPRULES_FILE.read_text()
 
 
@@ -453,7 +485,8 @@ def test_rule_workspace_add_too_few_args(hypr_dir, capsys):
 
 
 def test_rule_workspace_delete_valid(hypr_dir, capsys):
-    from hyprconf.rules import WKSPRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WKSPRULES_FILE
+
     WKSPRULES_FILE.write_text("workspace = 1, monitor:HDMI-A-1\n")
     HYPRLAND_CONF.write_text(f"source = {WKSPRULES_FILE}\n")
     rc = cli.cmd_rule(["workspace", "delete", "1"])
@@ -461,7 +494,8 @@ def test_rule_workspace_delete_valid(hypr_dir, capsys):
 
 
 def test_rule_workspace_update_valid(hypr_dir, capsys):
-    from hyprconf.rules import WKSPRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WKSPRULES_FILE
+
     WKSPRULES_FILE.write_text("workspace = 1, monitor:HDMI-A-1\n")
     HYPRLAND_CONF.write_text(f"source = {WKSPRULES_FILE}\n")
     rc = cli.cmd_rule(["workspace", "update", "1", "2", "monitor:eDP-1"])
@@ -482,6 +516,7 @@ def test_rule_unknown_kind(hypr_dir, capsys):
 # cmd_monitor
 # ===========================================================================
 
+
 def test_monitor_list_empty(hypr_dir, capsys):
     rc = cli.cmd_monitor(["list"])
     assert rc == 0
@@ -496,6 +531,7 @@ def test_monitor_set_valid(hypr_dir, capsys):
     rc = cli.cmd_monitor(["set", "HDMI-A-1", "3840x2160@120", "0x0", "1.5"])
     assert rc == 0
     from hyprconf.monitors import MONITORS_FILE
+
     assert "HDMI-A-1" in MONITORS_FILE.read_text()
 
 
@@ -511,6 +547,7 @@ def test_monitor_set_with_extras(hypr_dir, capsys):
 
 def test_monitor_delete_valid(hypr_dir, capsys):
     from hyprconf.monitors import MONITORS_FILE
+
     MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1\n")
     rc = cli.cmd_monitor(["delete", "HDMI-A-1"])
     assert rc == 0
@@ -534,6 +571,7 @@ def test_monitor_unknown_subcommand(hypr_dir, capsys):
 # ===========================================================================
 # cmd_lock
 # ===========================================================================
+
 
 def test_lock_list_empty(hypr_dir, capsys):
     rc = cli.cmd_lock(["list"])
@@ -601,6 +639,7 @@ def test_lock_unknown_subcommand(hypr_dir, capsys):
 # cmd_idle
 # ===========================================================================
 
+
 def test_idle_list_empty(hypr_dir, capsys):
     rc = cli.cmd_idle(["list"])
     assert rc == 0
@@ -667,6 +706,7 @@ def test_idle_unknown_subcommand(hypr_dir, capsys):
 # cmd_paper
 # ===========================================================================
 
+
 def test_paper_list_empty(hypr_dir, capsys):
     rc = cli.cmd_paper(["list"])
     assert rc == 0
@@ -681,6 +721,7 @@ def test_paper_set_wallpaper_valid(hypr_dir, capsys):
     rc = cli.cmd_paper(["set-wallpaper", "eDP-1", "/tmp/wall.jpg"])
     assert rc == 0
     from hyprconf.hyprpaper import HYPRPAPER_FILE
+
     assert "wall.jpg" in HYPRPAPER_FILE.read_text()
 
 
@@ -698,6 +739,7 @@ def test_paper_add_preload(hypr_dir, capsys):
     rc = cli.cmd_paper(["add-preload", "/tmp/wall.jpg"])
     assert rc == 0
     from hyprconf.hyprpaper import HYPRPAPER_FILE
+
     assert "preload" in HYPRPAPER_FILE.read_text()
 
 
@@ -751,6 +793,7 @@ def test_paper_unknown_subcommand(hypr_dir, capsys):
 # ===========================================================================
 # main() dispatcher
 # ===========================================================================
+
 
 def test_main_get(hypr_dir, monkeypatch, capsys):
     _inactive(monkeypatch)
@@ -836,10 +879,12 @@ def test_main_conf_alias(hypr_dir, monkeypatch, capsys):
 # _get_live_or_persisted — live value path (covers L131)
 # ---------------------------------------------------------------------------
 
+
 def test_get_returns_live_value_when_hyprland_active(hypr_dir, capsys, monkeypatch):
     """When hyprctl returns a live value, it should be shown."""
     _active(monkeypatch)
     import json
+
     payload = json.dumps({"int": 8, "float": 0.0, "str": "", "col": 0, "custom_type": "int"})
     with patch("subprocess.run", return_value=_mock_run(0, payload)):
         rc = cli.cmd_get(["general", "gaps_in"])
@@ -852,11 +897,13 @@ def test_get_returns_live_value_when_hyprland_active(hypr_dir, capsys, monkeypat
 # cmd_get section table — default marker path (covers L121)
 # ---------------------------------------------------------------------------
 
+
 def test_get_section_marks_default_values(hypr_dir, capsys, monkeypatch):
     """A persisted value equal to the schema default should still display."""
     _inactive(monkeypatch)
     from hyprconf.config import upsert_option
     from hyprconf.schema import get_option_meta
+
     meta = get_option_meta("general", "gaps_in")
     assert meta is not None
     _, default, _ = meta
@@ -869,11 +916,11 @@ def test_get_section_marks_default_values(hypr_dir, capsys, monkeypatch):
 # cmd_schema validate — error paths (covers L350-352, 356-357, 361-362)
 # ---------------------------------------------------------------------------
 
+
 def test_schema_validate_unknown_key(hypr_dir, capsys):
-    from hyprconf.config import OVERRIDES_FILE, MANAGED_MARKER
-    OVERRIDES_FILE.write_text(
-        f"\n{MANAGED_MARKER}\nno_such_section:no_such_key = val\n"
-    )
+    from hyprconf.config import MANAGED_MARKER, OVERRIDES_FILE
+
+    OVERRIDES_FILE.write_text(f"\n{MANAGED_MARKER}\nno_such_section:no_such_key = val\n")
     rc = cli.cmd_schema(["validate"])
     assert rc == 1
     out = capsys.readouterr().out
@@ -881,10 +928,9 @@ def test_schema_validate_unknown_key(hypr_dir, capsys):
 
 
 def test_schema_validate_invalid_value(hypr_dir, capsys):
-    from hyprconf.config import OVERRIDES_FILE, MANAGED_MARKER
-    OVERRIDES_FILE.write_text(
-        f"\n{MANAGED_MARKER}\ngeneral:gaps_in = not_an_int\n"
-    )
+    from hyprconf.config import MANAGED_MARKER, OVERRIDES_FILE
+
+    OVERRIDES_FILE.write_text(f"\n{MANAGED_MARKER}\ngeneral:gaps_in = not_an_int\n")
     rc = cli.cmd_schema(["validate"])
     assert rc == 1
     out = capsys.readouterr().out
@@ -895,10 +941,12 @@ def test_schema_validate_invalid_value(hypr_dir, capsys):
 # cmd_autodetect — warnings display (covers L388-392)
 # ---------------------------------------------------------------------------
 
+
 def test_autodetect_shows_warnings_for_unreadable_source(hypr_dir, capsys, monkeypatch):
     """When a sourced file raises OSError, cmd_autodetect shows warnings."""
-    import hyprconf.autodetect as _auto
     from pathlib import Path
+
+    import hyprconf.autodetect as _auto
 
     bad = hypr_dir / "bad.conf"
     bad.write_text("content")
@@ -906,6 +954,7 @@ def test_autodetect_shows_warnings_for_unreadable_source(hypr_dir, capsys, monke
     cfg.write_text(f"source = {bad}\n")
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
     import hyprconf.config as _config_mod
+
     monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE", hypr_dir / "nope.conf")
 
     real_read_text = Path.read_text
@@ -926,8 +975,10 @@ def test_autodetect_shows_warnings_for_unreadable_source(hypr_dir, capsys, monke
 # main() — autodetect dispatch (covers L418)
 # ---------------------------------------------------------------------------
 
+
 def test_main_autodetect(hypr_dir, monkeypatch, capsys):
     import hyprconf.autodetect as _auto
+
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [hypr_dir / "nope_missing.conf"])
     monkeypatch.setattr(sys, "argv", ["hyprconf-cli", "autodetect"])
     rc = cli.main()
@@ -938,8 +989,10 @@ def test_main_autodetect(hypr_dir, monkeypatch, capsys):
 # window/workspace rule list with entries (covers L553-557, 612-616)
 # ---------------------------------------------------------------------------
 
+
 def test_rule_window_list_with_entries_shows_table(hypr_dir, capsys):
-    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WINRULES_FILE
+
     WINRULES_FILE.write_text("windowrulev2 = float, class:kitty\n")
     HYPRLAND_CONF.write_text(f"source = {WINRULES_FILE}\n")
     rc = cli.cmd_rule(["window", "list"])
@@ -949,7 +1002,8 @@ def test_rule_window_list_with_entries_shows_table(hypr_dir, capsys):
 
 
 def test_rule_workspace_list_with_entries_shows_table(hypr_dir, capsys):
-    from hyprconf.rules import WKSPRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WKSPRULES_FILE
+
     WKSPRULES_FILE.write_text("workspace = 1, monitor:HDMI-A-1\n")
     HYPRLAND_CONF.write_text(f"source = {WKSPRULES_FILE}\n")
     rc = cli.cmd_rule(["workspace", "list"])
@@ -962,13 +1016,15 @@ def test_rule_workspace_list_with_entries_shows_table(hypr_dir, capsys):
 # window rule delete/update error paths (covers L577-578, L596-597)
 # ---------------------------------------------------------------------------
 
+
 def test_rule_window_delete_non_digit(hypr_dir, capsys):
     rc = cli.cmd_rule(["window", "delete", "abc"])
     assert rc == 1
 
 
 def test_rule_window_update_out_of_range(hypr_dir, capsys):
-    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WINRULES_FILE
+
     WINRULES_FILE.write_text("windowrulev2 = float, class:kitty\n")
     HYPRLAND_CONF.write_text(f"source = {WINRULES_FILE}\n")
     rc = cli.cmd_rule(["window", "update", "99", "tile", "class:alacritty"])
@@ -979,13 +1035,15 @@ def test_rule_window_update_out_of_range(hypr_dir, capsys):
 # workspace rule delete/update error paths (covers L634-635, 639-640, 648-649, 653-654)
 # ---------------------------------------------------------------------------
 
+
 def test_rule_workspace_delete_non_digit(hypr_dir, capsys):
     rc = cli.cmd_rule(["workspace", "delete", "abc"])
     assert rc == 1
 
 
 def test_rule_workspace_delete_out_of_range(hypr_dir, capsys):
-    from hyprconf.rules import WKSPRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WKSPRULES_FILE
+
     WKSPRULES_FILE.write_text("")
     HYPRLAND_CONF.write_text(f"source = {WKSPRULES_FILE}\n")
     rc = cli.cmd_rule(["workspace", "delete", "99"])
@@ -998,7 +1056,8 @@ def test_rule_workspace_update_non_digit(hypr_dir, capsys):
 
 
 def test_rule_workspace_update_out_of_range(hypr_dir, capsys):
-    from hyprconf.rules import WKSPRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WKSPRULES_FILE
+
     WKSPRULES_FILE.write_text("workspace = 1, monitor:HDMI-A-1\n")
     HYPRLAND_CONF.write_text(f"source = {WKSPRULES_FILE}\n")
     rc = cli.cmd_rule(["workspace", "update", "99", "2", "monitor:eDP-1"])
@@ -1009,8 +1068,10 @@ def test_rule_workspace_update_out_of_range(hypr_dir, capsys):
 # monitor list with entries (covers L682-689)
 # ---------------------------------------------------------------------------
 
+
 def test_monitor_list_with_entries_shows_table(hypr_dir, capsys):
     from hyprconf.monitors import MONITORS_FILE
+
     MONITORS_FILE.write_text("monitor = eDP-1, 1920x1080@60, 0x0, 1\n")
     rc = cli.cmd_monitor(["list"])
     assert rc == 0
@@ -1021,6 +1082,7 @@ def test_monitor_list_with_entries_shows_table(hypr_dir, capsys):
 # ---------------------------------------------------------------------------
 # lock list with entries (covers L749-754)
 # ---------------------------------------------------------------------------
+
 
 def test_lock_list_with_entries_shows_table(hypr_dir, capsys):
     cli.cmd_lock(["add", "background"])
@@ -1033,6 +1095,7 @@ def test_lock_list_with_entries_shows_table(hypr_dir, capsys):
 # ---------------------------------------------------------------------------
 # idle list with entries + delete non-digit (covers L831-836, L854-855)
 # ---------------------------------------------------------------------------
+
 
 def test_idle_list_with_entries_shows_table(hypr_dir, capsys):
     cli.cmd_idle(["add", "listener"])
@@ -1050,6 +1113,7 @@ def test_idle_delete_non_digit(hypr_dir, capsys):
 # ---------------------------------------------------------------------------
 # paper list with content (covers L919, L922-924, L927-930, L933-938)
 # ---------------------------------------------------------------------------
+
 
 def test_paper_list_with_settings(hypr_dir, capsys):
     cli.cmd_paper(["setting", "splash", "false"])
@@ -1077,6 +1141,7 @@ def test_paper_list_with_wallpaper_lines(hypr_dir, capsys):
 
 def test_paper_list_with_wallpaper_block(hypr_dir, capsys):
     from hyprconf.hyprpaper import HYPRPAPER_FILE, add_wallpaper_block
+
     HYPRPAPER_FILE.write_text("")
     add_wallpaper_block("eDP-1", "/tmp/wall.png", "fill")
     rc = cli.cmd_paper(["list"])
@@ -1089,6 +1154,7 @@ def test_paper_list_with_wallpaper_block(hypr_dir, capsys):
 # paper delete non-digit and block format (covers L983-984, L996-999)
 # ---------------------------------------------------------------------------
 
+
 def test_paper_delete_wallpaper_non_digit(hypr_dir, capsys):
     rc = cli.cmd_paper(["delete-wallpaper", "abc"])
     assert rc == 1
@@ -1096,6 +1162,7 @@ def test_paper_delete_wallpaper_non_digit(hypr_dir, capsys):
 
 def test_paper_delete_wallpaper_block_format(hypr_dir, capsys):
     from hyprconf.hyprpaper import HYPRPAPER_FILE, add_wallpaper_block
+
     HYPRPAPER_FILE.write_text("")
     add_wallpaper_block("eDP-1", "/tmp/wall.png")
     # Index 1 with no line-format wallpapers → should hit block format
@@ -1107,6 +1174,7 @@ def test_paper_delete_wallpaper_block_format(hypr_dir, capsys):
 # cmd_configure REPL interactive (covers L198-254)
 # ---------------------------------------------------------------------------
 
+
 def _run_repl(*commands: str, hypr_dir_fixture=None, monkeypatch=None) -> int:
     """Run cmd_configure with mocked TTY and a sequence of inputs."""
     input_seq = iter(commands)
@@ -1115,11 +1183,13 @@ def _run_repl(*commands: str, hypr_dir_fixture=None, monkeypatch=None) -> int:
         try:
             return next(input_seq)
         except StopIteration:
-            raise EOFError
+            raise EOFError from None
 
-    with patch("sys.stdin.isatty", return_value=True), \
-         patch("sys.stdout.isatty", return_value=True), \
-         patch("builtins.input", side_effect=_fake_input):
+    with (
+        patch("sys.stdin.isatty", return_value=True),
+        patch("sys.stdout.isatty", return_value=True),
+        patch("builtins.input", side_effect=_fake_input),
+    ):
         return cli.cmd_configure([])
 
 
@@ -1200,6 +1270,7 @@ def test_configure_repl_set_key_value(hypr_dir, capsys, monkeypatch):
     rc = _run_repl("general", "gaps_in 10", "exit", "exit")
     assert rc == 0
     from hyprconf.config import read_persisted
+
     assert read_persisted("general", "gaps_in") == "10"
 
 
@@ -1225,12 +1296,12 @@ def test_configure_repl_eof_exits_gracefully(hypr_dir, capsys, monkeypatch):
 # schema validate: malformed key (no colon) is skipped (covers L346)
 # ---------------------------------------------------------------------------
 
+
 def test_schema_validate_skips_malformed_key(hypr_dir, capsys):
     """Keys without a colon are silently skipped in schema validate."""
-    from hyprconf.config import OVERRIDES_FILE, MANAGED_MARKER
-    OVERRIDES_FILE.write_text(
-        f"# {MANAGED_MARKER}\nmalformed_no_colon = true\n"
-    )
+    from hyprconf.config import MANAGED_MARKER, OVERRIDES_FILE
+
+    OVERRIDES_FILE.write_text(f"# {MANAGED_MARKER}\nmalformed_no_colon = true\n")
     rc = cli.cmd_schema(["validate"])
     # Malformed key is skipped; no known/valid keys → rc=0
     assert rc == 0
@@ -1239,6 +1310,7 @@ def test_schema_validate_skips_malformed_key(hypr_dir, capsys):
 # ---------------------------------------------------------------------------
 # cmd_autodetect: unknown_lines in output (covers L390)
 # ---------------------------------------------------------------------------
+
 
 def test_autodetect_prints_unknown_lines(hypr_dir, capsys, monkeypatch):
     """When both unknown_lines and warnings exist, cmd_autodetect prints them."""
@@ -1249,6 +1321,7 @@ def test_autodetect_prints_unknown_lines(hypr_dir, capsys, monkeypatch):
     cfg.write_text("general {\n    border_size = 2\n}\n")
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
     import hyprconf.config as _config_mod
+
     monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE", hypr_dir / "nope.conf")
 
     fake = DetectionResult(found_config=cfg)
@@ -1257,8 +1330,11 @@ def test_autodetect_prints_unknown_lines(hypr_dir, capsys, monkeypatch):
     fake.parsed_options = []
 
     from unittest.mock import patch
-    with patch.object(_auto, "detect_and_parse", return_value=fake), \
-         patch.object(_auto, "migrate", return_value=0):
+
+    with (
+        patch.object(_auto, "detect_and_parse", return_value=fake),
+        patch.object(_auto, "migrate", return_value=0),
+    ):
         rc = cli.cmd_autodetect([])
 
     assert rc == 0
@@ -1271,8 +1347,10 @@ def test_autodetect_prints_unknown_lines(hypr_dir, capsys, monkeypatch):
 # cmd_monitor field subcommand
 # ===========================================================================
 
+
 def test_monitor_field_show_empty(hypr_dir, capsys):
     from hyprconf.monitors import MONITORS_FILE
+
     MONITORS_FILE.write_text("")
     rc = cli.cmd_monitor(["field", "show"])
     assert rc == 0
@@ -1280,6 +1358,7 @@ def test_monitor_field_show_empty(hypr_dir, capsys):
 
 def test_monitor_field_show_all(hypr_dir, capsys):
     from hyprconf.monitors import MONITORS_FILE
+
     MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n")
     rc = cli.cmd_monitor(["field", "show"])
     assert rc == 0
@@ -1289,9 +1368,9 @@ def test_monitor_field_show_all(hypr_dir, capsys):
 
 def test_monitor_field_show_single(hypr_dir, capsys):
     from hyprconf.monitors import MONITORS_FILE
+
     MONITORS_FILE.write_text(
-        "monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n"
-        "monitor = DP-1, 3840x2160@120, 1920x0, 1.5\n"
+        "monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\nmonitor = DP-1, 3840x2160@120, 1920x0, 1.5\n"
     )
     rc = cli.cmd_monitor(["field", "show", "DP-1"])
     assert rc == 0
@@ -1302,6 +1381,7 @@ def test_monitor_field_show_single(hypr_dir, capsys):
 
 def test_monitor_field_set_scale(hypr_dir, capsys):
     from hyprconf.monitors import MONITORS_FILE, read_monitor_configs
+
     MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n")
     rc = cli.cmd_monitor(["field", "set", "HDMI-A-1", "scale", "2.0"])
     assert rc == 0
@@ -1311,6 +1391,7 @@ def test_monitor_field_set_scale(hypr_dir, capsys):
 
 def test_monitor_field_set_extras(hypr_dir, capsys):
     from hyprconf.monitors import MONITORS_FILE, read_monitor_configs
+
     MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n")
     rc = cli.cmd_monitor(["field", "set", "HDMI-A-1", "vrr", "1"])
     assert rc == 0
@@ -1320,6 +1401,7 @@ def test_monitor_field_set_extras(hypr_dir, capsys):
 
 def test_monitor_field_set_invalid_field(hypr_dir, capsys):
     from hyprconf.monitors import MONITORS_FILE
+
     MONITORS_FILE.write_text("monitor = HDMI-A-1, 1920x1080@60, 0x0, 1.0\n")
     rc = cli.cmd_monitor(["field", "set", "HDMI-A-1", "bogusfield", "99"])
     assert rc == 1
@@ -1338,6 +1420,7 @@ def test_monitor_field_unknown_action(hypr_dir, capsys):
 # ===========================================================================
 # cmd_schema list-sections includes special sections
 # ===========================================================================
+
 
 def test_schema_list_sections_includes_monitors(hypr_dir, capsys):
     rc = cli.cmd_schema(["list-sections"])
@@ -1364,12 +1447,14 @@ def test_schema_list_sections_includes_hardware(hypr_dir, capsys):
 # Regression: cmd_rule window update must preserve the whole filter string
 # ---------------------------------------------------------------------------
 
+
 def test_rule_window_update_writes_whole_filter_not_chars(hypr_dir, capsys):
     """Regression: args[4] was passed as str where list[str] was expected.
     update_window_rule iterates its filters arg — iterating a bare string yields
     individual characters, producing 'tile, c, l, a, s, s, :, a, p, p' instead
     of 'tile, class:app'.  Fix: wrap args[4] in a list."""
-    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WINRULES_FILE
+
     WINRULES_FILE.write_text("windowrulev2 = float, class:kitty\n")
     HYPRLAND_CONF.write_text(f"source = {WINRULES_FILE}\n")
 

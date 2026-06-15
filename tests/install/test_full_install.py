@@ -22,12 +22,13 @@ Prerequisites:
 prompt to reuse an existing image or rebuild from scratch before promoting the
 release to ``stable``.
 """
+
 from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Generator
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -54,6 +55,7 @@ _INSTALL_VM_USER = "hyprtest"
 # Fixture
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(scope="session")
 def install_vm() -> Generator[VMClient, None, None]:
     """Session-scoped client for the freshly-installed Arch+hyprconf VM."""
@@ -73,6 +75,7 @@ def install_vm() -> Generator[VMClient, None, None]:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.install
 def test_hyprconf_binary_on_path(install_vm: VMClient) -> None:
@@ -131,9 +134,7 @@ def test_packages_installed(install_vm: VMClient) -> None:
         f"pacman -Q {pkg_list} 2>&1",
         check=False,
     )
-    assert check.returncode == 0, (
-        f"One or more packages not installed:\n{check.stdout}"
-    )
+    assert check.returncode == 0, f"One or more packages not installed:\n{check.stdout}"
 
 
 @pytest.mark.install
@@ -172,15 +173,15 @@ def test_no_broken_symlinks(install_vm: VMClient) -> None:
         check=False,
     )
     broken = [l for l in result.stdout.splitlines() if l.strip()]
-    assert not broken, f"Broken symlinks found:\n" + "\n".join(broken)
+    assert not broken, "Broken symlinks found:\n" + "\n".join(broken)
 
 
 @pytest.mark.install
 def test_hyprconf_sync_idempotent(install_vm: VMClient) -> None:
     """Running hyprconf sync twice both succeed without error."""
-    first  = install_vm.run("hyprconf sync --no-reload 2>&1", check=False)
+    first = install_vm.run("hyprconf sync --no-reload 2>&1", check=False)
     second = install_vm.run("hyprconf sync --no-reload 2>&1", check=False)
-    assert first.returncode  == 0, f"First sync failed:\n{first.stdout}"
+    assert first.returncode == 0, f"First sync failed:\n{first.stdout}"
     assert second.returncode == 0, f"Second sync failed:\n{second.stdout}"
 
 
@@ -195,6 +196,7 @@ def test_hyprconf_sync_idempotent(install_vm: VMClient) -> None:
 # documented hands-on step (docs/security-hardening.md) validated manually.
 # Everything below is attainable in CI with no hardware.
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.install
 def test_root_disk_is_luks_encrypted(install_vm: VMClient) -> None:
@@ -223,7 +225,8 @@ def test_firewall_enabled(install_vm: VMClient) -> None:
 def test_sysctl_hardening_applied(install_vm: VMClient) -> None:
     """Kernel-hardening sysctls are installed AND active at runtime."""
     drop_in = install_vm.run(
-        "test -f /etc/sysctl.d/90-hyprconf-hardening.conf && echo OK", check=False)
+        "test -f /etc/sysctl.d/90-hyprconf-hardening.conf && echo OK", check=False
+    )
     assert "OK" in drop_in.stdout, "sysctl hardening drop-in missing"
     val = install_vm.run("sysctl -n kernel.kptr_restrict 2>&1", check=False)
     assert val.stdout.strip() == "2", (
@@ -247,6 +250,7 @@ def test_resolver_hardening_applied(install_vm: VMClient) -> None:
 # Network-privacy features a fresh install must ship (VPN + bolt-on addons)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.install
 def test_vpn_helper_deployed(install_vm: VMClient) -> None:
     """The hyprconf-vpn helper is stowed and wired into the CLI."""
@@ -264,9 +268,7 @@ def test_vpn_status_runs(install_vm: VMClient) -> None:
     present."""
     result = install_vm.run("hyprconf vpn status 2>&1", check=False)
     assert result.returncode == 0, f"hyprconf vpn status failed:\n{result.stdout}"
-    assert "Kill-switch" in result.stdout, (
-        f"vpn status output unexpected:\n{result.stdout}"
-    )
+    assert "Kill-switch" in result.stdout, f"vpn status output unexpected:\n{result.stdout}"
 
 
 @pytest.mark.install

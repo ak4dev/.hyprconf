@@ -7,9 +7,9 @@ reachable on a new system (lives under stow/, not the export-ignored scripts/),
 and that the PAM / SSH / LUKS / bootloader wiring it ships matches the
 documented behaviour. No root, hardware, or live system is required.
 """
+
 from __future__ import annotations
 
-import os
 import stat
 import subprocess
 from pathlib import Path
@@ -33,7 +33,9 @@ def _func_body(name: str) -> str:
     """Extract a single shell function body via awk (matches existing test style)."""
     result = subprocess.run(
         ["awk", f"/^{name}\\(\\) \\{{/,/^}}$/", str(SCRIPT)],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout
 
@@ -41,6 +43,7 @@ def _func_body(name: str) -> str:
 # ---------------------------------------------------------------------------
 # Reachability: must be stowed (so new systems get it), valid, and executable
 # ---------------------------------------------------------------------------
+
 
 def test_script_exists_in_stowed_bin() -> None:
     assert SCRIPT.exists(), (
@@ -68,7 +71,8 @@ def test_script_shebang() -> None:
 def test_script_bash_syntax() -> None:
     result = subprocess.run(
         ["bash", "-n", str(SCRIPT)],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, f"bash -n failed:\n{result.stderr}"
 
@@ -83,6 +87,7 @@ def test_script_has_pipefail_guard() -> None:
 # Backup / rollback safety net
 # ---------------------------------------------------------------------------
 
+
 def test_backs_up_and_rolls_back() -> None:
     txt = _text()
     assert "backup()" in txt and "rollback()" in txt
@@ -95,6 +100,7 @@ def test_backs_up_and_rolls_back() -> None:
 # Package handling — installs the same deps listed (commented) in `packages`
 # ---------------------------------------------------------------------------
 
+
 def test_installs_required_packages() -> None:
     txt = _text()
     for pkg in ("libfido2", "pam-u2f", "yubikey-manager"):
@@ -104,6 +110,7 @@ def test_installs_required_packages() -> None:
 # ---------------------------------------------------------------------------
 # Registration + PAM
 # ---------------------------------------------------------------------------
+
 
 def test_u2f_keys_path_and_perms() -> None:
     txt = _text()
@@ -140,6 +147,7 @@ def test_pam_insertion_is_idempotent() -> None:
 # hyprlock is INTENTIONALLY left password-only — the script must never touch it
 # ---------------------------------------------------------------------------
 
+
 def test_shields_hyprlock_password_only() -> None:
     # hyprlock's packaged PAM config is `auth include login`, and the setup adds
     # pam_u2f (required) to /etc/pam.d/login — so it MUST rewrite
@@ -164,6 +172,7 @@ def test_configure_pam_shields_hyprlock() -> None:
 # SSH daemon hardening
 # ---------------------------------------------------------------------------
 
+
 def test_ssh_sets_pam_and_auth_methods() -> None:
     txt = _text()
     assert 'sshd_set "UsePAM" "yes"' in txt
@@ -184,6 +193,7 @@ def test_ssh_handles_kbdinteractive_rename() -> None:
 # ---------------------------------------------------------------------------
 # LUKS / boot unlock (must mirror this system's systemd-boot + sd-encrypt setup)
 # ---------------------------------------------------------------------------
+
 
 def test_luks_enrolls_fido2_via_cryptenroll() -> None:
     txt = _text()
@@ -224,6 +234,7 @@ def test_bootloader_param_and_both_loaders() -> None:
 # Repo wiring: packages + README parity
 # ---------------------------------------------------------------------------
 
+
 def test_packages_lists_yubikey_deps_commented() -> None:
     lines = PACKAGES.read_text(encoding="utf-8").splitlines()
     for pkg in ("libfido2", "pam-u2f", "yubikey-manager"):
@@ -246,6 +257,7 @@ def test_readme_documents_script_and_hyprlock_exclusion() -> None:
 # ---------------------------------------------------------------------------
 # Subcommand dispatch: setup / enroll / status
 # ---------------------------------------------------------------------------
+
 
 def test_main_dispatches_subcommands() -> None:
     txt = _text()
@@ -275,6 +287,7 @@ def test_credential_append_does_not_use_sed() -> None:
     assert "python3" in _func_body("append_cred")
     # no sed substitution that appends a credential variable to the user line
     import re
+
     bad = re.findall(r"sed -i .*s/\\?\$/:\$\{[a-z]*cred\}/", txt)
     assert not bad, f"credential append must not use sed: {bad}"
 
@@ -285,7 +298,7 @@ def test_log_uses_unique_file_and_tolerates_unwritable() -> None:
     # owned by another user (fs.protected_regular). Use a per-run mktemp file
     # and never let a failed log write abort the run.
     assert "mktemp" in txt
-    assert "tee -a \"$LOG\" 2>/dev/null || true" in txt
+    assert 'tee -a "$LOG" 2>/dev/null || true' in txt
 
 
 def test_enroll_luks_adds_slot_without_initramfs_rebuild() -> None:
@@ -305,8 +318,8 @@ def test_status_is_readonly_and_reports_slots() -> None:
     assert body, "do_status must exist"
     # read-only: disables the rollback ERR trap, makes no edits
     assert "trap - ERR" in body
-    assert "systemd-fido2" in body          # counts LUKS FIDO2 token slots
-    assert "pam_u2f.so" in body             # reports PAM coverage
+    assert "systemd-fido2" in body  # counts LUKS FIDO2 token slots
+    assert "pam_u2f.so" in body  # reports PAM coverage
     assert "u2f_keys" in body.lower() or "U2F_KEYS" in body
     for verb in ("sed -i", "cryptenroll", "pamu2fcfg"):
         assert verb not in body, f"status must not call {verb} (read-only)"
@@ -316,14 +329,18 @@ def test_status_is_readonly_and_reports_slots() -> None:
 # hyprconf CLI integration: `hyprconf yubikey <sub>`
 # ---------------------------------------------------------------------------
 
+
 def test_cli_cmd_yubikey_exists() -> None:
     assert "cmd_yubikey()" in _bin_text()
 
 
 def test_cli_dispatcher_entry() -> None:
     # dispatcher entry routes the `yubikey` command (alias `yk`) to cmd_yubikey
-    lines = [l.strip() for l in _bin_text().splitlines()
-             if "cmd_yubikey " in l and l.lstrip().startswith("yubikey")]
+    lines = [
+        l.strip()
+        for l in _bin_text().splitlines()
+        if "cmd_yubikey " in l and l.lstrip().startswith("yubikey")
+    ]
     assert lines, "yubikey must have a dispatcher entry in main()"
 
 
@@ -344,6 +361,8 @@ def test_cli_references_script_and_escalates() -> None:
 def _func_body_bin(name: str) -> str:
     result = subprocess.run(
         ["awk", f"/^{name}\\(\\) \\{{/,/^}}$/", str(HYPRCONF_BIN)],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     return result.stdout

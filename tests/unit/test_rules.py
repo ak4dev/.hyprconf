@@ -1,12 +1,10 @@
 """Tests for hyprconf.rules — window and workspace rule parser/writer."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from hyprconf.rules import (
-    RuleEntry,
     add_window_rule,
     add_workspace_rule,
     delete_rule,
@@ -31,6 +29,7 @@ workspace = special:magic, on-created-empty:kitty
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _hypr_conf(hypr_dir: Path, content: str) -> Path:
     p = hypr_dir / "hyprland.conf"
     p.write_text(content)
@@ -54,6 +53,7 @@ def _wksp_rules_file(hypr_dir: Path, content: str = "") -> Path:
 # ---------------------------------------------------------------------------
 # read_window_rules_with_location
 # ---------------------------------------------------------------------------
+
 
 def test_reads_window_rules(hypr_dir: Path) -> None:
     p = _hypr_conf(hypr_dir, HYPRLAND_CONF)
@@ -99,6 +99,7 @@ def test_read_window_rules_simple_list(hypr_dir: Path) -> None:
 # read_workspace_rules_with_location
 # ---------------------------------------------------------------------------
 
+
 def test_reads_workspace_rules(hypr_dir: Path) -> None:
     p = _hypr_conf(hypr_dir, HYPRLAND_CONF)
     entries = read_workspace_rules_with_location(p)
@@ -122,6 +123,7 @@ def test_read_workspace_rules_simple_list(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # add_window_rule
 # ---------------------------------------------------------------------------
+
 
 def test_add_window_rule_appends(hypr_dir: Path) -> None:
     p = _win_rules_file(hypr_dir)
@@ -158,6 +160,7 @@ def test_add_window_rule_format(hypr_dir: Path) -> None:
 # add_workspace_rule
 # ---------------------------------------------------------------------------
 
+
 def test_add_workspace_rule(hypr_dir: Path) -> None:
     p = _wksp_rules_file(hypr_dir)
     assert add_workspace_rule("1", "monitor:HDMI-A-1, default:true", file=p) is True
@@ -176,6 +179,7 @@ def test_add_workspace_rule_no_options(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # delete_rule
 # ---------------------------------------------------------------------------
+
 
 def test_delete_window_rule(hypr_dir: Path) -> None:
     p = _win_rules_file(hypr_dir, "windowrulev2 = float, class:X\nwindowrulev2 = tile, class:Y\n")
@@ -196,6 +200,7 @@ def test_delete_rule_invalid_idx(hypr_dir: Path) -> None:
 # update_window_rule
 # ---------------------------------------------------------------------------
 
+
 def test_update_window_rule(hypr_dir: Path) -> None:
     p = _win_rules_file(hypr_dir, "windowrulev2 = float, class:X\n")
     entries = read_window_rules_with_location(p)
@@ -209,6 +214,7 @@ def test_update_window_rule(hypr_dir: Path) -> None:
 # update_workspace_rule
 # ---------------------------------------------------------------------------
 
+
 def test_update_workspace_rule(hypr_dir: Path) -> None:
     p = _wksp_rules_file(hypr_dir, "workspace = 1, monitor:DP-1\n")
     entries = read_workspace_rules_with_location(p)
@@ -221,6 +227,7 @@ def test_update_workspace_rule(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # Round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_window_rule_crud_round_trip(hypr_dir: Path) -> None:
     p = _win_rules_file(hypr_dir)
@@ -242,13 +249,13 @@ def test_window_rule_crud_round_trip(hypr_dir: Path) -> None:
 # Source file following (covers L71-77 in rules.py _collect_rules)
 # ---------------------------------------------------------------------------
 
+
 def test_collect_rules_follows_source_include(hypr_dir: Path) -> None:
-    from hyprconf.rules import read_window_rules_with_location, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, read_window_rules_with_location
+
     sub = hypr_dir / "extra_rules.conf"
     sub.write_text("windowrulev2 = float, class:extra\n")
-    HYPRLAND_CONF.write_text(
-        f"source = {sub}\nwindowrulev2 = float, class:main\n"
-    )
+    HYPRLAND_CONF.write_text(f"source = {sub}\nwindowrulev2 = float, class:main\n")
     entries = read_window_rules_with_location(HYPRLAND_CONF)
     classes = " ".join(e.rule for e in entries)
     assert "extra" in classes
@@ -259,8 +266,10 @@ def test_collect_rules_follows_source_include(hypr_dir: Path) -> None:
 # add_window_rule default path (covers L112)
 # ---------------------------------------------------------------------------
 
+
 def test_add_window_rule_uses_default_path(hypr_dir: Path) -> None:
-    from hyprconf.rules import add_window_rule, WINRULES_FILE
+    from hyprconf.rules import WINRULES_FILE, add_window_rule
+
     WINRULES_FILE.write_text("")
     add_window_rule("float", ["class:default_test"])  # no file arg
     assert "float" in WINRULES_FILE.read_text()
@@ -270,8 +279,10 @@ def test_add_window_rule_uses_default_path(hypr_dir: Path) -> None:
 # add_workspace_rule default path (covers L128)
 # ---------------------------------------------------------------------------
 
+
 def test_add_workspace_rule_uses_default_path(hypr_dir: Path) -> None:
-    from hyprconf.rules import add_workspace_rule, WKSPRULES_FILE
+    from hyprconf.rules import WKSPRULES_FILE, add_workspace_rule
+
     WKSPRULES_FILE.write_text("")
     add_workspace_rule("1", "monitor:HDMI-A-1")  # no file arg
     assert "workspace = 1" in WKSPRULES_FILE.read_text()
@@ -282,13 +293,16 @@ def test_add_workspace_rule_uses_default_path(hypr_dir: Path) -> None:
 # (covers L62: not p.exists() → return early)
 # ---------------------------------------------------------------------------
 
+
 def test_collect_rules_skips_nonexistent_source(hypr_dir: Path) -> None:
-    from hyprconf.rules import WINRULES_FILE, HYPRLAND_CONF
+    from hyprconf.rules import HYPRLAND_CONF, WINRULES_FILE
+
     # Set up hyprland.conf sourcing a non-existent file
     nonexistent = hypr_dir / "no_such.conf"
     HYPRLAND_CONF.write_text(f"source = {nonexistent}\n")
     WINRULES_FILE.write_text("")
     from hyprconf.rules import read_window_rules_with_location
+
     # Should return empty without raising
     entries = read_window_rules_with_location()
     assert entries == []
@@ -298,9 +312,10 @@ def test_collect_rules_skips_nonexistent_source(hypr_dir: Path) -> None:
 # _collect_rules: glob source pattern expands matches (covers L73-74)
 # ---------------------------------------------------------------------------
 
+
 def test_collect_rules_follows_glob_source(hypr_dir: Path) -> None:
-    from hyprconf.rules import HYPRLAND_CONF
-    from hyprconf.rules import read_window_rules_with_location
+    from hyprconf.rules import HYPRLAND_CONF, read_window_rules_with_location
+
     # Create two rule files matched by a glob
     rules_dir = hypr_dir / "rules.d"
     rules_dir.mkdir()
@@ -316,6 +331,7 @@ def test_collect_rules_follows_glob_source(hypr_dir: Path) -> None:
 def test_collect_rules_resolves_relative_source(hypr_dir: Path) -> None:
     """A relative `source = ./extra.conf` resolves against the including file's dir."""
     from hyprconf.rules import HYPRLAND_CONF, read_window_rules_with_location
+
     extra = hypr_dir / "extra.conf"
     extra.write_text("windowrule = float, class:relApp\n")
     HYPRLAND_CONF.write_text("source = extra.conf\n")

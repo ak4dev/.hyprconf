@@ -1,12 +1,10 @@
 """Tests for hyprconf.keybinds — keybind parser and writer."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from hyprconf.keybinds import (
-    KeybindEntry,
     add_keybind,
     delete_keybind,
     read_keybinds,
@@ -28,6 +26,7 @@ bindm = $mainMod, mouse:272, movewindow
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _kb_file(hypr_dir: Path, content: str = KEYBINDS_CONF) -> Path:
     p = hypr_dir / "keybinds.conf"
     p.write_text(content)
@@ -37,6 +36,7 @@ def _kb_file(hypr_dir: Path, content: str = KEYBINDS_CONF) -> Path:
 # ---------------------------------------------------------------------------
 # read_keybinds_with_location
 # ---------------------------------------------------------------------------
+
 
 def test_reads_basic_bind(hypr_dir: Path) -> None:
     _kb_file(hypr_dir)
@@ -117,6 +117,7 @@ def test_read_keybinds_simple_tuples(hypr_dir: Path) -> None:
 # add_keybind
 # ---------------------------------------------------------------------------
 
+
 def test_add_keybind_appends(hypr_dir: Path) -> None:
     p = hypr_dir / "keybinds.conf"
     p.write_text("")
@@ -147,6 +148,7 @@ def test_add_keybind_formats_correctly(hypr_dir: Path) -> None:
 # delete_keybind
 # ---------------------------------------------------------------------------
 
+
 def test_delete_keybind(hypr_dir: Path) -> None:
     p = hypr_dir / "keybinds.conf"
     p.write_text("bind = SUPER, T, exec, kitty\nbind = SUPER, F, exec, firefox\n")
@@ -168,13 +170,15 @@ def test_delete_keybind_invalid_idx(hypr_dir: Path) -> None:
 # update_keybind
 # ---------------------------------------------------------------------------
 
+
 def test_update_keybind_changes_args(hypr_dir: Path) -> None:
     p = hypr_dir / "keybinds.conf"
     p.write_text("bind = SUPER, T, exec, kitty\n")
     entries = read_keybinds_with_location(p)
     e = entries[0]
-    assert update_keybind(e.file_path, e.line_idx,
-                          "bind", "SUPER", "T", "exec", "alacritty") is True
+    assert (
+        update_keybind(e.file_path, e.line_idx, "bind", "SUPER", "T", "exec", "alacritty") is True
+    )
     updated = read_keybinds_with_location(p)
     assert updated[0].args == "alacritty"
 
@@ -184,8 +188,7 @@ def test_update_keybind_changes_kind(hypr_dir: Path) -> None:
     p.write_text("bind = SUPER, T, exec, kitty\n")
     entries = read_keybinds_with_location(p)
     e = entries[0]
-    update_keybind(e.file_path, e.line_idx,
-                   "binde", "SUPER", "T", "exec", "kitty")
+    update_keybind(e.file_path, e.line_idx, "binde", "SUPER", "T", "exec", "kitty")
     updated = read_keybinds_with_location(p)
     assert updated[0].kind == "binde"
 
@@ -199,6 +202,7 @@ def test_update_keybind_invalid_idx(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # Round-trip: add → read → update → read → delete → read
 # ---------------------------------------------------------------------------
+
 
 def test_full_crud_round_trip(hypr_dir: Path) -> None:
     p = hypr_dir / "keybinds.conf"
@@ -224,9 +228,11 @@ def test_full_crud_round_trip(hypr_dir: Path) -> None:
 # Default path (covers L75 — KEYBINDS_FILE default in read_keybinds_with_location)
 # ---------------------------------------------------------------------------
 
+
 def test_read_keybinds_with_location_uses_default_path(hypr_dir: Path) -> None:
     """Calling without a file arg should use KEYBINDS_FILE."""
     from hyprconf.keybinds import KEYBINDS_FILE, read_keybinds_with_location
+
     KEYBINDS_FILE.write_text("bind = SUPER, T, exec, kitty\n")
     entries = read_keybinds_with_location()  # no file arg → uses KEYBINDS_FILE
     assert len(entries) == 1
@@ -237,8 +243,10 @@ def test_read_keybinds_with_location_uses_default_path(hypr_dir: Path) -> None:
 # add_keybind default path (covers L153)
 # ---------------------------------------------------------------------------
 
+
 def test_add_keybind_uses_default_path(hypr_dir: Path) -> None:
     from hyprconf.keybinds import KEYBINDS_FILE, add_keybind, read_keybinds_with_location
+
     KEYBINDS_FILE.write_text("")
     add_keybind("bind", "SUPER", "F", "exec", "firefox")  # no file arg
     entries = read_keybinds_with_location(KEYBINDS_FILE)
@@ -248,6 +256,7 @@ def test_add_keybind_uses_default_path(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # Source file following (covers L95-103)
 # ---------------------------------------------------------------------------
+
 
 def test_read_follows_source_include(hypr_dir: Path) -> None:
     sub = hypr_dir / "extra_keybinds.conf"
@@ -264,9 +273,11 @@ def test_read_follows_source_include(hypr_dir: Path) -> None:
 # Source following with glob pattern (covers L99-100)
 # ---------------------------------------------------------------------------
 
+
 def test_read_follows_glob_source(hypr_dir: Path) -> None:
     """read_keybinds_with_location follows glob patterns in source= lines."""
     from hyprconf.keybinds import read_keybinds_with_location
+
     kb_dir = hypr_dir / "keys.d"
     kb_dir.mkdir()
     (kb_dir / "a.conf").write_text("bind = SUPER, A, exec, app1\n")
@@ -306,11 +317,7 @@ def test_read_keybinds_blank_and_comment_lines(hypr_dir: Path) -> None:
     """Blank lines and comments are ignored."""
     conf = hypr_dir / "keybinds.conf"
     conf.write_text(
-        "\n\n"
-        "# This is a comment\n"
-        "bind = SUPER, X, exec, xterm\n"
-        "   \n"
-        "# Another comment\n"
+        "\n\n# This is a comment\nbind = SUPER, X, exec, xterm\n   \n# Another comment\n"
     )
     entries = read_keybinds(conf)
     assert len(entries) == 1
@@ -327,6 +334,7 @@ def test_read_keybinds_nonexistent_file(tmp_path: Path) -> None:
 def test_read_keybinds_relative_source(tmp_path: Path) -> None:
     """A relative `source = ./foo.conf` resolves against the including file's dir."""
     from hyprconf.keybinds import read_keybinds_with_location
+
     sub = tmp_path / "extra.conf"
     sub.write_text("bind = SUPER, X, exec, foo\n")
     main = tmp_path / "hyprland.conf"

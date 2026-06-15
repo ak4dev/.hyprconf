@@ -1,13 +1,10 @@
 """Tests for hyprconf-power-monitor script and hyprconf power-profile CLI command."""
+
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
-import tempfile
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
@@ -89,10 +86,10 @@ fi
     # Rewrite the script to use our fake sysfs paths
     script_text = POWER_MONITOR.read_text()
     patched = script_text.replace(
-        '/sys/class/power_supply/BAT*',
+        "/sys/class/power_supply/BAT*",
         str(sysfs / "BAT*"),
     ).replace(
-        '/sys/class/power_supply/*/type',
+        "/sys/class/power_supply/*/type",
         str(sysfs / "*/type"),
     )
     patched_script = tmp / "hyprconf-power-monitor"
@@ -134,9 +131,7 @@ class TestPowerMonitorGuards:
     """Guard clauses: exits cleanly when prereqs missing."""
 
     def test_exits_if_no_powerprofilesctl(self, tmp_path: Path) -> None:
-        rc, _, _, calls = _run_monitor(
-            tmp_path, has_powerprofilesctl=False
-        )
+        rc, _, _, calls = _run_monitor(tmp_path, has_powerprofilesctl=False)
         assert rc == 0
         assert calls == []
 
@@ -219,8 +214,11 @@ class TestCmdPowerProfile:
 
     def test_dispatcher_entry(self) -> None:
         text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "power-profile" in l and "cmd_power_profile" in l]
+        lines = [
+            l.strip()
+            for l in text.splitlines()
+            if "power-profile" in l and "cmd_power_profile" in l
+        ]
         assert lines, "power-profile must have a dispatcher entry in main()"
 
     def test_pp_alias(self) -> None:
@@ -234,43 +232,43 @@ class TestCmdPowerProfile:
     def test_status_subcommand(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power_profile()")
-        body = text[idx:idx + 2500]
+        body = text[idx : idx + 2500]
         assert "status)" in body
 
     def test_performance_subcommand(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power_profile()")
-        body = text[idx:idx + 2500]
+        body = text[idx : idx + 2500]
         assert "performance" in body
 
     def test_balanced_subcommand(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power_profile()")
-        body = text[idx:idx + 2500]
+        body = text[idx : idx + 2500]
         assert "balanced" in body
 
     def test_power_saver_subcommand(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power_profile()")
-        body = text[idx:idx + 2500]
+        body = text[idx : idx + 2500]
         assert "power-saver" in body
 
     def test_auto_subcommand(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power_profile()")
-        body = text[idx:idx + 2500]
+        body = text[idx : idx + 2500]
         assert "auto)" in body
 
     def test_calls_powerprofilesctl(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power_profile()")
-        body = text[idx:idx + 2500]
+        body = text[idx : idx + 2500]
         assert "powerprofilesctl" in body
 
     def test_usage_on_invalid_arg(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power_profile()")
-        body = text[idx:idx + 2500]
+        body = text[idx : idx + 2500]
         assert "Usage:" in body
 
 
@@ -295,7 +293,7 @@ class TestDoctorPowerProfile:
         text = _bin_text()
         # The BAT* check should appear in the doctor section
         idx = text.index("_doctor_check_hardware()")
-        body = text[idx:idx + 2000]
+        body = text[idx : idx + 2000]
         assert "BAT" in body
 
 
@@ -327,7 +325,7 @@ class TestSetupPowerMonitor:
         The rule must point at the root-owned /usr/local/lib copy."""
         text = _setup_text()
         idx = text.index("setup_power_monitor()")
-        body = text[idx:idx + 4000]
+        body = text[idx : idx + 4000]
         # The RUN+= target must be the root-owned system path.
         assert 'RUN+=\\"$system_script\\"' in body
         assert "/usr/local/lib/hyprconf/hyprconf-power-monitor" in body
@@ -346,19 +344,19 @@ class TestSetupPowerMonitor:
         """setup_power_monitor must be called when laptop is detected."""
         text = _setup_text()
         idx = text.index("Laptop/portable detected")
-        block = text[idx:idx + 1500]
+        block = text[idx : idx + 1500]
         assert "setup_power_monitor" in block
 
     def test_idempotent_check(self) -> None:
         """Should skip if rule already installed with correct content."""
         text = _setup_text()
         idx = text.index("setup_power_monitor()")
-        body = text[idx:idx + 4000]
+        body = text[idx : idx + 4000]
         assert "already installed" in body
 
     def test_initial_profile_set(self) -> None:
         """Should run the monitor once to set initial profile."""
         text = _setup_text()
         idx = text.index("setup_power_monitor()")
-        body = text[idx:idx + 4000]
+        body = text[idx : idx + 4000]
         assert "auto" in body

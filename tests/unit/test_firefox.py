@@ -11,11 +11,11 @@ Covers:
 - update_firefox runs for all themes (no firefox key → falls back to compact theme)
 - infra/firefox/policies.json is valid JSON with required enterprise policy fields
 """
+
 from __future__ import annotations
 
 import importlib.util
 import json
-import sys
 from pathlib import Path
 
 import pytest
@@ -143,6 +143,7 @@ def test_enforced_prefs_pocket_disabled() -> None:
 # format_firefox_pref
 # ---------------------------------------------------------------------------
 
+
 def test_format_pref_bool_true() -> None:
     result = _st.format_firefox_pref("some.pref", True)
     assert result == 'user_pref("some.pref", true);'
@@ -176,6 +177,7 @@ def test_format_pref_float() -> None:
 # ---------------------------------------------------------------------------
 # write_firefox_userjs
 # ---------------------------------------------------------------------------
+
 
 def test_write_userjs_creates_file(tmp_path: Path) -> None:
     profile = tmp_path / "profile"
@@ -231,6 +233,7 @@ def test_write_userjs_all_enforced_prefs(tmp_path: Path) -> None:
 # infra/firefox/policies.json
 # ---------------------------------------------------------------------------
 
+
 def test_policies_json_exists() -> None:
     assert POLICIES_JSON.exists(), "infra/firefox/policies.json must exist"
 
@@ -278,7 +281,7 @@ def test_policies_json_tracking_protection_enabled() -> None:
 # get_firefox_builtin_theme_id
 # ---------------------------------------------------------------------------
 
-_DARK_THEME  = {"background": "#1e1e2e", "foreground": "#cdd6f4", "accent": "#cba6f7"}
+_DARK_THEME = {"background": "#1e1e2e", "foreground": "#cdd6f4", "accent": "#cba6f7"}
 _LIGHT_THEME = {"background": "#eff1f5", "foreground": "#4c4f69", "accent": "#8839ef"}
 
 
@@ -300,6 +303,7 @@ def test_builtin_theme_id_no_background_defaults_dark() -> None:
 # ---------------------------------------------------------------------------
 # write_firefox_userchrome
 # ---------------------------------------------------------------------------
+
 
 def test_write_userchrome_creates_chrome_dir(tmp_path: Path) -> None:
     profile = tmp_path / "profile"
@@ -360,6 +364,7 @@ def test_write_userchrome_contains_lwt_variables(tmp_path: Path) -> None:
 # set_firefox_theme_activation return value
 # ---------------------------------------------------------------------------
 
+
 def _make_extensions_json(tmp_path: Path, themes: list) -> Path:
     data = {"addons": themes}
     p = tmp_path / "extensions.json"
@@ -370,10 +375,18 @@ def _make_extensions_json(tmp_path: Path, themes: list) -> Path:
 def test_set_activation_returns_true_when_found(tmp_path: Path) -> None:
     profile = tmp_path / "profile"
     profile.mkdir()
-    _make_extensions_json(profile, [
-        {"id": "firefox-compact-dark@mozilla.org", "type": "theme",
-         "location": "app-builtin", "active": False, "userDisabled": True},
-    ])
+    _make_extensions_json(
+        profile,
+        [
+            {
+                "id": "firefox-compact-dark@mozilla.org",
+                "type": "theme",
+                "location": "app-builtin",
+                "active": False,
+                "userDisabled": True,
+            },
+        ],
+    )
     result = _st.set_firefox_theme_activation(profile, "firefox-compact-dark@mozilla.org")
     assert result is True
 
@@ -381,10 +394,18 @@ def test_set_activation_returns_true_when_found(tmp_path: Path) -> None:
 def test_set_activation_returns_false_when_not_found(tmp_path: Path) -> None:
     profile = tmp_path / "profile"
     profile.mkdir()
-    _make_extensions_json(profile, [
-        {"id": "some-other-theme@example.com", "type": "theme",
-         "location": "app-builtin", "active": True, "userDisabled": False},
-    ])
+    _make_extensions_json(
+        profile,
+        [
+            {
+                "id": "some-other-theme@example.com",
+                "type": "theme",
+                "location": "app-builtin",
+                "active": True,
+                "userDisabled": False,
+            },
+        ],
+    )
     result = _st.set_firefox_theme_activation(profile, "firefox-compact-dark@mozilla.org")
     assert result is False
 
@@ -400,17 +421,28 @@ def test_set_activation_returns_false_no_extensions_json(tmp_path: Path) -> None
 # update_firefox — runs for all themes (no firefox key → fallback)
 # ---------------------------------------------------------------------------
 
+
 def _make_profile(tmp_path: Path, theme_id: str = "firefox-compact-dark@mozilla.org") -> Path:
     profile = tmp_path / "profile"
     profile.mkdir()
-    _make_extensions_json(profile, [
-        {"id": theme_id, "type": "theme",
-         "location": "app-builtin", "active": False, "userDisabled": True},
-    ])
+    _make_extensions_json(
+        profile,
+        [
+            {
+                "id": theme_id,
+                "type": "theme",
+                "location": "app-builtin",
+                "active": False,
+                "userDisabled": True,
+            },
+        ],
+    )
     return profile
 
 
-def test_update_firefox_runs_without_firefox_key(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_firefox_runs_without_firefox_key(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """update_firefox must run for themes that have no 'firefox' key."""
     profile = _make_profile(tmp_path)
     monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: profile)
@@ -422,7 +454,9 @@ def test_update_firefox_runs_without_firefox_key(tmp_path: Path, monkeypatch: py
     assert (profile / "user.js").exists()
 
 
-def test_update_firefox_writes_userchrome_with_palette(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_firefox_writes_userchrome_with_palette(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     profile = _make_profile(tmp_path)
     monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: profile)
     monkeypatch.setattr(_st, "FIREFOX_BASE_PREFS_FILE", str(tmp_path / "user.js"))
@@ -461,7 +495,9 @@ def test_update_firefox_skips_when_no_profile(monkeypatch: pytest.MonkeyPatch) -
     _st.update_firefox(_DARK_THEME)
 
 
-def test_update_firefox_enables_userchrome_pref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_update_firefox_enables_userchrome_pref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     profile = _make_profile(tmp_path)
     monkeypatch.setattr(_st, "get_default_firefox_profile", lambda: profile)
     monkeypatch.setattr(_st, "FIREFOX_BASE_PREFS_FILE", str(tmp_path / "user.js"))
@@ -475,6 +511,7 @@ def test_update_firefox_enables_userchrome_pref(tmp_path: Path, monkeypatch: pyt
 # ---------------------------------------------------------------------------
 # get_default_firefox_profile — profile path validation
 # ---------------------------------------------------------------------------
+
 
 def _write_profiles_ini(ini_path: Path, content: str) -> None:
     ini_path.parent.mkdir(parents=True, exist_ok=True)
@@ -497,11 +534,7 @@ def test_get_default_firefox_profile_install_section_valid(
     profile_dir = firefox_dir / "profiles" / "abc123.default"
     profile_dir.mkdir(parents=True)
     ini = _patch_firefox_paths(monkeypatch, firefox_dir)
-    _write_profiles_ini(ini, (
-        "[Install1234ABCD]\n"
-        "Default=profiles/abc123.default\n"
-        "Locked=1\n"
-    ))
+    _write_profiles_ini(ini, ("[Install1234ABCD]\nDefault=profiles/abc123.default\nLocked=1\n"))
     result = _st.get_default_firefox_profile()
     assert result == profile_dir
 
@@ -513,16 +546,19 @@ def test_get_default_firefox_profile_install_section_missing_dir(
     real_dir = tmp_path / "firefox" / "profiles" / "real.default"
     real_dir.mkdir(parents=True)
     ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
-    _write_profiles_ini(ini, (
-        "[Install1234ABCD]\n"
-        "Default=profiles/ghost.empty\n"
-        "\n"
-        "[Profile0]\n"
-        "Name=default\n"
-        "IsRelative=1\n"
-        "Path=profiles/real.default\n"
-        "Default=1\n"
-    ))
+    _write_profiles_ini(
+        ini,
+        (
+            "[Install1234ABCD]\n"
+            "Default=profiles/ghost.empty\n"
+            "\n"
+            "[Profile0]\n"
+            "Name=default\n"
+            "IsRelative=1\n"
+            "Path=profiles/real.default\n"
+            "Default=1\n"
+        ),
+    )
     result = _st.get_default_firefox_profile()
     assert result == real_dir
 
@@ -534,13 +570,9 @@ def test_get_default_firefox_profile_default_section_valid(
     profile_dir = tmp_path / "firefox" / "profiles" / "main.default"
     profile_dir.mkdir(parents=True)
     ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
-    _write_profiles_ini(ini, (
-        "[Profile0]\n"
-        "Name=default\n"
-        "IsRelative=1\n"
-        "Path=profiles/main.default\n"
-        "Default=1\n"
-    ))
+    _write_profiles_ini(
+        ini, ("[Profile0]\nName=default\nIsRelative=1\nPath=profiles/main.default\nDefault=1\n")
+    )
     result = _st.get_default_firefox_profile()
     assert result == profile_dir
 
@@ -552,18 +584,21 @@ def test_get_default_firefox_profile_default_section_missing_dir(
     fallback_dir = tmp_path / "firefox" / "profiles" / "fallback.esr"
     fallback_dir.mkdir(parents=True)
     ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
-    _write_profiles_ini(ini, (
-        "[Profile0]\n"
-        "Name=default\n"
-        "IsRelative=1\n"
-        "Path=profiles/ghost.default\n"
-        "Default=1\n"
-        "\n"
-        "[Profile1]\n"
-        "Name=esr\n"
-        "IsRelative=1\n"
-        "Path=profiles/fallback.esr\n"
-    ))
+    _write_profiles_ini(
+        ini,
+        (
+            "[Profile0]\n"
+            "Name=default\n"
+            "IsRelative=1\n"
+            "Path=profiles/ghost.default\n"
+            "Default=1\n"
+            "\n"
+            "[Profile1]\n"
+            "Name=esr\n"
+            "IsRelative=1\n"
+            "Path=profiles/fallback.esr\n"
+        ),
+    )
     result = _st.get_default_firefox_profile()
     assert result == fallback_dir
 
@@ -575,12 +610,7 @@ def test_get_default_firefox_profile_fallback_valid(
     profile_dir = tmp_path / "firefox" / "profiles" / "only.profile"
     profile_dir.mkdir(parents=True)
     ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
-    _write_profiles_ini(ini, (
-        "[Profile0]\n"
-        "Name=only\n"
-        "IsRelative=1\n"
-        "Path=profiles/only.profile\n"
-    ))
+    _write_profiles_ini(ini, ("[Profile0]\nName=only\nIsRelative=1\nPath=profiles/only.profile\n"))
     result = _st.get_default_firefox_profile()
     assert result == profile_dir
 
@@ -590,16 +620,19 @@ def test_get_default_firefox_profile_no_valid_dirs(
 ) -> None:
     """All profile paths non-existent → returns None."""
     ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
-    _write_profiles_ini(ini, (
-        "[Install1234ABCD]\n"
-        "Default=profiles/ghost1\n"
-        "\n"
-        "[Profile0]\n"
-        "Name=default\n"
-        "IsRelative=1\n"
-        "Path=profiles/ghost2\n"
-        "Default=1\n"
-    ))
+    _write_profiles_ini(
+        ini,
+        (
+            "[Install1234ABCD]\n"
+            "Default=profiles/ghost1\n"
+            "\n"
+            "[Profile0]\n"
+            "Name=default\n"
+            "IsRelative=1\n"
+            "Path=profiles/ghost2\n"
+            "Default=1\n"
+        ),
+    )
     result = _st.get_default_firefox_profile()
     assert result is None
 
@@ -621,13 +654,9 @@ def test_get_default_firefox_profile_absolute_path(
     abs_profile = tmp_path / "external" / "profile.abs"
     abs_profile.mkdir(parents=True)
     ini = _patch_firefox_paths(monkeypatch, tmp_path / "firefox")
-    _write_profiles_ini(ini, (
-        f"[Profile0]\n"
-        f"Name=abs\n"
-        f"IsRelative=0\n"
-        f"Path={abs_profile}\n"
-        f"Default=1\n"
-    ))
+    _write_profiles_ini(
+        ini, (f"[Profile0]\nName=abs\nIsRelative=0\nPath={abs_profile}\nDefault=1\n")
+    )
     result = _st.get_default_firefox_profile()
     assert result == abs_profile
 
@@ -635,6 +664,7 @@ def test_get_default_firefox_profile_absolute_path(
 # ---------------------------------------------------------------------------
 # get_default_firefox_profile — XDG path discovery
 # ---------------------------------------------------------------------------
+
 
 def test_get_default_firefox_profile_xdg_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -644,13 +674,11 @@ def test_get_default_firefox_profile_xdg_path(
     profile_dir = xdg_dir / "abc.default-release"
     profile_dir.mkdir(parents=True)
     xdg_ini = xdg_dir / "profiles.ini"
-    _write_profiles_ini(xdg_ini, (
-        "[Install1234ABCD]\n"
-        "Default=abc.default-release\n"
-        "Locked=1\n"
-    ))
+    _write_profiles_ini(xdg_ini, ("[Install1234ABCD]\nDefault=abc.default-release\nLocked=1\n"))
     # Legacy path does NOT exist; only the XDG path does
-    monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI", str(tmp_path / "does_not_exist" / "profiles.ini"))
+    monkeypatch.setattr(
+        _st, "FIREFOX_PROFILES_INI", str(tmp_path / "does_not_exist" / "profiles.ini")
+    )
     monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI_XDG", str(xdg_ini))
     result = _st.get_default_firefox_profile()
     assert result == profile_dir
@@ -664,21 +692,13 @@ def test_get_default_firefox_profile_legacy_preferred_when_both_exist(
     legacy_profile = legacy_dir / "legacy.default"
     legacy_profile.mkdir(parents=True)
     legacy_ini = legacy_dir / "profiles.ini"
-    _write_profiles_ini(legacy_ini, (
-        "[Install0000AAAA]\n"
-        "Default=legacy.default\n"
-        "Locked=1\n"
-    ))
+    _write_profiles_ini(legacy_ini, ("[Install0000AAAA]\nDefault=legacy.default\nLocked=1\n"))
 
     xdg_dir = tmp_path / "xdg_firefox"
     xdg_profile = xdg_dir / "xdg.default-release"
     xdg_profile.mkdir(parents=True)
     xdg_ini = xdg_dir / "profiles.ini"
-    _write_profiles_ini(xdg_ini, (
-        "[Install1111BBBB]\n"
-        "Default=xdg.default-release\n"
-        "Locked=1\n"
-    ))
+    _write_profiles_ini(xdg_ini, ("[Install1111BBBB]\nDefault=xdg.default-release\nLocked=1\n"))
 
     monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI", str(legacy_ini))
     monkeypatch.setattr(_st, "FIREFOX_PROFILES_INI_XDG", str(xdg_ini))
@@ -690,6 +710,7 @@ def test_get_default_firefox_profile_legacy_preferred_when_both_exist(
 # LibreWolf — Firefox-fork theming via the shared engine
 # (hyprconf addon librewolf)
 # ---------------------------------------------------------------------------
+
 
 def test_firefox_theme_prefs_enables_userchrome() -> None:
     # The minimal LibreWolf subset must still enable userChrome.css, or our
@@ -765,4 +786,3 @@ def test_update_librewolf_is_in_apply_flow() -> None:
     # The orchestrator must call update_librewolf alongside update_firefox.
     src = SWITCH_THEME_PATH.read_text(encoding="utf-8")
     assert "update_librewolf(theme)" in src
-

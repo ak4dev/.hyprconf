@@ -5,14 +5,13 @@ Strategy:
   - Functional tests create stub binaries and run the script in a
     controlled environment (fake $PATH, tmp HOME) to verify behaviour.
 """
+
 from __future__ import annotations
 
 import os
 import stat
 import subprocess
 from pathlib import Path
-
-import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 WVKBD_LAUNCHER = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "wvkbd-launcher"
@@ -21,6 +20,7 @@ WVKBD_LAUNCHER = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "wvkbd-launche
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _write_exe(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +40,9 @@ def _run_launcher(tmp_path: Path, *, colors: str = "", extra_env: dict | None = 
 
     arg_log = tmp_path / "wvkbd_args.txt"
     # Fake wvkbd-mobintl: capture args and exit 0
-    _write_exe(bin_dir / "wvkbd-mobintl", f"""\
+    _write_exe(
+        bin_dir / "wvkbd-mobintl",
+        f"""\
 #!/usr/bin/env bash
 echo "$@" > {arg_log}
 # Simulate --help output (no color support) when called with --help
@@ -50,7 +52,8 @@ if [[ "$1" == "--help" ]]; then
     exit 0
 fi
 exit 0
-""")
+""",
+    )
 
     # Write colors file if provided
     xdg_cfg = home / ".config"
@@ -102,6 +105,7 @@ def _run_launcher_no_wvkbd(tmp_path: Path):
 # Source-inspection tests
 # ---------------------------------------------------------------------------
 
+
 def test_wvkbd_launcher_has_shebang():
     content = WVKBD_LAUNCHER.read_text()
     assert content.startswith("#!/usr/bin/env bash")
@@ -147,6 +151,7 @@ def test_wvkbd_launcher_uses_kill_not_pkill():
 # Functional tests
 # ---------------------------------------------------------------------------
 
+
 def test_wvkbd_launcher_exits_nonzero_without_wvkbd(tmp_path):
     result = _run_launcher_no_wvkbd(tmp_path)
     assert result.returncode != 0
@@ -169,7 +174,9 @@ def test_wvkbd_launcher_passes_color_flags_when_available(tmp_path):
     home.mkdir(exist_ok=True)
     arg_log = tmp_path / "wvkbd_args.txt"
 
-    _write_exe(bin_dir / "wvkbd-mobintl", f"""\
+    _write_exe(
+        bin_dir / "wvkbd-mobintl",
+        f"""\
 #!/usr/bin/env bash
 if [[ "$1" == "--help" ]]; then
     echo "  --bg COLOR  background"
@@ -179,14 +186,13 @@ if [[ "$1" == "--help" ]]; then
 fi
 echo "$@" > {arg_log}
 exit 0
-""")
+""",
+    )
 
     xdg_cfg = home / ".config"
     wvkbd_dir = xdg_cfg / "wvkbd"
     wvkbd_dir.mkdir(parents=True)
-    (wvkbd_dir / "colors").write_text(
-        'bg="#282a36"\nfg="#f8f8f2"\naccent="#8be9fd"\n'
-    )
+    (wvkbd_dir / "colors").write_text('bg="#282a36"\nfg="#f8f8f2"\naccent="#8be9fd"\n')
 
     env = os.environ.copy()
     env["HOME"] = str(home)
@@ -218,7 +224,9 @@ def test_wvkbd_launcher_no_color_flags_without_support(tmp_path):
     home.mkdir(exist_ok=True)
     arg_log = tmp_path / "wvkbd_args.txt"
 
-    _write_exe(bin_dir / "wvkbd-mobintl", f"""\
+    _write_exe(
+        bin_dir / "wvkbd-mobintl",
+        f"""\
 #!/usr/bin/env bash
 if [[ "$1" == "--help" ]]; then
     echo "Usage: wvkbd-mobintl [OPTIONS]"
@@ -227,14 +235,13 @@ if [[ "$1" == "--help" ]]; then
 fi
 echo "$@" > {arg_log}
 exit 0
-""")
+""",
+    )
 
     xdg_cfg = home / ".config"
     wvkbd_dir = xdg_cfg / "wvkbd"
     wvkbd_dir.mkdir(parents=True)
-    (wvkbd_dir / "colors").write_text(
-        'bg="#282a36"\nfg="#f8f8f2"\naccent="#8be9fd"\n'
-    )
+    (wvkbd_dir / "colors").write_text('bg="#282a36"\nfg="#f8f8f2"\naccent="#8be9fd"\n')
 
     env = os.environ.copy()
     env["HOME"] = str(home)
@@ -272,7 +279,9 @@ def test_wvkbd_launcher_ignores_invalid_hex_colors(tmp_path):
     home.mkdir(exist_ok=True)
     arg_log = tmp_path / "wvkbd_args.txt"
 
-    _write_exe(bin_dir / "wvkbd-mobintl", f"""\
+    _write_exe(
+        bin_dir / "wvkbd-mobintl",
+        f"""\
 #!/usr/bin/env bash
 if [[ "$1" == "--help" ]]; then
     echo "  --bg COLOR"
@@ -280,14 +289,13 @@ if [[ "$1" == "--help" ]]; then
 fi
 echo "$@" > {arg_log}
 exit 0
-""")
+""",
+    )
 
     xdg_cfg = home / ".config"
     wvkbd_dir = xdg_cfg / "wvkbd"
     wvkbd_dir.mkdir(parents=True)
-    (wvkbd_dir / "colors").write_text(
-        'bg="notacolor"\nfg="alsonotvalid"\n'
-    )
+    (wvkbd_dir / "colors").write_text('bg="notacolor"\nfg="alsonotvalid"\n')
 
     env = os.environ.copy()
     env["HOME"] = str(home)

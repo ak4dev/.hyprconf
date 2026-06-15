@@ -18,17 +18,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .file_edit import (
-    read_lines, append_block, update_line, delete_lines, insert_lines,
+    append_block,
+    delete_lines,
+    insert_lines,
+    read_lines,
     strip_comment,
+    update_line,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Internal helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-_KEY_VAL_RE  = re.compile(r"^\s*([A-Za-z0-9_\-\.]+)\s*=\s*(.*)$")
+_KEY_VAL_RE = re.compile(r"^\s*([A-Za-z0-9_\-\.]+)\s*=\s*(.*)$")
 # Matches:  "block_type {" or "block_type = label {"  (brace may be absent for split-brace style)
-_BLOCK_RE    = re.compile(r"^([A-Za-z0-9_\-]+)\s*(?:=\s*([^\{]+?))?\s*\{?\s*$")
+_BLOCK_RE = re.compile(r"^([A-Za-z0-9_\-]+)\s*(?:=\s*([^\{]+?))?\s*\{?\s*$")
 
 
 _strip = strip_comment
@@ -38,16 +42,17 @@ _strip = strip_comment
 #  Data type
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class ConfigBlock:
     """A single block from a block-based Hyprland config file."""
 
-    block_type: str                   # e.g. "general", "listener", "background"
-    fields:     dict[str, str]        # key → value pairs (in order)
-    file_path:  Path
-    start_line: int                   # 0-based index of opening line (e.g. "general {")
-    end_line:   int                   # 0-based index of closing "}"
-    label:      str = ""              # optional inline label (between "=" and "{")
+    block_type: str  # e.g. "general", "listener", "background"
+    fields: dict[str, str]  # key → value pairs (in order)
+    file_path: Path
+    start_line: int  # 0-based index of opening line (e.g. "general {")
+    end_line: int  # 0-based index of closing "}"
+    label: str = ""  # optional inline label (between "=" and "{")
 
     # ── Convenience helpers ───────────────────────────────────────────────────
 
@@ -81,6 +86,7 @@ class ConfigBlock:
 #  Parser
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def read_blocks(path: Path) -> list[ConfigBlock]:
     """Parse all top-level blocks from *path*.
 
@@ -100,7 +106,7 @@ def read_blocks(path: Path) -> list[ConfigBlock]:
         return []
 
     blocks: list[ConfigBlock] = []
-    lines  = read_lines(path)
+    lines = read_lines(path)
     i = 0
 
     while i < len(lines):
@@ -115,8 +121,8 @@ def read_blocks(path: Path) -> list[ConfigBlock]:
             continue
 
         block_type = m.group(1)
-        label      = (m.group(2) or "").strip()
-        open_line  = i
+        label = (m.group(2) or "").strip()
+        open_line = i
 
         # If no "{" on this line, look ahead for it
         if "{" not in s:
@@ -125,7 +131,7 @@ def read_blocks(path: Path) -> list[ConfigBlock]:
             while j < len(lines):
                 s2 = _strip(lines[j])
                 if s2 == "{":
-                    open_line  = j
+                    open_line = j
                     found_brace = True
                     i = j + 1
                     break
@@ -145,14 +151,16 @@ def read_blocks(path: Path) -> list[ConfigBlock]:
             s = _strip(lines[i])
             if s == "}":
                 end_line = i
-                blocks.append(ConfigBlock(
-                    block_type=block_type,
-                    fields=block_fields,
-                    file_path=path,
-                    start_line=open_line,
-                    end_line=end_line,
-                    label=label,
-                ))
+                blocks.append(
+                    ConfigBlock(
+                        block_type=block_type,
+                        fields=block_fields,
+                        file_path=path,
+                        start_line=open_line,
+                        end_line=end_line,
+                        label=label,
+                    )
+                )
                 i += 1
                 closed = True
                 break
@@ -164,14 +172,16 @@ def read_blocks(path: Path) -> list[ConfigBlock]:
         if not closed:
             # Unclosed block — include what we have with end_line = last line
             end_line = i - 1
-            blocks.append(ConfigBlock(
-                block_type=block_type,
-                fields=block_fields,
-                file_path=path,
-                start_line=open_line,
-                end_line=end_line,
-                label=label,
-            ))
+            blocks.append(
+                ConfigBlock(
+                    block_type=block_type,
+                    fields=block_fields,
+                    file_path=path,
+                    start_line=open_line,
+                    end_line=end_line,
+                    label=label,
+                )
+            )
 
     return blocks
 
@@ -179,6 +189,7 @@ def read_blocks(path: Path) -> list[ConfigBlock]:
 # ─────────────────────────────────────────────────────────────────────────────
 #  Writers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def update_block_field(
     path: Path,

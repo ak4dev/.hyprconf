@@ -1,18 +1,18 @@
+import colorsys
 import configparser
+import filecmp
 import json
 import os
 import random
 import re
-import signal
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
-import colorsys
-import filecmp
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 # === Configuration ===
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -30,7 +30,9 @@ THEMES_DIR = os.path.join(SCRIPT_DIR, "themes")
 WAYBAR_CONFIG_FILE = os.path.expanduser("~/.config/waybar/waybar.css")
 HYPRPAPER_CONFIG_FILE = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
 KITTY_CONFIG_FILE = os.path.expanduser("~/.config/kitty/kitty.conf")
-WOFI_STYLE_FILE = os.path.expanduser("~/.config/wofi/style.css")  # legacy; kept for migration cleanup only
+WOFI_STYLE_FILE = os.path.expanduser(
+    "~/.config/wofi/style.css"
+)  # legacy; kept for migration cleanup only
 CODE_CONFIG_CANDIDATES = [
     os.path.expanduser("~/.config/Code - OSS"),
     os.path.expanduser("~/.config/Code"),
@@ -48,59 +50,61 @@ CODE_CONFIG_ROOT = resolve_code_config_root()
 CODE_SETTINGS_FILE = os.path.join(CODE_CONFIG_ROOT, "User", "settings.json")
 VSCODE_BASE_SETTINGS_CANDIDATES = [
     os.path.join(CODE_CONFIG_ROOT, "User", "settings.base.json"),
-    os.path.join(REPO_ROOT, "stow", "code-oss", ".config", "Code - OSS", "User", "settings.base.json"),
+    os.path.join(
+        REPO_ROOT, "stow", "code-oss", ".config", "Code - OSS", "User", "settings.base.json"
+    ),
     os.path.join(REPO_ROOT, "stow", "code-oss", ".config", "Code", "User", "settings.base.json"),
 ]
 CODE_CLI = shutil.which("code-oss") or shutil.which("code")
 DUNST_CONFIG_FILE = os.path.expanduser("~/.config/dunst/dunstrc")
-FIREFOX_PROFILES_INI     = os.path.expanduser("~/.mozilla/firefox/profiles.ini")
+FIREFOX_PROFILES_INI = os.path.expanduser("~/.mozilla/firefox/profiles.ini")
 FIREFOX_PROFILES_INI_XDG = os.path.expanduser("~/.config/mozilla/firefox/profiles.ini")
-FIREFOX_DIR              = os.path.dirname(FIREFOX_PROFILES_INI)
-FIREFOX_BASE_PREFS_FILE     = os.path.expanduser("~/.mozilla/firefox/user.js")
+FIREFOX_DIR = os.path.dirname(FIREFOX_PROFILES_INI)
+FIREFOX_BASE_PREFS_FILE = os.path.expanduser("~/.mozilla/firefox/user.js")
 FIREFOX_BASE_PREFS_FILE_XDG = os.path.expanduser("~/.config/mozilla/firefox/user.js")
 FIREFOX_THEME_PAYLOAD_DIR = REPO_ROOT / "theme" / "firefox" / "extensions"
-FIREFOX_COMPACT_DARK_ID   = "firefox-compact-dark@mozilla.org"
-FIREFOX_COMPACT_LIGHT_ID  = "firefox-compact-light@mozilla.org"
+FIREFOX_COMPACT_DARK_ID = "firefox-compact-dark@mozilla.org"
+FIREFOX_COMPACT_LIGHT_ID = "firefox-compact-light@mozilla.org"
 # LibreWolf — a Firefox fork, so the same profile/userChrome machinery applies.
 # It lives in its own profile root (installed via `hyprconf addon librewolf`).
-LIBREWOLF_PROFILES_INI     = os.path.expanduser("~/.librewolf/profiles.ini")
+LIBREWOLF_PROFILES_INI = os.path.expanduser("~/.librewolf/profiles.ini")
 LIBREWOLF_PROFILES_INI_XDG = os.path.expanduser("~/.config/librewolf/profiles.ini")
-LIBREWOLF_BASE_PREFS_FILE     = os.path.expanduser("~/.librewolf/user.js")
+LIBREWOLF_BASE_PREFS_FILE = os.path.expanduser("~/.librewolf/user.js")
 LIBREWOLF_BASE_PREFS_FILE_XDG = os.path.expanduser("~/.config/librewolf/user.js")
 GTK3_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-3.0/settings.ini")
 GTK4_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-4.0/settings.ini")
 XSETTINGSD_CONFIG_FILE = os.path.expanduser("~/.config/xsettingsd/xsettingsd.conf")
-KDEGLOBALS_FILE        = os.path.expanduser("~/.config/kdeglobals")
-KDE_COLOR_SCHEMES_DIR  = os.path.expanduser("~/.local/share/color-schemes")
-QT6CT_CONF_FILE        = os.path.expanduser("~/.config/qt6ct/qt6ct.conf")
-HYPRTOOLKIT_CONF_FILE  = os.path.expanduser("~/.config/hypr/hyprtoolkit.conf")
-QT6CT_COLORS_FILE      = os.path.expanduser("~/.config/qt6ct/colors/hyprconf.conf")
-QT5CT_CONF_FILE        = os.path.expanduser("~/.config/qt5ct/qt5ct.conf")
-QT5CT_COLORS_FILE      = os.path.expanduser("~/.config/qt5ct/colors/hyprconf.conf")
-THEME_COLORS_CONF      = os.path.expanduser("~/.config/hypr/theme-colors.conf")
-HYPRLOCK_CONFIG_FILE   = os.path.expanduser("~/.config/hypr/hyprlock.conf")
-DOLPHIN_RC_FILE        = os.path.expanduser("~/.config/dolphinrc")
+KDEGLOBALS_FILE = os.path.expanduser("~/.config/kdeglobals")
+KDE_COLOR_SCHEMES_DIR = os.path.expanduser("~/.local/share/color-schemes")
+QT6CT_CONF_FILE = os.path.expanduser("~/.config/qt6ct/qt6ct.conf")
+HYPRTOOLKIT_CONF_FILE = os.path.expanduser("~/.config/hypr/hyprtoolkit.conf")
+QT6CT_COLORS_FILE = os.path.expanduser("~/.config/qt6ct/colors/hyprconf.conf")
+QT5CT_CONF_FILE = os.path.expanduser("~/.config/qt5ct/qt5ct.conf")
+QT5CT_COLORS_FILE = os.path.expanduser("~/.config/qt5ct/colors/hyprconf.conf")
+THEME_COLORS_CONF = os.path.expanduser("~/.config/hypr/theme-colors.conf")
+HYPRLOCK_CONFIG_FILE = os.path.expanduser("~/.config/hypr/hyprlock.conf")
+DOLPHIN_RC_FILE = os.path.expanduser("~/.config/dolphinrc")
 TOUCH_PANEL_COLORS_FILE = os.path.expanduser("~/.config/touch-panel/colors")
-BTOP_CONF_FILE         = os.path.expanduser("~/.config/btop/btop.conf")
+BTOP_CONF_FILE = os.path.expanduser("~/.config/btop/btop.conf")
 BTOP_CUSTOM_THEMES_DIR = os.path.expanduser("~/.config/btop/themes")
-STATE_FILE             = os.path.expanduser("~/.config/hypr/.current-theme")
+STATE_FILE = os.path.expanduser("~/.config/hypr/.current-theme")
 
 # ── Pre-compiled regex patterns ────────────────────────────────────────────────
-_RE_DUNST_SECTION     = re.compile(r"^\[(\w+)\]")
+_RE_DUNST_SECTION = re.compile(r"^\[(\w+)\]")
 _RE_DUNST_DMENU_COLOR = re.compile(r'\s+-(?:nb|nf|sb|sf)\s+"?#[0-9a-fA-F]{6}"?')
-_RE_DUNST_COLOR_KEY   = re.compile(r'^(\s*)(\w+)\s*=\s*"#[0-9a-fA-F]{6}"')
-_RE_WALLPAPER_VAR     = re.compile(r'^\$wallpaper\s*=')
-_RE_USER_PREF         = re.compile(r'user_pref\("([^"]+)",\s*(.+)\);\s*$')
-_RE_GTK_THEME         = re.compile(r"^(gtk-theme-name\s*=).*$", re.MULTILINE)
-_RE_GTK_ICON          = re.compile(r"^(gtk-icon-theme-name\s*=).*$", re.MULTILINE)
-_RE_GTK_DARK          = re.compile(r"^(gtk-application-prefer-dark-theme\s*=).*$", re.MULTILINE)
-_RE_QT_APPEARANCE     = re.compile(r"(\[Appearance\]\n)")
-_RE_BTOP_SAFE_NAME    = re.compile(r"[^a-zA-Z0-9._-]")
-_RE_BTOP_COLOR_THEME  = re.compile(r"^color_theme\s*=.*$", re.MULTILINE)
-_RE_WAYBAR_COLOR      = re.compile(r"@define-color\s+(\w+)\s+[^;]+;")
-_RE_WAYBAR_BG_ALPHA   = re.compile(r"@define-color background-alpha\s+[^;]+;")
-_RE_WAYBAR_BG_ANCHOR  = re.compile(r"(@define-color background\s+[^;]+;)")
-_RE_WAYBAR_RGBA_BG    = re.compile(r"background:\s*rgba\(40,\s*42,\s*54,\s*0\.\d+\);")
+_RE_DUNST_COLOR_KEY = re.compile(r'^(\s*)(\w+)\s*=\s*"#[0-9a-fA-F]{6}"')
+_RE_WALLPAPER_VAR = re.compile(r"^\$wallpaper\s*=")
+_RE_USER_PREF = re.compile(r'user_pref\("([^"]+)",\s*(.+)\);\s*$')
+_RE_GTK_THEME = re.compile(r"^(gtk-theme-name\s*=).*$", re.MULTILINE)
+_RE_GTK_ICON = re.compile(r"^(gtk-icon-theme-name\s*=).*$", re.MULTILINE)
+_RE_GTK_DARK = re.compile(r"^(gtk-application-prefer-dark-theme\s*=).*$", re.MULTILINE)
+_RE_QT_APPEARANCE = re.compile(r"(\[Appearance\]\n)")
+_RE_BTOP_SAFE_NAME = re.compile(r"[^a-zA-Z0-9._-]")
+_RE_BTOP_COLOR_THEME = re.compile(r"^color_theme\s*=.*$", re.MULTILINE)
+_RE_WAYBAR_COLOR = re.compile(r"@define-color\s+(\w+)\s+[^;]+;")
+_RE_WAYBAR_BG_ALPHA = re.compile(r"@define-color background-alpha\s+[^;]+;")
+_RE_WAYBAR_BG_ANCHOR = re.compile(r"(@define-color background\s+[^;]+;)")
+_RE_WAYBAR_RGBA_BG = re.compile(r"background:\s*rgba\(40,\s*42,\s*54,\s*0\.\d+\);")
 
 FIREFOX_ENFORCED_PREFS = {
     # --- UI ---
@@ -174,6 +178,7 @@ FIREFOX_THEME_PREFS = {
     "browser.compactmode.show": True,
 }
 
+
 def is_dark_color(hex_color: str) -> bool:
     """Return True if the color has low perceived brightness (dark background)."""
     h = hex_color.lstrip("#")
@@ -181,7 +186,7 @@ def is_dark_color(hex_color: str) -> bool:
     return (0.299 * r + 0.587 * g + 0.114 * b) < 128
 
 
-def launcher_select(initial_filter: str = "") -> Optional[str]:
+def launcher_select(initial_filter: str = "") -> str | None:
     """Select a theme via hyprlauncher --dmenu (no terminal window required)."""
     themes = get_all_themes()
     if initial_filter:
@@ -228,21 +233,21 @@ def _lighten_hex(hex_color: str, amount: int = 16) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
-def update_hyprtoolkit(theme: Dict[str, str]) -> None:
+def update_hyprtoolkit(theme: dict[str, str]) -> None:
     """Write ~/.config/hypr/hyprtoolkit.conf from the active theme palette.
 
     hyprlauncher (and any other hyprtoolkit app) reads this file for its UI
     colors and icon theme.  Without it the launcher renders with default grey
     colors and may fail to find a suitable icon theme.
     """
-    bg      = theme.get("background", "#1e1e2e")
-    fg      = theme.get("foreground", "#cdd6f4")
-    accent  = theme.get("accent", "#89b4fa")
+    bg = theme.get("background", "#1e1e2e")
+    fg = theme.get("foreground", "#cdd6f4")
+    accent = theme.get("accent", "#89b4fa")
     comment = theme.get("comment", bg)
 
     # base / alternate_base: slightly lighter than the background so the
     # launcher surface stands out from the wallpaper.
-    base     = _lighten_hex(bg, 12)
+    base = _lighten_hex(bg, 12)
     alt_base = _lighten_hex(bg, 24)
 
     # accent_secondary: prefer a distinct palette color; fall back to comment.
@@ -289,7 +294,7 @@ def update_hyprtoolkit(theme: Dict[str, str]) -> None:
     _kill_process_if_running("hyprlauncher")
 
 
-def update_dunst(theme: Dict[str, str]) -> None:
+def update_dunst(theme: dict[str, str]) -> None:
     """Update Dunst notification colors and dmenu colors from the current theme."""
     if not os.path.exists(DUNST_CONFIG_FILE):
         print("Dunst config not found; skipping Dunst theme.")
@@ -301,7 +306,7 @@ def update_dunst(theme: Dict[str, str]) -> None:
     # For dmenu selected text: dark bg on accent → use bg; light bg on accent → use fg
     selected_fg = bg if is_dark_color(bg) else fg
 
-    section_colors: Dict[str, Dict[str, str]] = {
+    section_colors: dict[str, dict[str, str]] = {
         "global": {
             "frame_color": accent,
         },
@@ -321,12 +326,12 @@ def update_dunst(theme: Dict[str, str]) -> None:
     }
 
     # dmenu color flags — no quotes; dunst passes these directly, not via shell
-    dmenu_color_args = f' -nb {bg} -nf {fg} -sb {accent} -sf {selected_fg}'
+    dmenu_color_args = f" -nb {bg} -nf {fg} -sb {accent} -sf {selected_fg}"
 
-    with open(DUNST_CONFIG_FILE, "r") as f:
+    with open(DUNST_CONFIG_FILE) as f:
         lines = f.readlines()
 
-    current_section: Optional[str] = None
+    current_section: str | None = None
     result = []
     for line in lines:
         stripped = line.strip()
@@ -338,7 +343,7 @@ def update_dunst(theme: Dict[str, str]) -> None:
 
         if current_section == "global" and stripped.startswith("dmenu"):
             # Strip any existing color flags (quoted or unquoted) and append fresh themed ones
-            base_cmd = _RE_DUNST_DMENU_COLOR.sub('', line.rstrip())
+            base_cmd = _RE_DUNST_DMENU_COLOR.sub("", line.rstrip())
             result.append(base_cmd + dmenu_color_args + "\n")
             continue
 
@@ -406,14 +411,10 @@ def hex_to_hypr_rgba(hex_color: str, alpha_hex: str = "ee") -> str:
 
 def get_all_themes() -> list:
     """Return a sorted list of all available theme names."""
-    return sorted(
-        fname[:-5]
-        for fname in os.listdir(THEMES_DIR)
-        if fname.endswith(".json")
-    )
+    return sorted(fname[:-5] for fname in os.listdir(THEMES_DIR) if fname.endswith(".json"))
 
 
-def load_theme_json(name: str) -> Dict:
+def load_theme_json(name: str) -> dict:
     """Load and return the parsed JSON for *name*, or {} on failure."""
     path = os.path.join(THEMES_DIR, f"{name}.json")
     try:
@@ -444,7 +445,8 @@ def filter_themes(themes: list, query: str) -> list:
             result.append(name)
     return result
 
-def read_state() -> Optional[str]:
+
+def read_state() -> str | None:
     """Return the name of the last applied theme, or None."""
     try:
         return Path(STATE_FILE).read_text(encoding="utf-8").strip() or None
@@ -469,7 +471,7 @@ def write_state(theme_name: str) -> None:
         raise
 
 
-def get_adjacent_theme(direction: int) -> Optional[str]:
+def get_adjacent_theme(direction: int) -> str | None:
     """Return the next (+1) or previous (-1) theme from the sorted list."""
     themes = get_all_themes()
     if not themes:
@@ -480,13 +482,13 @@ def get_adjacent_theme(direction: int) -> Optional[str]:
     return themes[(themes.index(current) + direction) % len(themes)]
 
 
-def update_hyprland_borders(theme: Dict[str, str]) -> None:
+def update_hyprland_borders(theme: dict[str, str]) -> None:
     """Write theme-colors.conf and update Hyprland border colors live via hyprctl."""
-    accent    = theme.get("accent",  theme.get("purple", "#bd93f9"))
-    secondary = theme.get("cyan",    theme.get("pink",   accent))
-    inactive  = theme.get("comment", "#595959")
+    accent = theme.get("accent", theme.get("purple", "#bd93f9"))
+    secondary = theme.get("cyan", theme.get("pink", accent))
+    inactive = theme.get("comment", "#595959")
 
-    active_border   = f"{hex_to_hypr_rgba(accent)} {hex_to_hypr_rgba(secondary)} 45deg"
+    active_border = f"{hex_to_hypr_rgba(accent)} {hex_to_hypr_rgba(secondary)} 45deg"
     inactive_border = hex_to_hypr_rgba(inactive, "aa")
 
     # Write sourced conf for persistence across reloads and restarts
@@ -504,14 +506,14 @@ def update_hyprland_borders(theme: Dict[str, str]) -> None:
 
     # Also apply live via hyprctl for instant visual feedback (before reload)
     for kw, val in [
-        ("general:col.active_border",   active_border),
+        ("general:col.active_border", active_border),
         ("general:col.inactive_border", inactive_border),
     ]:
         subprocess.run(["hyprctl", "keyword", kw, val], check=False, capture_output=True)
     print("Hyprland border colors updated.")
 
 
-def update_hyprlock_colors(theme: Dict[str, str]) -> None:
+def update_hyprlock_colors(theme: dict[str, str]) -> None:
     """Sync hyprlock.conf input-field and label colors with the current theme."""
     if not os.path.exists(HYPRLOCK_CONFIG_FILE):
         return
@@ -521,27 +523,27 @@ def update_hyprlock_colors(theme: Dict[str, str]) -> None:
         r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
         return f"{r}, {g}, {b}"
 
-    accent = theme.get("accent",     theme.get("purple", "#bd93f9"))
-    green  = theme.get("green",  "#50fa7b")
-    red    = theme.get("red",    "#ff5555")
-    fg     = theme.get("foreground", "#f8f8f2")
-    bg     = theme.get("background", "#282a36")
+    accent = theme.get("accent", theme.get("purple", "#bd93f9"))
+    green = theme.get("green", "#50fa7b")
+    red = theme.get("red", "#ff5555")
+    fg = theme.get("foreground", "#f8f8f2")
+    bg = theme.get("background", "#282a36")
 
     replacements = {
-        "font_color":  rgb_str(fg),
+        "font_color": rgb_str(fg),
         "outer_color": rgb_str(accent),
         "inner_color": rgb_str(bg),
         "check_color": rgb_str(green),
-        "fail_color":  rgb_str(red),
+        "fail_color": rgb_str(red),
     }
 
-    with open(HYPRLOCK_CONFIG_FILE, "r") as f:
+    with open(HYPRLOCK_CONFIG_FILE) as f:
         content = f.read()
 
     # Replace the RGB portion of rgba(R, G, B, alpha) while preserving existing alpha
     for key, new_rgb in replacements.items():
         content = re.sub(
-            rf'({re.escape(key)}\s*=\s*rgba\()[\d,\s]+(,\s*[\d.]+\))',
+            rf"({re.escape(key)}\s*=\s*rgba\()[\d,\s]+(,\s*[\d.]+\))",
             lambda m, rgb=new_rgb: m.group(1) + rgb + m.group(2),
             content,
         )
@@ -551,34 +553,34 @@ def update_hyprlock_colors(theme: Dict[str, str]) -> None:
     print("Hyprlock colors updated.")
 
 
-def generate_kitty_theme(theme: Dict[str, str]) -> str:
+def generate_kitty_theme(theme: dict[str, str]) -> str:
     """Generate a kitty theme .conf from theme colors; return the file path."""
     colors = {
-        "background":           theme.get("background", "#1e1e2e"),
-        "foreground":           theme.get("foreground", "#cdd6f4"),
-        "selection_background": theme.get("accent",     "#89b4fa"),
+        "background": theme.get("background", "#1e1e2e"),
+        "foreground": theme.get("foreground", "#cdd6f4"),
+        "selection_background": theme.get("accent", "#89b4fa"),
         "selection_foreground": theme.get("background", "#1e1e2e"),
-        "cursor":               theme.get("accent",     "#f5e0dc"),
-        "cursor_text_color":    theme.get("background", "#1e1e2e"),
-        "color0":  theme.get("comment",    "#45475a"),
-        "color1":  theme.get("red",        "#f38ba8"),
-        "color2":  theme.get("green",      "#a6e3a1"),
-        "color3":  theme.get("yellow",     "#f9e2af"),
-        "color4":  theme.get("purple",     theme.get("cyan",  "#89b4fa")),
-        "color5":  theme.get("pink",       "#f5c2e7"),
-        "color6":  theme.get("cyan",       "#94e2d5"),
-        "color7":  theme.get("foreground", "#bac2de"),
+        "cursor": theme.get("accent", "#f5e0dc"),
+        "cursor_text_color": theme.get("background", "#1e1e2e"),
+        "color0": theme.get("comment", "#45475a"),
+        "color1": theme.get("red", "#f38ba8"),
+        "color2": theme.get("green", "#a6e3a1"),
+        "color3": theme.get("yellow", "#f9e2af"),
+        "color4": theme.get("purple", theme.get("cyan", "#89b4fa")),
+        "color5": theme.get("pink", "#f5c2e7"),
+        "color6": theme.get("cyan", "#94e2d5"),
+        "color7": theme.get("foreground", "#bac2de"),
         # Bright variants — lighten by using accent/foreground
-        "color8":  theme.get("comment",    "#585b70"),
-        "color9":  theme.get("red",        "#f38ba8"),
-        "color10": theme.get("green",      "#a6e3a1"),
-        "color11": theme.get("yellow",     "#f9e2af"),
-        "color12": theme.get("accent",     "#89b4fa"),
-        "color13": theme.get("pink",       "#f5c2e7"),
-        "color14": theme.get("cyan",       "#94e2d5"),
+        "color8": theme.get("comment", "#585b70"),
+        "color9": theme.get("red", "#f38ba8"),
+        "color10": theme.get("green", "#a6e3a1"),
+        "color11": theme.get("yellow", "#f9e2af"),
+        "color12": theme.get("accent", "#89b4fa"),
+        "color13": theme.get("pink", "#f5c2e7"),
+        "color14": theme.get("cyan", "#94e2d5"),
         "color15": theme.get("foreground", "#a6adc8"),
     }
-    out_dir  = os.path.expanduser("~/.config/kitty/themes")
+    out_dir = os.path.expanduser("~/.config/kitty/themes")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "generated.conf")
     with open(out_path, "w") as f:
@@ -588,18 +590,23 @@ def generate_kitty_theme(theme: Dict[str, str]) -> str:
     return out_path
 
 
-def notify_theme_change(theme_name: str, theme: Dict[str, str]) -> None:
+def notify_theme_change(theme_name: str, theme: dict[str, str]) -> None:
     """Send a desktop notification confirming the theme change."""
     notify = shutil.which("notify-send")
     if not notify:
         return
     accent = theme.get("accent", "")
-    body   = f"bg {theme.get('background', '')}  accent {accent}" if accent else ""
+    body = f"bg {theme.get('background', '')}  accent {accent}" if accent else ""
     try:
         subprocess.Popen(
-            [notify, "--urgency=low", "--expire-time=3000",
-             "--icon=preferences-desktop-theme-symbolic",
-             f"Theme: {theme_name}", body],
+            [
+                notify,
+                "--urgency=low",
+                "--expire-time=3000",
+                "--icon=preferences-desktop-theme-symbolic",
+                f"Theme: {theme_name}",
+                body,
+            ],
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -624,9 +631,7 @@ def _kill_process_if_running(process_name: str) -> bool:
     Uses pgrep to find PIDs and os.kill to terminate — no pkill/killall.
     Returns True if at least one process was signalled.
     """
-    result = subprocess.run(
-        ["pgrep", "-x", process_name], capture_output=True, text=True
-    )
+    result = subprocess.run(["pgrep", "-x", process_name], capture_output=True, text=True)
     if result.returncode != 0 or not result.stdout.strip():
         return False
     for pid_str in result.stdout.strip().splitlines():
@@ -636,6 +641,7 @@ def _kill_process_if_running(process_name: str) -> bool:
             pass
     print(f"Sent SIGTERM to running {process_name}; theme applies on next launch.")
     return True
+
 
 def _proc_name_pids(name: str) -> list:
     """Return list of PIDs whose /proc/<pid>/comm matches `name` exactly.
@@ -661,14 +667,14 @@ def _is_process_running(name: str) -> bool:
     return bool(_proc_name_pids(name))
 
 
-def load_theme(theme_name: str) -> Dict[str, str]:
+def load_theme(theme_name: str) -> dict[str, str]:
     """Load a theme JSON file into a dictionary."""
     path = os.path.join(THEMES_DIR, f"{theme_name}.json")
     if not os.path.exists(path):
         raise FileNotFoundError(f"Theme file not found: {path}")
 
     try:
-        with open(path, "r") as file:
+        with open(path) as file:
             theme = json.load(file)
     except json.JSONDecodeError as e:
         raise ValueError(f"Malformed theme JSON in {path}: {e}") from e
@@ -678,6 +684,7 @@ def load_theme(theme_name: str) -> Dict[str, str]:
         theme["kitty"] = os.path.expanduser(theme["kitty"])
 
     return theme
+
 
 def load_kitty_theme(kitty_config_path: str):
     """Apply Kitty theme from a .conf file in an idempotent way."""
@@ -696,7 +703,7 @@ def load_kitty_theme(kitty_config_path: str):
     # break on other users' systems). kitty expands ~ in include directives.
     home = os.path.expanduser("~")
     if normalized_path == home or normalized_path.startswith(home + os.sep):
-        normalized_path = "~" + normalized_path[len(home):]
+        normalized_path = "~" + normalized_path[len(home) :]
 
     if not os.path.exists(KITTY_CONFIG_FILE):
         Path(KITTY_CONFIG_FILE).parent.mkdir(parents=True, exist_ok=True)
@@ -705,7 +712,7 @@ def load_kitty_theme(kitty_config_path: str):
         return
 
     # Read the current kitty.conf
-    with open(KITTY_CONFIG_FILE, "r") as kitty_config:
+    with open(KITTY_CONFIG_FILE) as kitty_config:
         kitty_conf_content = kitty_config.read()
 
     # Search for include lines pointing to ~/.config/kitty/themes and drop them
@@ -720,7 +727,9 @@ def load_kitty_theme(kitty_config_path: str):
             return False
         include_target = parts[1]
         expanded_target = os.path.expanduser(include_target)
-        abs_target = os.path.abspath(os.path.join(os.path.dirname(KITTY_CONFIG_FILE), expanded_target))
+        abs_target = os.path.abspath(
+            os.path.join(os.path.dirname(KITTY_CONFIG_FILE), expanded_target)
+        )
         return (
             include_target.startswith("~/.config/kitty/themes/")
             or include_target.startswith(themes_dir)
@@ -744,6 +753,7 @@ def load_kitty_theme(kitty_config_path: str):
     # Write the updated lines back to kitty.conf
     with open(KITTY_CONFIG_FILE, "w") as kitty_config:
         kitty_config.write("\n".join(lines) + "\n")
+
 
 def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
     def replacer(match):
@@ -775,18 +785,20 @@ def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
 
     return updated_text
 
-def update_waybar(theme_colors: Dict[str, str]):
+
+def update_waybar(theme_colors: dict[str, str]):
     """Update Waybar CSS theme."""
     if not os.path.exists(WAYBAR_CONFIG_FILE):
         raise FileNotFoundError(f"Waybar config not found: {WAYBAR_CONFIG_FILE}")
-    with open(WAYBAR_CONFIG_FILE, "r") as f:
+    with open(WAYBAR_CONFIG_FILE) as f:
         css = f.read()
     updated_css = update_waybar_colors(css, theme_colors)
     with open(WAYBAR_CONFIG_FILE, "w") as f:
         f.write(updated_css)
     print("Waybar theme updated.")
 
-def update_hyprpaper(theme: Dict[str, str]):
+
+def update_hyprpaper(theme: dict[str, str]):
     """Update Hyprpaper wallpaper by rewriting the $wallpaper variable declaration."""
     if "wallpaper" not in theme:
         print("No wallpaper defined in theme, skipping Hyprpaper.")
@@ -802,7 +814,7 @@ def update_hyprpaper(theme: Dict[str, str]):
         print("Hyprpaper config file not found, skipping.")
         return
 
-    with open(HYPRPAPER_CONFIG_FILE, "r") as f:
+    with open(HYPRPAPER_CONFIG_FILE) as f:
         lines = f.readlines()
 
     updated_lines = []
@@ -819,19 +831,19 @@ def update_hyprpaper(theme: Dict[str, str]):
     print("Hyprpaper wallpaper updated.")
 
 
-def load_json_file(path: str) -> Dict[str, Any]:
+def load_json_file(path: str) -> dict[str, Any]:
     if not os.path.exists(path):
         return {}
 
     try:
-        with open(path, "r", encoding="utf-8") as file:
+        with open(path, encoding="utf-8") as file:
             return json.load(file)
     except json.JSONDecodeError:
         print(f"Failed to parse JSON file at {path}.")
         return {}
 
 
-def load_vscode_base_defaults() -> Dict[str, Any]:
+def load_vscode_base_defaults() -> dict[str, Any]:
     for candidate in VSCODE_BASE_SETTINGS_CANDIDATES:
         data = load_json_file(candidate)
         if data:
@@ -839,13 +851,13 @@ def load_vscode_base_defaults() -> Dict[str, Any]:
     return {}
 
 
-def parse_user_js(path: str) -> Dict[str, Any]:
+def parse_user_js(path: str) -> dict[str, Any]:
     """Parse user.js style key/value pairs into a dictionary."""
     if not os.path.exists(path):
         return {}
 
-    prefs: Dict[str, Any] = {}
-    with open(path, "r", encoding="utf-8") as file:
+    prefs: dict[str, Any] = {}
+    with open(path, encoding="utf-8") as file:
         for line in file:
             line = line.strip()
             if not line or line.startswith("//"):
@@ -871,7 +883,7 @@ def parse_user_js(path: str) -> Dict[str, Any]:
     return prefs
 
 
-def update_vscode(theme: Dict[str, Any]) -> None:
+def update_vscode(theme: dict[str, Any]) -> None:
     """Set VS Code theme, font, and extension based on the theme payload."""
     vscode_cfg = theme.get("vscode")
     if not vscode_cfg:
@@ -884,10 +896,14 @@ def update_vscode(theme: Dict[str, Any]) -> None:
     extension = vscode_cfg.get("extension")
     if extension:
         ext_dir = Path.home() / ".vscode-oss" / "extensions"
-        already_installed = any(
-            p.is_dir() and (p.name == extension or p.name.startswith(f"{extension}-"))
-            for p in ext_dir.iterdir()
-        ) if ext_dir.exists() else False
+        already_installed = (
+            any(
+                p.is_dir() and (p.name == extension or p.name.startswith(f"{extension}-"))
+                for p in ext_dir.iterdir()
+            )
+            if ext_dir.exists()
+            else False
+        )
 
         if not already_installed:
             # Fire-and-forget: fully detach so Electron children never block the terminal.
@@ -903,7 +919,7 @@ def update_vscode(theme: Dict[str, Any]) -> None:
     settings_path = Path(CODE_SETTINGS_FILE)
     settings_path.parent.mkdir(parents=True, exist_ok=True)
 
-    settings: Dict[str, Any] = {}
+    settings: dict[str, Any] = {}
 
     # Start from current settings.json so un-managed keys persist
     if settings_path.exists():
@@ -939,7 +955,7 @@ def update_vscode(theme: Dict[str, Any]) -> None:
 
 def _profile_path_from_entry(
     path_value: str,
-    is_relative: Optional[str] = "1",
+    is_relative: str | None = "1",
     base_dir: str = FIREFOX_DIR,
 ) -> Path:
     if path_value.startswith("/") or (is_relative and is_relative == "0"):
@@ -947,13 +963,13 @@ def _profile_path_from_entry(
     return Path(base_dir, path_value)
 
 
-def _default_profile_from_inis(ini_paths: list) -> Optional[Path]:
+def _default_profile_from_inis(ini_paths: list) -> Path | None:
     """Resolve the default profile dir from a Firefox-style profiles.ini.
 
     Shared by Firefox and LibreWolf (a Firefox fork with an identical
     profiles.ini format) — only the candidate ini paths differ.
     """
-    ini_path: Optional[str] = None
+    ini_path: str | None = None
     for _candidate in ini_paths:
         if os.path.exists(_candidate):
             ini_path = _candidate
@@ -997,22 +1013,22 @@ def _default_profile_from_inis(ini_paths: list) -> Optional[Path]:
     return None
 
 
-def get_default_firefox_profile() -> Optional[Path]:
+def get_default_firefox_profile() -> Path | None:
     # Try legacy path first, then XDG path (modern Arch Linux Firefox)
     return _default_profile_from_inis([FIREFOX_PROFILES_INI, FIREFOX_PROFILES_INI_XDG])
 
 
-def get_default_librewolf_profile() -> Optional[Path]:
+def get_default_librewolf_profile() -> Path | None:
     return _default_profile_from_inis([LIBREWOLF_PROFILES_INI, LIBREWOLF_PROFILES_INI_XDG])
 
 
-def get_firefox_builtin_theme_id(theme: Dict[str, Any]) -> str:
+def get_firefox_builtin_theme_id(theme: dict[str, Any]) -> str:
     """Return the built-in Firefox compact theme ID matching the theme's lightness."""
     bg = theme.get("background", "#000000")
     return FIREFOX_COMPACT_DARK_ID if is_dark_color(bg) else FIREFOX_COMPACT_LIGHT_ID
 
 
-def write_firefox_userchrome(profile_path: Path, theme: Dict[str, Any]) -> None:
+def write_firefox_userchrome(profile_path: Path, theme: dict[str, Any]) -> None:
     """Write a palette-matched userChrome.css to the Firefox profile chrome/ dir.
 
     Uses the stable ``--lwt-*`` and ``--toolbar-*`` CSS variable API that Firefox
@@ -1023,10 +1039,10 @@ def write_firefox_userchrome(profile_path: Path, theme: Dict[str, Any]) -> None:
     chrome_dir = profile_path / "chrome"
     chrome_dir.mkdir(parents=True, exist_ok=True)
 
-    bg      = theme.get("background", "#1e1e2e")
-    fg      = theme.get("foreground", "#cdd6f4")
-    comment = theme.get("comment",    "#6c7086")
-    accent  = theme.get("accent", theme.get("cyan", theme.get("purple", fg)))
+    bg = theme.get("background", "#1e1e2e")
+    fg = theme.get("foreground", "#cdd6f4")
+    comment = theme.get("comment", "#6c7086")
+    accent = theme.get("accent", theme.get("cyan", theme.get("purple", fg)))
 
     css = (
         "/* Generated by hyprconf theme-switcher — do not edit manually */\n"
@@ -1047,7 +1063,7 @@ def write_firefox_userchrome(profile_path: Path, theme: Dict[str, Any]) -> None:
     print(f"Firefox userChrome.css written to {chrome_dir}.")
 
 
-def resolve_firefox_theme_id(profile_path: Path, firefox_cfg: Dict[str, Any]) -> Optional[str]:
+def resolve_firefox_theme_id(profile_path: Path, firefox_cfg: dict[str, Any]) -> str | None:
     if firefox_cfg.get("theme_id"):
         return firefox_cfg["theme_id"]
 
@@ -1084,7 +1100,7 @@ def format_firefox_pref(key: str, value: Any) -> str:
     return f'user_pref("{key}", {literal});'
 
 
-def write_firefox_userjs(profile_path: Path, prefs: Dict[str, Any]) -> None:
+def write_firefox_userjs(profile_path: Path, prefs: dict[str, Any]) -> None:
     user_js_path = profile_path / "user.js"
     existing_lines: list[str] = []
 
@@ -1103,12 +1119,12 @@ def write_firefox_userjs(profile_path: Path, prefs: Dict[str, Any]) -> None:
     user_js_path.write_text("\n".join(existing_lines) + "\n", encoding="utf-8")
 
 
-def ensure_firefox_theme_payload(profile_path: Path, firefox_cfg: Dict[str, Any]) -> Optional[Path]:
+def ensure_firefox_theme_payload(profile_path: Path, firefox_cfg: dict[str, Any]) -> Path | None:
     """Copy Firefox theme XPI payloads from the repo into the active profile."""
     theme_id = firefox_cfg.get("theme_id")
     xpi_hint = firefox_cfg.get("xpi")
 
-    source_path: Optional[Path] = None
+    source_path: Path | None = None
     if xpi_hint:
         source_path = Path(xpi_hint).expanduser()
     elif theme_id:
@@ -1163,7 +1179,12 @@ def set_firefox_theme_activation(profile_path: Path, theme_id: str) -> bool:
     for addon in addons:
         if addon.get("type") != "theme":
             continue
-        if addon.get("location") not in {"app-profile", "profile", "app-system-profile", "app-builtin"}:
+        if addon.get("location") not in {
+            "app-profile",
+            "profile",
+            "app-system-profile",
+            "app-builtin",
+        }:
             continue
 
         is_target = addon.get("id") == theme_id
@@ -1191,12 +1212,12 @@ def set_firefox_theme_activation(profile_path: Path, theme_id: str) -> bool:
 
 
 def _apply_browser_theme(
-    theme: Dict[str, Any],
+    theme: dict[str, Any],
     display: str,
     profile_path: Path,
     base_prefs_files: list,
     proc_names: list,
-    enforced_prefs: Dict[str, Any],
+    enforced_prefs: dict[str, Any],
 ) -> None:
     """Apply hyprconf's theme + prefs to one Firefox-engine browser profile.
 
@@ -1210,7 +1231,7 @@ def _apply_browser_theme(
     # safe to write; they take effect on restart.
     browser_running = any(_is_process_running(p) for p in proc_names)
 
-    prefs: Dict[str, Any] = parse_user_js(
+    prefs: dict[str, Any] = parse_user_js(
         next(
             (p for p in base_prefs_files if os.path.exists(p)),
             base_prefs_files[0],  # graceful default; parse_user_js handles missing
@@ -1223,7 +1244,7 @@ def _apply_browser_theme(
     prefs["ui.systemUsesDarkTheme"] = 1 if is_dark else 0
 
     firefox_cfg = theme.get("firefox")
-    active_theme_id: Optional[str] = None
+    active_theme_id: str | None = None
 
     if firefox_cfg:
         prefs.update(firefox_cfg.get("prefs", {}))
@@ -1254,10 +1275,15 @@ def _apply_browser_theme(
         print(f"{display} is running — userChrome.css and user.js updated.")
         try:
             subprocess.run(
-                ["notify-send", "--app-name=hyprconf",
-                 f"{display} restart needed",
-                 f"Restart {display} for theme changes to take full effect."],
-                check=False, capture_output=True, timeout=2,
+                [
+                    "notify-send",
+                    "--app-name=hyprconf",
+                    f"{display} restart needed",
+                    f"Restart {display} for theme changes to take full effect.",
+                ],
+                check=False,
+                capture_output=True,
+                timeout=2,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
@@ -1266,20 +1292,22 @@ def _apply_browser_theme(
         print(f"{display} updated: theme={label}, userChrome.css written at {profile_path}.")
 
 
-def update_firefox(theme: Dict[str, Any]) -> None:
+def update_firefox(theme: dict[str, Any]) -> None:
     profile_path = get_default_firefox_profile()
     if not profile_path:
         print("Firefox profile not found; skipping Firefox theme.")
         return
     _apply_browser_theme(
-        theme, "Firefox", profile_path,
+        theme,
+        "Firefox",
+        profile_path,
         [FIREFOX_BASE_PREFS_FILE, FIREFOX_BASE_PREFS_FILE_XDG],
         ["firefox", "firefox-bin"],
         FIREFOX_ENFORCED_PREFS,
     )
 
 
-def update_librewolf(theme: Dict[str, Any]) -> None:
+def update_librewolf(theme: dict[str, Any]) -> None:
     """Theme LibreWolf when installed. Silent no-op otherwise (it's optional —
     installed on demand via `hyprconf addon librewolf`), so it never adds noise
     to a theme switch on systems without it."""
@@ -1287,14 +1315,16 @@ def update_librewolf(theme: Dict[str, Any]) -> None:
     if not profile_path:
         return
     _apply_browser_theme(
-        theme, "LibreWolf", profile_path,
+        theme,
+        "LibreWolf",
+        profile_path,
         [LIBREWOLF_BASE_PREFS_FILE, LIBREWOLF_BASE_PREFS_FILE_XDG],
         ["librewolf", "librewolf-bin"],
         FIREFOX_THEME_PREFS,
     )
 
 
-def _resolve_gtk_theme(theme: Dict[str, str]) -> str:
+def _resolve_gtk_theme(theme: dict[str, str]) -> str:
     """Pick a GTK theme name: use the theme JSON's 'gtk_theme' key if set,
     otherwise choose adw-gtk3-dark/-light based on background luminance,
     falling back to Breeze-Dark/Breeze if adw-gtk3 is not installed."""
@@ -1302,9 +1332,7 @@ def _resolve_gtk_theme(theme: Dict[str, str]) -> str:
         return theme["gtk_theme"]
 
     is_dark = is_dark_color(theme.get("background", "#1e1e2e"))
-    candidates = (
-        ("adw-gtk3-dark", "adw-gtk3") if is_dark else ("adw-gtk3", "adw-gtk3-dark")
-    )
+    candidates = ("adw-gtk3-dark", "adw-gtk3") if is_dark else ("adw-gtk3", "adw-gtk3-dark")
     fallbacks = ("Breeze-Dark", "Breeze") if is_dark else ("Breeze", "Breeze-Dark")
     theme_dirs = ["/usr/share/themes", os.path.expanduser("~/.local/share/themes")]
 
@@ -1320,13 +1348,13 @@ def _resolve_gtk_theme(theme: Dict[str, str]) -> str:
     return candidates[0]
 
 
-def update_gtk(theme: Dict[str, str]) -> None:
+def update_gtk(theme: dict[str, str]) -> None:
     """Apply the theme to GTK 3/4 settings, xsettingsd, and gsettings."""
-    is_dark      = is_dark_color(theme.get("background", "#1e1e2e"))
-    gtk_theme    = _resolve_gtk_theme(theme)
-    icon_theme   = "Papirus-Dark" if is_dark else "Papirus-Light"
+    is_dark = is_dark_color(theme.get("background", "#1e1e2e"))
+    gtk_theme = _resolve_gtk_theme(theme)
+    icon_theme = "Papirus-Dark" if is_dark else "Papirus-Light"
     color_scheme = "prefer-dark" if is_dark else "prefer-light"
-    dark_val     = "true" if is_dark else "false"
+    dark_val = "true" if is_dark else "false"
 
     def patch_ini(path: str) -> None:
         with open(path) as f:
@@ -1374,7 +1402,7 @@ def update_gtk(theme: Dict[str, str]) -> None:
                     new_lines.append(line)
             if not patched:
                 new_lines.append(f'Net/ThemeName "{gtk_theme}"\n')
-            if not any(l.startswith("Net/IconThemeName") for l in lines):
+            if not any(ln.startswith("Net/IconThemeName") for ln in lines):
                 new_lines.append(f'Net/IconThemeName "{icon_theme}"\n')
             with open(XSETTINGSD_CONFIG_FILE, "w") as f:
                 f.writelines(new_lines)
@@ -1409,8 +1437,12 @@ def update_gtk(theme: Dict[str, str]) -> None:
     hyprctl = shutil.which("hyprctl")
     if hyprctl:
         try:
-            subprocess.run([hyprctl, "setenv", "GTK_THEME", gtk_theme], check=False, capture_output=True)
-            subprocess.run([hyprctl, "setenv", "GTK_ICON_THEME", icon_theme], check=False, capture_output=True)
+            subprocess.run(
+                [hyprctl, "setenv", "GTK_THEME", gtk_theme], check=False, capture_output=True
+            )
+            subprocess.run(
+                [hyprctl, "setenv", "GTK_ICON_THEME", icon_theme], check=False, capture_output=True
+            )
         except Exception:
             pass
 
@@ -1422,9 +1454,15 @@ def update_gtk(theme: Dict[str, str]) -> None:
     if systemctl:
         try:
             subprocess.run(
-                [systemctl, "--user", "set-environment", f"GTK_THEME={gtk_theme}",
-                 f"GTK_ICON_THEME={icon_theme}"],
-                check=False, capture_output=True,
+                [
+                    systemctl,
+                    "--user",
+                    "set-environment",
+                    f"GTK_THEME={gtk_theme}",
+                    f"GTK_ICON_THEME={icon_theme}",
+                ],
+                check=False,
+                capture_output=True,
             )
         except Exception:
             pass
@@ -1448,7 +1486,9 @@ def update_gtk(theme: Dict[str, str]) -> None:
             except (ProcessLookupError, ValueError):
                 pass
 
-        mgr_proc = subprocess.run(["pgrep", "-x", "blueman-manager"], capture_output=True, text=True)
+        mgr_proc = subprocess.run(
+            ["pgrep", "-x", "blueman-manager"], capture_output=True, text=True
+        )
         if mgr_proc.returncode == 0:
             for pid in mgr_proc.stdout.split():
                 try:
@@ -1471,28 +1511,28 @@ def update_gtk(theme: Dict[str, str]) -> None:
     print(f"GTK theme set to '{gtk_theme}' ({color_scheme}).")
 
 
-def update_kde_colors(theme: Dict[str, str]) -> None:
+def update_kde_colors(theme: dict[str, str]) -> None:
     """Generate ~/.config/kdeglobals KDE color scheme and Trolltech.conf from the theme palette.
 
     kdeglobals is read directly by KConfig (used by Dolphin, Ark, Gwenview, etc.) regardless
     of whether a full KDE Plasma session is running.  Trolltech.conf sets the fallback Qt style
     for apps that don't use a platform theme plugin.
     """
-    bg      = theme.get("background", "#1e1e2e")
-    fg      = theme.get("foreground", "#cdd6f4")
-    accent  = theme.get("accent",     theme.get("purple", "#bd93f9"))
-    comment = theme.get("comment",    "#6272a4")
-    red     = theme.get("red",        "#f38ba8")
-    green   = theme.get("green",      "#a6e3a1")
-    yellow  = theme.get("yellow",     "#f9e2af")
-    cyan    = theme.get("cyan",       "#89dceb")
+    bg = theme.get("background", "#1e1e2e")
+    fg = theme.get("foreground", "#cdd6f4")
+    accent = theme.get("accent", theme.get("purple", "#bd93f9"))
+    comment = theme.get("comment", "#6272a4")
+    red = theme.get("red", "#f38ba8")
+    green = theme.get("green", "#a6e3a1")
+    yellow = theme.get("yellow", "#f9e2af")
+    cyan = theme.get("cyan", "#89dceb")
 
-    btn_bg  = blend_colors(bg, fg, 0.10)   # slightly raised surface for buttons
+    btn_bg = blend_colors(bg, fg, 0.10)  # slightly raised surface for buttons
     # 10% blend gives ~1.25:1 contrast against the base — perceptible to the eye
     # without triggering KDE's contrast-enforcement (contrast=4) which would
     # overshoot a 5% blend to a clearly-light shade in dark themes like Dracula.
-    alt_bg  = blend_colors(bg, fg, 0.10)   # alternate row background
-    sel_fg  = bg if is_dark_color(bg) else fg  # legible text on accent selection
+    alt_bg = blend_colors(bg, fg, 0.10)  # alternate row background
+    sel_fg = bg if is_dark_color(bg) else fg  # legible text on accent selection
 
     def rgb(h: str) -> str:
         return hex_to_rgb_str(h)
@@ -1538,9 +1578,7 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         "IntensityAmount=0\n"
         "IntensityEffect=0\n"
         "\n"
-        "[Colors:Button]\n"
-        + color_section(btn_bg, blend_colors(bg, fg, 0.15), fg)
-        + "\n"
+        "[Colors:Button]\n" + color_section(btn_bg, blend_colors(bg, fg, 0.15), fg) + "\n"
         "[Colors:Complementary]\n"
         + color_section(blend_colors(bg, fg, 0.08), blend_colors(bg, fg, 0.12), fg)
         + "\n"
@@ -1561,15 +1599,9 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         f"ForegroundPositive={rgb(green)}\n"
         f"ForegroundVisited={rgb(sel_fg)}\n"
         "\n"
-        "[Colors:Tooltip]\n"
-        + color_section(btn_bg, blend_colors(bg, fg, 0.15), fg)
-        + "\n"
-        "[Colors:View]\n"
-        + color_section(bg, alt_bg, fg)
-        + "\n"
-        "[Colors:Window]\n"
-        + color_section(bg, alt_bg, fg)
-        + "\n"
+        "[Colors:Tooltip]\n" + color_section(btn_bg, blend_colors(bg, fg, 0.15), fg) + "\n"
+        "[Colors:View]\n" + color_section(bg, alt_bg, fg) + "\n"
+        "[Colors:Window]\n" + color_section(bg, alt_bg, fg) + "\n"
         "[General]\n"
         "ColorScheme=SwitchThemeGenerated\n"
         "Name=SwitchTheme Generated\n"
@@ -1606,7 +1638,8 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
     if shutil.which("plasma-apply-colorscheme"):
         result = subprocess.run(
             ["plasma-apply-colorscheme", "SwitchThemeGenerated"],
-            check=False, capture_output=True,
+            check=False,
+            capture_output=True,
         )
         applied = result.returncode == 0
 
@@ -1617,12 +1650,16 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
         # so alternate row colours in Dolphin stay stale until the app is restarted.
         subprocess.run(
             [
-                "dbus-send", "--session", "--type=signal",
+                "dbus-send",
+                "--session",
+                "--type=signal",
                 "/KGlobalSettings",
                 "org.kde.KGlobalSettings.notifyChange",
-                "int32:1", "int32:0",
+                "int32:1",
+                "int32:0",
             ],
-            check=False, capture_output=True,
+            check=False,
+            capture_output=True,
         )
     print("Qt/KDE theme updated.")
 
@@ -1632,15 +1669,23 @@ def update_kde_colors(theme: Dict[str, str]) -> None:
     for kwrite in ("kwriteconfig6", "kwriteconfig5"):
         if shutil.which(kwrite):
             subprocess.run(
-                [kwrite, "--file", "dolphinrc",
-                 "--group", "General",
-                 "--key", "ColorScheme", "SwitchThemeGenerated"],
-                check=False, capture_output=True,
+                [
+                    kwrite,
+                    "--file",
+                    "dolphinrc",
+                    "--group",
+                    "General",
+                    "--key",
+                    "ColorScheme",
+                    "SwitchThemeGenerated",
+                ],
+                check=False,
+                capture_output=True,
             )
             break
 
 
-def update_qt_platform_theme(theme: Dict[str, str]) -> None:
+def update_qt_platform_theme(theme: dict[str, str]) -> None:
     """Configure qt6ct (and qt5ct if installed) with a QPalette derived from the theme.
 
     When qt6ct/qt5ct are installed and QT_QPA_PLATFORMTHEME is set to qt5ct/qt6ct,
@@ -1649,37 +1694,50 @@ def update_qt_platform_theme(theme: Dict[str, str]) -> None:
     instead — handled by update_kde_colors().  Writing these files is harmless
     either way and keeps both paths working.
     """
-    bg       = theme.get("background", "#1e1e2e")
-    fg       = theme.get("foreground", "#cdd6f4")
-    accent   = theme.get("accent",     theme.get("purple", "#bd93f9"))
-    cyan     = theme.get("cyan",       "#89dceb")
-    dark     = is_dark_color(bg)
+    bg = theme.get("background", "#1e1e2e")
+    fg = theme.get("foreground", "#cdd6f4")
+    accent = theme.get("accent", theme.get("purple", "#bd93f9"))
+    cyan = theme.get("cyan", "#89dceb")
+    dark = is_dark_color(bg)
 
-    btn_bg   = blend_colors(bg, fg, 0.10)
+    btn_bg = blend_colors(bg, fg, 0.10)
     light_bg = blend_colors(bg, fg, 0.22)
     midlight = blend_colors(bg, fg, 0.16)
-    dark_bg  = blend_colors(bg, "#000000", 0.22)
-    mid_bg   = blend_colors(bg, fg, 0.08)
-    alt_bg   = blend_colors(bg, fg, 0.10)   # alternate row — matches kdeglobals alt_bg
-    shadow   = blend_colors(bg, "#000000", 0.45)
-    tooltip  = blend_colors(bg, fg, 0.08)
-    sel_fg   = bg if dark else fg
+    dark_bg = blend_colors(bg, "#000000", 0.22)
+    mid_bg = blend_colors(bg, fg, 0.08)
+    alt_bg = blend_colors(bg, fg, 0.10)  # alternate row — matches kdeglobals alt_bg
+    shadow = blend_colors(bg, "#000000", 0.45)
+    tooltip = blend_colors(bg, fg, 0.08)
+    sel_fg = bg if dark else fg
     link_vis = theme.get("purple", accent)
-    bright   = "#ffffff" if dark else "#000000"
-    ph_fg    = blend_colors(fg, bg, 0.50)
+    bright = "#ffffff" if dark else "#000000"
+    ph_fg = blend_colors(fg, bg, 0.50)
 
     # QPalette roles 0-20 in declaration order:
     # WindowText, Button, Light, Midlight, Dark, Mid, Text, BrightText, ButtonText,
     # Base, Window, Shadow, Highlight, HighlightedText, Link, LinkVisited,
     # AlternateBase, NoRole, ToolTipBase, ToolTipText, PlaceholderText
     active = [
-        fg,       btn_bg,   light_bg, midlight, dark_bg, mid_bg,
-        fg,       bright,   fg,
-        bg,       bg,       shadow,
-        accent,   sel_fg,
-        cyan,     link_vis,
-        alt_bg,   bg,
-        tooltip,  fg,
+        fg,
+        btn_bg,
+        light_bg,
+        midlight,
+        dark_bg,
+        mid_bg,
+        fg,
+        bright,
+        fg,
+        bg,
+        bg,
+        shadow,
+        accent,
+        sel_fg,
+        cyan,
+        link_vis,
+        alt_bg,
+        bg,
+        tooltip,
+        fg,
         ph_fg,
     ]
     inactive = list(active)
@@ -1688,13 +1746,26 @@ def update_qt_platform_theme(theme: Dict[str, str]) -> None:
         return blend_colors(c, bg, 0.50)
 
     disabled = [
-        dim(fg),  btn_bg,   light_bg, midlight, dark_bg, mid_bg,
-        dim(fg),  dim(bright), dim(fg),
-        bg,       bg,       shadow,
-        mid_bg,   dim(fg),
-        dim(cyan), dim(link_vis),
-        alt_bg,   bg,
-        tooltip,  dim(fg),
+        dim(fg),
+        btn_bg,
+        light_bg,
+        midlight,
+        dark_bg,
+        mid_bg,
+        dim(fg),
+        dim(bright),
+        dim(fg),
+        bg,
+        bg,
+        shadow,
+        mid_bg,
+        dim(fg),
+        dim(cyan),
+        dim(link_vis),
+        alt_bg,
+        bg,
+        tooltip,
+        dim(fg),
         dim(ph_fg),
     ]
 
@@ -1741,13 +1812,13 @@ def update_qt_platform_theme(theme: Dict[str, str]) -> None:
             print(f"Warning: could not update {conf_path}: {e}")
 
 
-def update_wvkbd(theme: Dict[str, str]) -> None:
+def update_wvkbd(theme: dict[str, str]) -> None:
     """Write ~/.config/wvkbd/colors and restart wvkbd-launcher if running."""
     wvkbd_config_dir = Path.home() / ".config" / "wvkbd"
     colors_file = wvkbd_config_dir / "colors"
 
-    bg     = theme.get("background", "")
-    fg     = theme.get("foreground", "")
+    bg = theme.get("background", "")
+    fg = theme.get("foreground", "")
     accent = theme.get("accent", "")
 
     if not bg:
@@ -1771,7 +1842,8 @@ def update_wvkbd(theme: Dict[str, str]) -> None:
     try:
         result = subprocess.run(
             ["pgrep", "-x", "wvkbd-mobintl"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         if result.returncode == 0:
             launcher = shutil.which("wvkbd-launcher")
@@ -1782,14 +1854,14 @@ def update_wvkbd(theme: Dict[str, str]) -> None:
         print(f"Warning: could not restart wvkbd: {e}")
 
 
-def update_touch_panel(theme: Dict[str, str]) -> None:
+def update_touch_panel(theme: dict[str, str]) -> None:
     """Write ~/.config/touch-panel/colors and signal the panel to reload.
 
     The touch-panel script reloads colors on SIGUSR1 without restarting, so
     the panel remains open and the theme change is instant.
     """
-    bg     = theme.get("background", "")
-    fg     = theme.get("foreground", "")
+    bg = theme.get("background", "")
+    fg = theme.get("foreground", "")
     accent = theme.get("accent", "")
 
     if not bg:
@@ -1810,9 +1882,7 @@ def update_touch_panel(theme: Dict[str, str]) -> None:
     # touch-panel is a Python script; the kernel exec's python3 so the process
     # comm is "python3", not "touch-panel".  Use -f to match against the full
     # command line instead.  The $ anchor avoids matching "touch-panel-launcher".
-    result = subprocess.run(
-        ["pgrep", "-f", "touch-panel$"], capture_output=True, text=True
-    )
+    result = subprocess.run(["pgrep", "-f", "touch-panel$"], capture_output=True, text=True)
     if result.returncode == 0:
         for pid_str in result.stdout.strip().splitlines():
             try:
@@ -1822,21 +1892,21 @@ def update_touch_panel(theme: Dict[str, str]) -> None:
         print("touch-panel signalled to reload colors.")
 
 
-def _generate_btop_theme(theme: Dict[str, str], theme_name: str) -> str:
+def _generate_btop_theme(theme: dict[str, str], theme_name: str) -> str:
     """Generate a btop .theme file from the hyprconf palette.
 
     Returns the absolute path to the generated .theme file.
     """
-    bg      = theme.get("background", "")
-    fg      = theme.get("foreground", "#ffffff")
-    accent  = theme.get("accent",     "#8be9fd")
-    comment = theme.get("comment",    "#6272a4")
-    green   = theme.get("green",  accent)
-    red     = theme.get("red",    "#ff5555")
-    cyan    = theme.get("cyan",   accent)
-    orange  = theme.get("orange", "#ffb86c")
-    purple  = theme.get("purple", accent)
-    yellow  = theme.get("yellow", orange)
+    bg = theme.get("background", "")
+    fg = theme.get("foreground", "#ffffff")
+    accent = theme.get("accent", "#8be9fd")
+    comment = theme.get("comment", "#6272a4")
+    green = theme.get("green", accent)
+    red = theme.get("red", "#ff5555")
+    cyan = theme.get("cyan", accent)
+    orange = theme.get("orange", "#ffb86c")
+    purple = theme.get("purple", accent)
+    yellow = theme.get("yellow", orange)
 
     lines = [
         f'theme[main_bg]="{bg}"',
@@ -1893,7 +1963,7 @@ def _generate_btop_theme(theme: Dict[str, str], theme_name: str) -> str:
     return out_path
 
 
-def update_btop(theme: Dict[str, str], theme_name: str = "") -> None:
+def update_btop(theme: dict[str, str], theme_name: str = "") -> None:
     """Apply btop theming.
 
     If the JSON theme has a "btop" key, the value is treated as a system theme
@@ -1917,7 +1987,7 @@ def update_btop(theme: Dict[str, str], theme_name: str = "") -> None:
         theme_path = _generate_btop_theme(theme, theme_name or "generated")
 
     try:
-        with open(BTOP_CONF_FILE, "r", encoding="utf-8") as f:
+        with open(BTOP_CONF_FILE, encoding="utf-8") as f:
             content = f.read()
         new_content = _RE_BTOP_COLOR_THEME.sub(
             f'color_theme = "{theme_path}"',
@@ -1939,7 +2009,7 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
     print(f"Switching to theme: {theme_name}")
     theme = load_theme(theme_name)
 
-    def ensure_vscode_extension_payload(extension_id: Optional[str]) -> None:
+    def ensure_vscode_extension_payload(extension_id: str | None) -> None:
         """Copy VS Code theme extension payloads locally so CLI installs are optional."""
         if not extension_id:
             return
@@ -2005,6 +2075,7 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
     notify_theme_change(theme_name, theme)
     print("Theme applied successfully.")
 
+
 # === Entry Point ===
 def list_themes() -> None:
     """Print a pretty table of all available themes with colour swatches."""
@@ -2019,9 +2090,9 @@ def list_themes() -> None:
                 d = json.load(_fh)
         except Exception:
             continue
-        bg         = d.get("background", "")
-        fg         = d.get("foreground", "")
-        accent     = d.get("accent", d.get("purple", ""))
+        bg = d.get("background", "")
+        fg = d.get("foreground", "")
+        accent = d.get("accent", d.get("purple", ""))
         appearance = d.get("appearance", "")
         themes.append((name, bg, fg, accent, appearance))
 
@@ -2029,8 +2100,8 @@ def list_themes() -> None:
         print("No themes found.")
         return
 
-    col_name   = max(len("THEME"),  max(len(t[0]) for t in themes))
-    col_appear = max(len("TYPE"),   max(len(t[4]) for t in themes))
+    col_name = max(len("THEME"), max(len(t[0]) for t in themes))
+    col_appear = max(len("TYPE"), max(len(t[4]) for t in themes))
 
     BLOCK = "██"
 
@@ -2047,8 +2118,8 @@ def list_themes() -> None:
     swatch_header = "BG FG ACCENT"
     sep = f"  {'─' * col_name}  {'─' * col_appear}  {'─' * len(swatch_header)}"
     header = (
-        f"  {bold(f'{'THEME':<{col_name}}')}  "
-        f"{bold(f'{'TYPE':<{col_appear}}')}  "
+        f"  {bold(f'{"THEME":<{col_name}}')}  "
+        f"{bold(f'{"TYPE":<{col_appear}}')}  "
         f"{bold(swatch_header)}"
     )
     print(sep)
@@ -2067,14 +2138,14 @@ def list_themes() -> None:
     print(f"  {len(themes)} themes available{active_note}")
 
 
-def interactive_select(initial_filter: str = "") -> Optional[str]:
+def interactive_select(initial_filter: str = "") -> str | None:
     """Arrow-key + type-to-filter theme selector with ANSI colour swatches."""
     import curses
 
     all_themes = get_all_themes()
-    current    = read_state()
+    current = read_state()
 
-    theme_data: Dict[str, Dict] = {}
+    theme_data: dict[str, dict] = {}
     for name in all_themes:
         try:
             with open(os.path.join(THEMES_DIR, f"{name}.json")) as _fh:
@@ -2082,46 +2153,46 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
         except Exception:
             theme_data[name] = {}
 
-    selected: list[Optional[str]] = [None]
+    selected: list[str | None] = [None]
 
     def _menu(stdscr: "curses._CursesWindow") -> None:  # type: ignore[name-defined]
         curses.curs_set(0)
         curses.use_default_colors()
         curses.start_color()
         curses.init_pair(1, curses.COLOR_BLACK, curses.COLOR_WHITE)  # highlighted
-        curses.init_pair(2, curses.COLOR_WHITE, -1)                   # normal
-        curses.init_pair(3, curses.COLOR_YELLOW, -1)                  # active theme
+        curses.init_pair(2, curses.COLOR_WHITE, -1)  # normal
+        curses.init_pair(3, curses.COLOR_YELLOW, -1)  # active theme
 
         search = initial_filter
-        idx    = 0
+        idx = 0
 
         while True:
             themes = filter_themes(all_themes, search) if search else all_themes
-            idx    = min(idx, max(0, len(themes) - 1))
+            idx = min(idx, max(0, len(themes) - 1))
 
             max_h, max_w = stdscr.getmaxyx()
-            visible      = max_h - 8
+            visible = max_h - 8
 
             stdscr.erase()
 
             # ── Header ─────────────────────────────────────────────────────────
             header = "Theme Switcher  (↑↓/jk · Enter apply · type to filter · Esc clear · q quit)"
-            stdscr.addstr(0, 0, header[:max_w - 1], curses.A_BOLD)
+            stdscr.addstr(0, 0, header[: max_w - 1], curses.A_BOLD)
             stdscr.addstr(1, 0, "─" * min(max_w - 1, 78))
 
             # ── Search bar ─────────────────────────────────────────────────────
             prompt = f"  / {search}▌" if search else "  / (type to filter)"
-            stdscr.addstr(2, 0, prompt[:max_w - 1])
+            stdscr.addstr(2, 0, prompt[: max_w - 1])
             stdscr.addstr(3, 0, "─" * min(max_w - 1, 78))
 
             # ── Theme list ─────────────────────────────────────────────────────
             start = max(0, idx - visible + 1)
             for row_i, t_idx in enumerate(range(start, min(start + visible, len(themes)))):
-                name       = themes[t_idx]
-                d          = theme_data.get(name, {})
+                name = themes[t_idx]
+                d = theme_data.get(name, {})
                 appearance = d.get("appearance", "")
                 is_current = name == current
-                marker     = "★ " if is_current else "  "
+                marker = "★ " if is_current else "  "
 
                 tag = "☀" if appearance == "light" else "☾"
                 text_part = f"{marker}{name:<34} {tag}"
@@ -2137,13 +2208,13 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
                 else:
                     attr = curses.color_pair(2)
 
-                stdscr.addstr(y, 0, ("  " + text_part)[:max_w - 1], attr)
+                stdscr.addstr(y, 0, ("  " + text_part)[: max_w - 1], attr)
 
             # ── Footer ─────────────────────────────────────────────────────────
             match_info = f"  {len(themes)}/{len(all_themes)} themes"
             if current:
                 match_info += f"  · active: {current}"
-            stdscr.addstr(min(start + visible + 4, max_h - 1), 0, match_info[:max_w - 1])
+            stdscr.addstr(min(start + visible + 4, max_h - 1), 0, match_info[: max_w - 1])
             stdscr.refresh()
 
             # ── Input ──────────────────────────────────────────────────────────
@@ -2184,7 +2255,7 @@ def interactive_select(initial_filter: str = "") -> Optional[str]:
     return selected[0]
 
 
-def wofi_select(initial_filter: str = "") -> Optional[str]:
+def wofi_select(initial_filter: str = "") -> str | None:
     """Select a theme via wofi --dmenu (no terminal window required)."""
     themes = get_all_themes()
     if initial_filter:
@@ -2215,6 +2286,7 @@ def wofi_select(initial_filter: str = "") -> Optional[str]:
 # ---------------------------------------------------------------------------
 # Wallpaper → theme generator
 # ---------------------------------------------------------------------------
+
 
 def _extract_dominant_colors(image_path: str, num_colors: int = 8) -> list:
     """Extract dominant colours from an image using PIL k-means quantisation."""
@@ -2360,19 +2432,40 @@ if __name__ == "__main__":
         nargs="?",
         help="Theme name to apply directly (e.g. dracula, ai:void).",
     )
-    parser.add_argument("--list",      "-l", action="store_true", help="List all available themes.")
-    parser.add_argument("--current",   "-c", action="store_true", help="Print the currently active theme.")
-    parser.add_argument("--random",    "-r", action="store_true", help="Apply a randomly chosen theme.")
-    parser.add_argument("--next",      "-n", action="store_true", help="Apply the next theme (sorted order).")
-    parser.add_argument("--prev",      "-p", action="store_true", help="Apply the previous theme (sorted order).")
-    parser.add_argument("--pick",      "-w", action="store_true", help="Select theme via hyprlauncher --dmenu.")
-    parser.add_argument("--no-reload",       action="store_true", help="Skip hyprctl reload after applying.")
-    parser.add_argument("--generate", "-g", metavar="IMAGE",
-                        help="Generate a theme from a wallpaper image and apply it.")
-    parser.add_argument("--filter",    "-f", default="", metavar="STR",
-                        help="Pre-filter themes by substring (used with TUI, --pick, --random).")
+    parser.add_argument("--list", "-l", action="store_true", help="List all available themes.")
+    parser.add_argument(
+        "--current", "-c", action="store_true", help="Print the currently active theme."
+    )
+    parser.add_argument(
+        "--random", "-r", action="store_true", help="Apply a randomly chosen theme."
+    )
+    parser.add_argument(
+        "--next", "-n", action="store_true", help="Apply the next theme (sorted order)."
+    )
+    parser.add_argument(
+        "--prev", "-p", action="store_true", help="Apply the previous theme (sorted order)."
+    )
+    parser.add_argument(
+        "--pick", "-w", action="store_true", help="Select theme via hyprlauncher --dmenu."
+    )
+    parser.add_argument(
+        "--no-reload", action="store_true", help="Skip hyprctl reload after applying."
+    )
+    parser.add_argument(
+        "--generate",
+        "-g",
+        metavar="IMAGE",
+        help="Generate a theme from a wallpaper image and apply it.",
+    )
+    parser.add_argument(
+        "--filter",
+        "-f",
+        default="",
+        metavar="STR",
+        help="Pre-filter themes by substring (used with TUI, --pick, --random).",
+    )
 
-    args      = parser.parse_args()
+    args = parser.parse_args()
     do_reload = not args.no_reload
 
     try:

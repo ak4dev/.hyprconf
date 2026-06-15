@@ -1,28 +1,32 @@
 """Tests for new theme-switcher behaviours added in this session:
-  - _kill_process_if_running() helper
-  - hyperlauncher restart after update_hyprtoolkit()
-  - Dolphin ColorScheme write in update_kde_colors()
-  - Firefox running-state guard in update_firefox()
-  - update_touch_panel() (see also test_hardware_features.py)
-  - Dolphin alternate-row contrast (Dracula dark stripes)
-  - Blueman GTK_THEME env passthrough + systemd user env + manager kill
-  - D-Bus PaletteChanged signal type in KDE fallback
-  - QPalette alternate colour consistency (qt5ct/qt6ct)
+- _kill_process_if_running() helper
+- hyperlauncher restart after update_hyprtoolkit()
+- Dolphin ColorScheme write in update_kde_colors()
+- Firefox running-state guard in update_firefox()
+- update_touch_panel() (see also test_hardware_features.py)
+- Dolphin alternate-row contrast (Dracula dark stripes)
+- Blueman GTK_THEME env passthrough + systemd user env + manager kill
+- D-Bus PaletteChanged signal type in KDE fallback
+- QPalette alternate colour consistency (qt5ct/qt6ct)
 """
+
 from __future__ import annotations
 
-import os
 import signal
-import subprocess
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 THEME_SWITCHER = (
     Path(__file__).parent.parent.parent
-    / "stow" / "hypr" / ".config" / "hypr"
-    / "scripts" / "theme-switcher" / "switch_theme.py"
+    / "stow"
+    / "hypr"
+    / ".config"
+    / "hypr"
+    / "scripts"
+    / "theme-switcher"
+    / "switch_theme.py"
 )
 
 import importlib.util
@@ -34,13 +38,14 @@ spec.loader.exec_module(st)  # type: ignore[union-attr]
 DARK_THEME = {
     "background": "#1e1e2e",
     "foreground": "#cdd6f4",
-    "accent":     "#89b4fa",
+    "accent": "#89b4fa",
 }
 
 
 # ---------------------------------------------------------------------------
 # _kill_process_if_running()
 # ---------------------------------------------------------------------------
+
 
 def test_kill_process_sends_sigterm(monkeypatch):
     kill_calls: list = []
@@ -78,6 +83,7 @@ def test_kill_process_returns_false_when_not_running(monkeypatch):
 
 def test_kill_process_ignores_stale_pids(monkeypatch):
     """ProcessLookupError (stale PID) must not raise."""
+
     def fake_run(cmd, **_kw):
         m = MagicMock()
         m.returncode = 0
@@ -94,6 +100,7 @@ def test_kill_process_ignores_stale_pids(monkeypatch):
 # ---------------------------------------------------------------------------
 # update_hyprtoolkit() — kills hyperlauncher if running
 # ---------------------------------------------------------------------------
+
 
 def test_update_hyprtoolkit_kills_hyperlauncher(tmp_path, monkeypatch):
     """After writing hyprtoolkit.conf, hyperlauncher should be sent SIGTERM."""
@@ -133,6 +140,7 @@ def test_update_hyprtoolkit_does_not_raise_when_hyprlauncher_absent(tmp_path, mo
 # ---------------------------------------------------------------------------
 # update_kde_colors() — writes ColorScheme to dolphinrc
 # ---------------------------------------------------------------------------
+
 
 def test_update_kde_colors_writes_dolphin_colorscheme(monkeypatch, tmp_path):
     """kwriteconfig6 should be called to write ColorScheme=SwitchThemeGenerated."""
@@ -218,6 +226,7 @@ def test_update_kde_colors_skips_dolphin_when_kwriteconfig_absent(monkeypatch, t
 # update_firefox() — running-state guard
 # ---------------------------------------------------------------------------
 
+
 def test_firefox_skips_extensions_json_when_running(tmp_path, monkeypatch):
     """When Firefox is running, set_firefox_theme_activation must not be called."""
     activation_calls: list = []
@@ -227,8 +236,9 @@ def test_firefox_skips_extensions_json_when_running(tmp_path, monkeypatch):
     monkeypatch.setattr(st, "get_default_firefox_profile", lambda: tmp_path)
     monkeypatch.setattr(st, "parse_user_js", lambda *_: {})
     monkeypatch.setattr(st, "ensure_firefox_theme_payload", lambda *_: None)
-    monkeypatch.setattr(st, "set_firefox_theme_activation",
-                        lambda p, tid: activation_calls.append(tid) or True)
+    monkeypatch.setattr(
+        st, "set_firefox_theme_activation", lambda p, tid: activation_calls.append(tid) or True
+    )
     monkeypatch.setattr(st, "write_firefox_userchrome", lambda *_: None)
     monkeypatch.setattr(st, "write_firefox_userjs", lambda *_: None)
 
@@ -246,9 +256,12 @@ def test_firefox_updates_extensions_json_when_not_running(tmp_path, monkeypatch)
     monkeypatch.setattr(st, "parse_user_js", lambda *_: {})
     monkeypatch.setattr(st, "ensure_firefox_theme_payload", lambda *_: None)
     monkeypatch.setattr(st, "resolve_firefox_theme_id", lambda *_: None)
-    monkeypatch.setattr(st, "get_firefox_builtin_theme_id", lambda _: "firefox-compact-dark@mozilla.org")
-    monkeypatch.setattr(st, "set_firefox_theme_activation",
-                        lambda p, tid: activation_calls.append(tid) or True)
+    monkeypatch.setattr(
+        st, "get_firefox_builtin_theme_id", lambda _: "firefox-compact-dark@mozilla.org"
+    )
+    monkeypatch.setattr(
+        st, "set_firefox_theme_activation", lambda p, tid: activation_calls.append(tid) or True
+    )
     monkeypatch.setattr(st, "write_firefox_userchrome", lambda *_: None)
     monkeypatch.setattr(st, "write_firefox_userjs", lambda *_: None)
 
@@ -291,12 +304,12 @@ def test_firefox_sends_notify_when_running(tmp_path, monkeypatch, capsys):
 DRACULA_THEME = {
     "background": "#282a36",
     "foreground": "#f8f8f2",
-    "accent":     "#8be9fd",
-    "comment":    "#6272a4",
-    "red":        "#ff5555",
-    "green":      "#50fa7b",
-    "yellow":     "#f1fa8c",
-    "cyan":       "#8be9fd",
+    "accent": "#8be9fd",
+    "comment": "#6272a4",
+    "red": "#ff5555",
+    "green": "#50fa7b",
+    "yellow": "#f1fa8c",
+    "cyan": "#8be9fd",
 }
 
 
@@ -321,6 +334,7 @@ def _capture_kdeglobals(monkeypatch, tmp_path, theme: dict) -> str:
 def _parse_rgb_key(section_text: str, key: str) -> tuple[int, int, int]:
     """Extract R,G,B integers for 'key=R,G,B' from a kdeglobals section block."""
     import re
+
     m = re.search(rf"^{re.escape(key)}=(\d+),(\d+),(\d+)", section_text, re.MULTILINE)
     assert m, f"Key '{key}' not found in section text"
     return int(m.group(1)), int(m.group(2)), int(m.group(3))
@@ -344,10 +358,10 @@ def test_kde_view_alternate_is_lighter_than_normal_for_dark_theme(monkeypatch, t
     view_block = content[view_start:view_end]
 
     normal_rgb = _parse_rgb_key(view_block, "BackgroundNormal")
-    alt_rgb    = _parse_rgb_key(view_block, "BackgroundAlternate")
+    alt_rgb = _parse_rgb_key(view_block, "BackgroundAlternate")
 
     lum_normal = _luminance(*normal_rgb)
-    lum_alt    = _luminance(*alt_rgb)
+    lum_alt = _luminance(*alt_rgb)
 
     # Alternate must be perceptibly lighter: at least 10 luma units difference
     assert lum_alt > lum_normal, (
@@ -368,14 +382,14 @@ def test_kde_button_alternate_is_lighter_than_button_normal(monkeypatch, tmp_pat
 
     assert "[Colors:Button]" in content
     btn_start = content.index("[Colors:Button]")
-    btn_end   = content.find("\n[", btn_start + 1)
+    btn_end = content.find("\n[", btn_start + 1)
     btn_block = content[btn_start:btn_end]
 
     normal_rgb = _parse_rgb_key(btn_block, "BackgroundNormal")
-    alt_rgb    = _parse_rgb_key(btn_block, "BackgroundAlternate")
+    alt_rgb = _parse_rgb_key(btn_block, "BackgroundAlternate")
 
     lum_normal = _luminance(*normal_rgb)
-    lum_alt    = _luminance(*alt_rgb)
+    lum_alt = _luminance(*alt_rgb)
 
     assert lum_alt > lum_normal, (
         f"[Colors:Button] BackgroundAlternate ({alt_rgb}) must be lighter than "
@@ -388,16 +402,16 @@ def test_kde_view_alternate_consistent_with_window_alternate(monkeypatch, tmp_pa
     alt_bg value so window chrome and file-list rows stripe consistently."""
     content = _capture_kdeglobals(monkeypatch, tmp_path, DRACULA_THEME)
 
-    view_start  = content.index("[Colors:View]")
-    view_end    = content.find("\n[", view_start + 1)
-    view_block  = content[view_start:view_end]
+    view_start = content.index("[Colors:View]")
+    view_end = content.find("\n[", view_start + 1)
+    view_block = content[view_start:view_end]
 
-    win_start   = content.index("[Colors:Window]")
-    win_end     = content.find("\n[", win_start + 1)
-    win_block   = content[win_start:win_end]
+    win_start = content.index("[Colors:Window]")
+    win_end = content.find("\n[", win_start + 1)
+    win_block = content[win_start:win_end]
 
     view_alt = _parse_rgb_key(view_block, "BackgroundAlternate")
-    win_alt  = _parse_rgb_key(win_block,  "BackgroundAlternate")
+    win_alt = _parse_rgb_key(win_block, "BackgroundAlternate")
 
     assert view_alt == win_alt, (
         f"[Colors:View] alternate {view_alt} != [Colors:Window] alternate {win_alt}; "
@@ -408,6 +422,7 @@ def test_kde_view_alternate_consistent_with_window_alternate(monkeypatch, tmp_pa
 # ---------------------------------------------------------------------------
 # update_gtk() — blueman GTK_THEME env and relaunch delay
 # ---------------------------------------------------------------------------
+
 
 def _run_update_gtk_with_blueman(monkeypatch, gtk_theme_override: str | None = None):
     """
@@ -447,11 +462,13 @@ def _run_update_gtk_with_blueman(monkeypatch, gtk_theme_override: str | None = N
     monkeypatch.setattr(st.subprocess, "run", fake_pgrep)
 
     import builtins
-    original_open = builtins.open
 
     def fake_open(path, *a, **kw):
         from io import StringIO
-        return StringIO("[Settings]\ngtk-theme-name=old-theme\ngtk-application-prefer-dark-theme=0\n")
+
+        return StringIO(
+            "[Settings]\ngtk-theme-name=old-theme\ngtk-application-prefer-dark-theme=0\n"
+        )
 
     monkeypatch.setattr(builtins, "open", fake_open)
 
@@ -497,6 +514,7 @@ def test_blueman_relaunch_sleeps_after_sigterm(monkeypatch, tmp_path):
 # update_gtk() — systemctl set-environment and blueman-manager kill
 # ---------------------------------------------------------------------------
 
+
 def _run_update_gtk_full(monkeypatch):
     """
     Run update_gtk() with both blueman-applet and blueman-manager appearing to
@@ -527,15 +545,17 @@ def _run_update_gtk_full(monkeypatch):
     def fake_kill(pid, sig):
         kill_calls.append((pid, sig))
 
-    monkeypatch.setattr(st.subprocess, "run",   fake_run)
+    monkeypatch.setattr(st.subprocess, "run", fake_run)
     monkeypatch.setattr(st.subprocess, "Popen", fake_popen)
-    monkeypatch.setattr(st.os, "kill",          fake_kill)
+    monkeypatch.setattr(st.os, "kill", fake_kill)
     monkeypatch.setattr(st.time, "sleep", lambda _: None)
     monkeypatch.setattr(st.shutil, "which", lambda name: f"/usr/bin/{name}")
 
     import builtins
+
     def fake_open(path, *a, **kw):
         from io import StringIO
+
         return StringIO("[Settings]\ngtk-theme-name=old\n")
 
     monkeypatch.setattr(builtins, "open", fake_open)
@@ -582,6 +602,7 @@ def test_update_gtk_kills_blueman_manager_when_running(monkeypatch, tmp_path):
 # update_kde_colors() — D-Bus PaletteChanged signal type
 # ---------------------------------------------------------------------------
 
+
 def test_kde_dbus_fallback_sends_palette_changed(monkeypatch, tmp_path):
     """The D-Bus fallback in update_kde_colors() must send notifyChange type 1
     (PaletteChanged), NOT type 0 (StyleChanged).  Type 0 does not trigger a
@@ -623,14 +644,13 @@ def test_kde_dbus_fallback_sends_palette_changed(monkeypatch, tmp_path):
 # update_qt_platform_theme() — alternate colour ratio consistency
 # ---------------------------------------------------------------------------
 
+
 def test_qt_platform_theme_alt_bg_matches_kdeglobals_ratio(monkeypatch, tmp_path):
     """The AlternateBase colour in the qt5ct/qt6ct colour scheme must use the
     same 10% blend ratio as [Colors:View] BackgroundAlternate in kdeglobals.
     A lower ratio (e.g. 5%) produces near-invisible striping in Qt apps using
     the qt5ct/qt6ct platform theme."""
     written_qt: list[str] = []
-
-    original_write = Path.write_text
 
     def capture_write(self, content, encoding="utf-8", errors=None):
         # Only capture qt colour scheme files
@@ -664,7 +684,7 @@ def test_qt_platform_theme_alt_bg_matches_kdeglobals_ratio(monkeypatch, tmp_path
     fg_hex = DRACULA_THEME["foreground"]
 
     expected_10pct = st.blend_colors(bg_hex, fg_hex, 0.10)
-    expected_5pct  = st.blend_colors(bg_hex, fg_hex, 0.05)
+    expected_5pct = st.blend_colors(bg_hex, fg_hex, 0.05)
 
     # Must match 10% blend, not 5%
     assert alt_base_hex == expected_10pct, (
@@ -678,9 +698,11 @@ def test_qt_platform_theme_alt_bg_matches_kdeglobals_ratio(monkeypatch, tmp_path
 # Helper: unittest mock_open compatible with write_text
 # ---------------------------------------------------------------------------
 
+
 def unittest_mock_open():
     """Return a mock open() that accepts positional and keyword args."""
     from unittest.mock import mock_open
+
     m = mock_open()
     m.return_value.__enter__ = lambda s: s
     m.return_value.__exit__ = MagicMock(return_value=False)
@@ -690,6 +712,7 @@ def unittest_mock_open():
 # ---------------------------------------------------------------------------
 # Regression: load_theme() must raise ValueError on malformed JSON
 # ---------------------------------------------------------------------------
+
 
 def test_load_theme_malformed_json_raises_valueerror(tmp_path, monkeypatch):
     """Regression: load_theme() must catch json.JSONDecodeError and re-raise

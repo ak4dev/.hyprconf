@@ -1,9 +1,8 @@
 """Tests for hyprconf.hyprlock — hyprlock config block reader/writer."""
+
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
 
 from hyprconf.hyprlock import (
     BLOCK_DEFAULTS,
@@ -58,6 +57,7 @@ input-field {
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _lock_file(hypr_dir: Path, content: str = HYPRLOCK_CONF) -> Path:
     p = hypr_dir / "hyprlock.conf"
     p.write_text(content)
@@ -67,6 +67,7 @@ def _lock_file(hypr_dir: Path, content: str = HYPRLOCK_CONF) -> Path:
 # ---------------------------------------------------------------------------
 # read_hyprlock_blocks
 # ---------------------------------------------------------------------------
+
 
 def test_reads_all_block_types(hypr_dir: Path) -> None:
     p = _lock_file(hypr_dir)
@@ -116,12 +117,15 @@ def test_empty_file_returns_empty(hypr_dir: Path) -> None:
 # update_hyprlock_field
 # ---------------------------------------------------------------------------
 
+
 def test_update_general_field(hypr_dir: Path) -> None:
     p = _lock_file(hypr_dir)
     blocks = read_hyprlock_blocks(p)
     general = next(b for b in blocks if b.block_type == "general")
-    assert update_hyprlock_field(p, general.start_line, general.end_line,
-                                 "hide_cursor", "false") is True
+    assert (
+        update_hyprlock_field(p, general.start_line, general.end_line, "hide_cursor", "false")
+        is True
+    )
     updated = read_hyprlock_blocks(p)
     gen = next(b for b in updated if b.block_type == "general")
     assert gen.fields["hide_cursor"] == "false"
@@ -141,8 +145,7 @@ def test_update_inserts_new_field(hypr_dir: Path) -> None:
     p = _lock_file(hypr_dir)
     blocks = read_hyprlock_blocks(p)
     general = next(b for b in blocks if b.block_type == "general")
-    update_hyprlock_field(p, general.start_line, general.end_line,
-                          "new_key", "new_value")
+    update_hyprlock_field(p, general.start_line, general.end_line, "new_key", "new_value")
     updated = read_hyprlock_blocks(p)
     gen = next(b for b in updated if b.block_type == "general")
     assert gen.fields["new_key"] == "new_value"
@@ -151,6 +154,7 @@ def test_update_inserts_new_field(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # delete_hyprlock_block
 # ---------------------------------------------------------------------------
+
 
 def test_delete_label_block(hypr_dir: Path) -> None:
     p = _lock_file(hypr_dir)
@@ -175,6 +179,7 @@ def test_delete_preserves_other_blocks(hypr_dir: Path) -> None:
 # add_hyprlock_block
 # ---------------------------------------------------------------------------
 
+
 def test_add_general_block_defaults(hypr_dir: Path) -> None:
     p = _lock_file(hypr_dir, "")
     assert add_hyprlock_block("general", path=p) is True
@@ -194,9 +199,9 @@ def test_add_background_block(hypr_dir: Path) -> None:
 
 def test_add_block_with_overrides(hypr_dir: Path) -> None:
     p = _lock_file(hypr_dir, "")
-    add_hyprlock_block("background",
-                       overrides={"path": "~/wallpaper.jpg", "brightness": "0.5"},
-                       path=p)
+    add_hyprlock_block(
+        "background", overrides={"path": "~/wallpaper.jpg", "brightness": "0.5"}, path=p
+    )
     blocks = read_hyprlock_blocks(p)
     assert blocks[0].fields["path"] == "~/wallpaper.jpg"
     assert blocks[0].fields["brightness"] == "0.5"
@@ -204,9 +209,7 @@ def test_add_block_with_overrides(hypr_dir: Path) -> None:
 
 def test_add_label_block(hypr_dir: Path) -> None:
     p = _lock_file(hypr_dir, "")
-    add_hyprlock_block("label",
-                       overrides={"text": "Hello", "font_size": "32"},
-                       path=p)
+    add_hyprlock_block("label", overrides={"text": "Hello", "font_size": "32"}, path=p)
     blocks = read_hyprlock_blocks(p)
     assert blocks[0].fields["text"] == "Hello"
     assert blocks[0].fields["font_size"] == "32"
@@ -223,6 +226,7 @@ def test_add_input_field_block(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # Schema constants
 # ---------------------------------------------------------------------------
+
 
 def test_block_types_known(hypr_dir: Path) -> None:
     assert "general" in BLOCK_TYPES

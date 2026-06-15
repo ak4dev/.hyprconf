@@ -4,6 +4,7 @@ Tests for the deploy infrastructure (infra/deploy.sh, teardown.sh, CDK stack).
 Validates script syntax, required functions, CDK integration, the web deploy
 pipeline, and the CloudFront function source file.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -27,27 +28,31 @@ def _read(path: Path) -> str:
 # Script syntax validation
 # ---------------------------------------------------------------------------
 
+
 class TestScriptSyntax:
     """All bash scripts must pass bash -n syntax check."""
 
     def test_deploy_sh_syntax(self) -> None:
         result = subprocess.run(
             ["bash", "-n", str(DEPLOY_SCRIPT)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0, f"deploy.sh syntax error:\n{result.stderr}"
 
     def test_teardown_sh_syntax(self) -> None:
         result = subprocess.run(
             ["bash", "-n", str(TEARDOWN_SCRIPT)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0, f"teardown.sh syntax error:\n{result.stderr}"
 
     def test_web_deploy_sh_syntax(self) -> None:
         result = subprocess.run(
             ["bash", "-n", str(WEB_DEPLOY_SCRIPT)],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert result.returncode == 0, f"web/deploy.sh syntax error:\n{result.stderr}"
 
@@ -55,6 +60,7 @@ class TestScriptSyntax:
 # ---------------------------------------------------------------------------
 # deploy.sh function structure (CDK wrapper)
 # ---------------------------------------------------------------------------
+
 
 class TestDeployFunctions:
     """deploy.sh must contain all CDK wrapper pipeline functions."""
@@ -78,6 +84,7 @@ class TestDeployFunctions:
 # ---------------------------------------------------------------------------
 # CDK stack structure
 # ---------------------------------------------------------------------------
+
 
 class TestCDKStack:
     """CDK stack files must exist with correct structure."""
@@ -126,6 +133,7 @@ class TestCDKStack:
 # Web deploy integration
 # ---------------------------------------------------------------------------
 
+
 class TestWebDeployIntegration:
     """Web deploy must be integrated into the CDK pipeline."""
 
@@ -135,7 +143,7 @@ class TestWebDeployIntegration:
 
     def test_web_only_mode(self) -> None:
         text = _read(DEPLOY_SCRIPT)
-        assert 'web_only' in text or '"web"' in text
+        assert "web_only" in text or '"web"' in text
 
     def test_cdk_handles_s3_deployment(self) -> None:
         """CDK stack should handle S3 deployment (not raw aws s3 sync)."""
@@ -156,6 +164,7 @@ class TestWebDeployIntegration:
 # ---------------------------------------------------------------------------
 # Legacy migration
 # ---------------------------------------------------------------------------
+
 
 class TestLegacyMigration:
     """deploy.sh must handle migration from pre-CDK resources."""
@@ -186,6 +195,7 @@ class TestLegacyMigration:
 # CloudFront function
 # ---------------------------------------------------------------------------
 
+
 class TestCloudFrontFunction:
     """CloudFront function must route correctly."""
 
@@ -215,6 +225,7 @@ class TestCloudFrontFunction:
 # ---------------------------------------------------------------------------
 # Teardown (CDK-managed)
 # ---------------------------------------------------------------------------
+
 
 class TestTeardown:
     """Teardown must use cdk destroy and clean up remaining resources."""

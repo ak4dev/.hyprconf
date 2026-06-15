@@ -1,8 +1,8 @@
 """Tests for hyprconf.schema — option schema, validation, and serialisation."""
+
 from __future__ import annotations
 
 import pytest
-
 from hyprconf.schema import (
     OPTION_SCHEMA,
     SECTION_ORDER,
@@ -14,10 +14,10 @@ from hyprconf.schema import (
     validate_value,
 )
 
-
 # ---------------------------------------------------------------------------
 # OPTION_SCHEMA structure
 # ---------------------------------------------------------------------------
+
 
 def test_schema_not_empty() -> None:
     assert len(OPTION_SCHEMA) > 0
@@ -40,11 +40,8 @@ def test_schema_entry_is_triple() -> None:
 def test_schema_types_are_valid_strings() -> None:
     valid_base_types = {"int", "float", "bool", "str", "color", "gradient", "vec2"}
     for section, keys in OPTION_SCHEMA.items():
-        for key, (type_str, default, desc) in keys.items():
-            is_valid = (
-                type_str in valid_base_types
-                or type_str.startswith("enum:")
-            )
+        for key, (type_str, _default, _desc) in keys.items():
+            is_valid = type_str in valid_base_types or type_str.startswith("enum:")
             assert is_valid, f"Unknown type {type_str!r} in {section}.{key}"
 
 
@@ -58,6 +55,7 @@ def test_schema_subsection_dot_notation() -> None:
 # ---------------------------------------------------------------------------
 # get_section_keys
 # ---------------------------------------------------------------------------
+
 
 def test_get_section_keys_general() -> None:
     keys = get_section_keys("general")
@@ -77,6 +75,7 @@ def test_get_section_keys_returns_list() -> None:
 # ---------------------------------------------------------------------------
 # get_option_meta
 # ---------------------------------------------------------------------------
+
 
 def test_get_option_meta_known_key() -> None:
     meta = get_option_meta("general", "gaps_in")
@@ -105,6 +104,7 @@ def test_get_option_meta_subsection() -> None:
 # get_all_sections
 # ---------------------------------------------------------------------------
 
+
 def test_get_all_sections_returns_list() -> None:
     sections = get_all_sections()
     assert isinstance(sections, list)
@@ -118,6 +118,7 @@ def test_get_all_sections_matches_schema() -> None:
 # ---------------------------------------------------------------------------
 # validate_value — int
 # ---------------------------------------------------------------------------
+
 
 def test_validate_int_valid() -> None:
     ok, msg = validate_value("int", "42")
@@ -145,6 +146,7 @@ def test_validate_int_float_string() -> None:
 # validate_value — float
 # ---------------------------------------------------------------------------
 
+
 def test_validate_float_valid() -> None:
     ok, _ = validate_value("float", "1.5")
     assert ok is True
@@ -165,8 +167,10 @@ def test_validate_float_invalid() -> None:
 # validate_value — bool
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("v", ["true", "false", "yes", "no", "on", "off", "0", "1",
-                                "True", "FALSE"])
+
+@pytest.mark.parametrize(
+    "v", ["true", "false", "yes", "no", "on", "off", "0", "1", "True", "FALSE"]
+)
 def test_validate_bool_valid_values(v: str) -> None:
     ok, _ = validate_value("bool", v)
     assert ok is True
@@ -181,6 +185,7 @@ def test_validate_bool_invalid() -> None:
 # ---------------------------------------------------------------------------
 # validate_value — enum
 # ---------------------------------------------------------------------------
+
 
 def test_validate_enum_valid() -> None:
     ok, _ = validate_value("enum:dwindle,master,scrolling", "dwindle")
@@ -201,6 +206,7 @@ def test_validate_enum_case_sensitive() -> None:
 # ---------------------------------------------------------------------------
 # validate_value — color
 # ---------------------------------------------------------------------------
+
 
 def test_validate_color_hex_format() -> None:
     ok, _ = validate_value("color", "0xffaabbcc")
@@ -236,6 +242,7 @@ def test_validate_color_unset() -> None:
 # validate_value — gradient / vec2 / str (permissive)
 # ---------------------------------------------------------------------------
 
+
 def test_validate_gradient_accepts_anything() -> None:
     ok, _ = validate_value("gradient", "0xff000000 0xffffffff 45deg")
     assert ok is True
@@ -255,6 +262,7 @@ def test_validate_str_accepts_anything() -> None:
 # format_type_short
 # ---------------------------------------------------------------------------
 
+
 def test_format_type_short_enum() -> None:
     assert format_type_short("enum:a,b,c") == "enum"
 
@@ -271,6 +279,7 @@ def test_format_type_short_passthrough() -> None:
 # schema_to_dict
 # ---------------------------------------------------------------------------
 
+
 def test_schema_to_dict_has_sections() -> None:
     d = schema_to_dict()
     assert "sections" in d
@@ -279,9 +288,9 @@ def test_schema_to_dict_has_sections() -> None:
 
 def test_schema_to_dict_sections_structure() -> None:
     d = schema_to_dict()
-    for section, data in d["sections"].items():
+    for _section, data in d["sections"].items():
         assert "keys" in data
-        for key, meta in data["keys"].items():
+        for _key, meta in data["keys"].items():
             assert "type" in meta
             assert "default" in meta
             assert "description" in meta
@@ -289,6 +298,7 @@ def test_schema_to_dict_sections_structure() -> None:
 
 def test_schema_to_dict_json_serialisable() -> None:
     import json
+
     d = schema_to_dict()
     result = json.dumps(d)
     assert isinstance(result, str) and len(result) > 0
@@ -297,6 +307,7 @@ def test_schema_to_dict_json_serialisable() -> None:
 # ---------------------------------------------------------------------------
 # SECTION_ORDER
 # ---------------------------------------------------------------------------
+
 
 def test_section_order_is_list() -> None:
     assert isinstance(SECTION_ORDER, list)
@@ -316,12 +327,21 @@ def test_section_order_management_sections_before_separator() -> None:
     """Management sections (monitors, keybinds, …) must all appear before the '' separator."""
     separator_idx = SECTION_ORDER.index("")
     before_sep = SECTION_ORDER[:separator_idx]
-    for section in ("monitors", "keybinds", "window_rules", "workspace_rules",
-                    "hyprlock", "hypridle", "hyprpaper", "theme", "hardware"):
+    for section in (
+        "monitors",
+        "keybinds",
+        "window_rules",
+        "workspace_rules",
+        "hyprlock",
+        "hypridle",
+        "hyprpaper",
+        "theme",
+        "hardware",
+    ):
         assert section in before_sep, f"'{section}' should be before the separator"
 
 
 def test_section_order_general_after_separator() -> None:
     separator_idx = SECTION_ORDER.index("")
-    after_sep = SECTION_ORDER[separator_idx + 1:]
+    after_sep = SECTION_ORDER[separator_idx + 1 :]
     assert "general" in after_sep

@@ -22,11 +22,11 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from .config import OVERRIDES_FILE
-from .file_edit import strip_comment, SOURCE_RE, resolve_source_paths
-from .paths import CFG_HOME as _CFG_HOME, HYPRLAND_CONF as _HYPRLAND_CONF
+from .file_edit import SOURCE_RE, resolve_source_paths, strip_comment
+from .paths import CFG_HOME as _CFG_HOME
+from .paths import HYPRLAND_CONF as _HYPRLAND_CONF
 from .schema import get_option_meta
 
 # ── Candidate config paths ─────────────────────────────────────────────────────
@@ -41,10 +41,11 @@ _FIRST_RUN_MARKER: Path = _CFG_HOME / "hyprconf" / ".initialized"
 
 # ── Pre-compiled parsing regexes (used per-line in _parse_file) ────────────────
 _RE_BLOCK_OPEN = re.compile(r"^(\w[\w.]*)\s*\{$")
-_RE_KEY_VAL    = re.compile(r"^([\w.]+[\w])\s*=\s*(.+)$")
+_RE_KEY_VAL = re.compile(r"^([\w.]+[\w])\s*=\s*(.+)$")
 
 
 # ── Result types ───────────────────────────────────────────────────────────────
+
 
 @dataclass
 class ParsedOption:
@@ -57,7 +58,7 @@ class ParsedOption:
 
 @dataclass
 class DetectionResult:
-    found_config: Optional[Path]
+    found_config: Path | None
     parsed_options: list[ParsedOption] = field(default_factory=list)
     unknown_lines: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -73,12 +74,13 @@ class DetectionResult:
 
 # ── Detection ──────────────────────────────────────────────────────────────────
 
+
 def is_initialized() -> bool:
     """Return True if hyprconf has already been set up on this system."""
     return _FIRST_RUN_MARKER.exists() or OVERRIDES_FILE.exists()
 
 
-def find_config() -> Optional[Path]:
+def find_config() -> Path | None:
     """Locate the user's hyprland.conf."""
     for p in CANDIDATE_CONFIGS:
         if p.is_file():
@@ -171,12 +173,11 @@ def _parse_file(
                     )
                 )
             else:
-                result.unknown_lines.append(
-                    f"{path}:{lineno}: {section}.{key} = {value}"
-                )
+                result.unknown_lines.append(f"{path}:{lineno}: {section}.{key} = {value}")
 
 
 # ── Migration ──────────────────────────────────────────────────────────────────
+
 
 def migrate(result: DetectionResult) -> int:
     """Write detected options to the managed overrides file.
@@ -192,6 +193,7 @@ def migrate(result: DetectionResult) -> int:
         pending.setdefault(opt.section, {})[opt.key] = opt.value
 
     from .config import save_pending
+
     ok, n = save_pending(pending)
     if ok:
         _mark_initialized()
@@ -208,6 +210,7 @@ def _mark_initialized() -> None:
 
 
 # ── Entry point (called by CLI on first run) ───────────────────────────────────
+
 
 def first_run_check(interactive: bool = True) -> None:
     """Check whether this is a first run and offer to import the existing config.

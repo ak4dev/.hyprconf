@@ -7,6 +7,7 @@ Verifies:
 - Atomic write: uses cp+mv (not rm+cp), so monitors.conf is never absent
   during the switch (regression guard on source-level check + behaviour)
 """
+
 from __future__ import annotations
 
 import os
@@ -14,12 +15,8 @@ import stat
 import subprocess
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).parent.parent.parent
-SCRIPT = (
-    REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "scripts" / "switch_monitor.sh"
-)
+SCRIPT = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "scripts" / "switch_monitor.sh"
 
 
 def _make_fake_hyprctl(tmp: Path) -> None:
@@ -54,6 +51,7 @@ def _run_switch(tmp: Path, preset: str, config_dir: Path) -> subprocess.Complete
 # ---------------------------------------------------------------------------
 # Preset application
 # ---------------------------------------------------------------------------
+
 
 def test_valid_preset_writes_monitors_conf(tmp_path):
     """Applying a valid preset must write its content to monitors.conf."""
@@ -100,6 +98,7 @@ def test_no_preset_argument_exits_nonzero(tmp_path):
 # Atomic write regression
 # ---------------------------------------------------------------------------
 
+
 def test_atomic_write_uses_ln_sf_not_rm_cp() -> None:
     """Regression: switch_monitor.sh must use ln -sf (atomic symlink) not rm+cp.
 
@@ -109,7 +108,9 @@ def test_atomic_write_uses_ln_sf_not_rm_cp() -> None:
     """
     src = SCRIPT.read_text()
     # Must use ln -sf for atomic symlink replacement
-    assert "ln -sf" in src, "switch_monitor.sh must use 'ln -sf' for atomic monitors.conf replacement"
+    assert "ln -sf" in src, (
+        "switch_monitor.sh must use 'ln -sf' for atomic monitors.conf replacement"
+    )
     # Must NOT use the old non-atomic rm+cp pattern
     assert not ("rm -f" in src and "cp " in src and "mv " not in src), (
         "switch_monitor.sh uses rm+cp (non-atomic); must use ln -sf"

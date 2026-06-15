@@ -1,4 +1,5 @@
 """Tests for hyprconf.autodetect — first-run config detection and migration."""
+
 from __future__ import annotations
 
 import sys
@@ -13,14 +14,14 @@ if str(LIB_DIR) not in sys.path:
 
 import hyprconf.autodetect as _auto
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _setup_auto(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Patch module-level path constants to safe temp locations."""
-    marker   = tmp_path / "hyprconf" / ".initialized"
+    marker = tmp_path / "hyprconf" / ".initialized"
     overrides = tmp_path / "hypr" / "conf.d" / "99-hyprconf-local.conf"
     (tmp_path / "hypr" / "conf.d").mkdir(parents=True)
     monkeypatch.setattr(_auto, "_FIRST_RUN_MARKER", marker)
@@ -43,6 +44,7 @@ decoration {
 # is_initialized
 # ---------------------------------------------------------------------------
 
+
 def test_is_initialized_false_when_nothing_exists(tmp_path, monkeypatch):
     _setup_auto(tmp_path, monkeypatch)
     assert _auto.is_initialized() is False
@@ -64,6 +66,7 @@ def test_is_initialized_true_when_overrides_exists(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # find_config
 # ---------------------------------------------------------------------------
+
 
 def test_find_config_returns_none_when_none_exist(tmp_path, monkeypatch):
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [tmp_path / "nope.conf"])
@@ -88,6 +91,7 @@ def test_find_config_skips_nonexistent_first_candidate(tmp_path, monkeypatch):
 # detect_and_parse — no config
 # ---------------------------------------------------------------------------
 
+
 def test_detect_and_parse_no_config(tmp_path, monkeypatch):
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [tmp_path / "nope.conf"])
     result = _auto.detect_and_parse()
@@ -99,6 +103,7 @@ def test_detect_and_parse_no_config(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # detect_and_parse — simple config parsing
 # ---------------------------------------------------------------------------
+
 
 def test_detect_and_parse_finds_known_options(tmp_path, monkeypatch):
     cfg = tmp_path / "hyprland.conf"
@@ -148,12 +153,7 @@ def test_detect_and_parse_three_level_nesting(tmp_path, monkeypatch):
     """Regression: 3-level nesting must produce 'group.groupbar', not 'group.group.groupbar'."""
     cfg = tmp_path / "hyprland.conf"
     cfg.write_text(
-        "group {\n"
-        "    groupbar {\n"
-        "        enabled = true\n"
-        "        font_size = 10\n"
-        "    }\n"
-        "}\n"
+        "group {\n    groupbar {\n        enabled = true\n        font_size = 10\n    }\n}\n"
     )
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
     result = _auto.detect_and_parse()
@@ -205,6 +205,7 @@ def test_detect_and_parse_resolves_relative_source(tmp_path, monkeypatch):
 # DetectionResult properties
 # ---------------------------------------------------------------------------
 
+
 def test_option_count_matches_list(tmp_path, monkeypatch):
     cfg = tmp_path / "hyprland.conf"
     cfg.write_text(SIMPLE_CONF)
@@ -225,6 +226,7 @@ def test_warning_count_matches_list(tmp_path, monkeypatch):
 # migrate
 # ---------------------------------------------------------------------------
 
+
 def test_migrate_returns_zero_for_empty_result(tmp_path, monkeypatch):
     _setup_auto(tmp_path, monkeypatch)
     result = _auto.DetectionResult(found_config=None)
@@ -234,14 +236,18 @@ def test_migrate_returns_zero_for_empty_result(tmp_path, monkeypatch):
 def test_migrate_writes_options(tmp_path, monkeypatch):
     marker, overrides = _setup_auto(tmp_path, monkeypatch)
     import hyprconf.config as _config_mod
+
     monkeypatch.setattr(_config_mod, "OVERRIDES_FILE", overrides)
     monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE", tmp_path / "nope.conf")
 
     result = _auto.DetectionResult(found_config=tmp_path / "hyprland.conf")
     result.parsed_options.append(
         _auto.ParsedOption(
-            section="general", key="gaps_in", value="5",
-            source_file=tmp_path / "hyprland.conf", source_line=1,
+            section="general",
+            key="gaps_in",
+            value="5",
+            source_file=tmp_path / "hyprland.conf",
+            source_line=1,
         )
     )
     n = _auto.migrate(result)
@@ -251,6 +257,7 @@ def test_migrate_writes_options(tmp_path, monkeypatch):
 def test_migrate_marks_initialized(tmp_path, monkeypatch):
     marker, overrides = _setup_auto(tmp_path, monkeypatch)
     import hyprconf.config as _config_mod
+
     monkeypatch.setattr(_config_mod, "OVERRIDES_FILE", overrides)
     monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE", tmp_path / "nope.conf")
 
@@ -266,6 +273,7 @@ def test_migrate_marks_initialized(tmp_path, monkeypatch):
 # _mark_initialized
 # ---------------------------------------------------------------------------
 
+
 def test_mark_initialized_creates_nested_file(tmp_path, monkeypatch):
     marker = tmp_path / "a" / "b" / "c" / ".initialized"
     monkeypatch.setattr(_auto, "_FIRST_RUN_MARKER", marker)
@@ -276,6 +284,7 @@ def test_mark_initialized_creates_nested_file(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # first_run_check
 # ---------------------------------------------------------------------------
+
 
 def test_first_run_check_exits_early_when_initialized(tmp_path, monkeypatch, capsys):
     _, overrides = _setup_auto(tmp_path, monkeypatch)
@@ -308,11 +317,11 @@ def test_first_run_check_interactive_yes_imports_options(tmp_path, monkeypatch):
     cfg.write_text(SIMPLE_CONF)
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
     import hyprconf.config as _config_mod
+
     monkeypatch.setattr(_config_mod, "OVERRIDES_FILE", overrides)
     monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE", tmp_path / "nope.conf")
 
-    with patch("sys.stdin.isatty", return_value=True), \
-         patch("builtins.input", return_value="y"):
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="y"):
         _auto.first_run_check(interactive=True)
 
     assert overrides.exists()
@@ -324,8 +333,7 @@ def test_first_run_check_interactive_no_marks_initialized(tmp_path, monkeypatch)
     cfg.write_text("")
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
 
-    with patch("sys.stdin.isatty", return_value=True), \
-         patch("builtins.input", return_value="n"):
+    with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", return_value="n"):
         _auto.first_run_check(interactive=True)
 
     assert marker.exists()
@@ -349,10 +357,12 @@ def test_first_run_check_non_tty_stdin_skips_prompt(tmp_path, monkeypatch, capsy
 # _mark_initialized OSError is silently ignored (covers L204-205)
 # ---------------------------------------------------------------------------
 
+
 def test_mark_initialized_oserror_is_ignored(tmp_path, monkeypatch):
     """_mark_initialized must silently swallow an OSError on touch."""
     _setup_auto(tmp_path, monkeypatch)
     from unittest.mock import MagicMock
+
     mock_marker = MagicMock()
     mock_marker.parent.mkdir = MagicMock()
     mock_marker.touch.side_effect = OSError("no space left")
@@ -364,6 +374,7 @@ def test_mark_initialized_oserror_is_ignored(tmp_path, monkeypatch):
 # first_run_check with warnings after import (covers L241)
 # ---------------------------------------------------------------------------
 
+
 def test_first_run_check_prints_warning_when_parse_has_warnings(tmp_path, monkeypatch, capsys):
     """If detect_and_parse produces warnings, first_run_check prints them."""
     _setup_auto(tmp_path, monkeypatch)
@@ -372,15 +383,19 @@ def test_first_run_check_prints_warning_when_parse_has_warnings(tmp_path, monkey
     monkeypatch.setattr(_auto, "CANDIDATE_CONFIGS", [cfg])
 
     from hyprconf.autodetect import DetectionResult
+
     fake_result = DetectionResult(found_config=cfg)
     fake_result.warnings = ["Cannot read foo.conf: Permission denied"]
     fake_result.parsed_options = []
 
     from unittest.mock import patch
-    with patch.object(_auto, "detect_and_parse", return_value=fake_result), \
-         patch.object(_auto, "migrate", return_value=0), \
-         patch("sys.stdin.isatty", return_value=True), \
-         patch("builtins.input", return_value="y"):
+
+    with (
+        patch.object(_auto, "detect_and_parse", return_value=fake_result),
+        patch.object(_auto, "migrate", return_value=0),
+        patch("sys.stdin.isatty", return_value=True),
+        patch("builtins.input", return_value="y"),
+    ):
         _auto.first_run_check(interactive=True)
 
     out = capsys.readouterr().out

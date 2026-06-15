@@ -1,9 +1,8 @@
 """Tests for hyprconf.config — the overrides file reader and writer."""
+
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
 
 from hyprconf.config import (
     MANAGED_MARKER,
@@ -15,10 +14,10 @@ from hyprconf.config import (
     upsert_option,
 )
 
-
 # ---------------------------------------------------------------------------
 # section_key_to_hyprctl
 # ---------------------------------------------------------------------------
+
 
 def test_simple_section_key(hypr_dir: Path) -> None:
     assert section_key_to_hyprctl("general", "gaps_in") == "general:gaps_in"
@@ -29,12 +28,16 @@ def test_dotted_section_key(hypr_dir: Path) -> None:
 
 
 def test_deeply_nested_key(hypr_dir: Path) -> None:
-    assert section_key_to_hyprctl("input.touchpad", "natural_scroll") == "input:touchpad:natural_scroll"
+    assert (
+        section_key_to_hyprctl("input.touchpad", "natural_scroll")
+        == "input:touchpad:natural_scroll"
+    )
 
 
 # ---------------------------------------------------------------------------
 # read_persisted — file absent
 # ---------------------------------------------------------------------------
+
 
 def test_read_persisted_missing_file(hypr_dir: Path) -> None:
     assert read_persisted("general", "gaps_in") is None
@@ -43,6 +46,7 @@ def test_read_persisted_missing_file(hypr_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 # upsert_option + read_persisted round-trip
 # ---------------------------------------------------------------------------
+
 
 def test_upsert_and_read_int(hypr_dir: Path) -> None:
     assert upsert_option("general", "gaps_in", "12") is True
@@ -76,20 +80,24 @@ def test_read_absent_key_returns_none(hypr_dir: Path) -> None:
 # save_pending
 # ---------------------------------------------------------------------------
 
+
 def test_save_pending_writes_marker(hypr_dir: Path) -> None:
     ok, count = save_pending({"general": {"gaps_in": "8"}})
     assert ok is True
     assert count >= 1
     import hyprconf.config as cfg
+
     text = cfg.OVERRIDES_FILE.read_text()
     assert MANAGED_MARKER in text
 
 
 def test_save_pending_multiple_sections(hypr_dir: Path) -> None:
-    ok, _ = save_pending({
-        "general": {"gaps_in": "8", "border_size": "2"},
-        "decoration.blur": {"enabled": "true"},
-    })
+    ok, _ = save_pending(
+        {
+            "general": {"gaps_in": "8", "border_size": "2"},
+            "decoration.blur": {"enabled": "true"},
+        }
+    )
     assert ok is True
     assert read_persisted("general", "gaps_in") == "8"
     assert read_persisted("decoration.blur", "enabled") == "true"
@@ -97,6 +105,7 @@ def test_save_pending_multiple_sections(hypr_dir: Path) -> None:
 
 def test_save_pending_preserves_user_zone(hypr_dir: Path) -> None:
     import hyprconf.config as cfg
+
     cfg.OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
     cfg.OVERRIDES_FILE.write_text("# My custom config\nbind = SUPER, T, exec, kitty\n")
     save_pending({"general": {"gaps_in": "5"}})
@@ -117,6 +126,7 @@ def test_save_pending_idempotent(hypr_dir: Path) -> None:
 def test_save_pending_sorted_keys(hypr_dir: Path) -> None:
     save_pending({"z_section": {"z_key": "1"}, "a_section": {"a_key": "2"}})
     import hyprconf.config as cfg
+
     lines = cfg.OVERRIDES_FILE.read_text().splitlines()
     managed_lines = [l for l in lines if "=" in l and not l.startswith("#")]
     keys = [l.split("=")[0].strip() for l in managed_lines]
@@ -127,15 +137,18 @@ def test_save_pending_sorted_keys(hypr_dir: Path) -> None:
 # read_all_persisted
 # ---------------------------------------------------------------------------
 
+
 def test_read_all_persisted_empty(hypr_dir: Path) -> None:
     assert read_all_persisted() == {}
 
 
 def test_read_all_persisted_multiple(hypr_dir: Path) -> None:
-    save_pending({
-        "general": {"gaps_in": "8"},
-        "decoration.blur": {"enabled": "false"},
-    })
+    save_pending(
+        {
+            "general": {"gaps_in": "8"},
+            "decoration.blur": {"enabled": "false"},
+        }
+    )
     result = read_all_persisted()
     assert result.get("general:gaps_in") == "8"
     assert result.get("decoration:blur:enabled") == "false"
@@ -145,8 +158,10 @@ def test_read_all_persisted_multiple(hypr_dir: Path) -> None:
 # Legacy migration
 # ---------------------------------------------------------------------------
 
+
 def test_migrate_legacy_copies_file(hypr_dir: Path) -> None:
     import hyprconf.config as cfg
+
     legacy = cfg.LEGACY_OVERRIDES_FILE
     legacy.parent.mkdir(parents=True, exist_ok=True)
     legacy.write_text(f"{MANAGED_MARKER}\ngeneral:gaps_in = 5\n")
@@ -157,6 +172,7 @@ def test_migrate_legacy_copies_file(hypr_dir: Path) -> None:
 
 def test_migrate_legacy_no_op_if_new_exists(hypr_dir: Path) -> None:
     import hyprconf.config as cfg
+
     cfg.LEGACY_OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
     cfg.LEGACY_OVERRIDES_FILE.write_text("old content\n")
     cfg.OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -169,8 +185,10 @@ def test_migrate_legacy_no_op_if_new_exists(hypr_dir: Path) -> None:
 # save_pending — legacy marker stripping (covers L116)
 # ---------------------------------------------------------------------------
 
+
 def test_save_pending_strips_legacy_marker(hypr_dir: Path) -> None:
-    from hyprconf.config import save_pending, read_all_persisted, OVERRIDES_FILE, MANAGED_MARKER
+    from hyprconf.config import MANAGED_MARKER, OVERRIDES_FILE, save_pending
+
     OVERRIDES_FILE.write_text("# hyprconf-tui managed\ngeneral:gaps_in = 3\n")
     ok, n = save_pending({"general": {"border_size": "2"}})
     assert ok is True
@@ -183,9 +201,12 @@ def test_save_pending_strips_legacy_marker(hypr_dir: Path) -> None:
 # save_pending — OSError path (covers L137-138)
 # ---------------------------------------------------------------------------
 
+
 def test_save_pending_returns_false_on_oserror(hypr_dir: Path) -> None:
     import unittest.mock as _mock
+
     from hyprconf.config import save_pending
+
     with _mock.patch("hyprconf.config.atomic_write_text", side_effect=OSError("disk full")):
         ok, n = save_pending({"general": {"gaps_in": "5"}})
     assert ok is False

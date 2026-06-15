@@ -1,4 +1,5 @@
 """Gap coverage tests for hyprconf.hyprctl — IPC wrapper."""
+
 from __future__ import annotations
 
 import json
@@ -6,8 +7,6 @@ import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 LIB_DIR = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "lib"
 if str(LIB_DIR) not in sys.path:
@@ -33,6 +32,7 @@ def _option_json(**fields) -> str:
 # ---------------------------------------------------------------------------
 # _run — exception paths
 # ---------------------------------------------------------------------------
+
 
 def test_run_returns_none_on_timeout(monkeypatch):
     monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
@@ -66,6 +66,7 @@ def test_run_returns_none_on_nonzero_exit(monkeypatch):
 # get_option — value type paths
 # ---------------------------------------------------------------------------
 
+
 def test_get_option_returns_str_field(monkeypatch):
     monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
     payload = _option_json(str="some-string-value", int=0, float=0.0)
@@ -77,7 +78,7 @@ def test_get_option_returns_str_field(monkeypatch):
 def test_get_option_returns_color_as_hex(monkeypatch):
     monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
     # col = 0xff00ff00 (green)
-    payload = _option_json(col=0xff00ff00, str="", int=0, float=0.0)
+    payload = _option_json(col=0xFF00FF00, str="", int=0, float=0.0)
     with patch("subprocess.run", return_value=_mock_run(0, payload)):
         result = hyprctl.get_option("general", "col.active_border")
     assert result is not None
@@ -119,6 +120,7 @@ def test_get_option_returns_none_when_run_fails(monkeypatch):
 # set_option
 # ---------------------------------------------------------------------------
 
+
 def test_set_option_returns_false_when_inactive(monkeypatch):
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
     assert hyprctl.set_option("general", "gaps_in", "5") is False
@@ -133,6 +135,7 @@ def test_set_option_returns_true_on_success(monkeypatch):
 # ---------------------------------------------------------------------------
 # get_monitors
 # ---------------------------------------------------------------------------
+
 
 def test_get_monitors_returns_empty_when_no_hyprland(monkeypatch):
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
@@ -161,6 +164,7 @@ def test_get_monitors_returns_parsed_list(monkeypatch):
 # set_monitor
 # ---------------------------------------------------------------------------
 
+
 def test_set_monitor_returns_false_when_inactive(monkeypatch):
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
     assert hyprctl.set_monitor("HDMI-A-1,1920x1080@60,0x0,1") is False
@@ -176,6 +180,7 @@ def test_set_monitor_returns_true_on_success(monkeypatch):
 # reload
 # ---------------------------------------------------------------------------
 
+
 def test_reload_returns_false_when_inactive(monkeypatch):
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
     assert hyprctl.reload() is False
@@ -190,6 +195,7 @@ def test_reload_returns_true_when_active(monkeypatch):
 # ---------------------------------------------------------------------------
 # dispatch
 # ---------------------------------------------------------------------------
+
 
 def test_dispatch_returns_false_when_inactive(monkeypatch):
     monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)

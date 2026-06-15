@@ -11,39 +11,50 @@ file untouched while still allowing addition and deletion.
 Deletion of rules that exist in the original config files is performed
 in-place on the file that owns the rule line.
 """
+
 from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
-from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment, SOURCE_RE, resolve_source_paths
+from .file_edit import (
+    SOURCE_RE,
+    append_block,
+    delete_line,
+    read_lines,
+    resolve_source_paths,
+    strip_comment,
+    update_line,
+)
 from .paths import HYPRLAND_CONF, WINRULES_FILE, WKSPRULES_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Data types
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 class RuleEntry(NamedTuple):
-    rule:      str     # full rule text, e.g. "windowrulev2 = float, class:Alacritty"
-    file_path: Path    # source file
-    line_idx:  int     # 0-based index in file_path
+    rule: str  # full rule text, e.g. "windowrulev2 = float, class:Alacritty"
+    file_path: Path  # source file
+    line_idx: int  # 0-based index in file_path
 
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Patterns
 # ─────────────────────────────────────────────────────────────────────────────
 
-_WIN_RULE_RE  = re.compile(r"^(windowrulev2|windowrule)\s*=", re.IGNORECASE)
+_WIN_RULE_RE = re.compile(r"^(windowrulev2|windowrule)\s*=", re.IGNORECASE)
 _WKSP_RULE_RE = re.compile(r"^workspace\s*=", re.IGNORECASE)
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Parsing — follows source directives recursively
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 def _collect_rules(root: Path, pattern: re.Pattern) -> list[RuleEntry]:
     entries: list[RuleEntry] = []
-    seen:    set[Path]        = set()
+    seen: set[Path] = set()
 
     def _parse(p: Path) -> None:
         if p in seen or not p.exists():
@@ -67,14 +78,14 @@ def _collect_rules(root: Path, pattern: re.Pattern) -> list[RuleEntry]:
 
 
 def read_window_rules_with_location(
-    root: Optional[Path] = None,
+    root: Path | None = None,
 ) -> list[RuleEntry]:
     """Return all window rules (windowrule / windowrulev2) with file+line."""
     return _collect_rules(root or HYPRLAND_CONF, _WIN_RULE_RE)
 
 
 def read_workspace_rules_with_location(
-    root: Optional[Path] = None,
+    root: Path | None = None,
 ) -> list[RuleEntry]:
     """Return all workspace rules with file+line."""
     return _collect_rules(root or HYPRLAND_CONF, _WKSP_RULE_RE)
@@ -84,8 +95,8 @@ def read_workspace_rules_with_location(
 #  Writers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def add_window_rule(rule: str, filters: list[str],
-                    file: Optional[Path] = None) -> bool:
+
+def add_window_rule(rule: str, filters: list[str], file: Path | None = None) -> bool:
     """Append ``windowrulev2 = RULE, FILTER...`` to *file*.
 
     *rule* is the action, e.g. ``"float"``.
@@ -95,13 +106,15 @@ def add_window_rule(rule: str, filters: list[str],
     if file is None:
         file = WINRULES_FILE
     filter_str = ", ".join(f.strip() for f in filters if f.strip())
-    line = f"windowrulev2 = {rule.strip()}, {filter_str}" if filter_str \
+    line = (
+        f"windowrulev2 = {rule.strip()}, {filter_str}"
+        if filter_str
         else f"windowrulev2 = {rule.strip()}"
+    )
     return append_block(file, line)
 
 
-def add_workspace_rule(workspace_id: str, options: str,
-                       file: Optional[Path] = None) -> bool:
+def add_workspace_rule(workspace_id: str, options: str, file: Path | None = None) -> bool:
     """Append ``workspace = ID, OPTIONS`` to *file*.
 
     *workspace_id*: e.g. ``"1"`` or ``"special:magic"``.
@@ -111,8 +124,11 @@ def add_workspace_rule(workspace_id: str, options: str,
     if file is None:
         file = WKSPRULES_FILE
     options = options.strip()
-    line = f"workspace = {workspace_id.strip()}, {options}" if options \
+    line = (
+        f"workspace = {workspace_id.strip()}, {options}"
+        if options
         else f"workspace = {workspace_id.strip()}"
+    )
     return append_block(file, line)
 
 
@@ -121,21 +137,25 @@ def delete_rule(file_path: Path, line_idx: int) -> bool:
     return delete_line(file_path, line_idx)
 
 
-def update_window_rule(file_path: Path, line_idx: int,
-                       rule: str, filters: list[str]) -> bool:
+def update_window_rule(file_path: Path, line_idx: int, rule: str, filters: list[str]) -> bool:
     """Replace the window rule at *line_idx* in *file_path*."""
     filter_str = ", ".join(f.strip() for f in filters if f.strip())
-    line = f"windowrulev2 = {rule.strip()}, {filter_str}" if filter_str \
+    line = (
+        f"windowrulev2 = {rule.strip()}, {filter_str}"
+        if filter_str
         else f"windowrulev2 = {rule.strip()}"
+    )
     return update_line(file_path, line_idx, line)
 
 
-def update_workspace_rule(file_path: Path, line_idx: int,
-                          workspace_id: str, options: str) -> bool:
+def update_workspace_rule(file_path: Path, line_idx: int, workspace_id: str, options: str) -> bool:
     """Replace the workspace rule at *line_idx* in *file_path*."""
     options = options.strip()
-    line = f"workspace = {workspace_id.strip()}, {options}" if options \
+    line = (
+        f"workspace = {workspace_id.strip()}, {options}"
+        if options
         else f"workspace = {workspace_id.strip()}"
+    )
     return update_line(file_path, line_idx, line)
 
 
@@ -143,9 +163,10 @@ def update_workspace_rule(file_path: Path, line_idx: int,
 #  Convenience: simple list (no location, for read-only display)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def read_window_rules(root: Optional[Path] = None) -> list[str]:
+
+def read_window_rules(root: Path | None = None) -> list[str]:
     return [e.rule for e in read_window_rules_with_location(root)]
 
 
-def read_workspace_rules(root: Optional[Path] = None) -> list[str]:
+def read_workspace_rules(root: Path | None = None) -> list[str]:
     return [e.rule for e in read_workspace_rules_with_location(root)]

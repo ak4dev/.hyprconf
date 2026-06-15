@@ -5,6 +5,7 @@ nightlight, colorpicker, record, theme generate.
 Validates that each command function exists in the hyprconf binary,
 has correct dispatcher entries, and appears in help text.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,6 +21,7 @@ def _bin_text() -> str:
 # ---------------------------------------------------------------------------
 # 1. cmd_doctor
 # ---------------------------------------------------------------------------
+
 
 class TestCmdDoctor:
     """Verify hyprconf doctor command structure."""
@@ -67,7 +69,7 @@ class TestCmdDoctor:
         """cmd_doctor must return 1 when errors are found."""
         text = _bin_text()
         idx = text.index("cmd_doctor()")
-        body = text[idx:idx + 800]
+        body = text[idx : idx + 800]
         assert "return 1" in body
 
     def test_checks_nm_wifi_backend(self) -> None:
@@ -80,6 +82,7 @@ class TestCmdDoctor:
 # 2. cmd_clipboard
 # ---------------------------------------------------------------------------
 
+
 class TestCmdClipboard:
     """Verify hyprconf clipboard command."""
 
@@ -88,8 +91,7 @@ class TestCmdClipboard:
 
     def test_dispatcher_entry(self) -> None:
         text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "clipboard" in l and "cmd_clipboard" in l]
+        lines = [l.strip() for l in text.splitlines() if "clipboard" in l and "cmd_clipboard" in l]
         assert lines, "clipboard must have a dispatcher entry"
 
     def test_clip_alias(self) -> None:
@@ -101,25 +103,25 @@ class TestCmdClipboard:
     def test_supports_fzf_mode(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_clipboard()")
-        body = text[idx:idx + 500]
+        body = text[idx : idx + 500]
         assert "fzf" in body
 
     def test_supports_rofi_mode(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_clipboard()")
-        body = text[idx:idx + 500]
+        body = text[idx : idx + 500]
         assert "rofi" in body
 
     def test_supports_wipe(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_clipboard()")
-        body = text[idx:idx + 500]
+        body = text[idx : idx + 500]
         assert "wipe" in body
 
     def test_uses_cliphist(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_clipboard()")
-        body = text[idx:idx + 500]
+        body = text[idx : idx + 500]
         assert "cliphist" in body
 
     def test_help_text(self) -> None:
@@ -130,6 +132,7 @@ class TestCmdClipboard:
 # 3. cmd_screenshot
 # ---------------------------------------------------------------------------
 
+
 class TestCmdScreenshot:
     """Verify hyprconf screenshot command."""
 
@@ -138,8 +141,9 @@ class TestCmdScreenshot:
 
     def test_dispatcher_entry(self) -> None:
         text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "screenshot" in l and "cmd_screenshot" in l]
+        lines = [
+            l.strip() for l in text.splitlines() if "screenshot" in l and "cmd_screenshot" in l
+        ]
         assert lines
 
     def test_ss_alias(self) -> None:
@@ -151,31 +155,31 @@ class TestCmdScreenshot:
     def test_region_mode(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_screenshot()")
-        body = text[idx:idx + 600]
+        body = text[idx : idx + 600]
         assert "region" in body
 
     def test_window_mode(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_screenshot()")
-        body = text[idx:idx + 600]
+        body = text[idx : idx + 600]
         assert "window" in body
 
     def test_full_mode(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_screenshot()")
-        body = text[idx:idx + 600]
+        body = text[idx : idx + 600]
         assert "full" in body
 
     def test_edit_mode_with_swappy(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_screenshot()")
-        body = text[idx:idx + 800]
+        body = text[idx : idx + 800]
         assert "swappy" in body
 
     def test_uses_hyprshot(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_screenshot()")
-        body = text[idx:idx + 600]
+        body = text[idx : idx + 600]
         assert "hyprshot" in body
 
     def test_help_text(self) -> None:
@@ -186,6 +190,7 @@ class TestCmdScreenshot:
 # 4. cmd_gamemode
 # ---------------------------------------------------------------------------
 
+
 class TestCmdGamemode:
     """Verify hyprconf gamemode command."""
 
@@ -194,8 +199,7 @@ class TestCmdGamemode:
 
     def test_dispatcher_entry(self) -> None:
         text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "gamemode" in l and "cmd_gamemode" in l]
+        lines = [l.strip() for l in text.splitlines() if "gamemode" in l and "cmd_gamemode" in l]
         assert lines
 
     def test_game_alias(self) -> None:
@@ -207,7 +211,7 @@ class TestCmdGamemode:
     def test_on_off_toggle(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_gamemode()")
-        body = text[idx:idx + 300]
+        body = text[idx : idx + 300]
         assert "on" in body
         assert "off" in body
         assert "toggle" in body
@@ -215,7 +219,7 @@ class TestCmdGamemode:
     def test_status_subcommand(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_gamemode()")
-        body = text[idx:idx + 500]
+        body = text[idx : idx + 500]
         assert "status" in body
 
     def test_disables_animations(self) -> None:
@@ -235,7 +239,7 @@ class TestCmdGamemode:
         text = _bin_text()
         # Find _gamemode_off function
         idx = text.index("_gamemode_off()")
-        body = text[idx:idx + 300]
+        body = text[idx : idx + 300]
         assert "hyprctl reload" in body
 
     def test_state_file(self) -> None:
@@ -251,6 +255,7 @@ class TestCmdGamemode:
 # 5. cmd_power
 # ---------------------------------------------------------------------------
 
+
 class TestCmdPower:
     """Verify hyprconf power command."""
 
@@ -259,45 +264,44 @@ class TestCmdPower:
 
     def test_dispatcher_entry(self) -> None:
         text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "power)" in l and "cmd_power" in l]
+        lines = [l.strip() for l in text.splitlines() if "power)" in l and "cmd_power" in l]
         assert lines
 
     def test_lock_action(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power()")
-        body = text[idx:idx + 1000]
+        body = text[idx : idx + 1000]
         assert "hyprlock" in body
 
     def test_logout_action(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power()")
-        body = text[idx:idx + 1000]
+        body = text[idx : idx + 1000]
         assert "dispatch exit" in body
 
     def test_suspend_action(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power()")
-        body = text[idx:idx + 1000]
+        body = text[idx : idx + 1000]
         assert "systemctl suspend" in body
 
     def test_reboot_action(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power()")
-        body = text[idx:idx + 1000]
+        body = text[idx : idx + 1000]
         assert "systemctl reboot" in body
 
     def test_shutdown_action(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_power()")
-        body = text[idx:idx + 1000]
+        body = text[idx : idx + 1000]
         assert "systemctl poweroff" in body
 
     def test_interactive_menu(self) -> None:
         """Power with no args must show interactive picker."""
         text = _bin_text()
         idx = text.index("cmd_power()")
-        body = text[idx:idx + 1000]
+        body = text[idx : idx + 1000]
         assert "fzf" in body or "read -r" in body
 
     def test_help_text(self) -> None:
@@ -308,6 +312,7 @@ class TestCmdPower:
 # 6. cmd_nightlight
 # ---------------------------------------------------------------------------
 
+
 class TestCmdNightlight:
     """Verify hyprconf nightlight command."""
 
@@ -316,8 +321,9 @@ class TestCmdNightlight:
 
     def test_dispatcher_entry(self) -> None:
         text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "nightlight" in l and "cmd_nightlight" in l]
+        lines = [
+            l.strip() for l in text.splitlines() if "nightlight" in l and "cmd_nightlight" in l
+        ]
         assert lines
 
     def test_night_alias(self) -> None:
@@ -328,7 +334,7 @@ class TestCmdNightlight:
     def test_on_off_toggle(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_nightlight()")
-        body = text[idx:idx + 400]
+        body = text[idx : idx + 400]
         assert "on)" in body or "on\n" in body
         assert "off)" in body
         assert "toggle)" in body
@@ -336,7 +342,7 @@ class TestCmdNightlight:
     def test_status_subcommand(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_nightlight()")
-        body = text[idx:idx + 500]
+        body = text[idx : idx + 500]
         assert "status" in body
 
     def test_uses_hyprsunset(self) -> None:
@@ -357,6 +363,7 @@ class TestCmdNightlight:
 # 7. cmd_colorpicker
 # ---------------------------------------------------------------------------
 
+
 class TestCmdColorpicker:
     """Verify hyprconf colorpicker command."""
 
@@ -365,32 +372,32 @@ class TestCmdColorpicker:
 
     def test_dispatcher_entry(self) -> None:
         text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "colorpicker" in l and "cmd_colorpicker" in l]
+        lines = [
+            l.strip() for l in text.splitlines() if "colorpicker" in l and "cmd_colorpicker" in l
+        ]
         assert lines
 
     def test_color_alias(self) -> None:
         text = _bin_text()
-        lines = [l for l in text.splitlines()
-                 if "color)" in l and "cmd_colorpicker" in l]
+        lines = [l for l in text.splitlines() if "color)" in l and "cmd_colorpicker" in l]
         assert lines, "'color' alias must dispatch to cmd_colorpicker"
 
     def test_hex_mode(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_colorpicker()")
-        body = text[idx:idx + 400]
+        body = text[idx : idx + 400]
         assert "hex" in body
 
     def test_rgb_mode(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_colorpicker()")
-        body = text[idx:idx + 400]
+        body = text[idx : idx + 400]
         assert "rgb" in body
 
     def test_uses_hyprpicker(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_colorpicker()")
-        body = text[idx:idx + 400]
+        body = text[idx : idx + 400]
         assert "hyprpicker" in body
 
     def test_help_text(self) -> None:
@@ -401,6 +408,7 @@ class TestCmdColorpicker:
 # 8. cmd_record
 # ---------------------------------------------------------------------------
 
+
 class TestCmdRecord:
     """Verify hyprconf record command."""
 
@@ -409,8 +417,7 @@ class TestCmdRecord:
 
     def test_dispatcher_entry(self) -> None:
         text = _bin_text()
-        lines = [l.strip() for l in text.splitlines()
-                 if "record" in l and "cmd_record" in l]
+        lines = [l.strip() for l in text.splitlines() if "record" in l and "cmd_record" in l]
         assert lines
 
     def test_rec_alias(self) -> None:
@@ -421,7 +428,7 @@ class TestCmdRecord:
     def test_start_stop_toggle(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_record()")
-        body = text[idx:idx + 400]
+        body = text[idx : idx + 400]
         assert "start" in body
         assert "stop" in body
         assert "toggle" in body
@@ -429,7 +436,7 @@ class TestCmdRecord:
     def test_status_subcommand(self) -> None:
         text = _bin_text()
         idx = text.index("cmd_record()")
-        body = text[idx:idx + 500]
+        body = text[idx : idx + 500]
         assert "status" in body
 
     def test_pid_tracking(self) -> None:
@@ -449,6 +456,7 @@ class TestCmdRecord:
 # 9. theme generate
 # ---------------------------------------------------------------------------
 
+
 class TestThemeGenerate:
     """Verify hyprconf theme generate command."""
 
@@ -456,7 +464,7 @@ class TestThemeGenerate:
         """cmd_theme must dispatch 'generate' subcommand."""
         text = _bin_text()
         idx = text.index("cmd_theme()")
-        body = text[idx:idx + 800]
+        body = text[idx : idx + 800]
         assert "generate)" in body
         assert "--generate" in body
 
@@ -466,8 +474,14 @@ class TestThemeGenerate:
     def test_generate_function_in_switch_theme(self) -> None:
         """switch_theme.py must have generate_theme_from_wallpaper()."""
         theme_script = (
-            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
-            / "scripts" / "theme-switcher" / "switch_theme.py"
+            REPO_ROOT
+            / "stow"
+            / "hypr"
+            / ".config"
+            / "hypr"
+            / "scripts"
+            / "theme-switcher"
+            / "switch_theme.py"
         )
         text = theme_script.read_text()
         assert "def generate_theme_from_wallpaper" in text
@@ -475,8 +489,14 @@ class TestThemeGenerate:
     def test_generate_flag_in_argparse(self) -> None:
         """switch_theme.py must accept --generate flag."""
         theme_script = (
-            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
-            / "scripts" / "theme-switcher" / "switch_theme.py"
+            REPO_ROOT
+            / "stow"
+            / "hypr"
+            / ".config"
+            / "hypr"
+            / "scripts"
+            / "theme-switcher"
+            / "switch_theme.py"
         )
         text = theme_script.read_text()
         assert '"--generate"' in text
@@ -484,8 +504,14 @@ class TestThemeGenerate:
     def test_extracts_dominant_colors(self) -> None:
         """Generator must have colour extraction function."""
         theme_script = (
-            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
-            / "scripts" / "theme-switcher" / "switch_theme.py"
+            REPO_ROOT
+            / "stow"
+            / "hypr"
+            / ".config"
+            / "hypr"
+            / "scripts"
+            / "theme-switcher"
+            / "switch_theme.py"
         )
         text = theme_script.read_text()
         assert "_extract_dominant_colors" in text
@@ -493,25 +519,45 @@ class TestThemeGenerate:
     def test_generates_required_keys(self) -> None:
         """Generated theme must include all required JSON keys."""
         theme_script = (
-            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
-            / "scripts" / "theme-switcher" / "switch_theme.py"
+            REPO_ROOT
+            / "stow"
+            / "hypr"
+            / ".config"
+            / "hypr"
+            / "scripts"
+            / "theme-switcher"
+            / "switch_theme.py"
         )
         text = theme_script.read_text()
         idx = text.index("def generate_theme_from_wallpaper")
-        body = text[idx:idx + 2000]
-        for key in ("background", "foreground", "comment", "accent",
-                     "red", "orange", "green", "cyan"):
+        body = text[idx : idx + 2000]
+        for key in (
+            "background",
+            "foreground",
+            "comment",
+            "accent",
+            "red",
+            "orange",
+            "green",
+            "cyan",
+        ):
             assert f'"{key}"' in body, f"Generated theme must include '{key}'"
 
     def test_saves_to_themes_dir(self) -> None:
         """Generated theme must be saved to themes directory."""
         theme_script = (
-            REPO_ROOT / "stow" / "hypr" / ".config" / "hypr"
-            / "scripts" / "theme-switcher" / "switch_theme.py"
+            REPO_ROOT
+            / "stow"
+            / "hypr"
+            / ".config"
+            / "hypr"
+            / "scripts"
+            / "theme-switcher"
+            / "switch_theme.py"
         )
         text = theme_script.read_text()
         idx = text.index("def generate_theme_from_wallpaper")
-        body = text[idx:idx + 3000]
+        body = text[idx : idx + 3000]
         assert "THEMES_DIR" in body
 
     def test_pillow_in_packages(self) -> None:

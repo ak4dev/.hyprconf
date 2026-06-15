@@ -11,6 +11,7 @@ Covers:
 - hyprconf bin: theme pick subcommand invokes --pick
 - stow/wofi: package removed
 """
+
 from __future__ import annotations
 
 import re
@@ -22,26 +23,36 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-PACKAGES_FILE     = REPO_ROOT / "packages"
-HYPRLAND_CONF     = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "hyprland.conf"
-KEYBINDS_CONF     = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "keybinds.conf"
+PACKAGES_FILE = REPO_ROOT / "packages"
+HYPRLAND_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "hyprland.conf"
+KEYBINDS_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "keybinds.conf"
 HYPRLAUNCHER_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "hyprlauncher.conf"
-SWITCH_THEME      = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "scripts" / "theme-switcher" / "switch_theme.py"
-HYPRCONF_BIN      = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
-WOFI_STOW_DIR     = REPO_ROOT / "stow" / "wofi"
+SWITCH_THEME = (
+    REPO_ROOT
+    / "stow"
+    / "hypr"
+    / ".config"
+    / "hypr"
+    / "scripts"
+    / "theme-switcher"
+    / "switch_theme.py"
+)
+HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
+WOFI_STOW_DIR = REPO_ROOT / "stow" / "wofi"
 
 
 # ---------------------------------------------------------------------------
 # packages
 # ---------------------------------------------------------------------------
 
+
 def test_packages_contains_hyprlauncher() -> None:
     """hyperlauncher must be listed in packages."""
     text = PACKAGES_FILE.read_text()
-    non_comment_lines = [l for l in text.splitlines() if l.strip() and not l.strip().startswith("#")]
-    assert "hyprlauncher" in non_comment_lines, (
-        "hyprlauncher must be in the packages file"
-    )
+    non_comment_lines = [
+        l for l in text.splitlines() if l.strip() and not l.strip().startswith("#")
+    ]
+    assert "hyprlauncher" in non_comment_lines, "hyprlauncher must be in the packages file"
 
 
 def test_packages_does_not_contain_wofi() -> None:
@@ -60,15 +71,14 @@ def test_packages_does_not_contain_wofi() -> None:
 # hyprland.conf — $menu variable
 # ---------------------------------------------------------------------------
 
+
 def test_hyprland_conf_menu_uses_hyprlauncher() -> None:
     """$menu in hyprland.conf must invoke hyprlauncher."""
     text = HYPRLAND_CONF.read_text()
     match = re.search(r"^\$menu\s*=\s*(.+)$", text, re.MULTILINE)
     assert match, "$menu variable not found in hyprland.conf"
     value = match.group(1).strip()
-    assert "hyprlauncher" in value, (
-        f"$menu must use hyprlauncher, got: {value!r}"
-    )
+    assert "hyprlauncher" in value, f"$menu must use hyprlauncher, got: {value!r}"
 
 
 def test_hyprland_conf_menu_does_not_use_wofi() -> None:
@@ -77,14 +87,13 @@ def test_hyprland_conf_menu_does_not_use_wofi() -> None:
     match = re.search(r"^\$menu\s*=\s*(.+)$", text, re.MULTILINE)
     assert match, "$menu variable not found in hyprland.conf"
     value = match.group(1).strip()
-    assert "wofi" not in value, (
-        f"$menu must not contain wofi, got: {value!r}"
-    )
+    assert "wofi" not in value, f"$menu must not contain wofi, got: {value!r}"
 
 
 # ---------------------------------------------------------------------------
 # keybinds.conf — clipboard history
 # ---------------------------------------------------------------------------
+
 
 def test_keybinds_clipboard_uses_hyprlauncher() -> None:
     """Clipboard history bind must pipe through hyprlauncher --dmenu."""
@@ -95,9 +104,7 @@ def test_keybinds_clipboard_uses_hyprlauncher() -> None:
         assert "hyprlauncher" in line, (
             f"Clipboard bind must use hyprlauncher --dmenu, got: {line!r}"
         )
-        assert "wofi" not in line, (
-            f"Clipboard bind must not reference wofi, got: {line!r}"
-        )
+        assert "wofi" not in line, f"Clipboard bind must not reference wofi, got: {line!r}"
 
 
 def test_keybinds_clipboard_uses_dmenu_flag() -> None:
@@ -114,6 +121,7 @@ def test_keybinds_clipboard_uses_dmenu_flag() -> None:
 # ---------------------------------------------------------------------------
 # hyprlauncher.conf
 # ---------------------------------------------------------------------------
+
 
 def test_hyprlauncher_conf_exists() -> None:
     """hyprlauncher.conf must exist in stow/hypr/.config/hypr/."""
@@ -197,6 +205,7 @@ def test_hyprlauncher_conf_window_size_specified() -> None:
 # stow/wofi removal
 # ---------------------------------------------------------------------------
 
+
 def test_wofi_stow_package_removed() -> None:
     """stow/wofi directory must not exist — wofi has been replaced by hyprlauncher."""
     assert not WOFI_STOW_DIR.exists(), (
@@ -207,6 +216,7 @@ def test_wofi_stow_package_removed() -> None:
 # ---------------------------------------------------------------------------
 # switch_theme.py — update_wofi removed, launcher_select present
 # ---------------------------------------------------------------------------
+
 
 def test_switch_theme_has_no_update_wofi() -> None:
     """update_wofi() must be removed from switch_theme.py — hyprlauncher uses hyprtoolkit theming."""
@@ -237,9 +247,7 @@ def test_switch_theme_launcher_select_uses_hyprlauncher() -> None:
     body = match.group(1)
     assert "hyprlauncher" in body, "launcher_select must invoke hyprlauncher"
     assert "--dmenu" in body, "launcher_select must use --dmenu flag"
-    assert "wofi" not in body, (
-        "launcher_select must not reference wofi"
-    )
+    assert "wofi" not in body, "launcher_select must not reference wofi"
 
 
 def test_switch_theme_no_wofi_in_apply_theme() -> None:
@@ -260,21 +268,16 @@ def test_switch_theme_no_wofi_in_apply_theme() -> None:
 def test_switch_theme_has_pick_flag() -> None:
     """switch_theme.py must have a --pick argument (not --wofi)."""
     text = SWITCH_THEME.read_text()
-    assert re.search(r'"--pick"', text), (
-        "--pick argument not found in switch_theme.py argparse"
-    )
+    assert re.search(r'"--pick"', text), "--pick argument not found in switch_theme.py argparse"
 
 
 def test_switch_theme_has_no_wofi_flag() -> None:
     """switch_theme.py must not have a --wofi argument (replaced by --pick)."""
     text = SWITCH_THEME.read_text()
     # Ignore comments
-    non_comment = "\n".join(
-        l for l in text.splitlines()
-        if not l.strip().startswith("#")
-    )
+    non_comment = "\n".join(l for l in text.splitlines() if not l.strip().startswith("#"))
     assert '"--wofi"' not in non_comment, (
-        '--wofi argument must be removed from switch_theme.py; use --pick instead'
+        "--wofi argument must be removed from switch_theme.py; use --pick instead"
     )
 
 
@@ -282,15 +285,14 @@ def test_switch_theme_has_no_wofi_flag() -> None:
 # hyprconf bin — theme pick
 # ---------------------------------------------------------------------------
 
+
 def test_hyprconf_bin_theme_pick_uses_pick_flag() -> None:
     """hyprconf theme pick must invoke switch_theme.py --pick."""
     text = HYPRCONF_BIN.read_text()
     match = re.search(r"pick\)\s+.*?--(\w+)", text)
     assert match, "pick) case not found in hyprconf bin"
     flag = match.group(1)
-    assert flag == "pick", (
-        f"hyprconf theme pick should call switch_theme.py --pick, got --{flag}"
-    )
+    assert flag == "pick", f"hyprconf theme pick should call switch_theme.py --pick, got --{flag}"
 
 
 def test_hyprconf_bin_theme_pick_help_mentions_hyprlauncher() -> None:
@@ -307,10 +309,7 @@ def test_hyprconf_bin_theme_pick_help_mentions_hyprlauncher() -> None:
 def test_hyprconf_bin_no_wofi_reference() -> None:
     """hyprconf bin must not reference wofi anywhere (active code or help text)."""
     text = HYPRCONF_BIN.read_text()
-    non_comment = "\n".join(
-        l for l in text.splitlines()
-        if not l.strip().startswith("#")
-    )
+    non_comment = "\n".join(l for l in text.splitlines() if not l.strip().startswith("#"))
     assert "wofi" not in non_comment, (
         "hyprconf bin must not reference wofi; hyprlauncher is the launcher"
     )
@@ -327,6 +326,7 @@ sys.path.insert(0, str(_THEME_SCRIPT_DIR))
 def _import_switch_theme():
     """Import switch_theme dynamically (it's not a proper package)."""
     import importlib.util
+
     spec = importlib.util.spec_from_file_location("switch_theme", SWITCH_THEME)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
@@ -341,9 +341,11 @@ def st():
 
 def test_launcher_select_returns_theme_on_valid_selection(st, tmp_path) -> None:
     """launcher_select returns the chosen theme name when hyprlauncher exits 0."""
-    with patch.object(st.subprocess, "run") as mock_run, \
-         patch.object(st, "get_all_themes", return_value=["dracula", "gruvbox"]), \
-         patch.object(st, "read_state", return_value="dracula"):
+    with (
+        patch.object(st.subprocess, "run") as mock_run,
+        patch.object(st, "get_all_themes", return_value=["dracula", "gruvbox"]),
+        patch.object(st, "read_state", return_value="dracula"),
+    ):
         mock_run.return_value = MagicMock(stdout="   gruvbox\n", returncode=0)
         result = st.launcher_select()
     assert result == "gruvbox"
@@ -352,13 +354,16 @@ def test_launcher_select_returns_theme_on_valid_selection(st, tmp_path) -> None:
 def test_launcher_select_marks_current_theme_with_star(st) -> None:
     """launcher_select passes the current theme marked with ★ to hyprlauncher."""
     captured_input = {}
+
     def fake_run(cmd, **kwargs):
         captured_input["input"] = kwargs.get("input", "")
         return MagicMock(stdout="", returncode=0)
 
-    with patch.object(st.subprocess, "run", side_effect=fake_run), \
-         patch.object(st, "get_all_themes", return_value=["dracula", "gruvbox"]), \
-         patch.object(st, "read_state", return_value="dracula"):
+    with (
+        patch.object(st.subprocess, "run", side_effect=fake_run),
+        patch.object(st, "get_all_themes", return_value=["dracula", "gruvbox"]),
+        patch.object(st, "read_state", return_value="dracula"),
+    ):
         st.launcher_select()
 
     lines = captured_input["input"].splitlines()
@@ -369,9 +374,11 @@ def test_launcher_select_marks_current_theme_with_star(st) -> None:
 
 def test_launcher_select_returns_none_when_no_selection(st) -> None:
     """launcher_select returns None when hyprlauncher dmenu produces no output."""
-    with patch.object(st.subprocess, "run") as mock_run, \
-         patch.object(st, "get_all_themes", return_value=["dracula", "gruvbox"]), \
-         patch.object(st, "read_state", return_value="dracula"):
+    with (
+        patch.object(st.subprocess, "run") as mock_run,
+        patch.object(st, "get_all_themes", return_value=["dracula", "gruvbox"]),
+        patch.object(st, "read_state", return_value="dracula"),
+    ):
         mock_run.return_value = MagicMock(stdout="", returncode=0)
         result = st.launcher_select()
     assert result is None
@@ -380,17 +387,22 @@ def test_launcher_select_returns_none_when_no_selection(st) -> None:
 def test_launcher_select_filters_themes(st) -> None:
     """launcher_select respects initial_filter to narrow the theme list."""
     captured_input = {}
+
     def fake_run(cmd, **kwargs):
         captured_input["input"] = kwargs.get("input", "")
         return MagicMock(stdout="", returncode=0)
 
-    with patch.object(st.subprocess, "run", side_effect=fake_run), \
-         patch.object(st, "get_all_themes", return_value=["dracula", "gruvbox", "ai:void"]), \
-         patch.object(st, "read_state", return_value=None):
+    with (
+        patch.object(st.subprocess, "run", side_effect=fake_run),
+        patch.object(st, "get_all_themes", return_value=["dracula", "gruvbox", "ai:void"]),
+        patch.object(st, "read_state", return_value=None),
+    ):
         st.launcher_select(initial_filter="ai:")
 
-    themes_shown = [l.strip().lstrip("★").strip().lstrip("☀☾").strip()
-                    for l in captured_input["input"].splitlines()]
+    themes_shown = [
+        l.strip().lstrip("★").strip().lstrip("☀☾").strip()
+        for l in captured_input["input"].splitlines()
+    ]
     assert themes_shown == ["ai:void"], (
         f"Only ai: themes should be shown with filter 'ai:', got: {themes_shown}"
     )
@@ -398,10 +410,12 @@ def test_launcher_select_filters_themes(st) -> None:
 
 def test_launcher_select_falls_back_to_tui_when_not_found(st) -> None:
     """launcher_select falls back to interactive_select when hyprlauncher is not installed."""
-    with patch.object(st.subprocess, "run", side_effect=FileNotFoundError), \
-         patch.object(st, "get_all_themes", return_value=["dracula"]), \
-         patch.object(st, "read_state", return_value=None), \
-         patch.object(st, "interactive_select", return_value="dracula") as mock_interactive:
+    with (
+        patch.object(st.subprocess, "run", side_effect=FileNotFoundError),
+        patch.object(st, "get_all_themes", return_value=["dracula"]),
+        patch.object(st, "read_state", return_value=None),
+        patch.object(st, "interactive_select", return_value="dracula") as mock_interactive,
+    ):
         result = st.launcher_select()
 
     mock_interactive.assert_called_once()
@@ -411,13 +425,16 @@ def test_launcher_select_falls_back_to_tui_when_not_found(st) -> None:
 def test_launcher_select_calls_hyprlauncher_dmenu(st) -> None:
     """launcher_select must invoke hyprlauncher with --dmenu."""
     called_with = {}
+
     def fake_run(cmd, **kwargs):
         called_with["cmd"] = cmd
         return MagicMock(stdout="", returncode=0)
 
-    with patch.object(st.subprocess, "run", side_effect=fake_run), \
-         patch.object(st, "get_all_themes", return_value=["dracula"]), \
-         patch.object(st, "read_state", return_value=None):
+    with (
+        patch.object(st.subprocess, "run", side_effect=fake_run),
+        patch.object(st, "get_all_themes", return_value=["dracula"]),
+        patch.object(st, "read_state", return_value=None),
+    ):
         st.launcher_select()
 
     assert called_with.get("cmd"), "subprocess.run was not called"
@@ -433,7 +450,16 @@ def test_launcher_select_calls_hyprlauncher_dmenu(st) -> None:
 # update_hyprtoolkit() — functional tests
 # ---------------------------------------------------------------------------
 
-SWITCH_THEME_HYPRTOOLKIT = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "scripts" / "theme-switcher" / "switch_theme.py"
+SWITCH_THEME_HYPRTOOLKIT = (
+    REPO_ROOT
+    / "stow"
+    / "hypr"
+    / ".config"
+    / "hypr"
+    / "scripts"
+    / "theme-switcher"
+    / "switch_theme.py"
+)
 
 
 def test_switch_theme_has_update_hyprtoolkit() -> None:
@@ -453,21 +479,21 @@ def test_update_hyprtoolkit_called_in_apply_theme() -> None:
         re.DOTALL | re.MULTILINE,
     )
     assert match, "apply_theme() not found"
-    assert "update_hyprtoolkit" in match.group(1), (
-        "apply_theme() must call update_hyprtoolkit()"
-    )
+    assert "update_hyprtoolkit" in match.group(1), "apply_theme() must call update_hyprtoolkit()"
 
 
 def test_update_hyprtoolkit_writes_correct_keys(st, tmp_path) -> None:
     """update_hyprtoolkit() writes background, accent, icon_theme etc."""
     out = tmp_path / "hyprtoolkit.conf"
     with patch.object(st, "HYPRTOOLKIT_CONF_FILE", str(out)):
-        st.update_hyprtoolkit({
-            "background": "#1e1e2e",
-            "foreground": "#cdd6f4",
-            "accent": "#89b4fa",
-            "comment": "#6c7086",
-        })
+        st.update_hyprtoolkit(
+            {
+                "background": "#1e1e2e",
+                "foreground": "#cdd6f4",
+                "accent": "#89b4fa",
+                "comment": "#6c7086",
+            }
+        )
     content = out.read_text()
     assert "background" in content
     assert "accent" in content
@@ -495,11 +521,11 @@ def test_update_hyprtoolkit_argb_format(st, tmp_path) -> None:
     """Colors must be written in 0xAARRGGBB format."""
     out = tmp_path / "hyprtoolkit.conf"
     with patch.object(st, "HYPRTOOLKIT_CONF_FILE", str(out)):
-        st.update_hyprtoolkit({"background": "#282a36", "foreground": "#f8f8f2", "accent": "#bd93f9"})
+        st.update_hyprtoolkit(
+            {"background": "#282a36", "foreground": "#f8f8f2", "accent": "#bd93f9"}
+        )
     content = out.read_text()
-    assert re.search(r"0x[0-9A-F]{8}", content), (
-        "Colors must use 0xAARRGGBB ARGB hex notation"
-    )
+    assert re.search(r"0x[0-9A-F]{8}", content), "Colors must use 0xAARRGGBB ARGB hex notation"
 
 
 def test_hyprtoolkit_conf_not_in_stow() -> None:
@@ -513,6 +539,7 @@ def test_hyprtoolkit_conf_not_in_stow() -> None:
 
 # ── seed_hicolor_index ──────────────────────────────────────────────────────
 
+
 class TestSeedHicolorIndex:
     """Tests for the seed_hicolor_index() function in setup.sh."""
 
@@ -523,9 +550,12 @@ class TestSeedHicolorIndex:
         src = self.SETUP_SH.read_text()
         assert "seed_hicolor_index()" in src
 
-    def _run_seed(self, tmp_path: "Path") -> "subprocess.CompletedProcess[str]":
+    def _run_seed(self, tmp_path: Path) -> subprocess.CompletedProcess[str]:
         """Extract seed_hicolor_index from setup.sh and run it in isolation."""
-        import subprocess, os, tempfile
+        import os
+        import subprocess
+        import tempfile
+
         # Extract just the function body + a stub for log_ok so no full source is needed
         fn_script = tempfile.NamedTemporaryFile(
             mode="w", suffix=".sh", delete=False, dir=str(tmp_path)
@@ -534,26 +564,25 @@ class TestSeedHicolorIndex:
         fn_script.write("log_ok() { :; }\n")
         # awk: print lines from seed_hicolor_index() definition through its closing `}`
         import subprocess as _sp
+
         extract = _sp.run(
-            ["awk", "/^seed_hicolor_index\\(\\)/,/^\\}$/",
-             str(self.SETUP_SH)],
-            capture_output=True, text=True
+            ["awk", "/^seed_hicolor_index\\(\\)/,/^\\}$/", str(self.SETUP_SH)],
+            capture_output=True,
+            text=True,
         )
         fn_script.write(extract.stdout)
         fn_script.write("\nseed_hicolor_index\n")
         fn_script.flush()
         env = {**os.environ, "HOME": str(tmp_path)}
-        return subprocess.run(
-            ["bash", fn_script.name], capture_output=True, text=True, env=env
-        )
+        return subprocess.run(["bash", fn_script.name], capture_output=True, text=True, env=env)
 
-    def test_seed_hicolor_index_creates_index_theme(self, tmp_path: "Path") -> None:
+    def test_seed_hicolor_index_creates_index_theme(self, tmp_path: Path) -> None:
         """seed_hicolor_index() creates index.theme when missing."""
         result = self._run_seed(tmp_path)
         index = tmp_path / ".local" / "share" / "icons" / "hicolor" / "index.theme"
         assert index.exists(), f"index.theme not created; stderr={result.stderr[:500]}"
 
-    def test_seed_hicolor_index_theme_has_required_sections(self, tmp_path: "Path") -> None:
+    def test_seed_hicolor_index_theme_has_required_sections(self, tmp_path: Path) -> None:
         """The generated index.theme must list all required app-icon directories."""
         self._run_seed(tmp_path)
         content = (tmp_path / ".local" / "share" / "icons" / "hicolor" / "index.theme").read_text()
@@ -561,35 +590,39 @@ class TestSeedHicolorIndex:
             assert size in content, f"{size} missing from generated index.theme"
         assert "[Icon Theme]" in content
 
-    def test_seed_hicolor_index_idempotent(self, tmp_path: "Path") -> None:
+    def test_seed_hicolor_index_idempotent(self, tmp_path: Path) -> None:
         """Running seed_hicolor_index() twice must not overwrite an existing index.theme."""
         self._run_seed(tmp_path)
         index = tmp_path / ".local" / "share" / "icons" / "hicolor" / "index.theme"
         first_content = index.read_text()
         index.write_text(first_content + "\n# sentinel")
         self._run_seed(tmp_path)
-        assert "# sentinel" in index.read_text(), \
+        assert "# sentinel" in index.read_text(), (
             "seed_hicolor_index() must not overwrite an existing index.theme"
+        )
 
     def test_seed_hicolor_index_called_in_main_flow(self) -> None:
         """seed_hicolor_index must be called in the main setup flow."""
         src = self.SETUP_SH.read_text()
         # Find the main() function body and check the call is present
         main_idx = src.index("main()")
-        assert "seed_hicolor_index" in src[main_idx:], \
+        assert "seed_hicolor_index" in src[main_idx:], (
             "seed_hicolor_index() not called in main() setup flow"
+        )
 
     def test_seed_hicolor_index_called_in_sync_flow(self) -> None:
         """seed_hicolor_index must be called in the --sync code path."""
         src = self.SETUP_SH.read_text()
         sync_idx = src.index('"--sync"')
         # Next occurrence of seed_hicolor_index after the --sync block opening
-        assert "seed_hicolor_index" in src[sync_idx:sync_idx + 1500], \
+        assert "seed_hicolor_index" in src[sync_idx : sync_idx + 1500], (
             "seed_hicolor_index() not called in --sync flow"
+        )
 
     def test_seed_hicolor_index_called_in_repair_flow(self) -> None:
         """seed_hicolor_index must be called in the --repair / repair_install() path."""
         src = self.SETUP_SH.read_text()
         repair_idx = src.index("repair_install()")
-        assert "seed_hicolor_index" in src[repair_idx:repair_idx + 3000], \
+        assert "seed_hicolor_index" in src[repair_idx : repair_idx + 3000], (
             "seed_hicolor_index() not called in repair_install() flow"
+        )

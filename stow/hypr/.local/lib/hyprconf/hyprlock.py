@@ -10,9 +10,8 @@ Writers provide block-level CRUD.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
-from .block_conf import ConfigBlock, read_blocks, update_block_field, delete_block, add_block
+from .block_conf import ConfigBlock, add_block, delete_block, read_blocks, update_block_field
 from .paths import HYPRLOCK_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -25,50 +24,50 @@ BLOCK_TYPES: tuple[str, ...] = ("general", "background", "label", "input-field",
 BLOCK_DEFAULTS: dict[str, dict[str, str]] = {
     "general": {
         "disable_loading_bar": "false",
-        "hide_cursor":         "true",
-        "grace":               "0",
-        "no_fade_in":          "false",
+        "hide_cursor": "true",
+        "grace": "0",
+        "no_fade_in": "false",
     },
     "background": {
-        "monitor":     "",
-        "path":        "screenshot",
+        "monitor": "",
+        "path": "screenshot",
         "blur_passes": "3",
-        "blur_size":   "7",
-        "brightness":  "0.7",
-        "contrast":    "0.9",
-        "vibrancy":    "0.1696",
+        "blur_size": "7",
+        "brightness": "0.7",
+        "contrast": "0.9",
+        "vibrancy": "0.1696",
     },
     "label": {
-        "monitor":     "",
-        "text":        "hello",
-        "color":       "rgba(255, 255, 255, 0.9)",
-        "font_size":   "24",
+        "monitor": "",
+        "text": "hello",
+        "color": "rgba(255, 255, 255, 0.9)",
+        "font_size": "24",
         "font_family": "JetBrainsMono Nerd Font",
-        "position":    "0, 0",
-        "halign":      "center",
-        "valign":      "center",
+        "position": "0, 0",
+        "halign": "center",
+        "valign": "center",
     },
     "input-field": {
-        "monitor":           "",
-        "size":              "200, 50",
+        "monitor": "",
+        "size": "200, 50",
         "outline_thickness": "3",
-        "dots_size":         "0.33",
-        "dots_spacing":      "0.15",
-        "outer_color":       "rgb(151515)",
-        "inner_color":       "rgb(200, 200, 200)",
-        "font_color":        "rgb(10, 10, 10)",
-        "fade_on_empty":     "true",
-        "position":          "0, -80",
-        "halign":            "center",
-        "valign":            "center",
+        "dots_size": "0.33",
+        "dots_spacing": "0.15",
+        "outer_color": "rgb(151515)",
+        "inner_color": "rgb(200, 200, 200)",
+        "font_color": "rgb(10, 10, 10)",
+        "fade_on_empty": "true",
+        "position": "0, -80",
+        "halign": "center",
+        "valign": "center",
     },
     "shape": {
-        "monitor":  "",
-        "size":     "100, 100",
-        "color":    "rgba(255, 255, 255, 0.1)",
+        "monitor": "",
+        "size": "100, 100",
+        "color": "rgba(255, 255, 255, 0.1)",
         "position": "0, 0",
-        "halign":   "center",
-        "valign":   "center",
+        "halign": "center",
+        "valign": "center",
     },
 }
 
@@ -77,7 +76,8 @@ BLOCK_DEFAULTS: dict[str, dict[str, str]] = {
 #  Readers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def read_hyprlock_blocks(path: Optional[Path] = None) -> list[ConfigBlock]:
+
+def read_hyprlock_blocks(path: Path | None = None) -> list[ConfigBlock]:
     """Return all blocks from hyprlock.conf."""
     return read_blocks(path or HYPRLOCK_FILE)
 
@@ -85,6 +85,7 @@ def read_hyprlock_blocks(path: Optional[Path] = None) -> list[ConfigBlock]:
 # ─────────────────────────────────────────────────────────────────────────────
 #  Writers
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 def update_hyprlock_field(
     path: Path,
@@ -104,8 +105,8 @@ def delete_hyprlock_block(path: Path, start_line: int, end_line: int) -> bool:
 
 def add_hyprlock_block(
     block_type: str,
-    overrides: Optional[dict[str, str]] = None,
-    path: Optional[Path] = None,
+    overrides: dict[str, str] | None = None,
+    path: Path | None = None,
 ) -> bool:
     """Append a new block of *block_type* to hyprlock.conf.
 

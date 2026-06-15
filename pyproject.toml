@@ -6,7 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "hyprconf"
 version = "2.1.1"
 description = "Hyprland configuration suite — CLI/TUI binary and Arch Linux dotfiles"
-requires-python = ">=3.11"
+# 3.12 is the real floor: CI tests 3.12, Arch ships ≥3.13, and switch_theme.py
+# uses 3.12 f-string syntax. (Declared >=3.11 was stale/untested.)
+requires-python = ">=3.12"
 
 [project.optional-dependencies]
 test = [
@@ -39,12 +41,17 @@ show_missing = true
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP"]
+select = ["E", "F", "W", "I", "UP", "B"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Tests legitimately bootstrap sys.path before importing (E402) and use short
+# loop/lambda vars like `l` (E741); neither warrants churn in test code.
+"tests/**" = ["E402", "E741"]
+
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 ignore_missing_imports = true

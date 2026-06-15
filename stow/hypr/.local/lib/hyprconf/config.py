@@ -24,11 +24,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Optional
 
 from .file_edit import atomic_write_text
-from .paths import OVERRIDES_FILE, HYPR_DIR as _HYPR_DIR
-
+from .paths import HYPR_DIR as _HYPR_DIR
+from .paths import OVERRIDES_FILE
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 
@@ -43,6 +42,7 @@ _MANAGED_LINE_RE = re.compile(r"^([^#\s][^=]*?)\s*=\s*(.+)$")
 
 # ── Key formatting ─────────────────────────────────────────────────────────────
 
+
 def section_key_to_hyprctl(section: str, key: str) -> str:
     """Convert section + key to the hyprctl keyword / getoption path.
 
@@ -55,7 +55,8 @@ def section_key_to_hyprctl(section: str, key: str) -> str:
 
 # ── Read ───────────────────────────────────────────────────────────────────────
 
-def read_persisted(section: str, key: str) -> Optional[str]:
+
+def read_persisted(section: str, key: str) -> str | None:
     """Read a persisted value from the managed overrides file.
 
     Returns None if the key is not present.
@@ -101,6 +102,7 @@ def read_all_persisted() -> dict[str, str]:
 
 
 # ── Write ──────────────────────────────────────────────────────────────────────
+
 
 def save_pending(pending: dict[str, dict[str, str]]) -> tuple[bool, int]:
     """Write a dict of pending changes to the overrides file.
@@ -155,6 +157,7 @@ def upsert_option(section: str, key: str, value: str) -> bool:
 
 # ── Legacy migration ───────────────────────────────────────────────────────────
 
+
 def migrate_legacy() -> bool:
     """Copy the legacy overrides file to the new location if needed.
 
@@ -171,6 +174,7 @@ def migrate_legacy() -> bool:
 
 
 # ── Internal helpers ───────────────────────────────────────────────────────────
+
 
 def _effective_overrides_path() -> Path:
     """Return the active overrides file path, migrating legacy if needed."""
