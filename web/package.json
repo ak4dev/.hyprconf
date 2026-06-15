@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "npm run generate-themes && vite",
-    "build": "npm run generate-themes && tsc -b && vite build",
+    "dev": "npm run generate && vite",
+    "build": "npm run generate && tsc -b && vite build",
     "preview": "vite preview",
+    "generate": "npm run generate-themes && npm run generate-version",
     "generate-themes": "npx tsx scripts/generate-themes.ts",
+    "generate-version": "npx tsx scripts/generate-version.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

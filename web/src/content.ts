@@ -24,7 +24,9 @@ export const PROJECT_DESCRIPTION =
 
 export const INSTALL_COMMAND = 'bash <(curl -fsSL hyprconf.sh)';
 
-export const VERSION = '2.3.0';
+// Auto-generated from the Python package version (see scripts/generate-version.ts)
+// so the displayed version never drifts from the shipped release.
+export { VERSION } from './generated/version';
 
 export interface Feature {
   title: string;
