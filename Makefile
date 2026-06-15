@@ -1,5 +1,5 @@
 .PHONY: help test test-unit test-integration test-tui test-seq test-vm test-install \
-        test-web build-vm-image lint fmt clean
+        test-web build-vm-image shellcheck lint fmt clean
 
 export PYTHONDONTWRITEBYTECODE := 1
 
@@ -35,6 +35,12 @@ test-install: ## Requires packer-built image and running VM (bash tests/vm/run_v
 
 build-vm-image: ## Build the QEMU/KVM VM image via Packer
 	bash tests/install/build_image.sh
+
+shellcheck: ## Run shellcheck on all bash scripts (severity=warning)
+	@git ls-files -z | while IFS= read -r -d '' f; do \
+	    [ -f "$$f" ] && head -n1 "$$f" | grep -q bash && printf '%s\0' "$$f"; \
+	done | xargs -0 -r shellcheck --severity=warning
+	@echo "shellcheck: clean"
 
 lint: ## Run ruff linter on source and tests
 	ruff check stow/hypr/.local/lib/hyprconf/ tests/

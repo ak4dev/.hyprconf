@@ -11,6 +11,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  lint:
+    name: "Lint (shellcheck)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck (all bash scripts, severity=warning)
+        run: |
+          git ls-files -z | while IFS= read -r -d '' f; do
+            [ -f "$f" ] && head -n1 "$f" | grep -q bash && printf '%s\0' "$f"
+          done | xargs -0 -r shellcheck --severity=warning
+          echo "shellcheck: clean"
+
   unit-integration:
     name: "Unit + Integration (Tiers 1–2)"
     runs-on: ubuntu-latest
