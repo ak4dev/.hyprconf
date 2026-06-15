@@ -446,8 +446,7 @@ cmd_show_keybinds() {
 
   _expand_known_vars() {
     local s="$1"
-    local pass
-    for pass in 1 2; do
+    for _ in 1 2; do
       local k
       for k in "${!vars[@]}"; do
         s="${s//\$$k/${vars[$k]}}"
@@ -2237,7 +2236,8 @@ _record_start() {
   fi
   local output_dir="${HOME}/Videos/Recordings"
   mkdir -p "$output_dir"
-  local filename="$output_dir/recording-$(date +%Y%m%d-%H%M%S).mp4"
+  local filename
+  filename="$output_dir/recording-$(date +%Y%m%d-%H%M%S).mp4"
 
   if command -v wf-recorder &>/dev/null; then
     wf-recorder -f "$filename" "$@" &

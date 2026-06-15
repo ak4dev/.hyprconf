@@ -467,6 +467,7 @@ update_zshrc() {
     add_if_missing "fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green"
 
     trap - RETURN
+    # shellcheck disable=SC2088  # literal ~ is intentional in this user-facing message
     log_ok "~/.zshrc configured."
 }
 
@@ -476,6 +477,7 @@ update_zshenv() {
     touch "${ZSHENV}"
     grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' "${ZSHENV}" 2>/dev/null \
         || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${ZSHENV}"
+    # shellcheck disable=SC2088  # literal ~ is intentional in this user-facing message
     log_ok "~/.zshenv configured."
 }
 

@@ -141,6 +141,7 @@ PYEOF
 }
 
 # Safety net for completely unexpected failures (functions not using || die)
+# shellcheck disable=SC2154  # rc is assigned by `rc=$?` at the start of the trap body
 trap 'rc=$?; err "Unexpected failure at line $LINENO (exit $rc)"; ask_yn "Rollback?" y && rollback; exit 1' ERR
 
 # ── 0. Preflight ──────────────────────────────────────────────────────────────

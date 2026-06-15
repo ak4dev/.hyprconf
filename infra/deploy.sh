@@ -205,6 +205,7 @@ _select_zone() {
 # ── Interactive environment configuration ─────────────────────────────────────
 configure_env() {
   # Load saved config if present (vars already in env take priority)
+  # shellcheck source=/dev/null
   [[ -f "$CFG_FILE" ]] && source "$CFG_FILE"
 
   # If everything is already configured, skip all prompts

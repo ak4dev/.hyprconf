@@ -22,6 +22,7 @@ CFG_FILE="${HYPRCONF_INFRA_CFG_FILE:-$DEFAULT_CFG_DIR/infra.env}"
 STATE_FILE="${HYPRCONF_INFRA_STATE_FILE:-$DEFAULT_CFG_DIR/deploy-state}"
 CFG_DIR="$(dirname "$CFG_FILE")"
 
+# shellcheck source=/dev/null
 [[ -f "$CFG_FILE" ]] && source "$CFG_FILE"
 
 if [[ -t 1 ]]; then

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # color vars are consumed by scripts that source this file
 #
 #  assets/banner.sh — reusable .hyprconf project banner
 #

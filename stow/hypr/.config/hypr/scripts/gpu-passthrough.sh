@@ -998,6 +998,7 @@ _gpu_audit() {
     # 5. User groups
     printf "\nUser Groups\n"
     local grp
+    # shellcheck disable=SC2043  # single group today; loop kept for easy extension
     for grp in kvm; do
         if id -nG "$USER" | grep -qw "$grp"; then
             printf "  ✔ %s in '%s' group\n" "$USER" "$grp"
@@ -1619,7 +1620,7 @@ _gpu_rebuild_initramfs() {
 _gpu_setup_select() {
     # Interactive GPU selection — must run in the main shell (not a subshell)
     # so that read works from the terminal.
-    local gpu_lines=() gpu_addrs=() gpu_names=() gpu_vdevs=() gpu_drivers=() gpu_iommus=()
+    local gpu_addrs=() gpu_names=() gpu_vdevs=() gpu_drivers=() gpu_iommus=()
     local idx=0
 
     while IFS= read -r line; do
@@ -1725,7 +1726,8 @@ _gpu_load_config() {
 # ── Diagnose ───────────────────────────────────────────────────────────────────
 
 _gpu_diagnose() {
-    local report="/tmp/hyprconf-gpu-diagnostics-$(date '+%Y%m%d_%H%M%S').txt"
+    local report
+    report="/tmp/hyprconf-gpu-diagnostics-$(date '+%Y%m%d_%H%M%S').txt"
 
     {
         printf "=== hyprconf GPU Passthrough Diagnostics ===\n"
