@@ -105,7 +105,7 @@ This is a monorepo — all components (dotfiles, Python library, web frontend, d
 
 - **`web/` stays at top-level** — it is a full React application with its own `package.json`, `src/`, and test suite. It does NOT belong inside `infra/`. `infra/deploy.sh` calls into `web/` to build, but that is a build dependency, not a structural coupling.
 - **`theme/` contains vendor extension bundles** — NOT hyprconf themes. Hyprconf theme JSONs live at `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`. The `theme/` name is legacy; do not add hyprconf theme JSONs here.
-- **`infra/firefox/policies.json`** is a system-level Firefox policy (goes to `/usr/lib/firefox/distribution/`). It belongs in `infra/`, not `stow/`, because it targets a system path, not `$HOME`.
+- **`infra/firefox/policies.json`** is a system-level Firefox policy (installed by `setup.sh:setup_firefox` to `/etc/firefox/policies/policies.json`). It belongs in `infra/`, not `stow/`, because it targets a system path, not `$HOME`.
 - **`.gitattributes` `export-ignore`** excludes dev-only directories from `git archive` tarballs: `tests/`, `scripts/`, `.github/`, `web/`, `docs/`, `pyproject.toml`, `Makefile`, `.editorconfig`, `AGENTS.md`.
 - **No dead code directories** — if a directory is unused, remove it. Git history preserves it.
 
@@ -116,6 +116,19 @@ This is a monorepo — all components (dotfiles, Python library, web frontend, d
 - When introducing any new binary dependency (in a config, script, or keybind), add its Arch package to `packages` in the appropriate commented section.
 - Hardware-specific or optional packages must be commented out with a note explaining the condition (e.g. `# nvidia-utils` for Nvidia GPU users).
 - Use `pacman -Qo <binary>` to confirm the correct package name before adding.
+- **Keep the core `packages` list minimal (project vision: minimal core + bolt-on).** Anything heavy or specialised (a VPN provider's CLI, GPU-passthrough tooling, an alternate browser) belongs in an **addon**, not the base. Only add to `packages` what a private desktop universally needs.
+
+## Addons (`hyprconf addon <name>`)
+
+Optional, bolt-on package sets live in the `_addon_*` functions of `stow/hypr/.local/bin/hyprconf` (current addons: `dev`, `vfio`, `vpn`, `librewolf`). To add one, register the name in `_ADDON_NAMES` and add a matching `case` branch to each of the five functions — there are no others to touch:
+
+- `_addon_description` — one-line summary shown by `hyprconf addon`.
+- `_addon_packages` — space-separated official-repo (`pacman`) packages.
+- `_addon_aur_packages` — space-separated AUR (`yay`) packages.
+- `_addon_post_install` — arbitrary post-steps; **print guidance, never run interactive/blocking commands** (sign-ins, prompts) — addon installs must stay unattended.
+- `_addon_is_installed` — returns 0 when the addon's key package is present (drives the status column).
+
+Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s addon tests), list it in the README addon table, and add it to `web/src/content.ts`.
 
 ## Keybindings
 
@@ -139,6 +152,12 @@ This is a monorepo — all components (dotfiles, Python library, web frontend, d
 - **Never modify existing tests without explicit user notification and confirmation.** Tests are the safety net for all features. Silently changing a test to make it pass defeats its purpose. If a test needs to change, stop, explain why to the user, and get approval first.
 - When adding a new feature (script, function, CLI command, config path), add corresponding tests in the appropriate `tests/` tier (`unit/`, `integration/`, `vm/`, or `install/`).
 - Test files live under `tests/`. Run the full suite with `make test`.
+- **Unit/integration tests must be hermetic — they run on a bare `ubuntu-latest` CI runner, NOT Arch.** `make test` passing on a dev Arch box is necessary but NOT sufficient: the GitHub `Tests` workflow runs `tests/unit` + `tests/integration` on Ubuntu, which lacks Arch/Hyprland tooling (`pacman`, `hyprctl`, `nmcli`, `stow`, often `nft`/`pciutils`), has `/bin/sh` → `dash` (not bash), and no real `/sys/kernel/iommu_groups`, writable `/etc`, or the developer's group memberships. A test that reads or writes a real system path, calls a host tool, or depends on `$USER`'s groups will pass locally and fail CI. Rules:
+  - Never let a script-under-test read/write a hardcoded system path (`/etc/...`, `/sys/...`, `/proc/...`, `/boot/...`). Make the path an env-overridable variable (`: "${_VAR:=/real/default}"`) and point it at a `tmp_path` in the test. Never use `readonly` for such a path.
+  - Stub every external command the script calls (prepend a fake-bins dir to `PATH`); never rely on a host binary being present or behaving a certain way.
+  - Don't depend on ambient state: real `id`/group membership, real `/proc/cmdline`, a configured git committer identity, an installed package, or a TTY. Inject it.
+  - If a behaviour genuinely needs Arch/a live session/hardware, put the test in the `vm`/`install` tier (gated behind `--run-vm`/`--run-install`), not `unit`/`integration`.
+  - To reproduce the CI environment locally without Docker: run the suite in an Ubuntu rootfs via `bwrap` (the dev box ships it), or at minimum sanity-check that no unit/integration test touches a real system path.
 
 ## Workflow Rules (Non-Negotiable)
 
