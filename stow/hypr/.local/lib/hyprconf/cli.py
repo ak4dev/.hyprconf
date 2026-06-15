@@ -225,7 +225,7 @@ def cmd_configure(_args: list[str]) -> int:
             if line in ("?", "help"):
                 _repl_help_root()
             else:
-                if line in _REPL_SECTIONS:
+                if line in _REPL_SECTIONS or line == "monitors":
                     context = line
                 else:
                     print(f"{_Y}  Unknown section: {line}{_R}")
@@ -235,7 +235,9 @@ def cmd_configure(_args: list[str]) -> int:
             if line in ("exit", "quit", "q", "up"):
                 context = ""
             elif line in ("?", "help"):
-                _repl_help_section(context)
+                _repl_help_monitors() if context == "monitors" else _repl_help_section(context)
+            elif context == "monitors":
+                _repl_monitors(line)
             elif line == "show":
                 cmd_get([context])
             elif line.startswith("show "):
@@ -259,6 +261,7 @@ def cmd_configure(_args: list[str]) -> int:
 
 def _repl_help_root() -> None:
     print(f"\n{_B}  Available sections:{_R}")
+    print(f"  {'monitors':<22}  <name> <field> <value>")
     for s in _REPL_SECTIONS:
         keys = get_section_keys(s)
         first = keys[0] if keys else ""
@@ -305,6 +308,52 @@ def _repl_query(section: str, key: str) -> None:
         print(f"{_Y}  Unknown key: {key}{_R}")
         return
     cmd_get([section, key])
+
+
+def _repl_monitors(line: str) -> None:
+    """The `monitors` context of the configure REPL — delegates to cmd_monitor."""
+    if line == "show":
+        cmd_monitor(["field", "show"])
+    elif line.startswith("show "):
+        cmd_monitor(["field", "show", line[5:].strip()])
+    elif line == "no" or line.startswith("no "):
+        print(f"{_Y}  'no' is not applicable for monitors. Use: <name> <field> <value>{_R}")
+    elif line.endswith(" ?"):
+        cmd_monitor(["field", "show", line[:-2].strip()])
+    else:
+        parts = line.split()
+        if len(parts) >= 3:
+            cmd_monitor(["field", "set", parts[0], parts[1], " ".join(parts[2:])])
+        elif len(parts) == 1:
+            cmd_monitor(["field", "show", parts[0]])
+        else:
+            print(f"{_Y}  Usage: <name> <field> <value>  or  show [<name>]{_R}")
+
+
+def _repl_help_monitors() -> None:
+    print(f"\n{_B}  monitors — per-monitor configuration{_R}")
+    print(f"  {'FIELD':<20}  {'TYPE':<8}  DESCRIPTION")
+    print(f"  {'─' * 20}  {'─' * 8}  {'─' * 30}")
+    rows = [
+        ("res", "string", "Resolution@Hz  (e.g. 1920x1080@60 or preferred)"),
+        ("pos", "string", "Position  (e.g. 0x0 or auto-right)"),
+        ("scale", "float", "Scale factor  (e.g. 1.5)"),
+        ("vrr", "0|1|2", "Adaptive sync  (0=off 1=on 2=fullscreen)"),
+        ("bitdepth", "8|10", "Bit depth"),
+        ("cm", "string", "Colour management  (srgb wide hdr10 …)"),
+        ("sdrbrightness", "float", "SDR brightness multiplier in HDR mode"),
+        ("sdrsaturation", "float", "SDR saturation multiplier in HDR mode"),
+        ("transform", "0-7", "Display rotation / transform"),
+        ("mirror", "string", "Mirror another monitor by name"),
+    ]
+    for field, type_, desc in rows:
+        print(f"  {field:<20}  {type_:<8}  {desc}")
+    print()
+    print(f"  {'show':<40}  List all configured monitors")
+    print(f"  {'show <name>':<40}  Show fields for a specific monitor")
+    print(f"  {'<name> <field> <value>':<40}  Set a monitor field")
+    print(f"  {'exit':<40}  Return to root context")
+    print()
 
 
 # ════════════════════════════════════════════════════════════════════════════

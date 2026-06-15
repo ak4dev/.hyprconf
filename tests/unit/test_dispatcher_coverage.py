@@ -222,28 +222,35 @@ class TestCmdHardware:
 
 
 class TestCmdSetKeyword:
-    """Verify hyprconf set <section> <key> <value> routing."""
+    """Verify `hyprconf set <section> <key> <value>` delegates to the cli.py backend.
 
-    def test_function_exists(self) -> None:
-        assert "cmd_set_keyword()" in _bin_text()
+    The option schema, value validation, and persistence now live in the Python
+    library (single source of truth; validated in test_cli.py / test_cli_get_set.py).
+    The bash CLI just routes, so these assert the routing — not a bash reimplementation.
+    """
 
-    def test_three_arg_validation(self) -> None:
+    def test_keyword_path_delegates_to_cli_py(self) -> None:
         text = _bin_text()
-        idx = text.index("cmd_set_keyword()")
-        body = text[idx : idx + 300]
-        assert "section" in body and "key" in body and "value" in body
+        idx = text.index("cmd_set()")
+        body = text[idx : idx + 900]
+        assert 'cli.py" set' in body, (
+            "the <section> <key> <value> path must delegate to `cli.py set`"
+        )
+
+    def test_no_bash_schema_reimplementation(self) -> None:
+        # The bash schema duplicate and the parallel set impl were removed; schema.py
+        # is now the single source of truth.
+        text = _bin_text()
+        assert "_option_meta()" not in text
+        assert "_section_keys()" not in text
+        assert "cmd_set_keyword()" not in text
 
     def test_monitors_special_case(self) -> None:
         text = _bin_text()
-        idx = text.index("cmd_set_keyword()")
-        body = text[idx : idx + 500]
-        assert '"monitors"' in body
-
-    def test_type_validation(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_set_keyword()")
-        body = text[idx : idx + 1000]
-        assert "_option_meta" in body
+        idx = text.index("cmd_set()")
+        body = text[idx : idx + 600]
+        assert "monitors)" in body
+        assert "monitor field set" in body
 
 
 # ---------------------------------------------------------------------------
