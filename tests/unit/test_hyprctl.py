@@ -94,6 +94,15 @@ def test_get_option_returns_str_field(monkeypatch: pytest.MonkeyPatch) -> None:
         assert _hctl.get_option("general", "layout") == "dwindle"
 
 
+def test_get_option_returns_custom_field(monkeypatch: pytest.MonkeyPatch) -> None:
+    # CUSTOM-type options (e.g. multi-value gaps) report only `custom`; gaps_in
+    # always comes through here, so it must be read or `get` shows the default.
+    _mock_active(monkeypatch)
+    payload = json.dumps({"custom": "3 3 3 3", "set": True})
+    with mock.patch.object(_hctl, "_run", return_value=payload):
+        assert _hctl.get_option("general", "gaps_in") == "3 3 3 3"
+
+
 def test_get_option_returns_col_field(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_active(monkeypatch)
     payload = json.dumps({"str": "", "col": 4278190080, "int": 0, "float": 0.0})

@@ -62,6 +62,13 @@ def get_option(section: str, key: str) -> str | None:
         s = d.get("str")
         if s is not None and str(s).strip():
             return str(s)
+        # custom field: CUSTOM-type options report their value here — notably the
+        # multi-value gaps form "3 3 3 3". gaps_in/gaps_out are CUSTOM types, so
+        # they ALWAYS come through `custom` (never `int`) and silently showed the
+        # default before this.
+        custom = d.get("custom")
+        if custom is not None and str(custom).strip():
+            return str(custom)
         # col field: ARGB integer → hex string
         col = d.get("col")
         if col is not None and int(col) != 0:

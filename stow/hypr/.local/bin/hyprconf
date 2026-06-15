@@ -905,6 +905,11 @@ s = str(d.get('str') or '')
 if s.strip():
     print(s)
     sys.exit(0)
+# custom field: CUSTOM-type options (e.g. multi-value gaps '3 3 3 3') report here
+c = str(d.get('custom') or '')
+if c.strip():
+    print(c)
+    sys.exit(0)
 # float: use when it has a meaningful fractional component distinct from int
 f = d.get('float', 0.0)
 i = d.get('int', 0)
