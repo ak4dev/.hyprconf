@@ -202,8 +202,12 @@ ensure_pin() {
         || die "Cannot query FIDO2 info — key locked or unavailable."
     echo "$finfo" >>"$LOG"
 
-    if echo "$finfo" | grep -qi "PIN is set: True"; then
-        ok "FIDO2 PIN already configured"
+    # ykman's wording varies by version: older releases print "PIN is set: True",
+    # current 5.x prints "PIN:  <N> attempt(s) remaining" — both appear only once
+    # a PIN exists. Match either so an already-configured PIN is detected; the key
+    # then just needs its existing PIN entered at enrolment (never set a new one).
+    if echo "$finfo" | grep -qiE "attempt\(s\) remaining|PIN is set"; then
+        ok "FIDO2 PIN already configured — you'll enter your existing PIN during enrolment"
         return 0
     fi
 
@@ -223,7 +227,11 @@ register_key() {
     mkdir -p /etc/security
 
     local entry
-    entry=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification 2>/dev/null) \
+    # NOTE: do NOT redirect stderr — pamu2fcfg prints its interactive "Enter PIN"
+    # and "touch the device" prompts to stderr; suppressing them leaves the user
+    # staring at a blinking cursor with no idea what to do. The credential line
+    # goes to stdout, which is what $(...) captures.
+    entry=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification) \
         || die "pamu2fcfg failed — check PIN and key insertion."
     echo "$entry" | grep -q ":" \
         || die "Unexpected pamu2fcfg output: $entry"
@@ -252,7 +260,8 @@ register_key() {
         press_enter "Press Enter when inserted..."
         detect_key
         local bcred
-        bcred=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification --nouser 2>/dev/null) \
+        # stderr left visible so the PIN + touch prompts show (see note above).
+        bcred=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification --nouser) \
             || die "pamu2fcfg failed for backup key."
         append_cred "$bcred"
         ok "Backup key registered"
@@ -720,7 +729,9 @@ enroll_login_key() {
     backup "$U2F_KEYS"
 
     local cred
-    cred=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification --nouser 2>/dev/null) \
+    # stderr left visible so the PIN + touch prompts show (suppressing it leaves
+    # the user at a blinking cursor with no prompt). Credential is on stdout.
+    cred=$(sudo -u "$TARGET_USER" pamu2fcfg --pin-verification --nouser) \
         || die "pamu2fcfg failed — check the PIN and that the key is inserted."
     [[ -n "$cred" ]] || die "Empty credential returned by pamu2fcfg."
 
