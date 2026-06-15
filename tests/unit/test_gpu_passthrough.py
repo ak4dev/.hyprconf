@@ -537,6 +537,10 @@ def _source_and_run(
 
     env = os.environ.copy()
     env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    # Sandbox the modprobe.d path into the test's tmp dir so the real helpers
+    # never write to (unwritable) /etc/modprobe.d on a CI runner. Tests that need
+    # a specific path still set it via env_extra, which is applied last and wins.
+    env.setdefault("_GPU_VFIO_CONF", str(bin_dir.parent / "vfio.conf"))
     if home_dir:
         env["HOME"] = str(home_dir)
     if env_extra:
