@@ -63,6 +63,12 @@ _vpn_profiles() {
     | awk -F: '$2=="vpn" || $2=="wireguard" { print $1 }'
 }
 
+# Minimal JSON string escaper for values embedded in the waybar payload. An NM
+# profile name is user-controlled and may contain a backslash or double-quote;
+# escaping keeps the tooltip valid JSON. (Tunnel device names are regex-
+# constrained to [a-z]+[0-9]* upstream, so only the profile name needs this.)
+_json_escape() { local s=$1; s=${s//\\/\\\\}; s=${s//\"/\\\"}; printf '%s' "$s"; }
+
 # ── status ───────────────────────────────────────────────────────────────────
 
 cmd_status() {
@@ -82,7 +88,7 @@ cmd_status() {
     local text tip cls
     if [[ -n "$profile" ]]; then
       text="󰦝"
-      tip="VPN connected: ${profile}"
+      tip="VPN connected: $(_json_escape "$profile")"
       [[ -n "$dev" ]] && tip+="\nInterface: ${dev}"
       cls="connected"
     else

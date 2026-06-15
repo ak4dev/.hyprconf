@@ -325,6 +325,19 @@ def test_status_json_disconnected_class(tmp_path: Path) -> None:
     assert data["class"] == "disconnected"
 
 
+def test_status_json_escapes_quotes_in_profile_name(tmp_path: Path) -> None:
+    # NM connection names are user-controlled and may contain a double-quote or
+    # backslash; the waybar tooltip must stay valid JSON (no broken/injected
+    # payload) and carry the name verbatim once parsed.
+    rc, out, _, _ = _run_vpn(
+        tmp_path, ["status", "--json"],
+        active='my"quoted"vpn:vpn\n', active_dev=_ACTIVE_DEV,
+    )
+    assert rc == 0
+    data = json.loads(out.strip())          # must parse — proves no malformed JSON
+    assert 'my"quoted"vpn' in data["tooltip"]
+
+
 # --- list -----------------------------------------------------------------
 
 def test_list_shows_only_vpn_profiles(tmp_path: Path) -> None:
