@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional
 
 from .file_edit import read_lines, update_line, delete_line, append_block, strip_comment, SOURCE_RE, resolve_source_paths
-from .paths import HYPR_DIR, HYPRLAND_CONF, WINRULES_FILE, WKSPRULES_FILE
+from .paths import HYPRLAND_CONF, WINRULES_FILE, WKSPRULES_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Data types

@@ -39,13 +39,10 @@ from hyprconf.paths import (     # noqa: E402
 from hyprconf.hyprctl import (   # noqa: E402
     get_option  as _lib_hyprctl_get,
     set_option  as _lib_hyprctl_apply,
-    is_active   as _lib_hyprland_active,
-    get_monitors as _lib_get_monitors,
 )
 from hyprconf.keybinds import (  # noqa: E402
     read_keybinds_with_location  as _lib_keybinds_with_loc,
     add_keybind                  as _lib_add_keybind,
-    delete_keybind               as _lib_delete_keybind,
     update_keybind               as _lib_update_keybind,
 )
 from hyprconf.rules import (     # noqa: E402
@@ -53,9 +50,6 @@ from hyprconf.rules import (     # noqa: E402
     read_workspace_rules_with_location as _lib_wksp_rules,
     add_window_rule                    as _lib_add_win_rule,
     add_workspace_rule                 as _lib_add_wksp_rule,
-    delete_rule                        as _lib_delete_rule,
-    update_window_rule                 as _lib_update_win_rule,
-    update_workspace_rule              as _lib_update_wksp_rule,
 )
 from hyprconf.monitors import (  # noqa: E402
     read_monitor_configs as _lib_monitor_configs,
@@ -66,40 +60,21 @@ from hyprconf.monitors import (  # noqa: E402
 from hyprconf.hyprlock import (  # noqa: E402
     read_hyprlock_blocks   as _lib_lock_blocks,
     add_hyprlock_block     as _lib_add_lock_block,
-    delete_hyprlock_block  as _lib_delete_lock_block,
-    update_hyprlock_field  as _lib_update_lock_field,
     BLOCK_TYPES            as _LOCK_BLOCK_TYPES,
 )
 from hyprconf.hypridle import (  # noqa: E402
     read_hypridle_blocks   as _lib_idle_blocks,
     add_hypridle_block     as _lib_add_idle_block,
-    delete_hypridle_block  as _lib_delete_idle_block,
-    update_hypridle_field  as _lib_update_idle_field,
     BLOCK_TYPES            as _IDLE_BLOCK_TYPES,
 )
 from hyprconf.hyprpaper import (  # noqa: E402
     read_all               as _lib_paper_read_all,
-    read_wallpaper_blocks  as _lib_paper_wp_blocks,
-    read_wallpaper_lines   as _lib_paper_wp_lines,
-    read_preloads          as _lib_paper_preloads,
-    read_settings          as _lib_paper_settings,
     add_preload            as _lib_add_preload,
     add_wallpaper_block    as _lib_add_wp_block,
-    delete_preload         as _lib_delete_preload,
-    delete_wallpaper_line  as _lib_delete_wp_line,
-    delete_wallpaper_block as _lib_delete_wp_block,
-    update_wallpaper_block_field as _lib_update_wp_field,
-    set_setting            as _lib_paper_set_setting,
-    set_wallpaper_line     as _lib_set_wp_line,
-)
-from hyprconf.block_conf import (  # noqa: E402
-    update_block_field as _lib_update_block_field,
-    delete_block       as _lib_delete_block,
 )
 from hyprconf.file_edit import ( # noqa: E402
     update_line  as _lib_update_line,
     delete_line  as _lib_delete_line,
-    append_block as _lib_append_block,
     read_lines   as _lib_read_lines,
 )
 
@@ -1785,7 +1760,7 @@ class HyprconfApp(App):
         table.add_column("DEFAULT",     width=14)
         table.add_column("DESCRIPTION", width=50)
         q = self._search_query
-        for key, (type_, default, desc) in OPTION_SCHEMA[section].items():
+        for key, (_type, default, desc) in OPTION_SCHEMA[section].items():
             if q and q not in key.lower() and q not in desc.lower():
                 continue
             val, source = get_current_value(section, key, default, self._pending)
@@ -2137,7 +2112,7 @@ class HyprconfApp(App):
                             return
                         kind, mods, key, disp, args = result
                         ok = _lib_update_keybind(_fp, _li, kind, mods, key, disp, args)
-                        self.notify(f"Keybind updated" if ok else "Failed to update keybind",
+                        self.notify("Keybind updated" if ok else "Failed to update keybind",
                                     severity="information" if ok else "error")
                         self._load_section(section)
                     self.push_screen(scr, _handle_kb_edit)
@@ -2158,7 +2133,7 @@ class HyprconfApp(App):
                         if result is None:
                             return
                         ok = _lib_update_line(_fp, _li, result)
-                        self.notify(f"Rule updated" if ok else "Failed to update rule",
+                        self.notify("Rule updated" if ok else "Failed to update rule",
                                     severity="information" if ok else "error")
                         self._load_section(section)
                     self.push_screen(scr, _handle_rule_edit)
@@ -2176,8 +2151,6 @@ class HyprconfApp(App):
                     parts = payload.split("::")
                     if len(parts) >= 5:
                         file_path = parts[0]
-                        blk_start = int(parts[1])
-                        blk_end   = int(parts[2])
                         line_idx  = int(parts[3])
                         field_key = "::".join(parts[4:])
                         lines_in_file = _lib_read_lines(Path(file_path))
@@ -2458,7 +2431,7 @@ class HyprconfApp(App):
                     return
                 kind, mods, key, disp, args = result
                 ok = _lib_add_keybind(kind, mods, key, disp, args, KEYBINDS_CONF)
-                self.notify(f"Keybind added" if ok else "Failed to add keybind",
+                self.notify("Keybind added" if ok else "Failed to add keybind",
                             severity="information" if ok else "error")
                 self._load_section(section)
             self.push_screen(KeybindEditScreen(), _handle)
@@ -2503,7 +2476,7 @@ class HyprconfApp(App):
             def _handle(keyword: Optional[str]) -> None:
                 if not keyword:
                     return
-                ok_rt = _run(["hyprctl", "keyword", "monitor", keyword])
+                _run(["hyprctl", "keyword", "monitor", keyword])
                 parts = [p.strip() for p in keyword.split(",")]
                 if len(parts) >= 4:
                     _lib_upsert_monitor(

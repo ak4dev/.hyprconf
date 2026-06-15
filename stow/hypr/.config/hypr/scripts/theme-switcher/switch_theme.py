@@ -2224,7 +2224,7 @@ def _extract_dominant_colors(image_path: str, num_colors: int = 8) -> list:
         raise RuntimeError(
             "python-pillow is required for theme generation. "
             "Install with: sudo pacman -S python-pillow"
-        )
+        ) from None
     img = Image.open(image_path).convert("RGB")
     img = img.resize((150, 150))
     result = img.quantize(colors=num_colors, method=Image.Quantize.MEDIANCUT)

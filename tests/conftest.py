@@ -67,7 +67,6 @@ def hypr_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
                         hypr / "monitors.conf")
     monkeypatch.setattr(_rules_mod, "HYPRLAND_CONF",
                         hypr / "hyprland.conf")
-    monkeypatch.setattr(_rules_mod, "HYPR_DIR", hypr)
     monkeypatch.setattr(_rules_mod, "WINRULES_FILE",
                         hypr / "conf.d" / "50-windowrules.conf")
     monkeypatch.setattr(_rules_mod, "WKSPRULES_FILE",

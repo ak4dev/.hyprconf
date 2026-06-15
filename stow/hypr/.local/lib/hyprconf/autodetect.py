@@ -231,7 +231,7 @@ def first_run_check(interactive: bool = True) -> None:
         )
         return
 
-    print(f"\n  hyprconf — first run detected")
+    print("\n  hyprconf — first run detected")
     print(f"  Found existing Hyprland config: {config}")
     print("  Scan and non-destructively import your current settings? [Y/n] ", end="", flush=True)
     answer = input().strip().lower()
