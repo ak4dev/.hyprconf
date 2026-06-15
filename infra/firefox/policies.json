@@ -19,6 +19,14 @@
       }
     },
     "Preferences": {
+      "sidebar.revamp": {
+        "Value": true,
+        "Status": "default"
+      },
+      "sidebar.verticalTabs": {
+        "Value": true,
+        "Status": "default"
+      },
       "browser.tabs.verticalTabs": {
         "Value": true,
         "Status": "default"

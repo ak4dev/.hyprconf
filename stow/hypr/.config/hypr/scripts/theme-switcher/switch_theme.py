@@ -104,6 +104,11 @@ _RE_WAYBAR_RGBA_BG    = re.compile(r"background:\s*rgba\(40,\s*42,\s*54,\s*0\.\d
 
 FIREFOX_ENFORCED_PREFS = {
     # --- UI ---
+    # Vertical tabs: released Firefox (137+) uses sidebar.revamp + sidebar.verticalTabs.
+    # The older browser.tabs.verticalTabs* prefs are kept for back-compat but are
+    # ignored by current Firefox, so the sidebar.* prefs are what actually apply.
+    "sidebar.revamp": True,
+    "sidebar.verticalTabs": True,
     "browser.tabs.verticalTabs": True,
     "browser.tabs.verticalTabs.showPinnedTabs": True,
     "browser.tabs.drawInTitlebar": True,

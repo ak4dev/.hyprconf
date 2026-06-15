@@ -87,6 +87,10 @@ REQUIRED_PRIVACY_KEYS = [
 ]
 
 REQUIRED_UI_KEYS = [
+    # Released-Firefox vertical-tabs prefs (137+).
+    "sidebar.revamp",
+    "sidebar.verticalTabs",
+    # Legacy/nightly vertical-tabs prefs, kept for back-compat.
     "browser.tabs.verticalTabs",
     "browser.tabs.verticalTabs.showPinnedTabs",
     "toolkit.legacyUserProfileCustomizations.stylesheets",
@@ -110,6 +114,9 @@ def test_enforced_prefs_ui_keys_present(key: str) -> None:
 
 
 def test_enforced_prefs_vertical_tabs_enabled() -> None:
+    # The sidebar.* prefs are what actually enable vertical tabs in current Firefox.
+    assert _st.FIREFOX_ENFORCED_PREFS["sidebar.revamp"] is True
+    assert _st.FIREFOX_ENFORCED_PREFS["sidebar.verticalTabs"] is True
     assert _st.FIREFOX_ENFORCED_PREFS["browser.tabs.verticalTabs"] is True
 
 
