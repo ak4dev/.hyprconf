@@ -3,6 +3,12 @@
 
 export PYTHONDONTWRITEBYTECODE := 1
 
+# All shipped + test Python: the library, the two standalone scripts, and tests.
+PYSRC := stow/hypr/.local/lib/hyprconf/ \
+         stow/hypr/.config/hypr/scripts/theme-switcher/switch_theme.py \
+         stow/hypr/.config/hypr/scripts/hyprconf-tui/main.py \
+         tests/
+
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	    awk -F':.*?## ' '{printf "  %-20s %s\n", $$1, $$2}'
@@ -42,11 +48,13 @@ shellcheck: ## Run shellcheck on all bash scripts (severity=warning)
 	done | xargs -0 -r shellcheck --severity=warning
 	@echo "shellcheck: clean"
 
-lint: ## Run ruff linter on source and tests
-	ruff check stow/hypr/.local/lib/hyprconf/ tests/
+lint: ## Run ruff lint + format check on all Python (the CI gate)
+	ruff check $(PYSRC)
+	ruff format --check $(PYSRC)
 
-fmt: ## Auto-format source and tests with ruff
-	ruff format stow/hypr/.local/lib/hyprconf/ tests/
+fmt: ## Auto-format all Python with ruff (format + safe lint fixes)
+	ruff format $(PYSRC)
+	ruff check --fix $(PYSRC)
 
 clean: ## Remove build artefacts and caches
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

@@ -12,17 +12,24 @@ concurrency:
 
 jobs:
   lint:
-    name: "Lint (shellcheck)"
+    name: "Lint (shellcheck + ruff)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: ShellCheck (all bash scripts, severity=warning)
-        run: |
-          git ls-files -z | while IFS= read -r -d '' f; do
-            [ -f "$f" ] && head -n1 "$f" | grep -q bash && printf '%s\0' "$f"
-          done | xargs -0 -r shellcheck --severity=warning
-          echo "shellcheck: clean"
+        run: make shellcheck
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Ruff (lint + format check)
+        run: make lint
 
   unit-integration:
     name: "Unit + Integration (Tiers 1–2)"
