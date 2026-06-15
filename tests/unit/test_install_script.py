@@ -177,12 +177,22 @@ class TestEnsureFzf:
 # ---------------------------------------------------------------------------
 
 class TestPickTimezone:
-    def test_fzf_uses_dev_tty_io(self) -> None:
-        """fzf in _pick_timezone uses </dev/tty >/dev/tty for correct terminal I/O."""
+    def test_fzf_pipes_candidates_and_captures_selection(self) -> None:
+        """fzf gets candidates on stdin and its selection is captured via $().
+
+        It must NOT redirect fzf's stdin/stdout through /dev/tty: `… | fzf </dev/tty`
+        overrides the candidate pipe and `picked=$(… >/dev/tty)` sends the selection
+        to the terminal instead of the capture — both leave `picked` empty, silently
+        breaking the picker (shellcheck SC2259/SC2328). fzf opens /dev/tty itself for
+        its interactive UI, so the plain piped-and-captured form is correct and works
+        under `curl | bash`.
+        """
         func = _extract_function("_pick_timezone")
-        assert "</dev/tty" in func and ">/dev/tty" in func, (
-            "fzf call in _pick_timezone must redirect I/O through /dev/tty "
-            "so it works correctly when stdout is captured in a subshell"
+        assert "| fzf" in func, "candidates must be piped into fzf"
+        assert "picked=$(" in func, "fzf selection must be captured via command substitution"
+        assert "</dev/tty" not in func and ">/dev/tty" not in func, (
+            "fzf must not redirect stdin/stdout through /dev/tty — it overrides the "
+            "candidate pipe and defeats the $() capture; fzf handles /dev/tty itself"
         )
 
     def test_no_tty_stdin_stdout_guard_on_fzf(self) -> None:

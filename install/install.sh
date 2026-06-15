@@ -555,7 +555,7 @@ _pick_timezone() {
       --height=15 \
       --reverse \
       --no-mouse \
-      --header='Type to filter  (e.g. Europe, America, Asia)' </dev/tty >/dev/tty) || true
+      --header='Type to filter  (e.g. Europe, America, Asia)') || true
     if [[ -n "$picked" && -f "/usr/share/zoneinfo/$picked" ]]; then
       TIMEZONE="$picked"
       return 0
@@ -1499,6 +1499,7 @@ binary_install() {
 
   # PATH hint
   if ! command -v hyprconf &>/dev/null; then
+    # shellcheck disable=SC2088  # literal ~ is intentional in this user-facing hint
     log_warn "~/.local/bin is not in your PATH."
     printf '%s  Add this to your shell rc:%s\n'         "$DM" "$RS"
     printf '%s    export PATH="$HOME/.local/bin:$PATH"%s\n\n' "$AM" "$RS"
