@@ -46,6 +46,44 @@ addon)? does it preserve or improve privacy and ship fail-closed? is it
 sync-patchable, documented in the README, and tested? does it avoid vendor
 lock-in? If any answer is "no", reshape the change until they're all "yes".
 
+## Audit principles (the standing bar for every change)
+
+These are the invariants the project is continuously audited against. Every change
+— feature, fix, or refactor — must satisfy **all** of them, **in the same commit**,
+and future work must keep them true automatically. The full rule set lives in
+[`.github/copilot-instructions.md`](.github/copilot-instructions.md); these are the
+non-negotiables:
+
+1. **Tests move in lockstep with features.** Adding or changing a feature (CLI
+   subcommand, flag, script, config path, package, addon) means adding or updating
+   its tests in the *same* commit, in the correct tier (`unit` / `integration` /
+   `tui` / `vm` / `install`). When a change intentionally alters behaviour, update
+   the affected test to assert the **new** contract and say so in the commit
+   message — never silently weaken, delete, or loosen a test just to get a green
+   run. A feature without a test is unfinished. Run `make test` before every commit.
+
+2. **Docs move in lockstep too.** `README.md`, this file, and `web/src/content.ts`
+   keep 1:1 parity with the code — every command, flag, subcommand, package,
+   keybind, and theme. Adding or renaming one means updating all of them in the
+   same commit. Treat doc drift as a correctness bug, not a follow-up.
+
+3. **Unit/integration tests stay hermetic.** They must pass on a bare
+   `ubuntu-latest` runner: no reading/writing real system paths, no host tools, no
+   ambient state. Make system paths env-overridable (`: "${_VAR:=/default}"`, never
+   `readonly`) and point them at a `tmp_path`; stub external commands via a
+   fake-bins `PATH`. Anything needing Arch/hardware goes in the `vm`/`install` tier.
+
+4. **Security invariants never regress.** Ship fail-closed (new network features
+   opt-in); keep the lock screen (hyprlock) and a real install's LUKS
+   **password-only**; never weaken sshd; pass secrets via stdin, never argv; leave
+   no `NOPASSWD`/keyfile/secret artifact behind; `udev RUN+=` only ever targets a
+   root-owned path; escape user-controlled values embedded in generated
+   JSON/config; harden conservatively (never break the browser sandbox or the VPN).
+
+5. **Hygiene & consistency.** `shellcheck` and `ruff` (pyflakes/bugbear) stay
+   clean; no dead code; no committed build artifacts; install-time fixes stay
+   `hyprconf sync`-patchable; addons follow the five-function pattern.
+
 ## Repo rules
 
 - **Never commit PII.** No real names, emails, hostnames, IPs, MAC addresses, serial numbers, API keys/tokens, or absolute paths containing the user's home directory (e.g. `/home/<user>`) may appear in tracked files — configs, docs, scripts, or commit messages. Sanitize/genericize before committing, under all circumstances.

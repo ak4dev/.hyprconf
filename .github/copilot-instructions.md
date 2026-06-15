@@ -149,7 +149,7 @@ Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s add
 ## Testing Rules (Non-Negotiable)
 
 - **100% test coverage is required for all new or modified code.** Before committing any change, write tests that exercise every new code path and every modified branch. Run `make test` and verify coverage does not decrease.
-- **Never modify existing tests without explicit user notification and confirmation.** Tests are the safety net for all features. Silently changing a test to make it pass defeats its purpose. If a test needs to change, stop, explain why to the user, and get approval first.
+- **Tests track features, but are never silently weakened.** When a change *intentionally* alters behaviour, update the affected test to assert the **new** contract in the same commit and call it out in the commit message — keeping tests in lockstep with features is required, not optional. What's forbidden is silently gutting, deleting, or loosening a test to mask a regression or just to get a green run: if a test fails for any reason other than an intended, documented behaviour change, fix the code, not the test.
 - When adding a new feature (script, function, CLI command, config path), add corresponding tests in the appropriate `tests/` tier (`unit/`, `integration/`, `vm/`, or `install/`).
 - Test files live under `tests/`. Run the full suite with `make test`.
 - **Unit/integration tests must be hermetic — they run on a bare `ubuntu-latest` CI runner, NOT Arch.** `make test` passing on a dev Arch box is necessary but NOT sufficient: the GitHub `Tests` workflow runs `tests/unit` + `tests/integration` on Ubuntu, which lacks Arch/Hyprland tooling (`pacman`, `hyprctl`, `nmcli`, `stow`, often `nft`/`pciutils`), has `/bin/sh` → `dash` (not bash), and no real `/sys/kernel/iommu_groups`, writable `/etc`, or the developer's group memberships. A test that reads or writes a real system path, calls a host tool, or depends on `$USER`'s groups will pass locally and fail CI. Rules:
@@ -171,7 +171,7 @@ Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s add
 
 ## Scripts
 
-- All scripts must use `#!/usr/bin/env bash` and `set -euo pipefail`.
+- All scripts must use `#!/usr/bin/env bash` and `set -euo pipefail`. Two deliberate exceptions: a **sourced** library (e.g. `assets/banner.sh`) must NOT set shell options (they would leak into the caller's shell), and a script that does its own explicit error handling via a `die`/`|| ...` pattern (e.g. `hyprconf-vpn`, `yubikey-fido2-setup`) may use `set -uo pipefail` to avoid `-e`'s fragility — do not add `-e` to these.
 - Prefer `hyprctl keyword` for runtime changes that do not require a full reload.
 - Do not use `pkill` or `killall` in new scripts — use `kill <PID>` with a looked-up PID instead.
 
