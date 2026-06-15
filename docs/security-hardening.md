@@ -38,6 +38,45 @@ then replace `poweroff` with `systemctl hibernate` in `hyprconf-idle-action`.
 
 ---
 
+## VPN-only mode (kill-switch)
+
+`hyprconf vpn` drives any VPN profile NetworkManager manages — OpenVPN (via the
+core `networkmanager-openvpn` plugin) or WireGuard — provider-agnostically:
+
+```
+hyprconf vpn status [--json]     # connection + kill-switch state (waybar reads --json)
+hyprconf vpn import <file>       # .ovpn → OpenVPN, .conf → WireGuard
+hyprconf vpn connect [name]      # defaults to the only profile if just one
+hyprconf vpn killswitch on|off|status
+```
+
+`killswitch on` enforces **fail-closed, VPN-only networking** — if the tunnel
+drops, traffic is blocked rather than leaking onto the clear net. Two backends,
+chosen automatically:
+
+- **ProtonVPN** (`hyprconf addon vpn` installs `proton-vpn-cli`): delegates to
+  Proton's own maintained kill-switch (`protonvpn config set kill-switch
+  standard`), which also covers DNS and re-connection.
+- **Generic** (any other NM VPN): a self-contained nftables table
+  `inet hyprconf_killswitch` hooked at `output priority -10` (so it drops before
+  ufw's chains ever see the packet). Policy `drop`, with explicit accepts for
+  loopback, `ct state established,related` (keeps a live tunnel + its control
+  channel up), the VPN tunnel device (`tun0`/`wg0`), the local LAN + DHCP, and
+  the detected VPN server endpoint(s) so the tunnel can re-establish. The
+  ruleset is written to `/etc/hyprconf/killswitch.nft`.
+
+Notes:
+
+- The generic table is **session-scoped** — it is not auto-loaded at boot (a
+  mis-set kill-switch must never strand a machine with no network). To make it
+  persist, wire `/etc/hyprconf/killswitch.nft` into `nftables.service`.
+- `hyprconf vpn status` reports `Kill-switch: ON … no VPN up — traffic is
+  fail-closed` so the blocked-and-disconnected state is unambiguous.
+- Turn it off with `hyprconf vpn killswitch off` (removes the table / unsets the
+  Proton setting).
+
+---
+
 ## Hands-on: key-only LUKS (remove the passphrase fallback)
 
 By default the disk unlocks with the YubiKey **or** the original passphrase — and

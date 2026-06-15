@@ -51,6 +51,7 @@
     │   │           └── themes/             # Theme JSON files
     │   └── .local/
     │       ├── bin/hyprconf               # CLI entry point → ~/.local/bin/
+    │       ├── bin/hyprconf-vpn           # NetworkManager VPN control + kill-switch
     │       └── lib/hyprconf/              # Shared Python library
     │           ├── schema.py              # OPTION_SCHEMA — all Hyprland keys + types + defaults
     │           ├── config.py              # Read/write 99-hyprconf-local.conf

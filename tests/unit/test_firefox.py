@@ -678,3 +678,84 @@ def test_get_default_firefox_profile_legacy_preferred_when_both_exist(
     result = _st.get_default_firefox_profile()
     assert result == legacy_profile
 
+
+# ---------------------------------------------------------------------------
+# LibreWolf — Firefox-fork theming via the shared engine
+# (hyprconf addon librewolf)
+# ---------------------------------------------------------------------------
+
+def test_firefox_theme_prefs_enables_userchrome() -> None:
+    # The minimal LibreWolf subset must still enable userChrome.css, or our
+    # palette stylesheet would never load.
+    assert _st.FIREFOX_THEME_PREFS["toolkit.legacyUserProfileCustomizations.stylesheets"] is True
+
+
+def test_firefox_theme_prefs_is_minimal_not_full_hardening() -> None:
+    # LibreWolf ships hardened — we must NOT re-impose Firefox's full enforced
+    # set on it (that would fight its own choices). The subset stays small.
+    assert "toolkit.telemetry.enabled" not in _st.FIREFOX_THEME_PREFS
+    assert len(_st.FIREFOX_THEME_PREFS) < len(_st.FIREFOX_ENFORCED_PREFS)
+
+
+def test_get_default_librewolf_profile_resolves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lw_dir = tmp_path / "librewolf"
+    profile_dir = lw_dir / "abc.default"
+    profile_dir.mkdir(parents=True)
+    ini = lw_dir / "profiles.ini"
+    _write_profiles_ini(ini, "[Profile0]\nPath=abc.default\nIsRelative=1\nDefault=1\n")
+    monkeypatch.setattr(_st, "LIBREWOLF_PROFILES_INI", str(ini))
+    monkeypatch.setattr(_st, "LIBREWOLF_PROFILES_INI_XDG", str(lw_dir / "xdg.ini"))
+    assert _st.get_default_librewolf_profile() == profile_dir
+
+
+def test_get_default_librewolf_profile_none_when_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(_st, "LIBREWOLF_PROFILES_INI", str(tmp_path / "nope.ini"))
+    monkeypatch.setattr(_st, "LIBREWOLF_PROFILES_INI_XDG", str(tmp_path / "nope2.ini"))
+    assert _st.get_default_librewolf_profile() is None
+
+
+def test_update_librewolf_writes_theme_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = _make_profile(tmp_path)
+    monkeypatch.setattr(_st, "get_default_librewolf_profile", lambda: profile)
+    monkeypatch.setattr(_st, "LIBREWOLF_BASE_PREFS_FILE", str(tmp_path / "user.js"))
+
+    _st.update_librewolf(_DARK_THEME)
+
+    css = (profile / "chrome" / "userChrome.css").read_text()
+    assert _DARK_THEME["background"] in css
+    userjs = (profile / "user.js").read_text()
+    assert 'user_pref("ui.systemUsesDarkTheme", 1)' in userjs
+    # userChrome enabler present so the palette stylesheet loads.
+    assert "toolkit.legacyUserProfileCustomizations.stylesheets" in userjs
+
+
+def test_update_librewolf_does_not_impose_full_hardening(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = _make_profile(tmp_path)
+    monkeypatch.setattr(_st, "get_default_librewolf_profile", lambda: profile)
+    monkeypatch.setattr(_st, "LIBREWOLF_BASE_PREFS_FILE", str(tmp_path / "user.js"))
+
+    _st.update_librewolf(_DARK_THEME)
+
+    userjs = (profile / "user.js").read_text()
+    # A Firefox-only hardening pref must NOT be written for LibreWolf.
+    assert "toolkit.telemetry.enabled" not in userjs
+
+
+def test_update_librewolf_skips_when_no_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(_st, "get_default_librewolf_profile", lambda: None)
+    _st.update_librewolf(_DARK_THEME)  # must not raise
+
+
+def test_update_librewolf_is_in_apply_flow() -> None:
+    # The orchestrator must call update_librewolf alongside update_firefox.
+    src = SWITCH_THEME_PATH.read_text(encoding="utf-8")
+    assert "update_librewolf(theme)" in src
+

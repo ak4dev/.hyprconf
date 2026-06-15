@@ -137,6 +137,16 @@ iio-sensor-proxy
 # Firewall
 ufw
 
+# VPN / Network privacy
+# Core VPN support — NetworkManager manages OpenVPN (.ovpn) and WireGuard (.conf)
+# profiles; `hyprconf vpn` wraps nmcli around them. networkmanager-openvpn is the
+# plugin NM needs to run imported OpenVPN profiles (e.g. ProtonVPN .ovpn configs);
+# wireguard-tools provides wg/wg-quick so nmcli can import WireGuard profiles too.
+# For ProtonVPN's official client (NetShield + built-in kill-switch), additionally
+# run: hyprconf addon vpn
+networkmanager-openvpn
+wireguard-tools
+
 # Security: YubiKey FIDO2 + PIN login (optional hardware)
 # Required by `yubikey-fido2-setup` (stowed to ~/.local/bin). The script
 # auto-installs these via pacman if missing, so they stay commented here for

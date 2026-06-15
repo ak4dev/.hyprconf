@@ -42,8 +42,9 @@
 - **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
 - **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`hyprconf hardware gpu vm`) using `dockurr/windows` with Looking Glass for near-native display; comprehensive VM anti-detection (SMBIOS, CPU flags, device elimination, disk identity) for anti-cheat evasion (EAC, VAC); installed via `hyprconf addon vfio`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
-- **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
-- **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch
+- **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, LibreWolf, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
+- **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch. Add **LibreWolf** (privacy fork — RFP, no telemetry) via `hyprconf addon librewolf`; it's auto-themed by the same engine
+- **VPN & kill-switch** — `hyprconf vpn` manages any NetworkManager VPN profile (OpenVPN or WireGuard) provider-agnostically: `status`/`list`/`connect`/`disconnect`/`import`, plus a waybar indicator. `hyprconf vpn killswitch on` enforces fail-closed VPN-only networking — delegating to ProtonVPN's maintained kill-switch when the `vpn` addon is installed, or a self-contained nftables egress guard otherwise. ProtonVPN's official CLI (NetShield, Secure Core) installs via `hyprconf addon vpn`
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
 - **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. hyprlock is left password-only by design
 - **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
@@ -267,6 +268,14 @@ hyprconf yubikey status          Show keys, PAM coverage, and LUKS FIDO2 slots (
 hyprconf yubikey setup           Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)
 hyprconf yubikey enroll          Enroll an additional / backup key (login + LUKS slot)
 
+# VPN / Network privacy
+hyprconf vpn status [--json]     Show VPN connection + kill-switch state
+hyprconf vpn list                List configured VPN profiles
+hyprconf vpn connect [name]      Bring up a VPN (default: the only profile)
+hyprconf vpn disconnect [name]   Tear down the active (or named) VPN
+hyprconf vpn import <file>       Import an OpenVPN .ovpn / WireGuard .conf
+hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode
+
 # Utilities
 hyprconf doctor                  System health check (packages, services, configs, symlinks)
 hyprconf clipboard [fzf|rofi|wipe]  Clipboard history picker (cliphist)
@@ -280,7 +289,7 @@ hyprconf record [start|stop|toggle|status]  Screen recording (wf-recorder)
 
 # Addons
 hyprconf addon                   List available addons and their status
-hyprconf addon <name>            Install a named addon (e.g. dev, vfio)
+hyprconf addon <name>            Install a named addon (e.g. dev, vfio, vpn, librewolf)
 
 # Developer
 hyprconf dev                     Show developer pipeline commands
@@ -645,6 +654,7 @@ while the LUKS passphrase always remains as a fallback key slot.
 | Fonts | `ttf-jetbrains-mono-nerd`, `noto-fonts-emoji` |
 | Power management | `power-profiles-daemon` |
 | Firewall | `ufw` |
+| VPN / Network privacy | `networkmanager-openvpn`, `wireguard-tools` — core (drive any NM OpenVPN/WireGuard profile via `hyprconf vpn`); `proton-vpn-cli` via `hyprconf addon vpn`; `librewolf-bin` via `hyprconf addon librewolf` |
 | Security (optional) | `libfido2`, `pam-u2f`, `yubikey-manager` — for `yubikey-fido2-setup`; commented in `packages`, auto-installed by the script |
 | Testing | `python-pytest`, `python-pytest-asyncio`, `python-coverage` |
 | AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` *(yay is installed automatically during full setup)* |

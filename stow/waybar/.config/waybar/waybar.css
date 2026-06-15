@@ -66,7 +66,7 @@
 
 /* Right-side modules — flush layout */
 #cpu, #memory, #custom-cpu_temp, #network, #pulseaudio, #battery, #clock, #tray,
-#custom-gpu, #custom-power_status {
+#custom-gpu, #custom-vpn, #custom-power_status {
   padding: 0 8px;
   margin: 0;
 }
@@ -130,6 +130,20 @@
 
 #custom-gpu {
   color: @purple;
+}
+
+/* VPN module: green when tunnelled, brighter when the kill-switch is armed,
+   dim grey when off. */
+#custom-vpn.connected {
+  color: @green;
+}
+
+#custom-vpn.connected-killswitch {
+  color: @cyan;
+}
+
+#custom-vpn.disconnected {
+  color: @comment;
 }
 
 #custom-power_status.normal {

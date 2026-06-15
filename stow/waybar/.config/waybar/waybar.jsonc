@@ -18,6 +18,7 @@
     "custom/cpu_temp",
     "memory",
     "custom/gpu",
+    "custom/vpn",
     "network",
     "pulseaudio",
     "custom/power_status"
@@ -97,5 +98,12 @@
     "format": "󰾲 {}",
     "interval": 2,
     "return-type": "json"
+  },
+  "custom/vpn": {
+    "exec": "$HOME/.local/bin/hyprconf vpn status --json",
+    "interval": 5,
+    "return-type": "json",
+    "format": "{}",
+    "on-click": "$HOME/.local/bin/hyprconf vpn toggle"
   }
 }

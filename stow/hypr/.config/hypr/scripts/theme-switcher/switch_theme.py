@@ -61,6 +61,12 @@ FIREFOX_BASE_PREFS_FILE_XDG = os.path.expanduser("~/.config/mozilla/firefox/user
 FIREFOX_THEME_PAYLOAD_DIR = REPO_ROOT / "theme" / "firefox" / "extensions"
 FIREFOX_COMPACT_DARK_ID   = "firefox-compact-dark@mozilla.org"
 FIREFOX_COMPACT_LIGHT_ID  = "firefox-compact-light@mozilla.org"
+# LibreWolf — a Firefox fork, so the same profile/userChrome machinery applies.
+# It lives in its own profile root (installed via `hyprconf addon librewolf`).
+LIBREWOLF_PROFILES_INI     = os.path.expanduser("~/.librewolf/profiles.ini")
+LIBREWOLF_PROFILES_INI_XDG = os.path.expanduser("~/.config/librewolf/profiles.ini")
+LIBREWOLF_BASE_PREFS_FILE     = os.path.expanduser("~/.librewolf/user.js")
+LIBREWOLF_BASE_PREFS_FILE_XDG = os.path.expanduser("~/.config/librewolf/user.js")
 GTK3_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-3.0/settings.ini")
 GTK4_SETTINGS_FILE = os.path.expanduser("~/.config/gtk-4.0/settings.ini")
 XSETTINGSD_CONFIG_FILE = os.path.expanduser("~/.config/xsettingsd/xsettingsd.conf")
@@ -148,6 +154,17 @@ FIREFOX_ENFORCED_PREFS = {
     "privacy.trackingprotection.enabled": True,
     "privacy.trackingprotection.socialtracking.enabled": True,
     # --- userChrome.css / compact mode ---
+    "toolkit.legacyUserProfileCustomizations.stylesheets": True,
+    "browser.compactmode.show": True,
+}
+
+# Minimal subset applied to LibreWolf. LibreWolf ships its own privacy hardening
+# (RFP, telemetry off, etc.), so we deliberately do NOT re-impose the full
+# FIREFOX_ENFORCED_PREFS on it — only what the *theme* needs: the userChrome.css
+# enabler (so our palette stylesheet loads) plus compact mode. The per-theme
+# ui.systemUsesDarkTheme pref and any theme-specific firefox.prefs are layered on
+# top in _apply_browser_theme.
+FIREFOX_THEME_PREFS = {
     "toolkit.legacyUserProfileCustomizations.stylesheets": True,
     "browser.compactmode.show": True,
 }
@@ -925,17 +942,21 @@ def _profile_path_from_entry(
     return Path(base_dir, path_value)
 
 
-def get_default_firefox_profile() -> Optional[Path]:
-    # Try legacy path first, then XDG path (modern Arch Linux Firefox)
+def _default_profile_from_inis(ini_paths: list) -> Optional[Path]:
+    """Resolve the default profile dir from a Firefox-style profiles.ini.
+
+    Shared by Firefox and LibreWolf (a Firefox fork with an identical
+    profiles.ini format) — only the candidate ini paths differ.
+    """
     ini_path: Optional[str] = None
-    for _candidate in [FIREFOX_PROFILES_INI, FIREFOX_PROFILES_INI_XDG]:
+    for _candidate in ini_paths:
         if os.path.exists(_candidate):
             ini_path = _candidate
             break
     if ini_path is None:
         return None
 
-    firefox_dir = os.path.dirname(ini_path)
+    base_dir = os.path.dirname(ini_path)
     parser = configparser.RawConfigParser()
     parser.read(ini_path)
 
@@ -944,7 +965,7 @@ def get_default_firefox_profile() -> Optional[Path]:
         if section.lower().startswith("install") and parser.has_option(section, "Default"):
             rel_path = parser.get(section, "Default")
             if rel_path:
-                candidate = _profile_path_from_entry(rel_path, "1", base_dir=firefox_dir)
+                candidate = _profile_path_from_entry(rel_path, "1", base_dir=base_dir)
                 if candidate.is_dir():
                     return candidate
 
@@ -955,7 +976,7 @@ def get_default_firefox_profile() -> Optional[Path]:
             if not rel_path:
                 continue
             is_relative = parser.get(section, "IsRelative", fallback="1")
-            candidate = _profile_path_from_entry(rel_path, is_relative, base_dir=firefox_dir)
+            candidate = _profile_path_from_entry(rel_path, is_relative, base_dir=base_dir)
             if candidate.is_dir():
                 return candidate
 
@@ -964,11 +985,20 @@ def get_default_firefox_profile() -> Optional[Path]:
         if parser.has_option(section, "Path"):
             rel_path = parser.get(section, "Path")
             is_relative = parser.get(section, "IsRelative", fallback="1")
-            candidate = _profile_path_from_entry(rel_path, is_relative, base_dir=firefox_dir)
+            candidate = _profile_path_from_entry(rel_path, is_relative, base_dir=base_dir)
             if candidate.is_dir():
                 return candidate
 
     return None
+
+
+def get_default_firefox_profile() -> Optional[Path]:
+    # Try legacy path first, then XDG path (modern Arch Linux Firefox)
+    return _default_profile_from_inis([FIREFOX_PROFILES_INI, FIREFOX_PROFILES_INI_XDG])
+
+
+def get_default_librewolf_profile() -> Optional[Path]:
+    return _default_profile_from_inis([LIBREWOLF_PROFILES_INI, LIBREWOLF_PROFILES_INI_XDG])
 
 
 def get_firefox_builtin_theme_id(theme: Dict[str, Any]) -> str:
@@ -1155,27 +1185,35 @@ def set_firefox_theme_activation(profile_path: Path, theme_id: str) -> bool:
     return True
 
 
-def update_firefox(theme: Dict[str, Any]) -> None:
-    profile_path = get_default_firefox_profile()
-    if not profile_path:
-        print("Firefox profile not found; skipping Firefox theme.")
-        return
+def _apply_browser_theme(
+    theme: Dict[str, Any],
+    display: str,
+    profile_path: Path,
+    base_prefs_files: list,
+    proc_names: list,
+    enforced_prefs: Dict[str, Any],
+) -> None:
+    """Apply hyprconf's theme + prefs to one Firefox-engine browser profile.
 
-    # Check if Firefox is running. If so, extensions.json is owned by the
-    # running process and any changes will be overwritten on exit.
-    # user.js and userChrome.css are safe to write; they take effect on restart.
-    firefox_running = _is_process_running("firefox") or _is_process_running("firefox-bin")
+    Shared by Firefox and LibreWolf — they differ only in profile location, the
+    base user.js to seed from, the process names to detect, and which pref set
+    to enforce (Firefox gets the full hardening; LibreWolf only the theme subset
+    since it ships hardened).
+    """
+    # If the browser is running, extensions.json is owned by the running process
+    # and any changes will be overwritten on exit. user.js and userChrome.css are
+    # safe to write; they take effect on restart.
+    browser_running = any(_is_process_running(p) for p in proc_names)
 
     prefs: Dict[str, Any] = parse_user_js(
         next(
-            (p for p in [FIREFOX_BASE_PREFS_FILE, FIREFOX_BASE_PREFS_FILE_XDG]
-             if os.path.exists(p)),
-            FIREFOX_BASE_PREFS_FILE,  # graceful default; parse_user_js handles missing
+            (p for p in base_prefs_files if os.path.exists(p)),
+            base_prefs_files[0],  # graceful default; parse_user_js handles missing
         )
     )
-    prefs.update(FIREFOX_ENFORCED_PREFS)
+    prefs.update(enforced_prefs)
 
-    # Mirror the theme's dark/light preference to Firefox content pages.
+    # Mirror the theme's dark/light preference to browser content pages.
     is_dark = is_dark_color(theme.get("background", "#000000"))
     prefs["ui.systemUsesDarkTheme"] = 1 if is_dark else 0
 
@@ -1185,17 +1223,17 @@ def update_firefox(theme: Dict[str, Any]) -> None:
     if firefox_cfg:
         prefs.update(firefox_cfg.get("prefs", {}))
         ensure_firefox_theme_payload(profile_path, firefox_cfg)
-        if not firefox_running:
+        if not browser_running:
             candidate_id = resolve_firefox_theme_id(profile_path, firefox_cfg)
             if candidate_id and set_firefox_theme_activation(profile_path, candidate_id):
                 active_theme_id = candidate_id
             elif firefox_cfg.get("theme_name") or firefox_cfg.get("theme_id"):
                 print(
-                    "Firefox theme payload not found or not installed — "
+                    f"{display} theme payload not found or not installed — "
                     "falling back to built-in compact theme."
                 )
 
-    if not active_theme_id and not firefox_running:
+    if not active_theme_id and not browser_running:
         # Use built-in compact dark/light — always present, no install needed.
         builtin_id = get_firefox_builtin_theme_id(theme)
         if set_firefox_theme_activation(profile_path, builtin_id):
@@ -1207,20 +1245,48 @@ def update_firefox(theme: Dict[str, Any]) -> None:
     write_firefox_userchrome(profile_path, theme)
     write_firefox_userjs(profile_path, prefs)
 
-    if firefox_running:
-        print("Firefox is running — userChrome.css and user.js updated.")
+    if browser_running:
+        print(f"{display} is running — userChrome.css and user.js updated.")
         try:
             subprocess.run(
                 ["notify-send", "--app-name=hyprconf",
-                 "Firefox restart needed",
-                 "Restart Firefox for theme changes to take full effect."],
+                 f"{display} restart needed",
+                 f"Restart {display} for theme changes to take full effect."],
                 check=False, capture_output=True, timeout=2,
             )
         except (FileNotFoundError, subprocess.TimeoutExpired):
             pass
     else:
         label = active_theme_id or "(no theme activated)"
-        print(f"Firefox updated: theme={label}, userChrome.css written at {profile_path}.")
+        print(f"{display} updated: theme={label}, userChrome.css written at {profile_path}.")
+
+
+def update_firefox(theme: Dict[str, Any]) -> None:
+    profile_path = get_default_firefox_profile()
+    if not profile_path:
+        print("Firefox profile not found; skipping Firefox theme.")
+        return
+    _apply_browser_theme(
+        theme, "Firefox", profile_path,
+        [FIREFOX_BASE_PREFS_FILE, FIREFOX_BASE_PREFS_FILE_XDG],
+        ["firefox", "firefox-bin"],
+        FIREFOX_ENFORCED_PREFS,
+    )
+
+
+def update_librewolf(theme: Dict[str, Any]) -> None:
+    """Theme LibreWolf when installed. Silent no-op otherwise (it's optional —
+    installed on demand via `hyprconf addon librewolf`), so it never adds noise
+    to a theme switch on systems without it."""
+    profile_path = get_default_librewolf_profile()
+    if not profile_path:
+        return
+    _apply_browser_theme(
+        theme, "LibreWolf", profile_path,
+        [LIBREWOLF_BASE_PREFS_FILE, LIBREWOLF_BASE_PREFS_FILE_XDG],
+        ["librewolf", "librewolf-bin"],
+        FIREFOX_THEME_PREFS,
+    )
 
 
 def _resolve_gtk_theme(theme: Dict[str, str]) -> str:
@@ -1920,6 +1986,7 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
         ensure_vscode_extension_payload(theme["vscode"].get("extension"))
     update_vscode(theme)
     update_firefox(theme)
+    update_librewolf(theme)
     update_hyprland_borders(theme)
     update_hyprlock_colors(theme)
     if shutil.which("wvkbd-mobintl"):

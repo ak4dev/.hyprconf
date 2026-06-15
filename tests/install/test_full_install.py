@@ -182,3 +182,99 @@ def test_hyprconf_sync_idempotent(install_vm: VMClient) -> None:
     second = install_vm.run("hyprconf sync --no-reload 2>&1", check=False)
     assert first.returncode  == 0, f"First sync failed:\n{first.stdout}"
     assert second.returncode == 0, f"Second sync failed:\n{second.stdout}"
+
+
+# ---------------------------------------------------------------------------
+# Privacy posture — the "expected end system" guarantees of a privacy-focused
+# distro. These verify that a *fresh, unattended install* actually delivers the
+# baseline hardening, not just that the tooling exists.
+#
+# Scope note: YubiKey FIDO2 enrolment is deliberately NOT verified here. It
+# requires a physical key and interactive enrolment (the installer skips it
+# entirely under HYPRCONF_CI=1), so it cannot be exercised unattended. It is a
+# documented hands-on step (docs/security-hardening.md) validated manually.
+# Everything below is attainable in CI with no hardware.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.install
+def test_root_disk_is_luks_encrypted(install_vm: VMClient) -> None:
+    """Full-disk encryption: the installed root sits on a LUKS container.
+
+    The CI install uses a keyfile so the VM boots unattended, but the container
+    is a real LUKS2 volume — lsblk reports a `crypt` device type for it.
+    """
+    result = install_vm.run("lsblk -rno TYPE", check=False)
+    assert result.returncode == 0
+    assert "crypt" in result.stdout.split(), (
+        f"No LUKS 'crypt' device — root is not encrypted:\n{result.stdout}"
+    )
+
+
+@pytest.mark.install
+def test_firewall_enabled(install_vm: VMClient) -> None:
+    """ufw is enabled so the deny-inbound firewall comes up on every boot."""
+    result = install_vm.run("systemctl is-enabled ufw 2>&1", check=False)
+    assert "enabled" in result.stdout, (
+        f"ufw not enabled — firewall would not start on boot:\n{result.stdout}"
+    )
+
+
+@pytest.mark.install
+def test_sysctl_hardening_applied(install_vm: VMClient) -> None:
+    """Kernel-hardening sysctls are installed AND active at runtime."""
+    drop_in = install_vm.run(
+        "test -f /etc/sysctl.d/90-hyprconf-hardening.conf && echo OK", check=False)
+    assert "OK" in drop_in.stdout, "sysctl hardening drop-in missing"
+    val = install_vm.run("sysctl -n kernel.kptr_restrict 2>&1", check=False)
+    assert val.stdout.strip() == "2", (
+        f"kernel.kptr_restrict not hardened (expected 2):\n{val.stdout}"
+    )
+
+
+@pytest.mark.install
+def test_resolver_hardening_applied(install_vm: VMClient) -> None:
+    """LLMNR/mDNS responders are disabled via the resolved drop-in."""
+    result = install_vm.run(
+        "cat /etc/systemd/resolved.conf.d/90-hyprconf-hardening.conf 2>&1",
+        check=False,
+    )
+    assert result.returncode == 0 and "LLMNR=no" in result.stdout, (
+        f"Resolver hardening drop-in missing/incorrect:\n{result.stdout}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Network-privacy features a fresh install must ship (VPN + bolt-on addons)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.install
+def test_vpn_helper_deployed(install_vm: VMClient) -> None:
+    """The hyprconf-vpn helper is stowed and wired into the CLI."""
+    result = install_vm.run("hyprconf vpn --help 2>&1", check=False)
+    assert result.returncode == 0, f"hyprconf vpn failed:\n{result.stdout}"
+    assert "killswitch" in result.stdout, (
+        f"hyprconf vpn help missing the kill-switch surface:\n{result.stdout}"
+    )
+
+
+@pytest.mark.install
+def test_vpn_status_runs(install_vm: VMClient) -> None:
+    """`hyprconf vpn status` runs against NetworkManager without error and
+    reports a (disconnected) state — proving the helper is functional, not just
+    present."""
+    result = install_vm.run("hyprconf vpn status 2>&1", check=False)
+    assert result.returncode == 0, f"hyprconf vpn status failed:\n{result.stdout}"
+    assert "Kill-switch" in result.stdout, (
+        f"vpn status output unexpected:\n{result.stdout}"
+    )
+
+
+@pytest.mark.install
+def test_bolt_on_addons_registered(install_vm: VMClient) -> None:
+    """The bolt-on addon catalogue (incl. the new vpn + librewolf) is present."""
+    result = install_vm.run("hyprconf addon 2>&1", check=False)
+    assert result.returncode == 0
+    for addon in ("vfio", "vpn", "librewolf"):
+        assert addon in result.stdout, (
+            f"Addon '{addon}' not listed by 'hyprconf addon':\n{result.stdout}"
+        )

@@ -17,6 +17,7 @@ readonly TUI_SCRIPT="$HOME/.config/hypr/scripts/hyprconf-tui/main.py"
 readonly CLI_LIB="$HOME/.local/lib/hyprconf"
 readonly GPU_PT_SCRIPT="$HOME/.config/hypr/scripts/gpu-passthrough.sh"
 readonly YUBIKEY_SCRIPT="$HOME/.local/bin/yubikey-fido2-setup"
+readonly VPN_SCRIPT="$HOME/.local/bin/hyprconf-vpn"
 
 if [[ -t 1 ]]; then
   _b=$'\e[1m'; _c=$'\e[36m'; _g=$'\e[32m'; _y=$'\e[33m'; _r=$'\e[0m'
@@ -136,11 +137,20 @@ usage() {
   printf "  hyprconf yubikey setup           Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)\n"
   printf "  hyprconf yubikey enroll          Enroll an additional / backup key\n"
   printf "  hyprconf yubikey harden-luks     Remove passphrase → key-only LUKS unlock\n"
+  printf "\n${_b}VPN / Network privacy${_r}\n"
+  printf "  hyprconf vpn status [--json]     Show VPN connection + kill-switch state\n"
+  printf "  hyprconf vpn list                List configured VPN profiles\n"
+  printf "  hyprconf vpn connect [name]      Bring up a VPN (default: the only profile)\n"
+  printf "  hyprconf vpn disconnect [name]   Tear down the active (or named) VPN\n"
+  printf "  hyprconf vpn import <file>       Import an OpenVPN .ovpn / WireGuard .conf\n"
+  printf "  hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode\n"
   printf "\n${_b}Addons${_r}\n"
   printf "  hyprconf addon                   List available addons and their status\n"
   printf "  hyprconf addon <name>            Install a named addon\n"
   printf "  Available: dev  (full test-suite deps + GitHub Copilot CLI)\n"
   printf "             vfio (GPU passthrough: QEMU, OVMF, VFIO modules)\n"
+  printf "             vpn  (ProtonVPN CLI: NetShield, Secure Core, kill-switch)\n"
+  printf "             librewolf (privacy-hardened Firefox fork — auto-themed)\n"
   printf "\n${_b}Developer${_r}\n"
   printf "  hyprconf dev                     Show developer pipeline commands\n"
   printf "  hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]\n"
@@ -1661,6 +1671,28 @@ _doctor_check_services() {
   done
 }
 
+_doctor_check_vpn() {
+  printf "\n${_b}VPN${_r}\n"
+  if ! command -v nmcli &>/dev/null; then
+    _doctor_warn "nmcli not found — NetworkManager VPN unavailable"
+    return
+  fi
+  # Informational only — no VPN is a perfectly valid state, never an error.
+  local prof
+  prof="$(nmcli -t -f NAME,TYPE connection show --active 2>/dev/null \
+           | awk -F: '$2=="vpn"||$2=="wireguard"{print $1; exit}')"
+  if [[ -n "$prof" ]]; then
+    _doctor_pass "VPN connected: $prof"
+  else
+    printf "  ${_c}○${_r} No VPN active (optional — 'hyprconf vpn connect')\n"
+  fi
+  if [[ -f /etc/hyprconf/killswitch.nft ]]; then
+    _doctor_pass "Kill-switch armed (nftables)"
+  elif command -v protonvpn &>/dev/null; then
+    printf "  ${_c}○${_r} ProtonVPN CLI present — arm with 'hyprconf vpn killswitch on'\n"
+  fi
+}
+
 _doctor_check_configs() {
   printf "\n${_b}Configuration${_r}\n"
   local f
@@ -1818,6 +1850,7 @@ cmd_doctor() {
   printf "${_b}${_c}hyprconf doctor${_r} — system health check\n"
   _doctor_check_packages
   _doctor_check_services
+  _doctor_check_vpn
   _doctor_check_configs
   _doctor_check_symlinks
   _doctor_check_theme
@@ -2397,12 +2430,14 @@ cmd_dev() {
 #    2. Add a matching case branch to each of the five _addon_* functions below
 # ════════════════════════════════════════════════════════════════════════════
 
-readonly -a _ADDON_NAMES=(dev vfio)
+readonly -a _ADDON_NAMES=(dev vfio vpn librewolf)
 
 _addon_description() {
   case "$1" in
     dev)  printf "Developer tools: full test-suite deps (pytest-xdist, QEMU/KVM, Packer) + GitHub Copilot CLI" ;;
     vfio) printf "GPU passthrough: QEMU, OVMF, VFIO, Looking Glass, RDP (for GPU VM)" ;;
+    vpn)  printf "ProtonVPN official CLI: NetShield, Secure Core, built-in kill-switch (layer over the core NetworkManager VPN)" ;;
+    librewolf) printf "LibreWolf: privacy-hardened Firefox fork (no telemetry, RFP, uBlock Origin) — auto-themed by hyprconf" ;;
     *)    printf "" ;;
   esac
 }
@@ -2412,6 +2447,7 @@ _addon_packages() {
   case "$1" in
     dev)  printf "python-pytest-xdist qemu-full edk2-ovmf aws-cli" ;;
     vfio) printf "qemu-desktop edk2-ovmf docker docker-compose dmidecode freerdp linux-headers dnsmasq iptables-nft" ;;
+    vpn)  printf "proton-vpn-cli" ;;
     *)    printf "" ;;
   esac
 }
@@ -2421,6 +2457,7 @@ _addon_aur_packages() {
   case "$1" in
     dev)  printf "packer" ;;
     vfio) printf "looking-glass looking-glass-module-dkms" ;;
+    librewolf) printf "librewolf-bin" ;;
     *)    printf "" ;;
   esac
 }
@@ -2453,6 +2490,24 @@ _addon_post_install() {
       curl -fsSL https://gh.io/copilot-install | bash \
         && printf "${_g}✓${_r} GitHub Copilot CLI installed.\n" \
         || printf "${_y}⚠${_r} Copilot install failed — run manually: curl -fsSL https://gh.io/copilot-install | bash\n"
+      ;;
+    vpn)
+      # No daemon config touched here — ProtonVPN sign-in is interactive and
+      # personal, so we only point the way (keeps addon installs non-blocking).
+      printf "\n${_g}✓${_r} ProtonVPN CLI installed. Next steps:\n"
+      printf "  ${_b}1.${_r} Sign in:        ${_c}protonvpn signin${_r}\n"
+      printf "  ${_b}2.${_r} Connect:        ${_c}hyprconf vpn connect${_r}  (or: protonvpn connect)\n"
+      printf "  ${_b}3.${_r} Kill-switch on: ${_c}hyprconf vpn killswitch on${_r}\n"
+      printf "  Core NetworkManager VPN profiles keep working via ${_c}hyprconf vpn${_r} either way.\n"
+      ;;
+    librewolf)
+      # LibreWolf has no profile until its first launch, so there's nothing to
+      # theme yet — just point the way. The theme engine writes LibreWolf's
+      # userChrome.css/user.js automatically on the next 'hyprconf theme' change.
+      printf "\n${_g}✓${_r} LibreWolf installed. Next steps:\n"
+      printf "  ${_b}1.${_r} Launch it once (creates its profile): ${_c}librewolf${_r}\n"
+      printf "  ${_b}2.${_r} Apply the hyprconf palette:           ${_c}hyprconf theme \$(hyprconf theme current)${_r}\n"
+      printf "  Thereafter every theme change re-themes LibreWolf automatically.\n"
       ;;
     vfio)
       # Load VFIO kernel modules
@@ -2585,6 +2640,12 @@ _addon_is_installed() {
       { pacman -Qi qemu-desktop &>/dev/null || pacman -Qi qemu-full &>/dev/null; } \
         && pacman -Qi edk2-ovmf &>/dev/null
       ;;
+    vpn)
+      pacman -Qi proton-vpn-cli &>/dev/null
+      ;;
+    librewolf)
+      pacman -Qi librewolf-bin &>/dev/null || pacman -Qi librewolf &>/dev/null
+      ;;
     *) return 1 ;;
   esac
 }
@@ -2690,6 +2751,17 @@ _yk_run() {
   fi
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+#  hyprconf vpn — NetworkManager VPN control + kill-switch
+# ════════════════════════════════════════════════════════════════════════════
+
+cmd_vpn() {
+  if [[ ! -x "$VPN_SCRIPT" ]]; then
+    die "VPN helper not found: $VPN_SCRIPT\nRun 'hyprconf sync' to restore it."
+  fi
+  exec "$VPN_SCRIPT" "$@"
+}
+
 cmd_yubikey() {
   if [[ ! -x "$YUBIKEY_SCRIPT" ]]; then
     die "YubiKey script not found: $YUBIKEY_SCRIPT\nRun 'hyprconf sync' to restore it."
@@ -2735,6 +2807,7 @@ main() {
     paper)            cmd_paper "$@" ;;
     hardware)         cmd_hardware "$@" ;;
     yubikey|yk)       cmd_yubikey "$@" ;;
+    vpn)              cmd_vpn "$@" ;;
     doctor)           cmd_doctor ;;
     clipboard|clip)   cmd_clipboard "$@" ;;
     screenshot|ss)    cmd_screenshot "$@" ;;

@@ -1,0 +1,429 @@
+#!/usr/bin/env bash
+# hyprconf-vpn — provider-agnostic VPN control built on NetworkManager (nmcli).
+#
+# Wraps the VPN profiles NetworkManager already manages (OpenVPN via the
+# networkmanager-openvpn plugin, WireGuard natively) behind a small, scriptable
+# surface. Works against any imported NM VPN profile — no provider lock-in.
+#
+# When ProtonVPN's official CLI (`protonvpn`, from `hyprconf addon vpn`) is
+# present, the kill-switch delegates to Proton's own maintained implementation;
+# otherwise a self-contained nftables fail-closed leak-guard is used.
+#
+# Subcommands: status [--json] · list · connect [name] · disconnect [name]
+#              import <file> · killswitch [on|off|status]
+
+set -uo pipefail
+
+# ── Colors (suppressed when stdout is not a TTY, e.g. waybar/--json) ──────────
+if [[ -t 1 ]]; then
+  B=$'\e[1m'; C=$'\e[36m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'
+else
+  B=''; C=''; G=''; Y=''; R=''; N=''
+fi
+
+info() { printf '%b\n' "  ${C}→${N} $*"; }
+ok()   { printf '%b\n' "  ${G}✓${N} $*"; }
+note() { printf '%b\n' "  ${Y}○${N} $*"; }      # neutral status → stdout
+warn() { printf '%b\n' "  ${Y}⚠${N} $*" >&2; }  # advisory → stderr
+err()  { printf '%b\n' "  ${R}✗${N} $*" >&2; }
+die()  { err "$*"; exit 1; }
+
+# nftables table name for the generic (non-Proton) kill-switch.
+readonly KS_TABLE="hyprconf_killswitch"
+# Ruleset path — overridable (HYPRCONF_KS_FILE) so tests need no root/etc access.
+readonly KS_FILE="${HYPRCONF_KS_FILE:-/etc/hyprconf/killswitch.nft}"
+
+# A *user-facing* VPN profile is one nmcli types `vpn` or `wireguard`. (Active
+# OpenVPN also spawns a transient `tun` connection — the awk filters below match
+# only vpn/wireguard so that transient entry isn't mistaken for a profile.)
+
+require_nmcli() {
+  command -v nmcli &>/dev/null || die "nmcli not found — install networkmanager."
+}
+
+# ── Introspection ────────────────────────────────────────────────────────────
+
+# Print the NAME of the active VPN profile (type vpn/wireguard), or nothing.
+_active_profile() {
+  nmcli -t -f NAME,TYPE connection show --active 2>/dev/null \
+    | awk -F: '$2=="vpn" || $2=="wireguard" { print $1; exit }'
+}
+
+# Print the active tunnel device (tun*/wg*/tap*/proton*), or nothing. This is
+# the real egress interface — distinct from the underlying physical device that
+# nmcli lists as a VPN profile's DEVICE.
+_tunnel_device() {
+  nmcli -t -f DEVICE,TYPE connection show --active 2>/dev/null \
+    | awk -F: '$1 ~ /^(tun|wg|tap|proton)[0-9]*$/ { print $1; exit }'
+}
+
+# List all configured VPN profile NAMEs (one per line).
+_vpn_profiles() {
+  nmcli -t -f NAME,TYPE connection show 2>/dev/null \
+    | awk -F: '$2=="vpn" || $2=="wireguard" { print $1 }'
+}
+
+# ── status ───────────────────────────────────────────────────────────────────
+
+cmd_status() {
+  local json=0
+  [[ "${1:-}" == "--json" ]] && json=1
+
+  require_nmcli
+  local profile dev ks
+  profile="$(_active_profile)"
+  dev="$(_tunnel_device)"
+  ks="$(_ks_status_fast)"   # on | off | proton — instant, no daemon call
+
+  if (( json )); then
+    # waybar custom-module shape: {"text","tooltip","class"}
+    local text tip cls
+    if [[ -n "$profile" ]]; then
+      text="󰦝 ${profile}"
+      tip="VPN connected: ${profile}"
+      [[ -n "$dev" ]] && tip+="\nInterface: ${dev}"
+      cls="connected"
+    else
+      text="󰦞 VPN off"
+      tip="No VPN connection active"
+      cls="disconnected"
+    fi
+    case "$ks" in
+      on)     tip+="\nKill-switch: on";       cls+="-killswitch" ;;
+      proton) tip+="\nKill-switch: ProtonVPN" ;;
+      *)      tip+="\nKill-switch: off" ;;
+    esac
+    # \n stays literal in the JSON string — waybar/pango render it as a newline.
+    printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$text" "$tip" "$cls"
+    return 0
+  fi
+
+  if [[ -n "$profile" ]]; then
+    ok "Connected: ${B}${profile}${N}"
+    [[ -n "$dev" ]] && info "Interface: ${dev}"
+  else
+    note "Disconnected — no VPN connection active."
+  fi
+  case "$ks" in
+    on)     info "Kill-switch: ${G}on${N}" ;;
+    proton) info "Kill-switch: managed by ProtonVPN — check: ${B}hyprconf vpn killswitch status${N}" ;;
+    *)      info "Kill-switch: ${Y}off${N}" ;;
+  esac
+  if [[ "$ks" == "on" && -z "$profile" ]]; then
+    warn "Kill-switch is ON with no VPN up — network is fail-closed (blocked)."
+  fi
+}
+
+# ── list ─────────────────────────────────────────────────────────────────────
+
+cmd_list() {
+  require_nmcli
+  local profiles active
+  profiles="$(_vpn_profiles)"
+  active="$(_active_profile)"
+  if [[ -z "$profiles" ]]; then
+    note "No VPN profiles configured."
+    info "Import one with: ${B}hyprconf vpn import <file.ovpn|file.conf>${N}"
+    return 0
+  fi
+  printf '%b\n' "${B}VPN profiles${N}"
+  local name
+  while IFS= read -r name; do
+    [[ -z "$name" ]] && continue
+    if [[ "$name" == "$active" ]]; then
+      printf '  %b●%b %s  %b(connected)%b\n' "$G" "$N" "$name" "$G" "$N"
+    else
+      printf '  %b○%b %s\n' "$Y" "$N" "$name"
+    fi
+  done <<< "$profiles"
+}
+
+# ── connect / disconnect ─────────────────────────────────────────────────────
+
+# Resolve the profile to act on: explicit arg, else the sole configured profile.
+_resolve_profile() {
+  local name="${1:-}"
+  if [[ -n "$name" ]]; then printf '%s' "$name"; return 0; fi
+  local profiles count
+  profiles="$(_vpn_profiles)"
+  count="$(printf '%s\n' "$profiles" | grep -c .)"
+  if [[ "$count" == "1" ]]; then
+    printf '%s' "$profiles"
+  else
+    return 1
+  fi
+}
+
+cmd_connect() {
+  require_nmcli
+  local name
+  if ! name="$(_resolve_profile "${1:-}")"; then
+    err "Multiple (or no) VPN profiles — specify one:"
+    cmd_list >&2
+    exit 1
+  fi
+  info "Connecting to ${B}${name}${N}..."
+  if nmcli connection up "$name" >/dev/null; then
+    ok "Connected: ${name}"
+  else
+    die "Failed to connect to ${name} — check 'nmcli connection up \"$name\"'."
+  fi
+}
+
+# Toggle the active VPN — used by the waybar module's on-click.
+cmd_toggle() {
+  require_nmcli
+  if [[ -n "$(_active_profile)" ]]; then
+    cmd_disconnect
+  else
+    cmd_connect "${1:-}"
+  fi
+}
+
+cmd_disconnect() {
+  require_nmcli
+  local name="${1:-}"
+  [[ -z "$name" ]] && name="$(_active_profile)"
+  [[ -z "$name" ]] && { warn "No active VPN to disconnect."; return 0; }
+  info "Disconnecting ${B}${name}${N}..."
+  if nmcli connection down "$name" >/dev/null; then
+    ok "Disconnected: ${name}"
+  else
+    die "Failed to disconnect ${name}."
+  fi
+}
+
+# ── import ───────────────────────────────────────────────────────────────────
+
+cmd_import() {
+  require_nmcli
+  local file="${1:-}"
+  [[ -z "$file" ]] && die "Usage: hyprconf vpn import <file.ovpn|file.conf>"
+  [[ -f "$file" ]] || die "File not found: $file"
+
+  local vpn_type=""
+  case "${file,,}" in
+    *.ovpn) vpn_type="openvpn" ;;
+    *.conf|*.wg|*.wireguard)
+      if grep -qE '^\s*\[Interface\]' "$file" && grep -qE '^\s*\[Peer\]' "$file"; then
+        vpn_type="wireguard"
+      fi
+      ;;
+  esac
+  # Content sniff as a fallback when the extension is ambiguous.
+  if [[ -z "$vpn_type" ]]; then
+    if grep -qE '^\s*\[Interface\]' "$file"; then
+      vpn_type="wireguard"
+    elif grep -qiE '^\s*(remote|client|dev\s+tun)' "$file"; then
+      vpn_type="openvpn"
+    fi
+  fi
+  [[ -z "$vpn_type" ]] && die "Unrecognized VPN config (need OpenVPN .ovpn or WireGuard .conf): $file"
+
+  if [[ "$vpn_type" == "openvpn" ]] && command -v pacman &>/dev/null \
+     && ! pacman -Qi networkmanager-openvpn &>/dev/null; then
+    warn "networkmanager-openvpn plugin not installed — OpenVPN import may fail."
+    warn "Install it: sudo pacman -S networkmanager-openvpn"
+  fi
+
+  info "Importing ${vpn_type} profile from ${B}${file}${N}..."
+  if nmcli connection import type "$vpn_type" file "$file" >/dev/null; then
+    ok "Imported. Connect with: hyprconf vpn connect"
+  else
+    die "Import failed — check 'nmcli connection import type $vpn_type file \"$file\"'."
+  fi
+}
+
+# ── kill-switch ──────────────────────────────────────────────────────────────
+
+_proton_available() { command -v protonvpn &>/dev/null; }
+
+# The Proton CLI talks to a background daemon and can block indefinitely when
+# it is signed out or its API is unreachable — always run it under a timeout so
+# a `status` query can never hang. Returns 124 on timeout.
+_pvpn() { timeout "$1" protonvpn "${@:2}"; }
+
+# Fast, never-blocking probe for the *generic* (nftables) kill-switch. `nft
+# list` needs root, so unprivileged callers fall back to the marker file that
+# `killswitch on/off` writes/removes. Used by the hot `status` path.
+_ks_generic_on() {
+  if command -v nft &>/dev/null && nft list table inet "$KS_TABLE" &>/dev/null; then
+    return 0
+  fi
+  [[ -f "$KS_FILE" ]]
+}
+
+# Instant kill-switch summary for `status` — NEVER calls the Proton daemon
+# (that can hang for seconds when signed out). Echoes: on | off | proton.
+_ks_status_fast() {
+  _proton_available && { echo proton; return; }
+  _ks_generic_on && { echo on; return; }
+  echo off
+}
+
+# Current kill-switch state: "on" or "off".
+_killswitch_state() {
+  if _proton_available; then
+    # Proton prints a settings table; a non-"off" kill-switch value means active.
+    local val
+    val="$(_pvpn 3 config list 2>/dev/null | awk -F: 'tolower($1) ~ /kill.?switch/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); print tolower($2); exit}')"
+    [[ -n "$val" && "$val" != "off" && "$val" != "disabled" ]] && { echo on; return; }
+    echo off; return
+  fi
+  _ks_generic_on && { echo on; return; }
+  echo off
+}
+
+# Emit `ip daddr <ip> accept` lines for the current VPN server endpoint(s), so
+# the tunnel can (re)connect under the generic kill-switch. Best-effort: only
+# literal IPv4 addresses are added (hostnames can't be resolved with DNS shut).
+_ks_endpoint_rules() {
+  local dev profile
+  dev="$(_tunnel_device)"
+  profile="$(_active_profile)"
+  # WireGuard: wg show <dev> endpoints → "<pubkey>\t<ip>:<port>"
+  if [[ "$dev" == wg* ]] && command -v wg &>/dev/null; then
+    sudo wg show "$dev" endpoints 2>/dev/null \
+      | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+      | sort -u | while IFS= read -r ip; do printf '    ip daddr %s accept\n' "$ip"; done
+  fi
+  # OpenVPN (NM): vpn.data carries "remote = <host>:<port>".
+  if [[ -n "$profile" ]]; then
+    nmcli -t -f vpn.data connection show "$profile" 2>/dev/null \
+      | grep -oE 'remote = ([0-9]{1,3}\.){3}[0-9]{1,3}' \
+      | grep -oE '([0-9]{1,3}\.){3}[0-9]{1,3}' \
+      | sort -u | while IFS= read -r ip; do printf '    ip daddr %s accept\n' "$ip"; done
+  fi
+}
+
+# Render the generic nftables kill-switch ruleset to stdout.
+_ks_render() {
+  local dev="${1:-}"
+  local devset='"tun0", "wg0"'
+  [[ -n "$dev" ]] && devset="\"$dev\", $devset"
+  cat <<EOF
+#!/usr/sbin/nft -f
+# hyprconf generic VPN kill-switch — fail-closed egress leak-guard.
+# Drops all output except: loopback, established/related (keeps a live tunnel
+# and its control channel up), the VPN tunnel device, the local LAN, and the
+# detected VPN server endpoint(s). Remove with: hyprconf vpn killswitch off
+table inet ${KS_TABLE} {
+  chain output {
+    type filter hook output priority -10; policy drop;
+
+    oifname "lo" accept
+    ct state established,related accept
+    oifname { ${devset} } accept
+
+    # Local network usability: private ranges, link-local, DHCP.
+    ip  daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16 } accept
+    ip6 daddr { fe80::/10, fc00::/7 } accept
+    udp dport { 67, 68 } accept
+
+$(_ks_endpoint_rules)
+  }
+}
+EOF
+}
+
+cmd_killswitch() {
+  local action="${1:-status}"
+  case "$action" in
+    on)
+      if _proton_available; then
+        info "Enabling ProtonVPN kill-switch (standard)..."
+        if _pvpn 15 config set kill-switch standard >/dev/null 2>&1; then
+          ok "ProtonVPN kill-switch enabled."
+        else
+          die "Failed to set ProtonVPN kill-switch — run: protonvpn config set kill-switch standard"
+        fi
+        return 0
+      fi
+      command -v nft &>/dev/null || die "nft not found — install nftables (or use 'hyprconf addon vpn' for Proton's kill-switch)."
+      local dev; dev="$(_tunnel_device)"
+      [[ -z "$dev" ]] && warn "No VPN tunnel up — kill-switch will block all clearnet until you connect."
+      info "Applying generic nftables kill-switch..."
+      sudo install -d -m 755 "$(dirname "$KS_FILE")" 2>/dev/null || true
+      _ks_render "$dev" | sudo tee "$KS_FILE" >/dev/null || die "Could not write $KS_FILE."
+      # Reapply cleanly: drop any prior copy of our table first.
+      sudo nft delete table inet "$KS_TABLE" 2>/dev/null || true
+      if sudo nft -f "$KS_FILE"; then
+        ok "Kill-switch active (ruleset: $KS_FILE)."
+        info "Survives only this session; re-run after reboot, or wire $KS_FILE into nftables.service."
+      else
+        sudo nft delete table inet "$KS_TABLE" 2>/dev/null || true
+        die "Failed to apply kill-switch ruleset — no changes left in place."
+      fi
+      ;;
+    off)
+      if _proton_available; then
+        info "Disabling ProtonVPN kill-switch..."
+        _pvpn 15 config set kill-switch off >/dev/null 2>&1 \
+          && ok "ProtonVPN kill-switch disabled." \
+          || die "Failed to disable ProtonVPN kill-switch — run: protonvpn config set kill-switch off"
+        return 0
+      fi
+      command -v nft &>/dev/null || { ok "No nftables kill-switch to remove."; return 0; }
+      if sudo nft delete table inet "$KS_TABLE" 2>/dev/null; then
+        ok "Kill-switch removed."
+      else
+        ok "Kill-switch was not active."
+      fi
+      sudo rm -f "$KS_FILE" 2>/dev/null || true
+      ;;
+    status)
+      local state; state="$(_killswitch_state)"
+      if [[ "$state" == "on" ]]; then
+        ok "Kill-switch: ${G}ON${N}"
+        _proton_available && info "Backend: ProtonVPN (protonvpn config)" || info "Backend: nftables ($KS_TABLE)"
+        [[ -z "$(_active_profile)" ]] && warn "No VPN up — traffic is currently fail-closed."
+      else
+        note "Kill-switch: ${Y}OFF${N}"
+      fi
+      ;;
+    *)
+      die "Usage: hyprconf vpn killswitch [on|off|status]"
+      ;;
+  esac
+}
+
+# ── usage / dispatch ─────────────────────────────────────────────────────────
+
+usage() {
+  printf '%b' "${B}${C}hyprconf vpn${N} — NetworkManager VPN control\n\n"
+  printf '%b' "${B}Usage${N}\n"
+  printf '  hyprconf vpn status [--json]   Show connection + kill-switch state\n'
+  printf '  hyprconf vpn list              List configured VPN profiles\n'
+  printf '  hyprconf vpn connect [name]    Bring up a VPN (default: the only profile)\n'
+  printf '  hyprconf vpn disconnect [name] Tear down the active (or named) VPN\n'
+  printf '  hyprconf vpn toggle            Connect if down, disconnect if up (waybar click)\n'
+  printf '  hyprconf vpn import <file>     Import an OpenVPN .ovpn / WireGuard .conf\n'
+  printf '  hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode\n'
+  printf '\n'
+  printf '%b' "${B}Notes${N}\n"
+  printf '  • Wraps the profiles NetworkManager already manages (any provider).\n'
+  printf '  • For ProtonVPN'\''s official client (NetShield + maintained kill-switch):\n'
+  printf '      hyprconf addon vpn   then   protonvpn signin\n'
+}
+
+main() {
+  local sub="${1:-status}"
+  shift || true
+  case "$sub" in
+    status)              cmd_status "$@" ;;
+    list|ls)             cmd_list "$@" ;;
+    connect|up)          cmd_connect "$@" ;;
+    disconnect|down)     cmd_disconnect "$@" ;;
+    toggle)              cmd_toggle "$@" ;;
+    import)              cmd_import "$@" ;;
+    killswitch|ks)       cmd_killswitch "$@" ;;
+    help|-h|--help)      usage ;;
+    *)
+      err "Unknown subcommand: $sub"
+      usage >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
