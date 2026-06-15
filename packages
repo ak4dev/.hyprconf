@@ -120,6 +120,10 @@ blueman
 # Networking
 networkmanager
 network-manager-applet
+# libappindicator — runtime AppIndicator/StatusNotifier lib. Without it,
+# `nm-applet --indicator` and blueman-applet render blank/white-box tray icons
+# in waybar's SNI tray (it is not a hard dependency of either applet).
+libappindicator
 # iwd  # optional: wifi backend for NetworkManager (guarded by `command -v iwctl`)
 openssh
 

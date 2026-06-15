@@ -645,7 +645,7 @@ while the LUKS passphrase always remains as a fallback key slot.
 | Clipboard | `cliphist`, `wl-clipboard` |
 | Media & input | `playerctl`, `brightnessctl` |
 | Bluetooth | `bluez`, `bluez-utils`, `blueman` |
-| Networking | `networkmanager`, `network-manager-applet` |
+| Networking | `networkmanager`, `network-manager-applet`, `libappindicator` (SNI tray icons for nm-applet/blueman) |
 | System monitoring | `upower`, `lm_sensors`, `iio-sensor-proxy` |
 | Python | `python`, `python-textual` |
 | File manager support | `gvfs` |
