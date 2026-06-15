@@ -5,3 +5,6 @@ dist/
 # generated/themes.ts (stable across builds), this changes on every version
 # bump, so committing it would go stale after each release — keep it untracked.
 src/generated/version.ts
+
+# TypeScript incremental build cache (regenerated each build)
+*.tsbuildinfo
