@@ -83,6 +83,7 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 
 - Do not manually create files under `~/.config/` — add them to the appropriate `stow/<package>/` directory instead.
 - Do not create new top-level stow packages without also adding any required binaries to the `packages` file.
+- **The bash `hyprconf` is a thin dispatcher; config logic lives in the Python library.** `get`/`set`/`configure`/`keybind`/`rule`/`monitor`/`lock`/`idle`/`paper`/`schema`/`autodetect` all delegate to `cli.py`. Add new config-editing logic to `stow/hypr/.local/lib/hyprconf/` and delegate from bash (`python3 "$CLI_LIB/cli.py" <cmd>`) — never reintroduce an inline `python3 -c`/heredoc or a bash copy of the option schema (`schema.py` is the single source of truth). Keep the large files (`hyprconf`, `switch_theme.py`, `gpu-passthrough.sh`) from growing — extract a bounded, tested module when you touch them.
 
 ## Repository Layout
 

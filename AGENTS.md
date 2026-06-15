@@ -84,6 +84,16 @@ non-negotiables:
    clean; no dead code; no committed build artifacts; install-time fixes stay
    `hyprconf sync`-patchable; addons follow the five-function pattern.
 
+6. **Thin bash, logic in Python — don't grow the monoliths.** The bash `hyprconf`
+   is a dispatcher + system-orchestration layer; config-editing logic (the option
+   schema, get/set/configure, validation) lives in the tested Python library
+   (`stow/hypr/.local/lib/hyprconf/`, dispatched via `cli.py`). Add new config logic
+   there and have bash delegate (`python3 "$CLI_LIB/cli.py" <cmd>`) — never a new
+   inline `python3 -c`/heredoc or a second copy of the schema (`schema.py` is the
+   single source of truth). The large files (`hyprconf`, `switch_theme.py`,
+   `gpu-passthrough.sh`) must not grow; when you touch one, extract a bounded,
+   tested module rather than adding to it.
+
 ## Repo rules
 
 - **Never commit PII.** No real names, emails, hostnames, IPs, MAC addresses, serial numbers, API keys/tokens, or absolute paths containing the user's home directory (e.g. `/home/<user>`) may appear in tracked files — configs, docs, scripts, or commit messages. Sanitize/genericize before committing, under all circumstances.
