@@ -312,7 +312,10 @@ def test_status_json_is_valid_and_classed(tmp_path: Path) -> None:
     assert rc == 0
     data = json.loads(out.strip())
     assert set(data) == {"text", "tooltip", "class"}
-    assert "myvpn" in data["text"]
+    # text is a bare on/off glyph (no profile name); the detail is in the tooltip.
+    assert "myvpn" not in data["text"]
+    assert data["text"].strip() != ""
+    assert "myvpn" in data["tooltip"]
     assert data["class"].startswith("connected")
 
 

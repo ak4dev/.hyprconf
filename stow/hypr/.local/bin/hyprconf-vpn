@@ -76,15 +76,17 @@ cmd_status() {
   ks="$(_ks_status_fast)"   # on | off | proton — instant, no daemon call
 
   if (( json )); then
-    # waybar custom-module shape: {"text","tooltip","class"}
+    # waybar custom-module shape: {"text","tooltip","class"}. text is a bare
+    # on/off glyph — the profile/interface/kill-switch detail lives in the
+    # tooltip, shown on hover.
     local text tip cls
     if [[ -n "$profile" ]]; then
-      text="󰦝 ${profile}"
+      text="󰦝"
       tip="VPN connected: ${profile}"
       [[ -n "$dev" ]] && tip+="\nInterface: ${dev}"
       cls="connected"
     else
-      text="󰦞 VPN off"
+      text="󰦞"
       tip="No VPN connection active"
       cls="disconnected"
     fi
