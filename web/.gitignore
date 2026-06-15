@@ -1,2 +1,7 @@
 node_modules/
 dist/
+
+# Generated from __init__.py on every build (npm run generate). Unlike
+# generated/themes.ts (stable across builds), this changes on every version
+# bump, so committing it would go stale after each release — keep it untracked.
+src/generated/version.ts
