@@ -9,6 +9,7 @@ import {
   RefreshCw,
   Cpu,
   Download,
+  Network,
 } from 'lucide-react';
 import { themeCount } from './generated/themes';
 
@@ -23,7 +24,7 @@ export const PROJECT_DESCRIPTION =
 
 export const INSTALL_COMMAND = 'bash <(curl -fsSL hyprconf.sh)';
 
-export const VERSION = '2.1.1';
+export const VERSION = '2.3.0';
 
 export interface Feature {
   title: string;
@@ -74,10 +75,16 @@ export const FEATURES: Feature[] = [
     icon: Monitor,
   },
   {
-    title: 'Privacy Firefox',
+    title: 'Private Browsing',
     description:
-      'Firefox configured with enterprise-grade privacy policies, uBlock Origin, and theme-matched styling. Private by default, no manual setup.',
+      'Firefox ships hardened out of the box — enterprise privacy policies, uBlock Origin, telemetry off, theme-matched styling. Add LibreWolf (a privacy-focused Firefox fork) with one command; both are auto-themed by the same engine.',
     icon: Shield,
+  },
+  {
+    title: 'VPN & Kill-Switch',
+    description:
+      'Manage any NetworkManager VPN — OpenVPN or WireGuard — from the CLI and a waybar indicator. Arm a fail-closed kill-switch to route everything over the tunnel (or nothing at all), backed by ProtonVPN’s client or a self-contained nftables guard.',
+    icon: Network,
   },
   {
     title: 'Lock & Idle',
@@ -261,7 +268,7 @@ export const CLI_GROUPS: CliGroup[] = [
         name: 'hyprconf yubikey status',
         usage: 'hyprconf yubikey status',
         description: 'Read-only overview: installed packages, detected keys, per-user credential counts, PAM coverage, and LUKS FIDO2 keyslots.',
-        example: 'Packages   ✔ libfido2  ✔ pam-u2f  ✔ yubikey-manager\nLogin      andy: 2 key(s) registered\nPAM        ✔ /etc/pam.d/sudo  ✔ /etc/pam.d/login  ✔ /etc/pam.d/sshd\nLUKS       /dev/nvme0n1p2: 2 FIDO2 token(s) enrolled',
+        example: 'Packages   ✔ libfido2  ✔ pam-u2f  ✔ yubikey-manager\nLogin      user: 2 key(s) registered\nPAM        ✔ /etc/pam.d/sudo  ✔ /etc/pam.d/login  ✔ /etc/pam.d/sshd\nLUKS       /dev/nvme0n1p2: 2 FIDO2 token(s) enrolled',
       },
       {
         name: 'hyprconf yubikey setup',
@@ -272,6 +279,26 @@ export const CLI_GROUPS: CliGroup[] = [
         name: 'hyprconf yubikey enroll',
         usage: 'hyprconf yubikey enroll',
         description: 'Enroll an additional / backup key into an existing setup — appends a login credential and adds a LUKS keyslot without rebuilding the initramfs.',
+      },
+    ],
+  },
+  {
+    title: 'VPN & Network Privacy',
+    commands: [
+      {
+        name: 'hyprconf vpn status',
+        usage: 'hyprconf vpn status [--json]',
+        description: 'Show the active VPN connection, tunnel interface, and kill-switch state. The --json form feeds the waybar indicator.',
+        example: '  ✔ Connected: home-vpn\n  → Interface: tun0\n  → Kill-switch: on',
+      },
+      { name: 'hyprconf vpn list', usage: 'hyprconf vpn list', description: 'List configured NetworkManager VPN profiles (OpenVPN and WireGuard).' },
+      { name: 'hyprconf vpn connect', usage: 'hyprconf vpn connect [name]', description: 'Bring up a VPN — defaults to the only configured profile.' },
+      { name: 'hyprconf vpn disconnect', usage: 'hyprconf vpn disconnect [name]', description: 'Tear down the active (or named) VPN.' },
+      { name: 'hyprconf vpn import', usage: 'hyprconf vpn import <file>', description: 'Import an OpenVPN .ovpn or WireGuard .conf profile into NetworkManager.' },
+      {
+        name: 'hyprconf vpn killswitch',
+        usage: 'hyprconf vpn killswitch on|off|status',
+        description: 'Fail-closed VPN-only mode — block all traffic outside the tunnel. Delegates to ProtonVPN’s kill-switch when the vpn addon is installed, otherwise applies a self-contained nftables guard.',
       },
     ],
   },

@@ -12,8 +12,14 @@ steps that require your YubiKey and a reboot to validate (so they are deliberate
 | **Idle → power off on battery** | hypridle powers the machine **off** after 60 min idle on battery (RAM keys flushed, disk re-encrypted at rest) and suspends on AC. | `hypridle.conf` + `hyprconf-idle-action` |
 | **Kernel sysctls** | `kptr_restrict`, `dmesg_restrict`, `yama.ptrace_scope=1`, unprivileged BPF off, BPF JIT hardening, TTY ldisc autoload off, rp_filter, ICMP-redirect off. | `/etc/sysctl.d/90-hyprconf-hardening.conf` |
 | **Resolver** | LLMNR + mDNS responders disabled. | `/etc/systemd/resolved.conf.d/90-hyprconf-hardening.conf` |
+| **Browser** | Firefox hardened via an enterprise `policies.json` (telemetry/studies/Pocket off, uBlock Origin force-installed) plus a `user.js` reapplied on every theme switch. | `/etc/firefox/policies/policies.json` + profile `user.js` |
 
 All are reversible — delete the drop-in file (or revert the rule) and re-sync.
+
+For a privacy-focused browser beyond hardened Firefox, install **LibreWolf** (a
+Firefox fork with RFP and telemetry stripped) on demand: `hyprconf addon
+librewolf`. It is auto-themed by the same engine; hyprconf applies only theme
+prefs to it, leaving LibreWolf's own hardening untouched.
 
 ### Opt-in: disable unprivileged user namespaces
 

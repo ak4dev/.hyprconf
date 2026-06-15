@@ -273,6 +273,7 @@ hyprconf vpn status [--json]     Show VPN connection + kill-switch state
 hyprconf vpn list                List configured VPN profiles
 hyprconf vpn connect [name]      Bring up a VPN (default: the only profile)
 hyprconf vpn disconnect [name]   Tear down the active (or named) VPN
+hyprconf vpn toggle              Connect if down, disconnect if up (waybar click)
 hyprconf vpn import <file>       Import an OpenVPN .ovpn / WireGuard .conf
 hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode
 
