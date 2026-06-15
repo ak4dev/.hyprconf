@@ -291,6 +291,27 @@ pam_add_u2f() {
     ok "Updated: $file"
 }
 
+# Keep the lock screen PASSWORD-ONLY. hyprlock's packaged PAM config is
+# `auth include login`, and pam_add_u2f adds pam_u2f (required) to
+# /etc/pam.d/login — so without this shield the lock screen would demand the
+# YubiKey and become IMPOSSIBLE to unlock whenever the key is absent (critical
+# self-lockout). Authenticate hyprlock against the untouched system-auth stack
+# (password via pam_unix) instead of login.
+shield_hyprlock() {
+    local hl="/etc/pam.d/hyprlock"
+    [[ -f "$hl" ]] && backup "$hl"
+    cat > "$hl" <<'PAMHL'
+# Managed by `hyprconf yubikey` — hyprlock is intentionally PASSWORD-ONLY.
+# Do NOT add the YubiKey (FIDO2) auth module here or `include login`: a missing
+# or failed key would make the lock screen impossible to unlock. Authenticate
+# against system-auth (the user's password) instead.
+auth        include     system-auth
+PAMHL
+    chown root:root "$hl"
+    chmod 644 "$hl"
+    ok "hyprlock kept password-only — your login password unlocks it (never the key)"
+}
+
 configure_pam() {
     step "PAM configuration"
 
@@ -320,6 +341,10 @@ configure_pam() {
         pam_add_u2f /etc/pam.d/sshd
         configure_ssh
     fi
+
+    # Always shield the lock screen — even if login wasn't protected above, this
+    # guarantees a missing/failed key can never lock you out of your own session.
+    shield_hyprlock
 }
 
 # ── 6. SSH daemon ─────────────────────────────────────────────────────────────

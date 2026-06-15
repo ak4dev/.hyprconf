@@ -140,10 +140,23 @@ def test_pam_insertion_is_idempotent() -> None:
 # hyprlock is INTENTIONALLY left password-only — the script must never touch it
 # ---------------------------------------------------------------------------
 
-def test_does_not_touch_hyprlock() -> None:
-    assert "hyprlock" not in _text().lower(), (
-        "hyprlock is intentionally password-only; the YubiKey setup must not "
-        "add pam_u2f to /etc/pam.d/hyprlock."
+def test_shields_hyprlock_password_only() -> None:
+    # hyprlock's packaged PAM config is `auth include login`, and the setup adds
+    # pam_u2f (required) to /etc/pam.d/login — so it MUST rewrite
+    # /etc/pam.d/hyprlock to authenticate against the untouched system-auth stack
+    # (password only). Otherwise a missing/failed key makes the lock screen
+    # impossible to unlock — a critical self-lockout.
+    text = _text()
+    assert "/etc/pam.d/hyprlock" in text, "setup must manage hyprlock's PAM config"
+    body = _func_body("shield_hyprlock")
+    assert "system-auth" in body, "hyprlock must authenticate against system-auth"
+    assert "pam_u2f" not in body, "hyprlock must never include pam_u2f"
+
+
+def test_configure_pam_shields_hyprlock() -> None:
+    assert "shield_hyprlock" in _func_body("configure_pam"), (
+        "configure_pam must call shield_hyprlock so the lock screen stays "
+        "password-only after pam_u2f is added to /etc/pam.d/login"
     )
 
 
