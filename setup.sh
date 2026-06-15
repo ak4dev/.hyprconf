@@ -998,7 +998,7 @@ reapply_current_theme() {
 
     local theme_name=""
     [[ -f "$state_file" ]] && theme_name="$(tr -d '[:space:]' < "$state_file")"
-    [[ -z "$theme_name" ]] && theme_name="ai:circuit"
+    [[ -z "$theme_name" ]] && theme_name="gruvbox"
 
     log_step "Applying theme: $theme_name"
     python3 "$script" "$theme_name" --no-reload \
