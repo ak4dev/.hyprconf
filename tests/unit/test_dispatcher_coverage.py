@@ -1,5 +1,5 @@
 """
-Tests for untested dispatcher commands: addon, deploy, display, repair, teardown.
+Tests for untested dispatcher commands: addon, display, repair.
 
 Validates that each command function exists in the hyprconf binary,
 has correct dispatcher entries, and appears in help text.
@@ -47,47 +47,6 @@ class TestCmdAddon:
     def test_addon_names(self) -> None:
         text = _bin_text()
         assert "_ADDON_NAMES" in text
-
-
-# ---------------------------------------------------------------------------
-# 2. cmd_deploy
-# ---------------------------------------------------------------------------
-
-
-class TestCmdDeploy:
-    """Verify hyprconf deploy command structure."""
-
-    def test_function_exists(self) -> None:
-        assert "cmd_deploy()" in _bin_text()
-
-    def test_dispatcher_entry(self) -> None:
-        text = _bin_text()
-        lines = [l.strip() for l in text.splitlines() if "deploy)" in l and "cmd_deploy" in l]
-        assert lines, "deploy must have a dispatcher entry in main()"
-
-    def test_help_text(self) -> None:
-        assert "hyprconf deploy" in _bin_text()
-
-    def test_deploy_list_subcommand(self) -> None:
-        text = _bin_text()
-        assert "cmd_deploy_list" in text
-
-    def test_deploy_new_subcommand(self) -> None:
-        text = _bin_text()
-        assert "cmd_deploy_new" in text
-
-    def test_deploy_domain_subcommand(self) -> None:
-        text = _bin_text()
-        assert "cmd_deploy_domain" in text
-
-    def test_deploy_web_subcommand(self) -> None:
-        text = _bin_text()
-        # The 'web' case in cmd_deploy passes "web" to DEPLOY_SCRIPT
-        assert "web)" in text or '"web"' in text or "'web'" in text
-
-    def test_uses_deploy_script(self) -> None:
-        text = _bin_text()
-        assert "DEPLOY_SCRIPT" in text
 
 
 # ---------------------------------------------------------------------------
@@ -150,32 +109,6 @@ class TestCmdRepair:
         idx = text.index("cmd_repair()")
         body = text[idx : idx + 200]
         assert "--repair" in body
-
-
-# ---------------------------------------------------------------------------
-# 5. cmd_teardown
-# ---------------------------------------------------------------------------
-
-
-class TestCmdTeardown:
-    """Verify hyprconf teardown command structure."""
-
-    def test_function_exists(self) -> None:
-        assert "cmd_teardown()" in _bin_text()
-
-    def test_dispatcher_entry(self) -> None:
-        text = _bin_text()
-        lines = [l.strip() for l in text.splitlines() if "teardown)" in l and "cmd_teardown" in l]
-        assert lines, "teardown must have a dispatcher entry in main()"
-
-    def test_help_text(self) -> None:
-        assert "hyprconf teardown" in _bin_text()
-
-    def test_uses_teardown_script(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_teardown()")
-        body = text[idx : idx + 200]
-        assert "TEARDOWN_SCRIPT" in body
 
 
 # ---------------------------------------------------------------------------

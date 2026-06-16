@@ -87,16 +87,16 @@ This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a s
 
 ## Repository Layout
 
-This is a monorepo — all components (dotfiles, Python library, web frontend, deploy infra, tests) are tightly coupled and version-lock to each other. Splitting into separate repos would add coordination overhead with no benefit.
+This is a monorepo — all components (dotfiles, Python library, static site, tests) are tightly coupled and version-lock to each other. Splitting into separate repos would add coordination overhead with no benefit.
 
 | Directory | Purpose | Needed by end users |
 |---|---|---|
 | `stow/` | Dotfiles symlinked into `$HOME` by GNU Stow | ✔ |
-| `install/` | `install.sh` (also deployed to S3) | ✔ |
+| `install/` | `install.sh` | ✔ |
 | `assets/` | Banner SVG/script, screenshot | ✔ |
 | `theme/` | Vendor extension bundles (Firefox .xpi, VS Code .vsix) | ✔ |
-| `infra/` | AWS deploy pipeline (`deploy.sh`), CloudFront function, Firefox policies | ✔ (for `hyprconf deploy`) |
-| `web/` | React frontend for hyprconf.sh — **deploy-only, not user-facing** | ✗ |
+| `infra/firefox/` | System Firefox privacy policy (`policies.json`) | ✔ |
+| `web/` | Static landing page (S3 + CloudFront) — **not user-facing** | ✗ |
 | `tests/` | All test tiers (unit/integration/tui/vm/install) | ✗ |
 | `scripts/` | `publish` script for releases | ✗ |
 | `docs/` | CONTRIBUTING.md, hyprland-reference.md | ✗ |
@@ -104,7 +104,7 @@ This is a monorepo — all components (dotfiles, Python library, web frontend, d
 
 ### Key layout rules
 
-- **`web/` stays at top-level** — it is a full React application with its own `package.json`, `src/`, and test suite. It does NOT belong inside `infra/`. `infra/deploy.sh` calls into `web/` to build, but that is a build dependency, not a structural coupling.
+- **`web/` is a static page** — a single self-contained `web/index.html` (plus `CNAME` and image assets), no framework, build step, or tests. It is a reflection of the README so visitors can see what the project is; do not reintroduce a build app or external CDN/font requests.
 - **`theme/` contains vendor extension bundles** — NOT hyprconf themes. Hyprconf theme JSONs live at `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`. The `theme/` name is legacy; do not add hyprconf theme JSONs here.
 - **`infra/firefox/policies.json`** is a system-level Firefox policy (installed by `setup.sh:setup_firefox` to `/etc/firefox/policies/policies.json`). It belongs in `infra/`, not `stow/`, because it targets a system path, not `$HOME`.
 - **`.gitattributes` `export-ignore`** excludes dev-only directories from `git archive` tarballs: `tests/`, `scripts/`, `.github/`, `web/`, `docs/`, `pyproject.toml`, `Makefile`, `.editorconfig`, `AGENTS.md`.
@@ -129,7 +129,7 @@ Optional, bolt-on package sets live in the `_addon_*` functions of `stow/hypr/.l
 - `_addon_post_install` — arbitrary post-steps; **print guidance, never run interactive/blocking commands** (sign-ins, prompts) — addon installs must stay unattended.
 - `_addon_is_installed` — returns 0 when the addon's key package is present (drives the status column).
 
-Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s addon tests), list it in the README addon table, and add it to `web/src/content.ts`.
+Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s addon tests) and list it in the README addon table.
 
 ## Keybindings
 
@@ -185,85 +185,22 @@ Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s add
 
 ## Web Frontend (`web/`)
 
-The `web/` directory contains a React SPA served at `hyprconf.sh` for browser visitors (CLI tools like `curl`/`wget` still receive `install.sh`).
+`web/` is a single self-contained static page — `web/index.html` plus image assets
+(`favicon.svg`, `hyprconf.webp`). No framework, build step, test suite, or bundler,
+and no external CDN/font requests (privacy). It is a hand-maintained reflection of
+the README so others can see what the project is, framed impersonally ("a personal
+Hyprland setup, shared as-is").
 
-### Tech Stack
-
-- **React 19** + **TypeScript** + **Vite** — fast builds, strict types
-- **React Router** — multi-page SPA (/, /themes, /keybindings, /cli, /install)
-- **Radix UI** — accessible primitives (icons)
-- **CSS Modules** — co-located per-component styles consuming design tokens
-- **Vitest** + **React Testing Library** — 240+ tests
-
-### Architecture Rules
-
-- **Route config** — `web/src/routes.ts` is the single source of truth for navigation. Adding a route entry auto-populates the top nav and footer. Every page is lazy-loaded via `React.lazy`.
-- **Theme system** — `web/scripts/generate-themes.ts` reads all 68 theme JSONs from `stow/hypr/.config/hypr/scripts/theme-switcher/themes/` at build time and generates `web/src/generated/themes.ts`. Do not edit `themes.ts` manually.
-- **CSS custom properties** — all components consume `var(--hc-*)` tokens. Never hardcode colour hex values in components or CSS modules.
-- **Content as data** — all user-facing text lives in `web/src/content.ts` as structured exports. Any README change affecting user-facing feature descriptions must also update `content.ts`.
-- **Component patterns** — all UI primitives use `forwardRef`, polymorphic `as` prop where applicable, CSS Modules, and design tokens only.
-
-### Content Sync Rule
-
-When updating features in the README, also update the corresponding data in `web/src/content.ts`:
-- Feature additions/removals → update `FEATURES` array
-- CLI command changes → update `CLI_GROUPS`
-- Keybinding changes → update `KEYBINDINGS`
-- Install flow changes → update `INSTALL_MODES`
-- Theme additions → re-run `npm run generate-themes` in `web/`
-
-### Deploy Process
-
-The deploy pipeline uses AWS CDK (TypeScript) in `infra/cdk/`. `infra/deploy.sh` is a thin wrapper.
-
-1. **Full deploy** (`hyprconf deploy`): configure env → build web → migrate legacy resources → `cdk deploy` (S3, ACM, CloudFront, CF Function, Route53, BucketDeployment)
-2. **Web-only deploy** (`hyprconf deploy web`): web build → `cdk deploy` (BucketDeployment updates + cache invalidation)
-
-### Adding a New Page
-
-1. Create page component in `web/src/pages/<Name>.tsx` + CSS module
-2. Add route entry in `web/src/routes.ts` — it auto-appears in nav
-3. Add structured content in `web/src/content.ts`
-
----
-
-## Infrastructure (`infra/`)
-
-`infra/cdk/` contains the AWS CDK stack (`HyprconfStack`). `infra/deploy.sh` is a bash wrapper that handles env setup, web builds, and legacy migration before calling `cdk deploy`. Resources managed by CDK:
-
-- **S3 bucket** — public-read policy (install script + web assets). Supports importing existing buckets via `importBucket` context flag.
-- **BucketDeployment** — syncs `web/dist/` + `install.sh` to S3 with cache invalidation
-- **CloudFront Function** — UA-based routing: curl→install.sh, browser→SPA
-- **CloudFront distribution** — HTTPS termination, caching, custom domain
-- **ACM certificate** — DNS-validated TLS via Route53
-- **Route53** — A-record alias to CloudFront
-
-### CloudFront Function routing
-
-| User-Agent | Request URI | Rewritten URI |
-|---|---|---|
-| curl/wget | any | `/install.sh` |
-| browser | `/` or non-file paths | `/index.html` |
-| browser | `/assets/foo.js` | passthrough |
-
-### Key resource IDs (stored in `~/.config/hyprconf/deploy-state`)
-
-| Resource | Source |
-|---|---|
-| CDK Stack | `HyprconfStack` — manages all AWS resources |
-| S3 Bucket | derived from domain name, imported if pre-existing |
-| Distribution ID | created by CDK (legacy distributions migrated automatically) |
-| AWS Account | resolved at deploy time via `aws sts` |
-
-### Important constraints
-
-- **CDK manages all resources** — do not create/modify AWS resources via raw CLI calls. All changes go through `infra/cdk/lib/hyprconf-stack.ts`.
-- **Existing buckets are imported** — `deploy.sh` detects pre-existing S3 buckets and passes `importBucket=true` to CDK, which uses `Bucket.fromBucketAttributes()` instead of creating a new bucket.
-- **Legacy migration is automatic** — `migrate_legacy_resources()` in `deploy.sh` handles first CDK deploy over old CLI-managed infrastructure (removes CloudFront CNAME conflict, saves legacy distribution ID).
-- **Bucket policy is managed by CDK** — public-read access for web assets is declarative in the stack.
-- **CF function routing** is embedded in the CDK stack — reads `infra/cloudfront-function.js` at synth time.
-- **`web/deploy.sh` is a thin wrapper** — delegates to `infra/deploy.sh web`
-- **Teardown** uses `cdk destroy` + bucket cleanup — see `infra/teardown.sh`
+It is hosted on the existing **AWS S3 + CloudFront** at `hyprconf.sh`: the
+`hyprconf-sh` S3 bucket sits behind a CloudFront distribution whose UA-router
+function serves `install.sh` to `curl`/`wget` and the page to browsers — this is
+what makes `bash <(curl -fsSL hyprconf.sh)` work. What was removed is the
+*elaborate deploy machinery*: the CDK app (`infra/cdk/`), the `hyprconf
+deploy`/`teardown` CLI, and `web/deploy.sh`. Updates are now **manual** — `aws s3
+cp web/… s3://hyprconf-sh/` plus a CloudFront invalidation. Do **not** rebuild the
+CDK app, a deploy CLI, or a React frontend. `scripts/publish` is test → promote dev
+to stable (no deploy step). The only thing under `infra/` is the system Firefox
+policy.
 
 ---
 
@@ -284,17 +221,13 @@ Config files under `stow/` must use `~` or relative paths since they are stowed 
 These findings may help future agents avoid common pitfalls:
 
 - **Never use `git update-index --skip-worktree`** — this hides files from the working tree while keeping them tracked. If `.gitignore` or `.editorconfig` goes missing, editors and tools silently break. If a previous rebase sets skip-worktree flags, clear them immediately with `git update-index --no-skip-worktree <file> && git checkout -- <file>`.
-- **Branding: `.hyprconf` vs `hyprconf.sh`** — the project name is stylised as **`.hyprconf`** (with leading dot) everywhere except when referring to the domain/URL, which is **`hyprconf.sh`**. In the web frontend the dot is rendered with a `<span className={styles.dot}>` for accent colouring. Never write "hyprconf" without a leading dot unless it's the domain, a CLI binary name (`hyprconf theme`, `hyprconf sync`), or the install command.
-- **Default theme is `ai:circuit`** — the web frontend defaults to `ai:circuit` (set in `web/scripts/generate-themes.ts`). `setup.sh:reapply_current_theme()` also defaults to `ai:circuit`. If changing, update both.
+- **Branding: `.hyprconf` vs `hyprconf.sh`** — the project name is stylised as **`.hyprconf`** (with leading dot) everywhere except when referring to the domain/URL, which is **`hyprconf.sh`**. Never write "hyprconf" without a leading dot unless it's the domain, a CLI binary name (`hyprconf theme`, `hyprconf sync`), or the install command.
+- **Default theme is `ai:circuit`** — `setup.sh:reapply_current_theme()` defaults to `ai:circuit` when no theme state exists.
 - **Bash 5.3 `$(< file 2>/dev/null)` is broken** — the redirect breaks the `$(<)` special form, returning empty. Use `$(cat file 2>/dev/null)` instead.
 - **Number keys 3/4 are NOT bound to workspaces** — F1/F2 are used instead for workspaces 3/4.
 - **`iwd` package** is commented out in `packages` but referenced in `setup.sh` — guarded by `command -v iwctl` so systems without iwd don't fail.
-- **Theme count** must be updated in the README badge, theme tables, and `web/src/generated/themes.ts` (auto via `npm run generate-themes`) when adding themes. `web/src/content.ts` uses `themeCount` from the generated file — no manual update needed there.
+- **Theme count** must be updated in the README badge, the README theme tables, and the hardcoded count in `web/index.html` when adding themes.
 - **`theme/` dir is vendor extensions** — NOT hyprconf themes. Firefox .xpi and VS Code .vsix bundles live here. Hyprconf theme JSONs are at `stow/hypr/.config/hypr/scripts/theme-switcher/themes/`.
-- **`lucide-react`** does not export `Github` — use `GitHubLogoIcon` from `@radix-ui/react-icons` instead.
-- **`npm create vite`** hangs in non-interactive terminals — scaffold Vite projects manually.
-- **`npx tsx`** works for ESM TypeScript scripts; `ts-node` does not work well with ESM + Node 22.
-- **ESM `__dirname`** — not available in ESM modules. Use `import { fileURLToPath } from 'url'` with `path.dirname(fileURLToPath(import.meta.url))`.
 - **btop `color_theme` regex** — `switch_theme.py` uses `re.sub()` with `count=1` to replace the first `color_theme` line only. Without `count=1`, duplicate lines accumulate.
 - **`_kill_process_if_running`** catches `PermissionError` — multi-user systems may have processes owned by other users that `pgrep` finds but `os.kill` can't signal.
 - **`strip_comment()` in `file_edit.py`** uses `(^|\s)#.*$` regex — this can destroy `#hex` colour values. Hyprland generally uses `rgb()`/`0x` notation, but hyprlock/hyprpaper CAN use `#hex`.

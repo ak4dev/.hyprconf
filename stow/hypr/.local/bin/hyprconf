@@ -5,14 +5,10 @@ readonly THEME_SCRIPT="$HOME/.config/hypr/scripts/theme-switcher/switch_theme.py
 readonly MONITOR_SCRIPT="$HOME/.config/hypr/scripts/switch_monitor.sh"
 readonly DISPLAY_SCRIPT="$HOME/.config/hypr/scripts/toggle-native-display"
 readonly SETUP_SCRIPT="$HOME/.hyprconf/setup.sh"
-readonly DEPLOY_SCRIPT="$HOME/.hyprconf/infra/deploy.sh"
-readonly TEARDOWN_SCRIPT="$HOME/.hyprconf/infra/teardown.sh"
 
 readonly HYPR_LOCAL_OVERRIDES="$HOME/.config/hypr/conf.d/99-hyprconf-local.conf"
 readonly HYPR_LOCAL_OVERRIDES_LEGACY="$HOME/.config/hypr/hyprconf.local.conf"
 
-readonly HYPRCONF_CFG_DIR="$HOME/.config/hyprconf"
-readonly DEPLOYMENTS_DIR="$HYPRCONF_CFG_DIR/deployments"
 readonly TUI_SCRIPT="$HOME/.config/hypr/scripts/hyprconf-tui/main.py"
 readonly CLI_LIB="$HOME/.local/lib/hyprconf"
 readonly GPU_PT_SCRIPT="$HOME/.config/hypr/scripts/gpu-passthrough.sh"
@@ -58,15 +54,6 @@ usage() {
   printf "  hyprconf monitor config delete <name>  Remove monitor entry\n"
   printf "\n${_b}Display${_r}\n"
   printf "  hyprconf display toggle          Toggle built-in screen (eDP-1) on/off\n"
-  printf "\n${_b}Deploy${_r}\n"
-  printf "  hyprconf deploy                  Deploy/refresh the default (legacy) domain\n"
-  printf "                                   Config: ~/.config/hyprconf/infra.env\n"
-  printf "  hyprconf deploy web              Quick web frontend deploy (build + sync + invalidate)\n"
-  printf "  hyprconf deploy list             List configured deployments\n"
-  printf "  hyprconf deploy new              Add + deploy an additional domain\n"
-  printf "  hyprconf deploy <domain>         Deploy/refresh a previously added domain\n"
-  printf "  hyprconf teardown                Destroy all AWS resources created by\n"
-  printf "                                   deploy. Requires domain confirmation.\n"
   printf "\n${_b}Hyprland options${_r}\n"
   printf "  hyprconf get <section> [key]     Show current option value(s)\n"
   printf "  hyprconf set <section> <key> <value>  Set option (runtime + persistent)\n"
@@ -155,7 +142,7 @@ usage() {
   printf "  hyprconf dev                     Show developer pipeline commands\n"
   printf "  hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]\n"
   printf "  hyprconf dev vm [start|stop|stop-all|build|status]\n"
-  printf "  hyprconf dev publish             Full pipeline: tests → deploy → stable promote\n"
+  printf "  hyprconf dev publish             Full pipeline: tests → stable promote\n"
   printf "\n${_b}General${_r}\n"
   printf "  hyprconf doctor                  System health check (packages, services, configs)\n"
   printf "  hyprconf clipboard [fzf|rofi|wipe]  Clipboard history picker\n"
@@ -225,133 +212,6 @@ cmd_display() {
   case "$sub" in
     toggle) "$DISPLAY_SCRIPT" ;;
     *) printf "${_y}Unknown display command: %s${_r}\n" "$sub" >&2; exit 1 ;;
-  esac
-}
-
-_extract_domain_from_env() {
-  local env_file="$1"
-  [[ -f "$env_file" ]] || return 1
-  grep -E '^export HYPRCONF_DOMAIN=' "$env_file" 2>/dev/null \
-    | head -1 \
-    | sed -E 's/^export HYPRCONF_DOMAIN="?([^\"]*)"?$/\1/' \
-    | tr -d '\n'
-}
-
-_deploy_status_from_state() {
-  local state_file="$1"
-  [[ -f "$state_file" ]] || { printf 'configured'; return 0; }
-  grep -q '^DISTRIBUTION_ID=' "$state_file" 2>/dev/null && { printf 'deployed'; return 0; }
-  printf 'configured'
-}
-
-cmd_deploy_list() {
-  printf "${_b}Configured deployments:${_r}\n"
-
-  local any=0
-
-  local legacy_cfg="$HYPRCONF_CFG_DIR/infra.env"
-  local legacy_state="$HYPRCONF_CFG_DIR/deploy-state"
-  if [[ -f "$legacy_cfg" ]]; then
-    local domain; domain="$(_extract_domain_from_env "$legacy_cfg" || true)"
-    [[ -z "$domain" ]] && domain='(unknown)'
-    printf '  %s  (%s, legacy)\n' "$domain" "$(_deploy_status_from_state "$legacy_state")"
-    any=1
-  fi
-
-  if [[ -d "$DEPLOYMENTS_DIR" ]]; then
-    local dir
-    for dir in "$DEPLOYMENTS_DIR"/*; do
-      [[ -d "$dir" ]] || continue
-      local cfg="$dir/infra.env"
-      local state="$dir/deploy-state"
-      local name; name="$(basename "$dir")"
-      if [[ -f "$cfg" ]]; then
-        local domain; domain="$(_extract_domain_from_env "$cfg" || true)"
-        [[ -z "$domain" ]] && domain="$name"
-        printf '  %s  (%s)\n' "$domain" "$(_deploy_status_from_state "$state")"
-      else
-        printf '  %s  (incomplete — missing infra.env)\n' "$name"
-      fi
-      any=1
-    done
-  fi
-
-  [[ $any -eq 1 ]] || printf '  (none)\n'
-}
-
-_validate_domain() {
-  local domain="$1"
-  [[ -n "$domain" ]] || return 1
-  [[ "$domain" =~ ^[A-Za-z0-9.-]+$ ]] || return 1
-  [[ "$domain" == *.* ]] || return 1
-  return 0
-}
-
-cmd_deploy_new() {
-  local domain="${1:-}"
-
-  if [[ -z "$domain" ]]; then
-    [[ -t 0 ]] || die "Usage: hyprconf deploy new  (interactive; requires a TTY)"
-    printf "%sNew domain%s (e.g. get.example.com): " "${_b}" "${_r}"
-    read -r domain
-  fi
-
-  _validate_domain "$domain" || die "Invalid domain: $domain"
-
-  local dir="$DEPLOYMENTS_DIR/$domain"
-  local cfg="$dir/infra.env"
-  local state="$dir/deploy-state"
-
-  if [[ -e "$cfg" ]]; then
-    die "Deployment already exists for $domain. Use: hyprconf deploy $domain"
-  fi
-
-  mkdir -p "$dir"
-
-  HYPRCONF_DOMAIN="$domain" \
-  HYPRCONF_INFRA_CFG_FILE="$cfg" \
-  HYPRCONF_INFRA_STATE_FILE="$state" \
-    bash "$DEPLOY_SCRIPT"
-}
-
-cmd_deploy_domain() {
-  local domain="$1"
-  _validate_domain "$domain" || die "Invalid domain: $domain"
-
-  local dir="$DEPLOYMENTS_DIR/$domain"
-  local cfg="$dir/infra.env"
-  local state="$dir/deploy-state"
-
-  [[ -f "$cfg" ]] || die "No deployment found for $domain. Create it first: hyprconf deploy new"
-
-  HYPRCONF_INFRA_CFG_FILE="$cfg" \
-  HYPRCONF_INFRA_STATE_FILE="$state" \
-    bash "$DEPLOY_SCRIPT"
-}
-
-cmd_deploy() {
-  local sub="${1:-}"
-  shift || true
-
-  case "$sub" in
-    "")
-      bash "$DEPLOY_SCRIPT" "$@"
-      ;;
-    web)
-      bash "$DEPLOY_SCRIPT" web "$@"
-      ;;
-    list)
-      cmd_deploy_list
-      ;;
-    new)
-      cmd_deploy_new "$@"
-      ;;
-    -h|--help|help)
-      usage
-      ;;
-    *)
-      cmd_deploy_domain "$sub"
-      ;;
   esac
 }
 
@@ -619,10 +479,6 @@ cmd_show() {
     -h|--help|help|"") die "Usage: hyprconf show keybind" ;;
     *) die "Unknown show target: $sub" ;;
   esac
-}
-
-cmd_teardown() {
-  bash "$TEARDOWN_SCRIPT" "$@"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1784,7 +1640,7 @@ _dev_usage() {
   printf "\n${_b}Repo${_r}\n"
   printf "  hyprconf dev checkout               Convert sparse checkout → full dev clone (branch: dev)\n"
   printf "\n${_b}Publish${_r}\n"
-  printf "  hyprconf dev publish                Full pipeline: tests → deploy → stable promote\n"
+  printf "  hyprconf dev publish                Full pipeline: tests → stable promote\n"
 }
 
 cmd_dev() {
@@ -2173,8 +2029,6 @@ main() {
     repair)           cmd_repair ;;
     monitor)          cmd_monitor "$@" ;;
     display)          cmd_display "$@" ;;
-    deploy)           cmd_deploy "$@" ;;
-    teardown)         cmd_teardown "$@" ;;
     set)              cmd_set "$@" ;;
     get)              cmd_get "$@" ;;
     configure|conf)   cmd_configure "$@" ;;

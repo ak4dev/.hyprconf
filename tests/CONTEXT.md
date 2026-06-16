@@ -34,7 +34,7 @@ make test-unit test-integration test-tui
 make test-vm      # Tier 4
 make test-install # Tier 5
 
-# Full test + deploy + publish to stable:
+# Full test + publish to stable:
 bash tests/vm/run_vm.sh
 bash scripts/publish
 ```
@@ -58,7 +58,7 @@ bash scripts/publish
 
 - `dev` — all active development (tests, scripts, configs, CI)
 - `stable` — release-ready source branch with normal shared history from `dev`
-- `scripts/publish` runs all 5 tiers, deploys hyprconf.sh, builds a filtered release archive via `git archive`, promotes `dev` to `origin/stable`
+- `scripts/publish` runs all 5 tiers, builds a filtered release archive via `git archive`, promotes `dev` to `origin/stable`
 - `run_vm.sh` bundles both `dev` and `stable` so VM tests can verify origin/stable is present
 
 ## Fixes across sessions (key commits)

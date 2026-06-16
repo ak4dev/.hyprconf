@@ -125,7 +125,6 @@ def test_publish_dry_run_succeeds() -> None:
     Flags used:
       --dry-run       build archive locally, skip branch/tag pushes
       --skip-tests    skip the full test suite (already running it here)
-      --skip-deploy   skip the hyprconf.sh deploy step
       --skip-tag      skip annotated tag creation
     """
     if not _on_dev_with_clean_tree():
@@ -137,7 +136,6 @@ def test_publish_dry_run_succeeds() -> None:
             "scripts/publish",
             "--dry-run",
             "--skip-tests",
-            "--skip-deploy",
             "--skip-tag",
         ],
         cwd=REPO_ROOT,

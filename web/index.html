@@ -3,15 +3,267 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content=".hyprconf — a Hyprland configuration suite for Arch Linux. CLI, TUI, 68 themes, hardware detection, and more." />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>.hyprconf — Hyprland Configuration Suite</title>
+    <meta
+      name="description"
+      content=".hyprconf — a Hyprland configuration suite for Arch Linux. A CLI/TUI, 68 themes, hardware detection, and privacy-hardened defaults. A personal setup, shared as-is."
+    />
+    <meta property="og:title" content=".hyprconf — Hyprland Configuration Suite" />
+    <meta
+      property="og:description"
+      content="A personal Arch Linux + Hyprland setup: unified CLI/TUI, 68-theme engine, hardware detection, privacy-hardened defaults. Shared as reference and inspiration."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="./hyprconf.webp" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <style>
+      /* Self-contained, dependency-free: system fonts only (no external CDN/font
+         requests), so the page stays private and zero-maintenance. */
+      :root {
+        --bg: #16161e;
+        --bg-soft: #1c1c26;
+        --bg-card: #1e1e2a;
+        --border: #2c2c3a;
+        --fg: #c8c9e0;
+        --fg-dim: #8a8ca8;
+        --fg-bright: #ececf6;
+        --accent: #b48ead;
+        --accent-2: #88c0d0;
+        --code: #2a2a38;
+        --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Code",
+          Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, "Inter", -apple-system, "Segoe UI",
+          Roboto, sans-serif;
+      }
+      * { box-sizing: border-box; }
+      html { scroll-behavior: smooth; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--sans);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+      a { color: var(--accent-2); text-decoration: none; }
+      a:hover { text-decoration: underline; }
+      .wrap { max-width: 920px; margin: 0 auto; padding: 0 1.25rem; }
+      code, pre { font-family: var(--mono); }
+      code {
+        background: var(--code);
+        padding: 0.15em 0.4em;
+        border-radius: 4px;
+        font-size: 0.9em;
+      }
+      pre {
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        overflow-x: auto;
+        font-size: 0.85rem;
+        line-height: 1.5;
+      }
+      pre code { background: none; padding: 0; }
+
+      header.hero { padding: 4rem 0 2.5rem; border-bottom: 1px solid var(--border); }
+      .brand { font-family: var(--mono); font-size: 2.6rem; font-weight: 700; color: var(--fg-bright); letter-spacing: -0.02em; }
+      .brand .dot { color: var(--accent); }
+      .tagline { font-size: 1.2rem; color: var(--fg-dim); margin: 0.35rem 0 1.25rem; }
+      .lead { font-size: 1.05rem; max-width: 60ch; }
+
+      .disclaimer {
+        margin: 1.75rem 0;
+        padding: 0.9rem 1.1rem;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-left: 3px solid var(--accent);
+        border-radius: 6px;
+        color: var(--fg-dim);
+        font-size: 0.95rem;
+      }
+      .disclaimer strong { color: var(--fg); font-weight: 600; }
+
+      .cta { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 1.5rem; }
+      .btn {
+        display: inline-block;
+        padding: 0.55rem 1.1rem;
+        border-radius: 6px;
+        font-weight: 600;
+        font-size: 0.95rem;
+        border: 1px solid var(--border);
+      }
+      .btn.primary { background: var(--accent); color: #16161e; border-color: var(--accent); }
+      .btn.primary:hover { text-decoration: none; filter: brightness(1.08); }
+      .btn.ghost { color: var(--fg-bright); }
+      .btn.ghost:hover { text-decoration: none; border-color: var(--accent-2); }
+
+      section { padding: 2.75rem 0; border-bottom: 1px solid var(--border); }
+      h2 { font-size: 1.5rem; color: var(--fg-bright); margin: 0 0 1.25rem; }
+      h3 { font-size: 1rem; color: var(--fg-bright); margin: 0 0 0.35rem; }
+      .muted { color: var(--fg-dim); }
+
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+      .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.1rem 1.15rem; }
+      .card p { margin: 0; font-size: 0.92rem; color: var(--fg-dim); }
+
+      .cmdgroup { margin-bottom: 1.4rem; }
+      .cmdgroup h3 { color: var(--accent); font-family: var(--mono); font-size: 0.95rem; }
+      .cmdgroup p { margin: 0.15rem 0 0; font-size: 0.9rem; color: var(--fg-dim); }
+      .cmdgroup code { color: var(--fg-bright); }
+
+      table.keys { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+      table.keys td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+      table.keys td.k { white-space: nowrap; }
+      kbd {
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        background: var(--code);
+        border: 1px solid var(--border);
+        border-bottom-width: 2px;
+        border-radius: 4px;
+        padding: 0.1em 0.4em;
+        color: var(--fg-bright);
+      }
+
+      ol.steps { margin: 0; padding-left: 1.2rem; font-size: 0.92rem; color: var(--fg-dim); }
+      ol.steps li { margin: 0.2rem 0; }
+
+      footer { padding: 2.5rem 0 3.5rem; color: var(--fg-dim); font-size: 0.9rem; }
+      footer .links { display: flex; flex-wrap: wrap; gap: 1.25rem; margin-bottom: 1.25rem; }
+
+      @media (max-width: 560px) {
+        .brand { font-size: 2rem; }
+        header.hero { padding: 3rem 0 2rem; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <header class="hero">
+      <div class="wrap">
+        <div class="brand"><span class="dot">.</span>hyprconf</div>
+        <p class="tagline">Hyprland Configuration Suite</p>
+        <p class="lead">
+          A complete configuration suite for Arch Linux and Hyprland. Manage 68
+          themes, keybinds, window rules, monitor layouts, and system settings
+          through a CLI, a rich terminal UI, or a one-command install — with
+          privacy-hardened defaults out of the box.
+        </p>
+
+        <p class="disclaimer">
+          <strong>This is a personal Hyprland setup, shared openly</strong> as
+          reference and inspiration. Fork it, take what's useful. Offered as-is —
+          feature requests and issues may not be taken.
+        </p>
+
+        <pre><code>bash &lt;(curl -fsSL hyprconf.sh)</code></pre>
+
+        <div class="cta">
+          <a class="btn primary" href="https://github.com/ak4dev/.hyprconf">View on GitHub</a>
+          <a class="btn ghost" href="https://github.com/ak4dev/.hyprconf#readme">Read the docs</a>
+        </div>
+      </div>
+    </header>
+
+    <section id="features">
+      <div class="wrap">
+        <h2>What it does</h2>
+        <div class="grid">
+          <div class="card"><h3>Theme engine</h3><p>68 themes spanning community favorites and AI-generated originals. One command cascades colors instantly across Hyprland, Kitty, Waybar, VS Code, Firefox, and hyprlock.</p></div>
+          <div class="card"><h3>Keybindings</h3><p>Production-ready bindings for window management, workspaces, app launching, media, and displays — fully editable through the CLI or TUI.</p></div>
+          <div class="card"><h3>CLI &amp; TUI</h3><p>A full CLI and interactive terminal UI for every part of the environment: themes, keybinds, window rules, monitors, lock screen, idle, and wallpapers.</p></div>
+          <div class="card"><h3>Installation</h3><p>Three modes: a complete Arch install from a live ISO, dotfiles-only for an existing Hyprland system, or the standalone CLI.</p></div>
+          <div class="card"><h3>Hardware detection</h3><p>Automatic config for touchscreens, convertibles, accelerometers, mechanical keyboards, Nvidia GPUs, and GPU passthrough (VFIO) — applied at install and kept current via sync.</p></div>
+          <div class="card"><h3>Monitor profiles</h3><p>Define and switch multi-display presets — resolution, scaling, position, and transforms per profile — instantly via keybind or TUI.</p></div>
+          <div class="card"><h3>Private browsing</h3><p>Firefox ships hardened: enterprise privacy policies, uBlock Origin, telemetry off, theme-matched. LibreWolf is one command away; both auto-themed.</p></div>
+          <div class="card"><h3>VPN &amp; kill-switch</h3><p>Manage any NetworkManager VPN (OpenVPN or WireGuard) from the CLI and a waybar indicator, with an opt-in fail-closed kill-switch.</p></div>
+          <div class="card"><h3>Lock &amp; idle</h3><p>Theme-aware hyprlock lock screens with configurable idle timeouts, DPMS management, and automatic suspend — all from the CLI.</p></div>
+          <div class="card"><h3>YubiKey login</h3><p>Optional FIDO2 + PIN hardware-key auth for sudo, TTY login, display manager, SSH, and LUKS unlock at boot — enrolled by one interactive, self-rolling-back script.</p></div>
+          <div class="card"><h3>Sync &amp; update</h3><p><code>hyprconf sync</code> applies all changes in place — hardware, services, and packages patched idempotently, no reinstall.</p></div>
+          <div class="card"><h3>Private by default</h3><p>Full-disk LUKS2 encryption, a hardened resolver and kernel sysctls, and no inbound SSH on desktops — the baseline is hardened without being asked.</p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="cli">
+      <div class="wrap">
+        <h2>One CLI for everything</h2>
+        <p class="muted" style="margin-top:-0.5rem">
+          A single <code>hyprconf</code> command drives the whole desktop. A few of the groups —
+          see the <a href="https://github.com/ak4dev/.hyprconf#readme">README</a> for the full reference.
+        </p>
+        <div style="margin-top:1.25rem">
+          <div class="cmdgroup"><h3>theme</h3><p><code>hyprconf theme &lt;name|next|random|pick|generate&gt;</code> — apply, cycle, or generate themes from an image.</p></div>
+          <div class="cmdgroup"><h3>get / set / configure</h3><p><code>hyprconf set general border_size 3</code> — read &amp; write Hyprland options live (hyprctl) and persisted, or browse an interactive REPL.</p></div>
+          <div class="cmdgroup"><h3>keybind · rule · monitor</h3><p>List/add/update keybindings, window &amp; workspace rules, and monitor layouts from the CLI.</p></div>
+          <div class="cmdgroup"><h3>lock · idle · paper</h3><p>Configure hyprlock, hypridle timeouts/actions, and hyprpaper wallpapers.</p></div>
+          <div class="cmdgroup"><h3>tui</h3><p><code>hyprconf tui</code> — a full-screen terminal UI for themes, keybinds, options, rules, monitors, and system settings.</p></div>
+          <div class="cmdgroup"><h3>hardware · doctor · sync · repair</h3><p>GPU passthrough, on-screen keyboard, auto-rotate, diagnostics, idempotent sync, and self-repair.</p></div>
+          <div class="cmdgroup"><h3>yubikey · vpn</h3><p>FIDO2 hardware-key setup and provider-agnostic VPN management with a fail-closed kill-switch.</p></div>
+          <div class="cmdgroup"><h3>utilities</h3><p>screenshot, record, clipboard, colorpicker, nightlight, gamemode, power, power-profile.</p></div>
+        </div>
+        <pre><code>$ hyprconf theme dracula
+Switching to theme: dracula
+  ✔ Hyprland borders   ✔ Kitty terminal
+  ✔ Waybar             ✔ hyprlock
+  ✔ Wallpaper
+Theme applied.</code></pre>
+      </div>
+    </section>
+
+    <section id="keybindings">
+      <div class="wrap">
+        <h2>Keybindings</h2>
+        <p class="muted" style="margin-top:-0.5rem">Defaults use <kbd>Super</kbd> (swap with <code>hyprconf set mainMod ALT</code>). A selection:</p>
+        <table class="keys">
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>T</kbd></td><td>Open terminal (Kitty)</td></tr>
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>F</kbd></td><td>Open browser (Firefox)</td></tr>
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>D</kbd></td><td>Application launcher</td></tr>
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>Q</kbd></td><td>Close active window</td></tr>
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>V</kbd></td><td>Toggle floating</td></tr>
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>1</kbd>–<kbd>0</kbd></td><td>Switch workspace</td></tr>
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>M</kbd></td><td>Toggle scratchpad workspace</td></tr>
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>L</kbd></td><td>Lock screen (hyprlock)</td></tr>
+          <tr><td class="k"><kbd>Super</kbd>+<kbd>Shift</kbd>+<kbd>4</kbd></td><td>Screenshot region</td></tr>
+        </table>
+      </div>
+    </section>
+
+    <section id="install">
+      <div class="wrap">
+        <h2>Install</h2>
+        <p class="muted" style="margin-top:-0.5rem">One command starts any path; pick a mode at the prompt.</p>
+        <pre><code>bash &lt;(curl -fsSL hyprconf.sh)</code></pre>
+        <div class="grid" style="margin-top:1.25rem">
+          <div class="card"><h3>1 · Full Arch install</h3><ol class="steps"><li>Boot an Arch ISO, get online</li><li>Run the command above</li><li>Pick disk, timezone, hostname, user</li><li>Reboot into a themed, encrypted desktop</li></ol></div>
+          <div class="card"><h3>2 · Dotfiles only</h3><ol class="steps"><li>Existing Arch + Hyprland system</li><li>Installs packages, stows configs</li><li>Enables services</li><li>Log out and back in</li></ol></div>
+          <div class="card"><h3>3 · CLI only</h3><ol class="steps"><li>Any Hyprland system</li><li>Drops the <code>hyprconf</code> binary in <code>~/.local/bin</code></li><li><code>hyprconf --help</code> to start</li></ol></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="themes">
+      <div class="wrap">
+        <h2>68 themes</h2>
+        <p class="muted" style="margin-top:-0.5rem">
+          Community favorites plus AI-generated originals, each applied live across the whole desktop.
+          Browse the definitions in
+          <a href="https://github.com/ak4dev/.hyprconf/tree/stable/stow/hypr/.config/hypr/scripts/theme-switcher/themes">the themes directory</a>,
+          or run <code>hyprconf theme pick</code>.
+        </p>
+      </div>
+    </section>
+
+    <footer>
+      <div class="wrap">
+        <div class="links">
+          <a href="https://github.com/ak4dev/.hyprconf">GitHub</a>
+          <a href="https://github.com/ak4dev/.hyprconf#readme">README</a>
+          <a href="https://github.com/ak4dev/.hyprconf/blob/stable/docs/security-hardening.md">Security hardening</a>
+          <a href="https://github.com/ak4dev/.hyprconf/blob/stable/docs/hyprland-reference.md">Hyprland reference</a>
+        </div>
+        <p>A personal Arch Linux + Hyprland configuration, shared as-is for reference and inspiration. Not a supported product.</p>
+      </div>
+    </footer>
   </body>
 </html>

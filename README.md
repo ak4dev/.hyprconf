@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://hyprconf.sh"><img alt="installer" src="https://img.shields.io/badge/installer-hyprconf.sh-0ea5e9?style=for-the-badge" /></a>
+  <a href="https://hyprconf.sh"><img alt="website" src="https://img.shields.io/badge/website-hyprconf.sh-0ea5e9?style=for-the-badge" /></a>
   <img alt="arch linux" src="https://img.shields.io/badge/arch-linux-1793d1?style=for-the-badge&logo=archlinux&logoColor=white" />
   <img alt="hyprland" src="https://img.shields.io/badge/hyprland-wayland-111827?style=for-the-badge&logo=wayland&logoColor=white" />
   <img alt="gnu stow" src="https://img.shields.io/badge/gnu%20stow-dotfiles-3a7f2e?style=for-the-badge&logo=gnu&logoColor=white" />
@@ -48,7 +48,6 @@
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
 - **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. hyprlock is actively kept password-only — it's repointed at `system-auth` so it can't inherit the key requirement from `login` and lock you out
 - **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
-- **Cloud deploy** — serve your own install endpoint via `hyprconf deploy` (S3 + CloudFront + ACM + Route53)
 
 ---
 
@@ -138,29 +137,21 @@ Key paths:
 | `stow/hypr/.local/lib/hyprconf/` | Python library (schema, config, keybinds, …) |
 | `setup.sh` | Bootstrap + sync entry point |
 | `packages` | Arch packages (one per line) |
-| `install/install.sh` | Self-contained installer (served from CloudFront) |
-| `web/` | React frontend for hyprconf.sh |
-| `infra/` | AWS CDK stack + deploy wrapper + CloudFront function |
+| `install/install.sh` | Self-contained installer |
+| `web/` | Static landing page (served via AWS S3 + CloudFront) |
+| `infra/firefox/` | System Firefox privacy policy (`policies.json`) |
 
 ---
 
 ## Website
 
-The project website at **[hyprconf.sh](https://hyprconf.sh)** is a React SPA with a retro-futuristic design. Browser visitors see the full site; `curl`/`wget` requests still receive `install.sh`.
-
-| Page | Route | Content |
-|---|---|---|
-| Landing | `/` | Hero, feature overview, install command |
-| Themes | `/themes` | 68-theme gallery with live preview + filter |
-| Keybindings | `/keybindings` | Categorized keybinding reference with search |
-| CLI Reference | `/cli` | Accordion-based command reference |
-| Installation | `/install` | Three install modes with step-by-step guides |
-
-**Tech stack:** React 19, TypeScript, Vite, Radix UI, CSS Modules, Vitest + RTL.
-
-**Theme sync:** Themes are generated at build time from the same JSON files used by the desktop theme engine. Run `cd web && npm run generate-themes` after adding themes.
-
-**Deploy:** `hyprconf deploy` handles the full pipeline via AWS CDK (S3, CloudFront, ACM, Route53, and web frontend). For web-only updates: `hyprconf deploy web`. `web/deploy.sh` is a thin wrapper around the same pipeline. Requires configured AWS credentials (`aws configure`).
+The project website at **[hyprconf.sh](https://hyprconf.sh)** is a single
+self-contained static page (`web/index.html`) — a lightweight reflection of this
+README so visitors can see what the project is. No framework or build step. It's
+served from an S3 bucket behind CloudFront, whose UA-router sends `curl`/`wget` to
+`install.sh` and browsers to the page — so `curl hyprconf.sh` installs while the
+domain still shows the site. A personal setup shared as-is for reference and
+inspiration, not a supported product.
 
 ---
 
@@ -231,10 +222,6 @@ hyprconf sync --force            Discard local divergence, reset to remote
 hyprconf sync --full             Full dotfile restow (reset configs to defaults)
 hyprconf repair
 
-# Cloud deploy
-hyprconf deploy [list | new | web | <domain>]
-hyprconf teardown
-
 # Schema (for AI/tooling)
 hyprconf schema dump / validate / list-sections / keys <section>
 hyprconf autodetect              Detect + migrate existing config
@@ -296,7 +283,7 @@ hyprconf addon <name>            Install a named addon (e.g. dev, vfio, vpn, lib
 hyprconf dev                     Show developer pipeline commands
 hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]
 hyprconf dev vm [start|stop|stop-all|build|status]
-hyprconf dev publish             Full pipeline: tests → deploy → stable promote
+hyprconf dev publish             Full pipeline: tests → stable promote
 
 hyprconf help
 ```
@@ -739,30 +726,6 @@ while the LUKS passphrase always remains as a fallback key slot.
 `~/.zprofile` auto-starts Hyprland on TTY1 login (replaces `sddm`).
 
 ---
-
-## Cloud Deploy
-
-`hyprconf deploy` manages the full infrastructure pipeline via AWS CDK: S3 bucket, web frontend, ACM certificate, CloudFront distribution (with UA-router function), and Route53 DNS. The CDK stack is in `infra/cdk/`.
-
-```bash
-hyprconf deploy          # deploy/refresh default endpoint (infra + web)
-hyprconf deploy web      # quick web frontend deploy (build + S3 sync + invalidation)
-hyprconf deploy new      # add + deploy a new domain
-hyprconf deploy list     # list configured deployments
-hyprconf deploy <domain> # refresh an additional domain
-hyprconf teardown        # destroy all AWS resources
-```
-
-Config is stored at `~/.config/hyprconf/infra.env` (never committed). See `infra/env.sh.example` for all variables.
-
-| Variable | Description |
-|---|---|
-| `AWS_PROFILE` | Named AWS profile |
-| `AWS_DEFAULT_REGION` | Must be `us-east-1` (CloudFront ACM) |
-| `HYPRCONF_DOMAIN` | Custom domain (e.g. `hyprconf.sh`) |
-| `HYPRCONF_BUCKET` | S3 bucket name (globally unique) |
-| `HYPRCONF_ZONE_ID` | Route53 hosted zone ID |
-| `HYPRCONF_REPO` | Fork's GitHub URL |
 
 ## Testing & Development
 

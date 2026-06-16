@@ -62,10 +62,13 @@ non-negotiables:
    message — never silently weaken, delete, or loosen a test just to get a green
    run. A feature without a test is unfinished. Run `make test` before every commit.
 
-2. **Docs move in lockstep too.** `README.md`, this file, and `web/src/content.ts`
-   keep 1:1 parity with the code — every command, flag, subcommand, package,
-   keybind, and theme. Adding or renaming one means updating all of them in the
-   same commit. Treat doc drift as a correctness bug, not a follow-up.
+2. **Docs move in lockstep too.** `README.md` and this file keep 1:1 parity with
+   the code — every command, flag, subcommand, package, keybind, and theme.
+   Adding or renaming one means updating both in the same commit. Treat doc drift
+   as a correctness bug, not a follow-up. The web frontend (`web/index.html`) is a
+   hand-maintained static reflection of the README, **not** a 1:1 mirror — keep its
+   high-level claims (feature list, theme count, install command) honest, but it
+   need not enumerate every command.
 
 3. **Unit/integration tests stay hermetic.** They must pass on a bare
    `ubuntu-latest` runner: no reading/writing real system paths, no host tools, no
@@ -97,3 +100,9 @@ non-negotiables:
 ## Repo rules
 
 - **Never commit PII.** No real names, emails, hostnames, IPs, MAC addresses, serial numbers, API keys/tokens, or absolute paths containing the user's home directory (e.g. `/home/<user>`) may appear in tracked files — configs, docs, scripts, or commit messages. Sanitize/genericize before committing, under all circumstances.
+
+- **The web frontend is a static page, not an app.** `web/` is a single self-contained `web/index.html` (plus `CNAME` and image assets) — no React, build step, test suite, or bundler, and no external CDN/font requests (privacy). It exists so others can see what the project is: a static reflection of the README, framed impersonally ("a personal Hyprland setup, shared as-is"). Do not reintroduce a framework, a build, or tests, and do not grow it into a docs app.
+
+- **Hosting is the existing AWS S3 + CloudFront — kept, but managed manually.** The static page lives in the `hyprconf-sh` S3 bucket behind a CloudFront distribution whose UA-router function serves `install.sh` to `curl`/`wget` and the page to browsers — that is what makes `bash <(curl -fsSL hyprconf.sh)` work. What was removed is the *deploy machinery*: the CDK app (`infra/cdk/`), the `hyprconf deploy`/`teardown` commands, and `web/deploy.sh`. Update the live site manually (`aws s3 cp web/… s3://hyprconf-sh/` + a CloudFront invalidation). `scripts/publish` is test → promote dev to stable (no deploy step). Do **not** rebuild the CDK app, a deploy CLI, or a React frontend; `infra/` holds only the system Firefox policy.
+
+- **Posture: a personal config shared as-is.** This is one person's daily-driver setup, published as reference and inspiration — not a maintained product. Favor removing scaffolding over adding it; there is no support or feature-request obligation.

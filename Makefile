@@ -1,5 +1,5 @@
 .PHONY: help test test-unit test-integration test-tui test-seq test-vm test-install \
-        test-web build-vm-image shellcheck lint fmt clean
+        build-vm-image shellcheck lint fmt clean
 
 export PYTHONDONTWRITEBYTECODE := 1
 
@@ -23,9 +23,6 @@ test-integration: ## Run integration tests in parallel
 
 test-tui: ## Run TUI tests in parallel
 	pytest tests/tui/ -q -n auto
-
-test-web: ## Run web frontend tests (Vitest)
-	cd web && npx vitest run
 
 # Sequential mode — lower resource use, clearer output (no parallelism)
 test-seq: ## Run all tests sequentially (clearer output)

@@ -15,17 +15,14 @@
 │   ├── CONTRIBUTING.md       # This file
 │   └── hyprland-reference.md # Hyprland config syntax cheatsheet
 │
-├── infra/                    # AWS CDK stack + deploy wrapper (S3 + CloudFront + ACM + Route53)
-│   ├── cdk/                  # CDK TypeScript app (lib/hyprconf-stack.ts)
-│   ├── env.sh.example        # Config template (copy → env.sh, never commit)
-│   ├── deploy.sh             # CDK wrapper: configure → build → deploy
-│   └── teardown.sh           # cdk destroy + bucket cleanup
+├── infra/
+│   └── firefox/policies.json # System Firefox privacy policy (installed by setup.sh)
 │
 ├── install/
-│   └── install.sh            # Self-contained installer (served from CloudFront)
+│   └── install.sh            # Self-contained installer
 │
 ├── scripts/
-│   └── publish               # Run tests, deploy, promote dev → stable, build release archive
+│   └── publish               # Run tests, promote dev → stable, build release archive
 │
 └── stow/                     # GNU Stow packages — symlinked into $HOME
     ├── hypr/
@@ -119,12 +116,6 @@ make test            # Tiers 1–3
 make test-vm         # Tier 4 (VM must be running)
 make test-install    # Tier 5 (image must be built)
 make build-vm-image  # runs build_image.sh
-
-# Web frontend tests (vitest)
-cd web && npm test
-
-# CDK infrastructure tests (vitest)
-cd infra/cdk && npm test
 ```
 
 ### Tier 5 install image
@@ -173,15 +164,32 @@ bash scripts/publish
    - **Rebuild** — re-run Packer to exercise `install.sh` end-to-end (~20 min)
    - If no image exists, builds automatically (no prompt)
 5. Starts the tier-5 VM on port 2223 via COW overlay; stops it on exit
-6. Deploys to `hyprconf.sh` via `hyprconf deploy hyprconf.sh`
-7. Builds a filtered release archive from `HEAD` using `git archive` + `.gitattributes`
-8. Pushes `HEAD` to `origin/stable`
-9. Creates and pushes the annotated tag `v<hyprconf.__version__>` unless it already points at `HEAD`
+6. Builds a filtered release archive from `HEAD` using `git archive` + `.gitattributes`
+7. Pushes `HEAD` to `origin/stable`
+8. Creates and pushes the annotated tag `v<hyprconf.__version__>` unless it already points at `HEAD`
 
 Files excluded from the release archive: `tests/` `scripts/` `.github/` `web/` `docs/` `AGENTS.md` `Makefile` `.editorconfig` `pyproject.toml` `__pycache__/` `*.pyc`
 
 | Flag | Effect |
 |------|--------|
-| `--skip-deploy` | Skip the deploy step |
 | `--skip-tag` | Skip annotated release-tag creation |
 | `--dry-run` | Build the release archive locally but do not push branches/tags |
+
+## Updating the website
+
+The landing page (`web/index.html`) is served from S3 + CloudFront at
+`hyprconf.sh` — the CloudFront UA-router sends `curl`/`wget` to `install.sh` and
+browsers to the page. There is no deploy tooling (the CDK app and `hyprconf
+deploy` were removed); push changes manually:
+
+```bash
+aws s3 cp web/index.html    s3://hyprconf-sh/index.html    --content-type text/html
+aws s3 cp web/hyprconf.webp s3://hyprconf-sh/hyprconf.webp --content-type image/webp
+# refresh the installer too when install.sh changes:
+aws s3 cp install/install.sh s3://hyprconf-sh/install.sh
+
+# then invalidate the cache (distribution looked up by domain):
+DIST=$(aws cloudfront list-distributions \
+  --query "DistributionList.Items[?contains(Aliases.Items,'hyprconf.sh')].Id" --output text)
+aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"
+```

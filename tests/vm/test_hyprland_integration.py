@@ -619,18 +619,6 @@ def test_paper_set_wallpaper_writes_config(vm: VMClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# hyprconf deploy
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.vm
-def test_deploy_list_runs_without_error(vm: VMClient) -> None:
-    """hyprconf deploy list exits 0 (empty list is valid)."""
-    result = vm.run("hyprconf deploy list 2>&1", check=False)
-    assert result.returncode == 0
-
-
-# ---------------------------------------------------------------------------
 # hyprconf configure
 # ---------------------------------------------------------------------------
 
