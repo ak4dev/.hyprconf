@@ -1,7 +1,7 @@
 # Hyprland Configuration Reference
 
 > Curated cheatsheet for this dotfiles repo. Covers every syntax feature in use.
-> Full wiki: <https://wiki.hyprland.org>
+> Full wiki: <https://wiki.hypr.land>
 
 ---
 
@@ -49,7 +49,12 @@ env = VAR_NAME,value
 - Comments: `#`
 - Variables: `$varName = value` — use with `$varName`
 - All options are case-insensitive
-- Wiki: <https://wiki.hyprland.org/Configuring/Keywords/>
+- Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/>
+
+> **Hyprland 0.55+ note:** 0.55 introduced an optional Lua configuration format and
+> deprecated `hyprlang`, but the traditional `key = value` syntax shown here remains
+> fully supported (back-compat is maintained). This repo and `hyprconf` deliberately
+> use the stable `key = value` form.
 
 ---
 
@@ -79,6 +84,9 @@ monitor = NAME, RESOLUTION@HZ, POSITION, SCALE[, EXTRAS...]
 | `cm` | `auto` · `srgb` · `dcip3` · `dp3` · `adobe` · `wide` · `edid` · `hdr` · `hdredid` | Colour management preset; `hdr`/`hdredid` are experimental |
 | `sdrbrightness` | float, default `1.0` | SDR brightness multiplier in HDR mode (typical 1.0–2.0) |
 | `sdrsaturation` | float, default `1.0` | SDR saturation multiplier in HDR mode |
+| `sdr_eotf` | `default` · `gamma22` · `srgb` | SDR transfer function (follows `render:cm_sdr_eotf`) |
+| `supports_hdr` | `-1` off · `0` auto · `1` on | Force HDR support (overrides EDID auto-detection) |
+| `sdr_min_luminance` | float, default `0.2` | SDR minimum luminance for SDR→HDR mapping |
 | `transform` | `0`–`7` | 0=normal, 1=90°, 2=180°, 3=270°, 4=flipped, 5–7=flipped+rotation |
 | `mirror` | monitor name | Mirror another output (no re-render; aspect ratio warning applies) |
 
@@ -120,7 +128,7 @@ render {
 }
 ```
 
-Wiki: <https://wiki.hyprland.org/Configuring/Monitors/>
+Wiki: <https://wiki.hypr.land/Configuring/Basics/Monitors/>
 
 ---
 
@@ -139,7 +147,7 @@ env = GTK_CURSOR_SIZE,24
 env = MOZ_ENABLE_WAYLAND,1
 ```
 
-Wiki: <https://wiki.hyprland.org/Configuring/Environment-variables/>
+Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Environment-variables/>
 
 ---
 
@@ -167,7 +175,7 @@ For VA-API hardware video acceleration, optionally install `libva-nvidia-driver`
 env = NVD_BACKEND,direct
 ```
 
-Wiki: <https://wiki.hyprland.org/Nvidia/>
+Wiki: <https://wiki.hypr.land/Nvidia/>
 
 ---
 
@@ -233,7 +241,7 @@ bindl  = , XF86AudioNext, exec, playerctl next
 | `togglesplit` | — | Toggle split direction |
 | `swapwindow` | l/r/u/d | Swap active window with neighbour |
 
-Wiki: <https://wiki.hyprland.org/Configuring/Binds/>
+Wiki: <https://wiki.hypr.land/Configuring/Basics/Binds/>
 
 ---
 
@@ -298,7 +306,7 @@ animations {
 
 **Styles:** `slide`, `popin [percent%]`, `fade`
 
-Wiki: <https://wiki.hyprland.org/Configuring/Animations/>
+Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Animations/>
 
 ### dwindle layout
 
@@ -319,7 +327,7 @@ misc {
 }
 ```
 
-Wiki: <https://wiki.hyprland.org/Configuring/Variables/>
+Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/>
 
 ---
 
@@ -355,7 +363,7 @@ device {
 }
 ```
 
-Wiki: <https://wiki.hyprland.org/Configuring/Variables/#input>
+Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/#input>
 
 ---
 
@@ -375,7 +383,7 @@ windowrule = match:class theme-switcher, float on, center on, size 820 440
 
 **Filter syntax:** `class:REGEX`, `title:REGEX`, `floating:0/1`, `fullscreen:0/1`, `onworkspace:N`
 
-Wiki: <https://wiki.hyprland.org/Configuring/Window-Rules/>
+Wiki: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
 
 ---
 
@@ -388,14 +396,14 @@ workspace = N, gapsout:0, gapsin:0     # "Smart gaps"
 workspace = special:name               # Named scratchpad
 ```
 
-Wiki: <https://wiki.hyprland.org/Configuring/Workspace-Rules/>
+Wiki: <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/>
 
 ---
 
 ## hyprlock
 
 Config: `~/.config/hypr/hyprlock.conf`
-Wiki: <https://wiki.hyprland.org/Hypr-Ecosystem/hyprlock/>
+Wiki: <https://wiki.hypr.land/Hypr-Ecosystem/hyprlock/>
 
 ```ini
 general {
@@ -455,7 +463,7 @@ input-field {
 ## hypridle
 
 Config: `~/.config/hypr/hypridle.conf`
-Wiki: <https://wiki.hyprland.org/Hypr-Ecosystem/hypridle/>
+Wiki: <https://wiki.hypr.land/Hypr-Ecosystem/hypridle/>
 
 ```ini
 general {
@@ -498,7 +506,7 @@ listener {
 ## hyprpaper
 
 Config: `~/.config/hypr/hyprpaper.conf`
-Wiki: <https://wiki.hyprland.org/Hypr-Ecosystem/hyprpaper/>
+Wiki: <https://wiki.hypr.land/Hypr-Ecosystem/hyprpaper/>
 
 ```ini
 preload  = /path/to/wallpaper.jpg       # Must preload before setting
@@ -565,7 +573,7 @@ hyprctl activeworkspace
 hyprctl cursorpos
 ```
 
-Wiki: <https://wiki.hyprland.org/Configuring/Using-hyprctl/>
+Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/>
 
 
 ---
@@ -614,4 +622,4 @@ hyprconf hardware rotate <on|off>    # start/stop autorotate daemon
 
 Persistence key format: `section:subsection:key = value` (matching `hyprctl keyword` syntax).
 
-Wiki options reference: <https://wiki.hyprland.org/Configuring/Variables/>
+Wiki options reference: <https://wiki.hypr.land/Configuring/Basics/Variables/>

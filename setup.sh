@@ -850,7 +850,7 @@ write_hardware_conf() {
         printf '# Re-run setup.sh or hyprconf sync to regenerate.\n'
 
         if $has_nvidia; then
-            printf '\n# Nvidia GPU — required env vars for Wayland (wiki.hyprland.org/Nvidia)\n'
+            printf '\n# Nvidia GPU — required env vars for Wayland (wiki.hypr.land/Nvidia)\n'
             printf 'env = LIBVA_DRIVER_NAME,nvidia\n'
             printf 'env = __GLX_VENDOR_LIBRARY_NAME,nvidia\n'
         fi
@@ -917,7 +917,7 @@ setup_hardware_features() {
             log_ok "Nvidia early-KMS modules already present — skipping."
         fi
 
-        # nvidia-drm modeset=1 is required for Wayland (wiki.hyprland.org/Nvidia) —
+        # nvidia-drm modeset=1 is required for Wayland (wiki.hypr.land/Nvidia) —
         # without it Hyprland fails to start on Nvidia. The early-KMS modules above
         # load nvidia_drm before the compositor, but the modeset parameter still
         # needs to be set via modprobe.d. Appends rather than overwrites so any
