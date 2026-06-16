@@ -833,3 +833,390 @@ def test_adjust_adjacent_shifts_monitor_below():
 
     assert len(upsert_calls) == 1
     assert upsert_calls[0][2] == "0x1440"
+
+
+# ---------------------------------------------------------------------------
+# KeybindEditScreen: save / cancel / validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_keybind_edit_screen_saves(patched_tui_env: Path) -> None:
+    import main as tui_main
+    from textual.widgets import Input
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await app.push_screen(
+            tui_main.KeybindEditScreen(
+                kind="bind", mods="SUPER", key="T", dispatcher="exec", args="kitty"
+            ),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        # Submitting the last field commits the whole keybind.
+        app.screen.query_one("#kb-args", Input).focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert received == [("bind", "SUPER", "T", "exec", "kitty")]
+
+
+@pytest.mark.asyncio
+async def test_keybind_edit_screen_cancel(patched_tui_env: Path) -> None:
+    import main as tui_main
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await app.push_screen(
+            tui_main.KeybindEditScreen(kind="bind", key="T", dispatcher="exec"),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+    assert received == [None]
+
+
+@pytest.mark.asyncio
+async def test_keybind_edit_screen_requires_key_and_dispatcher(patched_tui_env: Path) -> None:
+    import main as tui_main
+    from textual.widgets import Input
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await app.push_screen(
+            tui_main.KeybindEditScreen(kind="bind", mods="SUPER", key="", dispatcher=""),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        app.screen.query_one("#kb-args", Input).focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        # Missing key + dispatcher → validation blocks the dismiss; modal stays open.
+        assert received == []
+        assert isinstance(app.screen, tui_main.KeybindEditScreen)
+
+
+# ---------------------------------------------------------------------------
+# RuleEditScreen: window + workspace save, cancel, validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rule_edit_window_saves(patched_tui_env: Path) -> None:
+    import main as tui_main
+    from textual.widgets import Input
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await app.push_screen(
+            tui_main.RuleEditScreen(
+                rule_type="window", action="float", filter1="class:kitty", filter2=""
+            ),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        app.screen.query_one("#rule-filter2", Input).focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert received == [("window", "float", ["class:kitty"])]
+
+
+@pytest.mark.asyncio
+async def test_rule_edit_workspace_saves(patched_tui_env: Path) -> None:
+    import main as tui_main
+    from textual.widgets import Input
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await app.push_screen(
+            tui_main.RuleEditScreen(
+                rule_type="workspace", wksp_id="2", wksp_opts="monitor:HDMI-A-1, default:true"
+            ),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        app.screen.query_one("#wksp-opts", Input).focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert received == [("workspace", "2", "monitor:HDMI-A-1, default:true")]
+
+
+@pytest.mark.asyncio
+async def test_rule_edit_cancel(patched_tui_env: Path) -> None:
+    import main as tui_main
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await app.push_screen(
+            tui_main.RuleEditScreen(rule_type="window", action="float"),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+    assert received == [None]
+
+
+@pytest.mark.asyncio
+async def test_rule_edit_window_requires_action(patched_tui_env: Path) -> None:
+    import main as tui_main
+    from textual.widgets import Input
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 30)) as pilot:
+        await app.push_screen(
+            tui_main.RuleEditScreen(rule_type="window", action="", filter1="class:kitty"),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        app.screen.query_one("#rule-filter2", Input).focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+        # Empty action → validation blocks the dismiss; modal stays open.
+        assert received == []
+        assert isinstance(app.screen, tui_main.RuleEditScreen)
+
+
+# ---------------------------------------------------------------------------
+# Special sections render hermetically: hyprpaper / hyprlock / hypridle / theme
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_hyprpaper_section_renders(patched_tui_env: Path) -> None:
+    from textual.widgets import DataTable
+
+    (patched_tui_env / "hyprpaper.conf").write_text(
+        "preload = ~/wallpaper/a.jpg\nwallpaper = eDP-1,~/wallpaper/a.jpg\n"
+    )
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._load_section("hyprpaper")
+        await pilot.pause()
+        table = app.query_one("#option-table", DataTable)
+        assert table.row_count > 0
+        flat = " ".join(str(c) for i in range(table.row_count) for c in table.get_row_at(i))
+        assert "a.jpg" in flat or "wallpaper" in flat.lower()
+
+
+@pytest.mark.asyncio
+async def test_hyprlock_section_renders(patched_tui_env: Path) -> None:
+    from textual.widgets import DataTable
+
+    (patched_tui_env / "hyprlock.conf").write_text(
+        "background {\n    monitor =\n    color = rgba(0,0,0,1.0)\n}\n"
+    )
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._load_section("hyprlock")
+        await pilot.pause()
+        table = app.query_one("#option-table", DataTable)
+        assert table.row_count > 0
+
+
+@pytest.mark.asyncio
+async def test_hypridle_section_renders(patched_tui_env: Path) -> None:
+    from textual.widgets import DataTable
+
+    (patched_tui_env / "hypridle.conf").write_text(
+        "listener {\n    timeout = 300\n    on-timeout = loginctl lock-session\n}\n"
+    )
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._load_section("hypridle")
+        await pilot.pause()
+        table = app.query_one("#option-table", DataTable)
+        assert table.row_count > 0
+
+
+@pytest.mark.asyncio
+async def test_theme_section_renders(
+    patched_tui_env: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import main as tui_main
+    from textual.widgets import DataTable
+
+    monkeypatch.setattr(tui_main, "list_themes", lambda: ["acme-dark", "acme-light"])
+    HyprconfApp = _get_app_class()
+    app = HyprconfApp()
+    async with app.run_test(size=(120, 40)) as pilot:
+        app._load_section("theme")
+        await pilot.pause()
+        table = app.query_one("#option-table", DataTable)
+        assert table.row_count == 2
+
+
+# ---------------------------------------------------------------------------
+# EditScreen + NumericEditScreen: option value save-paths
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_edit_screen_saves(patched_tui_env: Path) -> None:
+    import main as tui_main
+    from textual.widgets import Input
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await app.push_screen(
+            tui_main.EditScreen(
+                section="general",
+                key="layout",
+                current="dwindle",
+                type_="enum:dwindle,master",
+                default="dwindle",
+                description="Active layout",
+            ),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        app.screen.query_one("#edit-input", Input).value = "master"
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert received == ["master"]
+
+
+@pytest.mark.asyncio
+async def test_edit_screen_cancel(patched_tui_env: Path) -> None:
+    import main as tui_main
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await app.push_screen(
+            tui_main.EditScreen(
+                section="general",
+                key="border_size",
+                current="2",
+                type_="int",
+                default="1",
+                description="Border width",
+            ),
+            callback=lambda v: received.append(v),
+        )
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+    assert received == [None]
+
+
+def _numeric_screen(tui_main, *, current="5", min_val=0, max_val=100):
+    return tui_main.NumericEditScreen(
+        section="general",
+        key="gaps_in",
+        current=current,
+        type_="int",
+        default="5",
+        description="Inner gaps",
+        min_val=min_val,
+        max_val=max_val,
+        step=1,
+        fine_step=1,
+    )
+
+
+@pytest.mark.asyncio
+async def test_numeric_edit_screen_saves(patched_tui_env: Path) -> None:
+    import main as tui_main
+    from textual.widgets import Input
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await app.push_screen(_numeric_screen(tui_main), callback=lambda v: received.append(v))
+        await pilot.pause()
+        inp = app.screen.query_one("#slider-input", Input)
+        inp.value = "42"
+        inp.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+    assert received == ["42"]
+
+
+@pytest.mark.asyncio
+async def test_numeric_edit_screen_clamps_to_max(patched_tui_env: Path) -> None:
+    import main as tui_main
+    from textual.widgets import Input
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await app.push_screen(
+            _numeric_screen(tui_main, max_val=10), callback=lambda v: received.append(v)
+        )
+        await pilot.pause()
+        inp = app.screen.query_one("#slider-input", Input)
+        inp.value = "999"
+        inp.focus()
+        await pilot.pause()
+        await pilot.press("enter")
+        await pilot.pause()
+
+    # _apply clamps to the configured max before dismissing
+    assert received == ["10"]
+
+
+@pytest.mark.asyncio
+async def test_numeric_edit_screen_cancel(patched_tui_env: Path) -> None:
+    import main as tui_main
+
+    HyprconfApp = _get_app_class()
+    received: list = []
+
+    app = HyprconfApp()
+    async with app.run_test(size=(80, 24)) as pilot:
+        await app.push_screen(_numeric_screen(tui_main), callback=lambda v: received.append(v))
+        await pilot.pause()
+        await pilot.press("escape")
+        await pilot.pause()
+
+    assert received == [None]
