@@ -319,7 +319,11 @@ def _repl_monitors(line: str) -> None:
     elif line == "no" or line.startswith("no "):
         print(f"{_Y}  'no' is not applicable for monitors. Use: <name> <field> <value>{_R}")
     elif line.endswith(" ?"):
-        cmd_monitor(["field", "show", line[:-2].strip()])
+        # `<name> ?` (and the looser `<name> <field> ?`) query a monitor; monitors
+        # are always shown whole, so use the first token and ignore any field part.
+        qtokens = line[:-2].split()
+        if qtokens:
+            cmd_monitor(["field", "show", qtokens[0]])
     else:
         parts = line.split()
         if len(parts) >= 3:

@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hyprconf"
-version = "2.1.1"
+# Single source of truth: the version is read from the package (bumped by scripts/publish).
+dynamic = ["version"]
 description = "Hyprland configuration suite — CLI/TUI binary and Arch Linux dotfiles"
 # 3.12 is the real floor: CI tests 3.12, Arch ships ≥3.13, and switch_theme.py
 # uses 3.12 f-string syntax. (Declared >=3.11 was stale/untested.)
@@ -22,6 +23,9 @@ test = [
 
 [tool.setuptools.package-dir]
 "" = "stow/hypr/.local/lib"
+
+[tool.setuptools.dynamic]
+version = { attr = "hyprconf.__version__" }
 
 [tool.pytest.ini_options]
 pythonpath = ["stow/hypr/.local/lib"]

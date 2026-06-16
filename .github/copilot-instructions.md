@@ -149,7 +149,7 @@ Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s add
 
 ## Testing Rules (Non-Negotiable)
 
-- **100% test coverage is required for all new or modified code.** Before committing any change, write tests that exercise every new code path and every modified branch. Run `make test` and verify coverage does not decrease.
+- **Every new or modified code path must be covered by a test.** Before committing any change, write tests that exercise every new path and every changed branch, run `make test`, and do not let coverage regress. (CI reports coverage with `--cov-report=term-missing` but does not yet gate on a fixed percentage — keep it high regardless.)
 - **Tests track features, but are never silently weakened.** When a change *intentionally* alters behaviour, update the affected test to assert the **new** contract in the same commit and call it out in the commit message — keeping tests in lockstep with features is required, not optional. What's forbidden is silently gutting, deleting, or loosening a test to mask a regression or just to get a green run: if a test fails for any reason other than an intended, documented behaviour change, fix the code, not the test.
 - When adding a new feature (script, function, CLI command, config path), add corresponding tests in the appropriate `tests/` tier (`unit/`, `integration/`, `vm/`, or `install/`).
 - Test files live under `tests/`. Run the full suite with `make test`.

@@ -1465,3 +1465,35 @@ def test_rule_window_update_writes_whole_filter_not_chars(hypr_dir, capsys):
     # Must contain the whole filter token, NOT individual characters
     assert "class:app" in content, f"filter string mangled: {content!r}"
     assert "c, l, a, s, s" not in content, f"filter was iterated char-by-char: {content!r}"
+
+
+# ---------------------------------------------------------------------------
+# _repl_monitors — the monitors context of the configure REPL
+# ---------------------------------------------------------------------------
+
+
+def test_repl_monitors_routes_show_set_and_query(hypr_dir, monkeypatch):
+    """_repl_monitors routes show / set / `?` queries to cmd_monitor.
+
+    Regression: `<name> <field> ?` was passed whole as the monitor name, so the
+    lookup reported the monitor missing. The `?` query must use the first token
+    and ignore any trailing field part.
+    """
+    calls = []
+    monkeypatch.setattr(cli, "cmd_monitor", lambda args: calls.append(args))
+
+    cli._repl_monitors("show")
+    cli._repl_monitors("show DP-1")
+    cli._repl_monitors("DP-1 ?")
+    cli._repl_monitors("DP-1 scale ?")  # field token ignored, not treated as the name
+    cli._repl_monitors("HDMI-A-1")
+    cli._repl_monitors("HDMI-A-1 scale 1.5")
+
+    assert calls == [
+        ["field", "show"],
+        ["field", "show", "DP-1"],
+        ["field", "show", "DP-1"],
+        ["field", "show", "DP-1"],
+        ["field", "show", "HDMI-A-1"],
+        ["field", "set", "HDMI-A-1", "scale", "1.5"],
+    ]

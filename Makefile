@@ -1,5 +1,5 @@
 .PHONY: help test test-unit test-integration test-tui test-seq test-vm test-install \
-        build-vm-image shellcheck lint fmt clean
+        build-vm-image shellcheck lint typecheck fmt clean
 
 export PYTHONDONTWRITEBYTECODE := 1
 
@@ -52,6 +52,9 @@ lint: ## Run ruff lint + format check on all Python (the CI gate)
 fmt: ## Auto-format all Python with ruff (format + safe lint fixes)
 	ruff format $(PYSRC)
 	ruff check --fix $(PYSRC)
+
+typecheck: ## Run mypy on the Python library (informational — not yet a CI gate)
+	mypy stow/hypr/.local/lib/hyprconf/
 
 clean: ## Remove build artefacts and caches
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
