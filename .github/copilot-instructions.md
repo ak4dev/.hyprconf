@@ -5,16 +5,16 @@
 When making any Hyprland configuration change, consult these resources in order:
 
 1. **`docs/hyprland-reference.md`** (this repo) — curated cheatsheet covering all syntax features in active use: monitor syntax, keybind types, window rules, hyprlock/hypridle/hyprpaper config, env vars, animations, and useful `hyprctl` commands.
-2. **Hyprland wiki** — <https://wiki.hyprland.org> — authoritative and always up to date. Key sections:
-   - Monitors: <https://wiki.hyprland.org/Configuring/Monitors/>
-   - Variables: <https://wiki.hyprland.org/Configuring/Variables/>
-   - Binds: <https://wiki.hyprland.org/Configuring/Binds/>
-   - Window Rules: <https://wiki.hyprland.org/Configuring/Window-Rules/>
-   - Animations: <https://wiki.hyprland.org/Configuring/Animations/>
-   - hyprlock: <https://wiki.hyprland.org/Hypr-Ecosystem/hyprlock/>
-   - hypridle: <https://wiki.hyprland.org/Hypr-Ecosystem/hypridle/>
-   - hyprpaper: <https://wiki.hyprland.org/Hypr-Ecosystem/hyprpaper/>
-   - hyprctl: <https://wiki.hyprland.org/Configuring/Using-hyprctl/>
+2. **Hyprland wiki** — <https://wiki.hypr.land> — authoritative and always up to date. Key sections:
+   - Monitors: <https://wiki.hypr.land/Configuring/Basics/Monitors/>
+   - Variables: <https://wiki.hypr.land/Configuring/Basics/Variables/>
+   - Binds: <https://wiki.hypr.land/Configuring/Basics/Binds/>
+   - Window Rules: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
+   - Animations: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Animations/>
+   - hyprlock: <https://wiki.hypr.land/Hypr-Ecosystem/hyprlock/>
+   - hypridle: <https://wiki.hypr.land/Hypr-Ecosystem/hypridle/>
+   - hyprpaper: <https://wiki.hypr.land/Hypr-Ecosystem/hyprpaper/>
+   - hyprctl: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/>
 
 **When adding features not covered in `docs/hyprland-reference.md`**, add a concise example of the new syntax to the appropriate section in that file.
 
@@ -153,12 +153,12 @@ Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s add
 - **Tests track features, but are never silently weakened.** When a change *intentionally* alters behaviour, update the affected test to assert the **new** contract in the same commit and call it out in the commit message — keeping tests in lockstep with features is required, not optional. What's forbidden is silently gutting, deleting, or loosening a test to mask a regression or just to get a green run: if a test fails for any reason other than an intended, documented behaviour change, fix the code, not the test.
 - When adding a new feature (script, function, CLI command, config path), add corresponding tests in the appropriate `tests/` tier (`unit/`, `integration/`, `vm/`, or `install/`).
 - Test files live under `tests/`. Run the full suite with `make test`.
-- **Unit/integration tests must be hermetic — they run on a bare `ubuntu-latest` CI runner, NOT Arch.** `make test` passing on a dev Arch box is necessary but NOT sufficient: the GitHub `Tests` workflow runs `tests/unit` + `tests/integration` on Ubuntu, which lacks Arch/Hyprland tooling (`pacman`, `hyprctl`, `nmcli`, `stow`, often `nft`/`pciutils`), has `/bin/sh` → `dash` (not bash), and no real `/sys/kernel/iommu_groups`, writable `/etc`, or the developer's group memberships. A test that reads or writes a real system path, calls a host tool, or depends on `$USER`'s groups will pass locally and fail CI. Rules:
+- **Unit/integration tests must be hermetic — they run in a minimal `archlinux:latest` CI container, NOT on a live desktop.** `make test` passing on your Arch box is necessary but NOT sufficient: the GitHub `Tests` workflow runs `tests/unit` + `tests/integration` inside a fresh `archlinux:latest` container that has bash + the base toolchain but **no running Hyprland session, no real monitors/GPU/touch hardware, no configured services, no writable real `/etc`/`/sys/kernel/iommu_groups`, and not your group memberships**. A test that reads or writes a real system path, calls a host tool (`hyprctl`, `nmcli`, `stow`, and even though `pacman` now exists in the container it must not be invoked to mutate it), or depends on `$USER`'s groups or a live session will pass on your desktop and fail (or worse, mutate the container) in CI. Rules:
   - Never let a script-under-test read/write a hardcoded system path (`/etc/...`, `/sys/...`, `/proc/...`, `/boot/...`). Make the path an env-overridable variable (`: "${_VAR:=/real/default}"`) and point it at a `tmp_path` in the test. Never use `readonly` for such a path.
   - Stub every external command the script calls (prepend a fake-bins dir to `PATH`); never rely on a host binary being present or behaving a certain way.
   - Don't depend on ambient state: real `id`/group membership, real `/proc/cmdline`, a configured git committer identity, an installed package, or a TTY. Inject it.
   - If a behaviour genuinely needs Arch/a live session/hardware, put the test in the `vm`/`install` tier (gated behind `--run-vm`/`--run-install`), not `unit`/`integration`.
-  - To reproduce the CI environment locally without Docker: run the suite in an Ubuntu rootfs via `bwrap` (the dev box ships it), or at minimum sanity-check that no unit/integration test touches a real system path.
+  - To reproduce the CI environment locally: run the suite in a throwaway Arch container — `podman run --rm -v "$PWD":/repo -w /repo archlinux:latest bash -c 'pacman -Syu --noconfirm --needed python python-pytest python-pytest-asyncio python-pytest-xdist && python -m pytest tests/unit tests/integration -q'` — or at minimum sanity-check that no unit/integration test touches a real system path.
 
 ## Workflow Rules (Non-Negotiable)
 

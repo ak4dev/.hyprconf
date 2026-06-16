@@ -10,43 +10,35 @@ concurrency:
   group: tests-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# hyprconf is an Arch Linux project, so CI runs inside an archlinux:latest
+# container — the same rolling toolchain (pacman, system CPython) its users run.
+# GitHub offers no native Arch runner, so the ubuntu-latest host only provides
+# the container engine; every step below executes inside the Arch container.
 jobs:
   lint:
     name: "Lint (shellcheck + ruff)"
     runs-on: ubuntu-latest
+    container: archlinux:latest
     steps:
+      - name: Install toolchain
+        run: pacman -Syu --noconfirm --needed git make ruff shellcheck
       - uses: actions/checkout@v4
-
-      - name: ShellCheck (all bash scripts, severity=warning)
+      - name: ShellCheck (all bash scripts)
         run: make shellcheck
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install ruff
-        run: pip install ruff
-
       - name: Ruff (lint + format check)
         run: make lint
 
   unit-integration:
-    name: "Unit + Integration (Tiers 1–2)"
+    name: "Unit + Integration (Tiers 1-2)"
     runs-on: ubuntu-latest
-
+    container: archlinux:latest
     steps:
+      - name: Install toolchain
+        run: |
+          pacman -Syu --noconfirm --needed git python \
+            python-pytest python-pytest-asyncio python-pytest-xdist python-pytest-cov
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install pytest pytest-asyncio pytest-xdist coverage pytest-cov
-
-      - name: Run tests
+      - name: Run tiers 1-2 (unit + integration)
         run: |
           python -m pytest tests/unit/ tests/integration/ \
             --tb=short -q -n auto \
@@ -58,19 +50,14 @@ jobs:
   tui:
     name: "TUI (Tier 3)"
     runs-on: ubuntu-latest
-
+    container: archlinux:latest
     steps:
+      - name: Install toolchain
+        run: |
+          pacman -Syu --noconfirm --needed git python \
+            python-pytest python-pytest-asyncio python-pytest-xdist python-textual
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install dependencies
-        run: pip install pytest pytest-asyncio pytest-xdist textual
-
-      - name: Run TUI tests
+      - name: Run tier 3 (TUI, headless)
         run: python -m pytest tests/tui/ --tb=short -q -n auto
         env:
           PYTHONDONTWRITEBYTECODE: "1"

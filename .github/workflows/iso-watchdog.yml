@@ -1,0 +1,88 @@
+name: ISO Watchdog
+
+# Purpose: catch installer breakage caused by a *new* Arch ISO before it reaches
+# a release. Arch ships a fresh ISO monthly (and the rolling "latest" tracks it),
+# so on a schedule we fetch the current ISO, verify it against the mirror's
+# sha256sums.txt, rebuild the install image from it, and run the install tier.
+# A red run means install.sh needs an update before the next promotion to stable.
+#
+# This needs nested virtualization (Packer + QEMU/KVM), which GitHub-hosted
+# runners do not provide — so it targets a KVM-capable self-hosted runner (the
+# maintainer's machine, which already runs `make test-install`). Until such a
+# runner is registered the scheduled job simply stays idle; trigger it by hand
+# with "Run workflow" once a runner is available.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+concurrency:
+  group: iso-watchdog
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  install-against-latest-iso:
+    name: "Install tier vs latest Arch ISO"
+    runs-on: [self-hosted, linux] # must be KVM-capable (see header)
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve + verify the latest Arch ISO checksum
+        id: iso
+        run: |
+          set -euo pipefail
+          base="https://geo.mirror.pkgbuild.com/iso/latest"
+          checksum="$(curl -fsSL "$base/sha256sums.txt" \
+            | awk '$2 == "archlinux-x86_64.iso" { print $1 }')"
+          if [ -z "$checksum" ]; then
+            echo "::error::archlinux-x86_64.iso not found in sha256sums.txt"
+            exit 1
+          fi
+          {
+            echo "url=$base/archlinux-x86_64.iso"
+            echo "checksum=sha256:$checksum"
+          } >> "$GITHUB_OUTPUT"
+          echo "Latest Arch ISO sha256: $checksum"
+
+      - name: Rebuild the install image against the latest ISO
+        env:
+          PKR_VAR_iso_url: ${{ steps.iso.outputs.url }}
+          PKR_VAR_iso_checksum: ${{ steps.iso.outputs.checksum }}
+        run: bash tests/install/build_image.sh
+
+      - name: Run the install tier against the fresh image
+        run: make test-install
+
+      - name: Stop the test VM
+        if: always()
+        run: bash tests/vm/run_vm.sh --stop || true
+
+      - name: Open a tracking issue if the installer broke
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const title = "ISO watchdog: install tier failed against the latest Arch ISO";
+            const body = [
+              "The scheduled ISO watchdog failed `make test-install` against the current Arch ISO.",
+              "The installer likely needs an update before the next promotion to **stable**.",
+              "",
+              `Failing run: ${run}`,
+            ].join("\n");
+            const open = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: "open", labels: "iso-watchdog",
+            });
+            if (open.data.length === 0) {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ["iso-watchdog"],
+              });
+            }

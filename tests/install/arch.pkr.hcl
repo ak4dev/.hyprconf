@@ -15,6 +15,18 @@ variable "iso_url" {
   default     = "https://geo.mirror.pkgbuild.com/iso/latest/archlinux-x86_64.iso"
 }
 
+variable "iso_checksum" {
+  description = <<-EOT
+    ISO checksum. The default points Packer at the mirror's published
+    sha256sums.txt, which it fetches and matches against the ISO filename — so a
+    corrupted or tampered download fails the build instead of silently booting
+    (the old `iso_checksum = "none"`). The ISO watchdog overrides this with an
+    explicit `sha256:<hash>` it fetched and verified for the exact latest ISO.
+  EOT
+  type        = string
+  default     = "file:https://geo.mirror.pkgbuild.com/iso/latest/sha256sums.txt"
+}
+
 variable "ssh_password" {
   description = "Password for the hyprtest user created inside the image."
   type        = string
@@ -43,9 +55,9 @@ variable "memory" {
 # ── Source ─────────────────────────────────────────────────────────────────────
 
 source "qemu" "arch_hyprconf" {
-  # ISO
+  # ISO — verified against the mirror's sha256sums.txt (see var.iso_checksum).
   iso_url      = var.iso_url
-  iso_checksum = "none"
+  iso_checksum = var.iso_checksum
 
   # VM identity
   vm_name          = "arch-hyprconf.qcow2"

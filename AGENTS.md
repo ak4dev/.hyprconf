@@ -70,11 +70,13 @@ non-negotiables:
    high-level claims (feature list, theme count, install command) honest, but it
    need not enumerate every command.
 
-3. **Unit/integration tests stay hermetic.** They must pass on a bare
-   `ubuntu-latest` runner: no reading/writing real system paths, no host tools, no
-   ambient state. Make system paths env-overridable (`: "${_VAR:=/default}"`, never
-   `readonly`) and point them at a `tmp_path`; stub external commands via a
-   fake-bins `PATH`. Anything needing Arch/hardware goes in the `vm`/`install` tier.
+3. **Unit/integration tests stay hermetic.** They must pass in a minimal
+   `archlinux:latest` CI container — no running Hyprland session, no real
+   hardware, no host tools, no ambient state, and never mutating the container
+   (don't shell out to `pacman`). No reading/writing real system paths. Make
+   system paths env-overridable (`: "${_VAR:=/default}"`, never `readonly`) and
+   point them at a `tmp_path`; stub external commands via a fake-bins `PATH`.
+   Anything needing a live session/hardware goes in the `vm`/`install` tier.
 
 4. **Security invariants never regress.** Ship fail-closed (new network features
    opt-in); keep the lock screen (hyprlock) and a real install's LUKS

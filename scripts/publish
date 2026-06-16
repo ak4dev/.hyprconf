@@ -171,28 +171,9 @@ if [[ "$(git rev-parse HEAD)" != "$(git merge-base HEAD origin/dev)" \
 fi
 ok "Local dev is up-to-date with origin/dev"
 
-if [[ "$SKIP_BUMP" == false ]]; then
-  step "Bumping ${BUMP_TYPE} version"
-  version="$(_bump_version "$BUMP_TYPE")"
-  release_tag="v${version}"
-  if [[ "$DRY_RUN" == true ]]; then
-    warn "Dry-run — would commit version bump to ${release_tag}"
-    git checkout -- "$VERSION_FILE"
-  else
-    git add "$VERSION_FILE"
-    git commit -m "release: [${release_tag}] bump version"
-    git push origin dev
-    ok "Bumped to ${version}"
-  fi
-else
-  version="$(_read_version)"
-  release_tag="v${version}"
-  warn "Skipping version bump (--skip-bump) — using existing ${release_tag}"
-fi
-
-[[ -n "$version" ]] || die "Resolved empty version from $VERSION_FILE."
-
-info "Release tag: ${release_tag}"
+# NOTE: the version bump + tag now happen AFTER the full suite passes (further
+# down) so a release tag is only ever cut from code that has gone green through
+# tier 5 — not from a commit that the test run might still reject.
 
 step "Running test suite"
 
@@ -208,27 +189,28 @@ step "Checking VM image"
 if [[ "$SKIP_TESTS" == true ]]; then
   warn "Skipping VM/install tiers (--skip-tests)"
 else
-_build_image=false
-if [[ -f "$INSTALL_IMAGE" ]]; then
-  _built_at="unknown"
-  _built_commit="unknown"
-  if [[ -f "$INSTALL_META" ]]; then
-    _built_at="$(grep '^built_at=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
-    _built_commit="$(grep '^git_commit=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
+# Decide whether to rebuild the install image. The install tier exists to catch
+# install.sh breakage, so we REBUILD by default and reuse an existing image only
+# when it was built from a commit whose install-relevant paths (install/, setup.sh,
+# packages) are byte-identical to HEAD — i.e. nothing the installer touches changed.
+_build_image=true
+if [[ -f "$INSTALL_IMAGE" && -f "$INSTALL_META" ]]; then
+  _built_at="$(grep '^built_at=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
+  _built_commit="$(grep '^git_commit=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
+  printf '%s  ─ Image found (built %s from %s)%s\n' "$DM" "$_built_at" "$_built_commit" "$RS"
+  if [[ "$_built_commit" != "unknown" ]] \
+     && git rev-parse -q --verify "${_built_commit}^{commit}" >/dev/null 2>&1; then
+    if git diff --quiet "$_built_commit" HEAD -- install setup.sh packages; then
+      _build_image=false
+      ok "Reusing image — no install-path changes since it was built"
+    else
+      warn "install/, setup.sh or packages changed since the image was built — rebuilding"
+    fi
+  else
+    warn "Image build commit unknown or not in history — rebuilding to be safe"
   fi
-  printf '%s  ─ Image found%s\n'            "$DM" "$RS"
-  printf '%s  ─   Built:  %s%s\n'           "$DM" "$_built_at" "$RS"
-  printf '%s  ─   Commit: %s%s\n\n'         "$DM" "$_built_commit" "$RS"
-  printf '  1) Use existing image  (skip install.sh rebuild — faster)\n'
-  printf '  2) Rebuild from scratch (tests install.sh end-to-end — ~20 min)\n\n'
-  read -rp "  Choice [1/2, default 1]: " _img_choice || true
-  case "${_img_choice:-1}" in
-    2) _build_image=true ;;
-    *) ok "Reusing existing image" ;;
-  esac
 else
-  warn "No VM image found — must build before running tiers 4 and 5 (~20 min)"
-  _build_image=true
+  warn "No VM image found — building before tiers 4 and 5 (~20 min)"
 fi
 
 if [[ "$_build_image" == true ]]; then
@@ -296,6 +278,29 @@ ok "Tier 5 passed"
 fi  # end: if [[ "$SKIP_TESTS" != true ]]
 
 [[ "$SKIP_TESTS" == true ]] || ok "All tests passed"
+
+# Suite is green — now bump the version and cut the tag from the tested HEAD.
+if [[ "$SKIP_BUMP" == false ]]; then
+  step "Bumping ${BUMP_TYPE} version (suite is green)"
+  version="$(_bump_version "$BUMP_TYPE")"
+  release_tag="v${version}"
+  if [[ "$DRY_RUN" == true ]]; then
+    warn "Dry-run — would commit version bump to ${release_tag}"
+    git checkout -- "$VERSION_FILE"
+  else
+    git add "$VERSION_FILE"
+    git commit -m "release: [${release_tag}] bump version"
+    git push origin dev
+    ok "Bumped to ${version}"
+  fi
+else
+  version="$(_read_version)"
+  release_tag="v${version}"
+  warn "Skipping version bump (--skip-bump) — using existing ${release_tag}"
+fi
+
+[[ -n "$version" ]] || die "Resolved empty version from $VERSION_FILE."
+info "Release tag: ${release_tag}"
 
 step "Building release archive"
 archive_path="$(_build_release_archive "$release_tag")"
