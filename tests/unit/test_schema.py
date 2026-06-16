@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from hyprconf.schema import (
     OPTION_SCHEMA,
+    SECTION_LABELS,
     SECTION_ORDER,
     format_type_short,
     get_all_sections,
@@ -345,3 +346,85 @@ def test_section_order_general_after_separator() -> None:
     separator_idx = SECTION_ORDER.index("")
     after_sep = SECTION_ORDER[separator_idx + 1 :]
     assert "general" in after_sep
+
+
+# ---------------------------------------------------------------------------
+# Hyprland 0.55 currency — new sections, removals, renames, drift-fixes
+# (lockstep: these pin the schema to the live wiki.hypr.land reference)
+# ---------------------------------------------------------------------------
+
+
+def test_new_055_sections_present() -> None:
+    for section in (
+        "decoration.glow",
+        "decoration.motion_blur",
+        "input.touchdevice",
+        "input.virtualkeyboard",
+        "input.tablet",
+        "input.tablettool",
+        "layout",
+        "ecosystem",
+        "quirks",
+        "debug",
+    ):
+        assert section in OPTION_SCHEMA, f"missing 0.55 section {section!r}"
+
+
+def test_removed_options_absent() -> None:
+    """Options Hyprland dropped must not linger in the schema."""
+    assert "ignore_window" not in OPTION_SCHEMA["decoration.shadow"]
+    assert "pseudotile" not in OPTION_SCHEMA["dwindle"]  # now the window.pseudo dispatcher
+    assert "new_client_position" not in OPTION_SCHEMA["master"]  # superseded by new_status
+    assert "inherit_fullscreen" not in OPTION_SCHEMA["master"]
+    assert "vfr" not in OPTION_SCHEMA["misc"]  # relocated to debug:vfr
+
+
+def test_touchpad_tap_options_renamed_to_underscore() -> None:
+    tp = OPTION_SCHEMA["input.touchpad"]
+    assert "tap_to_click" in tp and "tap-to-click" not in tp
+    assert "tap_and_drag" in tp and "tap-and-drag" not in tp
+
+
+def test_vfr_relocated_to_debug() -> None:
+    assert "vfr" in OPTION_SCHEMA["debug"]
+
+
+def test_drift_fixed_defaults_and_types() -> None:
+    assert OPTION_SCHEMA["input"]["accel_profile"][1] == ""  # libinput device default
+    assert OPTION_SCHEMA["master"]["special_scale_factor"][1] == "1.0"
+    cm_type, cm_default, _ = OPTION_SCHEMA["render"]["cm_auto_hdr"]
+    assert cm_type == "enum:0,1,2" and cm_default == "1"  # was mistyped bool/true
+    new_status_type = OPTION_SCHEMA["master"]["new_status"][0]
+    assert "inherit" in new_status_type
+    assert "inherit_fullscreen" not in new_status_type
+
+
+def test_new_option_spot_checks() -> None:
+    assert OPTION_SCHEMA["ecosystem"]["no_update_news"][0] == "bool"
+    assert OPTION_SCHEMA["layout"]["single_window_aspect_ratio"][0] == "vec2"
+    assert OPTION_SCHEMA["decoration.glow"]["enabled"][0] == "bool"
+    assert OPTION_SCHEMA["input.touchpad"]["tap_button_map"][0] == "enum:lrm,lmr"
+    assert OPTION_SCHEMA["master"]["orientation"][0] == "enum:left,right,top,bottom,center"
+
+
+def test_every_default_validates_against_its_type() -> None:
+    """Currency invariant: a non-empty default must satisfy its own declared type."""
+    for section, keys in OPTION_SCHEMA.items():
+        for key, (type_str, default, _desc) in keys.items():
+            if default == "":
+                continue  # empty = unset / inherit device default
+            ok, msg = validate_value(type_str, default)
+            assert ok, f"{section}.{key} default {default!r} invalid for {type_str}: {msg}"
+
+
+def test_every_schema_section_has_label_and_order_entry() -> None:
+    """No schema section may be unreachable from the TUI sidebar."""
+    for section in OPTION_SCHEMA:
+        assert section in SECTION_LABELS, f"{section} missing a SECTION_LABELS entry"
+        assert section in SECTION_ORDER, f"{section} missing from SECTION_ORDER"
+
+
+def test_descriptions_present_and_bounded() -> None:
+    for section, keys in OPTION_SCHEMA.items():
+        for key, (_t, _d, desc) in keys.items():
+            assert 0 < len(desc) <= 110, f"{section}.{key} description length {len(desc)}"

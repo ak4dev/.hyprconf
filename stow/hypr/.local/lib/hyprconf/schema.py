@@ -49,7 +49,7 @@ OptionMeta = tuple[str, str, str]
 # hyprctl keyword path uses colon-notation:  decoration:blur:enabled
 
 OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
-    # ── general ──────────────────────────────────────────────────────────────
+    # ── general ───────────────────────────────────────────────────────────────────
     "general": {
         "border_size": ("int", "1", "Border width around windows (px)"),
         "gaps_in": ("int", "5", "Gap between tiled windows"),
@@ -76,8 +76,9 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "true",
             "Modal parents are interactive while child is open",
         ),
+        "locale": ("str", "", "Override the system locale (e.g. en_US)"),
     },
-    # ── general.snap ─────────────────────────────────────────────────────────
+    # ── general.snap ──────────────────────────────────────────────────────────────
     "general.snap": {
         "enabled": ("bool", "false", "Enable snapping for floating windows"),
         "window_gap": ("int", "10", "Min gap (px) between windows before snapping"),
@@ -85,7 +86,7 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "border_overlap": ("bool", "false", "Snap allowing only one border-width of space"),
         "respect_gaps": ("bool", "false", "Snapping respects gaps_in value"),
     },
-    # ── decoration ───────────────────────────────────────────────────────────
+    # ── decoration ────────────────────────────────────────────────────────────────
     "decoration": {
         "rounding": ("int", "0", "Corner rounding radius (px)"),
         "rounding_power": ("float", "2.0", "Rounding curve: 2.0=circle, 4.0=squircle [1.0-10.0]"),
@@ -104,7 +105,7 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "Whether window border is part of the window geometry",
         ),
     },
-    # ── decoration.blur ───────────────────────────────────────────────────────
+    # ── decoration.blur ───────────────────────────────────────────────────────────
     "decoration.blur": {
         "enabled": ("bool", "true", "Enable kawase window background blur"),
         "size": ("int", "8", "Blur distance (kernel radius)"),
@@ -120,25 +121,43 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "special": ("bool", "false", "Blur behind special workspace (expensive)"),
         "popups": ("bool", "false", "Blur popups (e.g. right-click menus)"),
         "popups_ignorealpha": ("float", "0.2", "Blur popups below this opacity threshold"),
+        "input_methods": ("bool", "false", "Blur input methods (e.g. fcitx5)"),
+        "input_methods_ignorealpha": ("float", "0.2", "Works like ignore_alpha in layer rules"),
     },
-    # ── decoration.shadow ─────────────────────────────────────────────────────
+    # ── decoration.shadow ─────────────────────────────────────────────────────────
     "decoration.shadow": {
         "enabled": ("bool", "true", "Enable drop shadows"),
         "range": ("int", "4", "Shadow range/size (px)"),
         "render_power": ("int", "3", "Shadow falloff power [1-4]"),
         "sharp": ("bool", "false", "Sharp shadows (equivalent to infinite render_power)"),
-        "ignore_window": ("bool", "true", "Do not render shadow behind window itself"),
         "color": ("color", "0xee1a1a1a", "Shadow color (alpha controls opacity)"),
         "color_inactive": ("color", "unset", "Inactive shadow color (falls back to color)"),
         "offset": ("vec2", "0 0", "Shadow rendering offset (x y)"),
         "scale": ("float", "1.0", "Shadow scale [0.0-1.0]"),
     },
-    # ── animations ────────────────────────────────────────────────────────────
+    # ── decoration.glow ───────────────────────────────────────────────────────────
+    "decoration.glow": {
+        "enabled": ("bool", "false", "Enable inner glow on windows"),
+        "range": ("int", "10", "Glow range (size) in layout px"),
+        "render_power": (
+            "int",
+            "3",
+            "In what power to render the falloff (more power, the faster the falloff) [1 - 4]",
+        ),
+        "color": ("color", "0xee1a1a1a", "Glow's color"),
+        "color_inactive": ("color", "", "Inactive glow color"),
+    },
+    # ── decoration.motion_blur ────────────────────────────────────────────────────
+    "decoration.motion_blur": {
+        "enabled": ("bool", "false", "Enable motion blur on moving / resizing windows"),
+        "samples": ("int", "7", "The amount of samples to render"),
+    },
+    # ── animations ────────────────────────────────────────────────────────────────
     "animations": {
         "enabled": ("bool", "true", "Enable animations globally"),
         "workspace_wraparound": ("bool", "false", "Enable workspace wraparound animation"),
     },
-    # ── input ─────────────────────────────────────────────────────────────────
+    # ── input ─────────────────────────────────────────────────────────────────────
     "input": {
         "kb_layout": ("str", "us", "XKB keyboard layout (e.g. us, gb, de)"),
         "kb_variant": ("str", "", "XKB keyboard variant"),
@@ -150,7 +169,7 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "repeat_rate": ("int", "25", "Key repeat rate (repeats/second)"),
         "repeat_delay": ("int", "600", "Key repeat delay (ms)"),
         "sensitivity": ("float", "0.0", "Mouse sensitivity [-1.0 to 1.0]"),
-        "accel_profile": ("enum:adaptive,flat,custom,", "adaptive", "Cursor acceleration profile"),
+        "accel_profile": ("enum:adaptive,flat,custom,", "", "Cursor acceleration profile"),
         "force_no_accel": ("bool", "false", "Force raw mouse input (no acceleration)"),
         "left_handed": ("bool", "false", "Swap left and right mouse buttons"),
         "scroll_method": ("enum:2fg,edge,on_button_down,no_scroll,", "", "Scroll method"),
@@ -185,21 +204,110 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "1",
             "Emulate discrete scroll [0=off,1=always,2=auto]",
         ),
+        "kb_file": ("str", "", "If you prefer, you can use a path to your custom .xkb file"),
+        "rotation": (
+            "int",
+            "0",
+            "Sets the rotation of a device in degrees clockwise off the logical neutral position",
+        ),
+        "scroll_points": (
+            "str",
+            "",
+            "Sets the scroll acceleration profile, when accel_profile is set to custom",
+        ),
+        "follow_mouse_shrink": (
+            "int",
+            "0",
+            "Shrink inactive focus hitboxes by N px (follow_mouse=1)",
+        ),
+        "follow_mouse_threshold": (
+            "float",
+            "0.0",
+            "Min mouse travel (px) before focus follows (follow_mouse=1)",
+        ),
     },
-    # ── input.touchpad ────────────────────────────────────────────────────────
+    # ── input.touchpad ────────────────────────────────────────────────────────────
     "input.touchpad": {
         "disable_while_typing": ("bool", "true", "Disable touchpad while typing"),
         "natural_scroll": ("bool", "false", "Touchpad natural scroll"),
         "scroll_factor": ("float", "1.0", "Touchpad scroll multiplier"),
         "middle_button_emulation": ("bool", "false", "LMB+RMB simultaneously = middle click"),
         "clickfinger_behavior": ("bool", "false", "1/2/3-finger tap = LMB/RMB/MMB"),
-        "tap-to-click": ("bool", "true", "Tapping = click"),
         "drag_lock": ("enum:0,1,2", "0", "Drag lock: 0=off, 1=timeout, 2=sticky"),
-        "tap-and-drag": ("bool", "true", "Tap and drag enabled"),
         "flip_x": ("bool", "false", "Invert touchpad horizontal movement"),
         "flip_y": ("bool", "false", "Invert touchpad vertical movement"),
+        "tap_to_click": ("bool", "true", "Tapping = click"),
+        "tap_and_drag": ("bool", "true", "Tap and drag enabled"),
+        "tap_button_map": (
+            "enum:lrm,lmr",
+            "",
+            "Sets the tap button mapping for touchpad button emulation",
+        ),
+        "drag_3fg": (
+            "int",
+            "0",
+            "Enables three finger drag, 0 -> disabled, 1 -> 3 fingers, 2 -> 4 fingers libinput#drag-3fg",
+        ),
     },
-    # ── gestures ──────────────────────────────────────────────────────────────
+    # ── input.touchdevice ─────────────────────────────────────────────────────────
+    "input.touchdevice": {
+        "transform": ("int", "-1", "Transform the input from touchdevices"),
+        "output": ("str", "", "The monitor to bind touch devices"),
+        "enabled": ("bool", "true", "Whether input is enabled for touch devices"),
+    },
+    # ── input.virtualkeyboard ─────────────────────────────────────────────────────
+    "input.virtualkeyboard": {
+        "share_states": (
+            "int",
+            "2",
+            "Unify key down states and modifier states with other keyboards",
+        ),
+        "release_pressed_on_close": (
+            "bool",
+            "false",
+            "Release all pressed keys by virtual keyboard on close",
+        ),
+    },
+    # ── input.tablet ──────────────────────────────────────────────────────────────
+    "input.tablet": {
+        "transform": ("int", "-1", "Transform the input from tablets"),
+        "output": ("str", "", "The monitor to bind tablets"),
+        "region_position": (
+            "vec2",
+            "0 0",
+            "Mapped region position in layout (relative to top-left)",
+        ),
+        "absolute_region_position": (
+            "bool",
+            "false",
+            "Whether to treat the region_position as an absolute position in monitor layout",
+        ),
+        "region_size": ("vec2", "0 0", "Size of the mapped region"),
+        "relative_input": ("bool", "false", "Whether the input should be relative"),
+        "left_handed": ("bool", "false", "If enabled, the tablet will be rotated 180 degrees"),
+        "active_area_size": ("vec2", "0 0", "Size of tablet's active area in mm"),
+        "active_area_position": ("vec2", "0 0", "Position of the active area in mm"),
+    },
+    # ── input.tablettool ──────────────────────────────────────────────────────────
+    "input.tablettool": {
+        "eraser_button_mode": ("int", "0", "Change the eraser button behavior on the tool"),
+        "eraser_button_override": (
+            "int",
+            "0",
+            "Set a button to be button event when eraser_button_mode is set to 1",
+        ),
+        "pressure_range_min": (
+            "float",
+            "-1.0",
+            "Min pressure range; negative = device default (~0.0)",
+        ),
+        "pressure_range_max": (
+            "float",
+            "-1.0",
+            "Max pressure range; negative = device default (~1.0)",
+        ),
+    },
+    # ── gestures ──────────────────────────────────────────────────────────────────
     "gestures": {
         "workspace_swipe_distance": ("int", "300", "Swipe distance (px)"),
         "workspace_swipe_touch": ("bool", "false", "Enable touchscreen edge swipe"),
@@ -230,7 +338,7 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         ),
         "close_max_timeout": ("int", "1000", "Max close gesture timeout (ms)"),
     },
-    # ── group ─────────────────────────────────────────────────────────────────
+    # ── group ─────────────────────────────────────────────────────────────────────
     "group": {
         "auto_group": ("bool", "true", "Auto-group new windows into focused unlocked group"),
         "insert_after_current": (
@@ -252,8 +360,28 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "0x66775500",
             "Inactive locked group border color",
         ),
+        "merge_groups_on_drag": (
+            "bool",
+            "true",
+            "Whether window groups can be dragged into other groups",
+        ),
+        "merge_groups_on_groupbar": (
+            "bool",
+            "true",
+            "Whether one group will be merged with another when dragged into its groupbar",
+        ),
+        "merge_floated_into_tiled_on_groupbar": (
+            "bool",
+            "false",
+            "Whether dragging a floating window into a tiled window groupbar will merge them",
+        ),
+        "group_on_movetoworkspace": (
+            "bool",
+            "false",
+            "movetoworkspace[silent] merges window into the target's lone group",
+        ),
     },
-    # ── group.groupbar ────────────────────────────────────────────────────────
+    # ── group.groupbar ────────────────────────────────────────────────────────────
     "group.groupbar": {
         "enabled": ("bool", "true", "Enable groupbars"),
         "font_size": ("int", "8", "Groupbar font size"),
@@ -269,8 +397,60 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "col.inactive": ("gradient", "0x66777700", "Inactive groupbar background"),
         "col.locked_active": ("gradient", "0x66ff5500", "Active locked groupbar background"),
         "col.locked_inactive": ("gradient", "0x66775500", "Inactive locked groupbar background"),
+        "font_family": (
+            "str",
+            "",
+            "Font used to display groupbar titles, use misc.font_family if not specified",
+        ),
+        "font_weight_active": ("str", "normal", "Font weight of active groupbar title"),
+        "font_weight_inactive": ("str", "normal", "Font weight of inactive groupbar title"),
+        "indicator_gap": ("int", "0", "Height of gap between groupbar indicator and title"),
+        "indicator_height": ("int", "3", "Height of the groupbar indicator"),
+        "priority": ("int", "3", "Sets the decoration priority for groupbars"),
+        "text_offset": ("int", "0", "Adjust vertical position for titles"),
+        "text_padding": ("int", "0", "Set horizontal padding for titles"),
+        "gradient_rounding": ("int", "2", "How much to round the gradients"),
+        "gradient_rounding_power": (
+            "float",
+            "2.0",
+            "Gradient corner curve: 2.0=circle, 4.0=squircle [1.0-10.0]",
+        ),
+        "round_only_edges": (
+            "bool",
+            "true",
+            "Round only the indicator edges of the entire groupbar",
+        ),
+        "gradient_round_only_edges": (
+            "bool",
+            "true",
+            "Round only the gradient edges of the entire groupbar",
+        ),
+        "text_color_inactive": (
+            "color",
+            "",
+            "Color for inactive windows' titles in the groupbar (if unset, defaults to text_color)",
+        ),
+        "text_color_locked_active": (
+            "color",
+            "",
+            "Color for the active window's title in a locked group (if unset, defaults to text_color)",
+        ),
+        "text_color_locked_inactive": (
+            "color",
+            "",
+            "Color for inactive windows' titles in locked groups (if unset, defaults to text_color_inactive)",
+        ),
+        "gaps_in": ("int", "2", "Gap size between gradients"),
+        "gaps_out": ("int", "2", "Gap size between gradients and window"),
+        "keep_upper_gap": ("bool", "true", "Add or remove upper gap"),
+        "middle_click_close": (
+            "bool",
+            "true",
+            "Whether middle clicking the groupbar closes the clicked window",
+        ),
+        "blur": ("bool", "false", "Applies blur to the groupbar indicators and gradients"),
     },
-    # ── misc ──────────────────────────────────────────────────────────────────
+    # ── misc ──────────────────────────────────────────────────────────────────────
     "misc": {
         "disable_hyprland_logo": ("bool", "false", "Disable random Hyprland logo background"),
         "disable_splash_rendering": (
@@ -283,7 +463,6 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "-1",
             "Force default wallpaper: -1=auto, 0/1=off, 2=on",
         ),
-        "vfr": ("bool", "true", "Variable frame rate — highly recommended"),
         "vrr": ("enum:0,1,2,3", "0", "Adaptive Sync: 0=off, 1=on, 2=fullscreen, 3=fs+video"),
         "mouse_move_enables_dpms": ("bool", "false", "Mouse movement wakes displays from DPMS off"),
         "key_press_enables_dpms": ("bool", "false", "Key press wakes displays from DPMS off"),
@@ -319,8 +498,88 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "render_unfocused_fps": ("int", "15", "FPS limit for unfocused background windows"),
         "disable_xdg_env_checks": ("bool", "false", "Suppress XDG environment warning on startup"),
         "lockdead_screen_delay": ("int", "1000", "Delay (ms) before lockdead screen appears"),
+        "disable_scale_notification": (
+            "bool",
+            "false",
+            "Disables notification popup when a monitor fails to set a suitable scale",
+        ),
+        "col.splash": (
+            "color",
+            "0xffffffff",
+            "Changes the color of the splash text (requires a monitor reload to take effect)",
+        ),
+        "font_family": (
+            "str",
+            "Sans",
+            "Global default font for text (notifications, errors, etc.)",
+        ),
+        "splash_font_family": ("str", "", "Font for the splash text (needs monitor reload)"),
+        "name_vk_after_proc": (
+            "bool",
+            "true",
+            "Name virtual keyboards after the processes that create them",
+        ),
+        "always_follow_on_dnd": (
+            "bool",
+            "true",
+            "Will make mouse focus follow the mouse when drag and dropping",
+        ),
+        "layers_hog_keyboard_focus": (
+            "bool",
+            "true",
+            "Keyboard-interactive layers keep focus on mouse move",
+        ),
+        "session_lock_xray": (
+            "bool",
+            "false",
+            "If true, keep rendering workspaces below your lockscreen",
+        ),
+        "on_focus_under_fullscreen": (
+            "int",
+            "2",
+            "Focus under fullscreen: 0=ignore, 1=take over, 2=unfullscreen",
+        ),
+        "exit_window_retains_fullscreen": (
+            "bool",
+            "false",
+            "If true, closing a fullscreen window makes the next focused window fullscreen",
+        ),
+        "disable_hyprland_qtutils_check": (
+            "bool",
+            "false",
+            "Disable the warning if hyprland-qtutils is not installed",
+        ),
+        "enable_anr_dialog": (
+            "bool",
+            "true",
+            "Whether to enable the ANR (app not responding) dialog when your apps hang",
+        ),
+        "anr_missed_pings": ("int", "5", "Number of missed pings before showing the ANR dialog"),
+        "size_limits_tiled": (
+            "bool",
+            "false",
+            "Whether to apply min_size and max_size rules to tiled windows",
+        ),
+        "disable_watchdog_warning": (
+            "bool",
+            "false",
+            "Whether to disable the warning about not using start-hyprland",
+        ),
     },
-    # ── binds ─────────────────────────────────────────────────────────────────
+    # ── layout ────────────────────────────────────────────────────────────────────
+    "layout": {
+        "single_window_aspect_ratio": (
+            "vec2",
+            "0 0",
+            "Pad a lone window to this aspect ratio (e.g. 4 3)",
+        ),
+        "single_window_aspect_ratio_tolerance": (
+            "float",
+            "0.1",
+            "Skip aspect padding below this fraction of screen [0-1]",
+        ),
+    },
+    # ── binds ─────────────────────────────────────────────────────────────────────
     "binds": {
         "pass_mouse_when_bound": ("bool", "false", "Pass mouse events when a keybind is triggered"),
         "scroll_event_delay": ("int", "300", "Delay (ms) between scroll events for binds"),
@@ -373,7 +632,7 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "allow_pin_fullscreen": ("bool", "false", "Allow pinning fullscreen windows"),
         "drag_threshold": ("int", "0", "Mouse movement threshold for drag (0=mousedown)"),
     },
-    # ── cursor ────────────────────────────────────────────────────────────────
+    # ── cursor ────────────────────────────────────────────────────────────────────
     "cursor": {
         "no_hardware_cursors": ("enum:0,1,2", "2", "HW cursors: 0=use, 1=never, 2=auto"),
         "min_refresh_rate": ("int", "24", "Min refresh rate for cursor animations"),
@@ -396,8 +655,45 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "enable_hyprcursor": ("bool", "true", "Enable hyprcursor support"),
         "hide_on_key_press": ("bool", "false", "Hide cursor until mouse moves after keypress"),
         "hide_on_touch": ("bool", "true", "Hide cursor until mouse input after touch"),
+        "invisible": ("bool", "false", "Don't render cursors"),
+        "sync_gsettings_theme": (
+            "bool",
+            "true",
+            "Sync xcursor theme + size to gsettings (for CSD GTK apps)",
+        ),
+        "no_break_fs_vrr": (
+            "int",
+            "2",
+            "Avoid frame spikes for fullscreen VRR apps: 0=off, 1=on, 2=auto",
+        ),
+        "warp_on_toggle_special": (
+            "int",
+            "0",
+            "Move the cursor to the last focused window when toggling a special workspace",
+        ),
+        "zoom_detached_camera": (
+            "bool",
+            "true",
+            "Detach zoom camera from mouse, panning only to keep it on screen",
+        ),
+        "hide_on_tablet": (
+            "bool",
+            "true",
+            "Hides the cursor when the last input was a tablet input until a mouse input is done",
+        ),
+        "use_cpu_buffer": ("int", "2", "Makes HW cursors use a CPU buffer"),
+        "warp_back_after_non_mouse_input": (
+            "bool",
+            "false",
+            "Warp cursor back after a non-mouse input moved it",
+        ),
+        "zoom_disable_aa": (
+            "bool",
+            "false",
+            "Disable antialiasing when zooming, which means things will be pixelated instead of blurry",
+        ),
     },
-    # ── render ────────────────────────────────────────────────────────────────
+    # ── render ────────────────────────────────────────────────────────────────────
     "render": {
         "direct_scanout": ("enum:0,1,2", "0", "Direct scanout: 0=off, 1=on, 2=auto (game content)"),
         "expand_undersized_textures": (
@@ -406,13 +702,44 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "Expand undersized textures along edge vs stretch",
         ),
         "cm_auto_hdr": (
-            "bool",
-            "true",
-            "Automatically enable HDR for fullscreen apps in HDR-capable color spaces",
+            "enum:0,1,2",
+            "1",
+            "Auto-switch to HDR in fullscreen: 0=off, 1=hdr, 2=hdredid",
         ),
         "cm_enabled": ("bool", "true", "Enable color management pipeline"),
+        "xp_mode": ("bool", "false", "Disables back buffer and bottom layer rendering"),
+        "ctm_animation": (
+            "int",
+            "2",
+            "Whether to enable a fade animation for CTM changes (hyprsunset)",
+        ),
+        "send_content_type": (
+            "bool",
+            "true",
+            "Report content type to allow monitor profile autoswitch (may result in a black screen during the switch)",
+        ),
+        "new_render_scheduling": (
+            "bool",
+            "false",
+            "Automatically uses triple buffering when needed, improves FPS on underpowered devices",
+        ),
+        "non_shader_cm": ("int", "2", "Enable CM without shader"),
+        "non_shader_cm_interop": (
+            "int",
+            "2",
+            "External CTM in fullscreen: 0=off, 1=on, 2=off for media/game",
+        ),
+        "cm_sdr_eotf": ("str", "default", "Default transfer function for displaying SDR apps"),
+        "commit_timing_enabled": ("bool", "true", "Enable commit timing proto"),
+        "use_fp16": ("int", "2", "Use FP16 buffers internally"),
+        "keep_unmodified_copy": ("int", "2", "Keep unmodified SDR frame copy for screensharing"),
+        "use_shader_blur_blend": (
+            "bool",
+            "false",
+            "Use experimental blurred bg blending (glitched on rotated screens)",
+        ),
     },
-    # ── opengl ────────────────────────────────────────────────────────────────
+    # ── opengl ────────────────────────────────────────────────────────────────────
     "opengl": {
         "nvidia_anti_flicker": (
             "bool",
@@ -420,15 +747,19 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "Reduce Nvidia flickering (may drop FPS on weak GPUs)",
         ),
     },
-    # ── xwayland ──────────────────────────────────────────────────────────────
+    # ── xwayland ──────────────────────────────────────────────────────────────────
     "xwayland": {
         "enabled": ("bool", "true", "Allow X11 / XWayland applications"),
         "use_nearest_neighbor": ("bool", "true", "Pixelated (vs blurry) scaling for XWayland apps"),
         "force_zero_scaling": ("bool", "false", "Force 1x scale for all XWayland apps"),
+        "create_abstract_socket": (
+            "bool",
+            "false",
+            "Create the abstract Unix domain socket for XWayland connections",
+        ),
     },
-    # ── dwindle ───────────────────────────────────────────────────────────────
+    # ── dwindle ───────────────────────────────────────────────────────────────────
     "dwindle": {
-        "pseudotile": ("bool", "false", "Maintain size ratios in tiled mode"),
         "force_split": (
             "enum:0,1,2",
             "0",
@@ -444,29 +775,125 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         ),
         "use_active_for_splits": ("bool", "true", "Use active window as basis for splits"),
         "default_split_ratio": ("float", "1.0", "Default split ratio (1.0 = equal)"),
+        "special_scale_factor": (
+            "float",
+            "1",
+            "Specifies the scale factor of windows on the special workspace [0 - 1]",
+        ),
+        "split_width_multiplier": ("float", "1.0", "Specifies the auto-split width multiplier"),
+        "split_bias": ("int", "0", "Specifies which window will receive the split ratio"),
+        "precise_mouse_move": (
+            "bool",
+            "false",
+            "Bindm movewindow will drop the window more precisely depending on where your mouse is",
+        ),
     },
-    # ── master ────────────────────────────────────────────────────────────────
+    # ── master ────────────────────────────────────────────────────────────────────
     "master": {
         "allow_small_split": ("bool", "false", "Allow master to be split further"),
         "special_scale_factor": (
             "float",
-            "0.8",
+            "1.0",
             "Scale for master in special workspaces [0.0-1.0]",
         ),
         "mfact": ("float", "0.55", "Master area size factor [0.0-1.0]"),
-        "new_client_position": (
-            "enum:before_current,after_current,beginning,end,inherit_fullscreen",
-            "after_current",
-            "Where new slave windows open",
-        ),
-        "new_status": (
-            "enum:master,slave,inherit_fullscreen",
-            "slave",
-            "New window default status",
-        ),
-        "inherit_fullscreen": ("bool", "true", "New windows inherit fullscreen state of focused"),
+        "new_status": ("enum:master,slave,inherit", "slave", "New window default status"),
         "smart_resizing": ("bool", "true", "Smart resize selects correct split"),
         "drop_at_cursor": ("bool", "true", "Dragged window drops at cursor position"),
+        "new_on_top": (
+            "bool",
+            "false",
+            "Whether a newly open window should be on the top of the stack",
+        ),
+        "new_on_active": (
+            "enum:before,after,none",
+            "none",
+            "Place new window relative to focused: before, after, none",
+        ),
+        "orientation": (
+            "enum:left,right,top,bottom,center",
+            "left",
+            "Default placement of the master area, can be left, right, top, bottom or center",
+        ),
+        "slave_count_for_center_master": (
+            "int",
+            "2",
+            "Center master only with >= this many slaves (orientation=center)",
+        ),
+        "center_master_fallback": (
+            "enum:left,right,top,bottom",
+            "left",
+            "Fallback orientation below slave_count_for_center_master",
+        ),
+        "always_keep_position": (
+            "bool",
+            "false",
+            "Whether to keep the master window in its configured position when there are no slave windows",
+        ),
+        "focus_master_on_close": (
+            "bool",
+            "false",
+            "When enabled, closing a window focuses the master window",
+        ),
+    },
+    # ── ecosystem ─────────────────────────────────────────────────────────────────
+    "ecosystem": {
+        "no_update_news": (
+            "bool",
+            "false",
+            "Disable the popup that shows up when you update hyprland to a new version",
+        ),
+        "no_donation_nag": (
+            "bool",
+            "false",
+            "Disable the popup that shows up twice a year encouraging to donate",
+        ),
+        "enforce_permissions": ("bool", "false", "Whether to enable permission control"),
+    },
+    # ── quirks ────────────────────────────────────────────────────────────────────
+    "quirks": {
+        "prefer_hdr": ("int", "0", "Report HDR mode as preferred"),
+    },
+    # ── debug ─────────────────────────────────────────────────────────────────────
+    "debug": {
+        "overlay": ("bool", "false", "Print the debug performance overlay"),
+        "damage_blink": (
+            "bool",
+            "false",
+            "(epilepsy warning!) flash areas updated with damage tracking",
+        ),
+        "gl_debugging": (
+            "bool",
+            "false",
+            "Enables OpenGL debugging with glGetError and EGL_KHR_debug, requires a restart after changing",
+        ),
+        "vfr": ("bool", "true", "Controls the VFR status of Hyprland"),
+        "disable_logs": ("bool", "true", "Disable logging to a file"),
+        "disable_time": ("bool", "true", "Disables time logging"),
+        "damage_tracking": ("int", "2", "Redraw only the needed bits of the display"),
+        "enable_stdout_logs": ("bool", "false", "Enables logging to stdout"),
+        "manual_crash": ("int", "0", "Set to 1 and then back to 0 to crash Hyprland"),
+        "suppress_errors": ("bool", "false", "If true, do not display config file parsing errors"),
+        "watchdog_timeout": (
+            "int",
+            "5",
+            "Sets the timeout in seconds for watchdog to abort processing of a signal of the main thread",
+        ),
+        "disable_scale_checks": ("bool", "false", "Disables verification of the scale factors"),
+        "error_limit": ("int", "5", "Limits the number of displayed config file parsing errors"),
+        "error_position": ("int", "0", "Sets the position of the error bar"),
+        "colored_stdout_logs": ("bool", "true", "Enables colors in the stdout logs"),
+        "pass": ("bool", "false", "Enables render pass debugging"),
+        "full_cm_proto": (
+            "bool",
+            "false",
+            "Claims support for all cm proto features (requires restart)",
+        ),
+        "invalidate_fp16": (
+            "int",
+            "2",
+            "Allow fp16 buffer invalidation: 0=no, 1=yes, 2=not on nvidia",
+        ),
     },
 }
 
@@ -488,13 +915,20 @@ SECTION_ORDER: list[str] = [
     "decoration",
     "decoration.blur",
     "decoration.shadow",
+    "decoration.glow",
+    "decoration.motion_blur",
     "animations",
     "input",
     "input.touchpad",
+    "input.touchdevice",
+    "input.virtualkeyboard",
+    "input.tablet",
+    "input.tablettool",
     "gestures",
     "group",
     "group.groupbar",
     "misc",
+    "layout",
     "binds",
     "cursor",
     "render",
@@ -502,6 +936,9 @@ SECTION_ORDER: list[str] = [
     "xwayland",
     "dwindle",
     "master",
+    "ecosystem",
+    "quirks",
+    "debug",
 ]
 
 # ── Section display labels ────────────────────────────────────────────────────
@@ -511,13 +948,20 @@ SECTION_LABELS: dict[str, str] = {
     "decoration": "Decoration",
     "decoration.blur": "  Blur",
     "decoration.shadow": "  Shadow",
+    "decoration.glow": "  Glow",
+    "decoration.motion_blur": "  Motion Blur",
     "animations": "Animations",
     "input": "Input",
     "input.touchpad": "  Touchpad",
+    "input.touchdevice": "  Touch",
+    "input.virtualkeyboard": "  Virt. KB",
+    "input.tablet": "  Tablet",
+    "input.tablettool": "  Tablet Tool",
     "gestures": "Gestures",
     "group": "Group",
     "group.groupbar": "  Groupbar",
     "misc": "Misc",
+    "layout": "Layout",
     "binds": "Binds",
     "cursor": "Cursor",
     "render": "Render",
@@ -525,6 +969,9 @@ SECTION_LABELS: dict[str, str] = {
     "xwayland": "XWayland",
     "dwindle": "Dwindle",
     "master": "Master",
+    "ecosystem": "Ecosystem",
+    "quirks": "Quirks",
+    "debug": "Debug",
     "monitors": "Monitors",
     "keybinds": "Keybinds",
     "window_rules": "Win. Rules",
