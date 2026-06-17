@@ -159,6 +159,12 @@ wireguard-tools
 # pam-u2f           # PAM module for sudo/login/SSH YubiKey auth
 # yubikey-manager   # ykman CLI: key detection + FIDO2 PIN management
 
+# Security: Secure Boot (signed UKI) — optional, UEFI only
+# Required by `hyprconf-secureboot` (stowed to ~/.local/bin). The helper
+# auto-installs sbctl via pacman when you run `hyprconf secureboot setup`, so it
+# stays commented here for users who don't use Secure Boot. Manual: sudo pacman -S sbctl
+# sbctl             # Secure Boot key manager (create-keys/sign/verify/enroll)
+
 # Optional: uncomment if using an Nvidia GPU (gpu_info.sh waybar widget)
 # nvidia-utils
 # egl-wayland is required for Nvidia + Wayland; nvidia-open, nvidia-utils, and

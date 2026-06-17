@@ -518,6 +518,14 @@ configure_luks() {
     warn "Rebuilding initramfs — this may take a moment..."
     mkinitcpio -P >>"$LOG" 2>&1 || die "mkinitcpio -P failed — see $LOG"
     ok "Initramfs rebuilt"
+    # If Secure Boot signing is configured (sbctl with keys), the rebuild just
+    # produced a fresh, UNSIGNED UKI/initramfs. Re-sign so the boot chain stays
+    # valid — sbctl's own pacman hook only fires on package upgrades, not this
+    # manual rebuild.
+    if command -v sbctl &>/dev/null && [[ -d /var/lib/sbctl/keys || -d /usr/share/secureboot/keys ]]; then
+        sbctl sign-all >>"$LOG" 2>&1 && ok "Re-signed boot chain for Secure Boot (sbctl)" \
+            || warn "sbctl re-sign failed — run 'sudo hyprconf secureboot sign' before rebooting"
+    fi
     warn "Reboot to test LUKS unlock with YubiKey. Passphrase still works as fallback."
 }
 
@@ -660,6 +668,22 @@ update_bootloader() {
                 || warn "grub-mkconfig had warnings — check $LOG"
         else
             warn "grub.cfg not found — run grub-mkconfig manually"
+        fi
+
+    # Unified Kernel Image (systemd-boot auto-discovers EFI/Linux/*.efi): the
+    # kernel cmdline lives in /etc/kernel/cmdline, baked into the signed UKI.
+    # The subsequent `mkinitcpio -P` rebuild + sbctl re-sign (in configure_luks)
+    # picks this up. Checked before the loader-entries branch because a UKI system
+    # still has an (empty) /boot/loader/entries directory.
+    elif [[ -f /etc/kernel/cmdline ]] && compgen -G "/boot/EFI/Linux/*.efi" >/dev/null 2>&1; then
+        info "Unified Kernel Image detected — updating /etc/kernel/cmdline"
+        backup /etc/kernel/cmdline
+        if grep -q "fido2-device" /etc/kernel/cmdline; then
+            ok "/etc/kernel/cmdline already has fido2-device"
+        else
+            local _cur; _cur="$(tr -d '\n' < /etc/kernel/cmdline)"
+            printf '%s %s\n' "$_cur" "$param" > /etc/kernel/cmdline
+            ok "Added fido2-device to /etc/kernel/cmdline"
         fi
 
     # systemd-boot

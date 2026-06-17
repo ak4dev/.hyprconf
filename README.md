@@ -254,6 +254,10 @@ hyprconf hardware gpu diagnose         Detailed diagnostic dump
 hyprconf yubikey status          Show keys, PAM coverage, and LUKS FIDO2 slots (read-only)
 hyprconf yubikey setup           Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)
 hyprconf yubikey enroll          Enroll an additional / backup key (login + LUKS slot)
+hyprconf secureboot status       Secure Boot / Setup Mode / UKI / sbctl verify (read-only)
+hyprconf secureboot setup        Signed UKI + sbctl keys/sign/verify/enroll + pacman hook
+hyprconf secureboot enroll       Enroll keys into firmware (requires Setup Mode)
+hyprconf secureboot harden       Key-only LUKS — remove the login-reused passphrase slot
 
 # VPN / Network privacy
 hyprconf vpn status [--json]     Show VPN connection + kill-switch state
@@ -613,6 +617,41 @@ while the LUKS passphrase always remains as a fallback key slot.
 > Requires a LUKS2 root for boot-unlock (`systemd-cryptenroll` needs LUKS2). The
 > YubiKey packages stay commented in `packages` since they only apply to YubiKey
 > owners; the script installs them on demand.
+
+---
+
+## Secure Boot *(optional)*
+
+A YubiKey LUKS unlock alone does **not** stop an evil-maid attacker: a tampered,
+unsigned initramfs can capture your unwrapped LUKS master key the next time *you*
+unlock (PIN/touch don't help), and the installer's login-reused passphrase slot can
+be brute-forced offline without ever touching the key. `hyprconf-secureboot`
+(stowed to `~/.local/bin`) closes both with a **layered** design:
+
+```bash
+sudo hyprconf secureboot status    # SB state, Setup Mode, UKI, sbctl verify (read-only)
+sudo hyprconf secureboot setup     # signed UKI + sbctl keys/sign/verify + pacman hook
+sudo hyprconf secureboot harden    # key-only LUKS (delegates to yubikey harden-luks)
+```
+
+`setup` installs **sbctl**, converts the boot chain to a **signed Unified Kernel
+Image** (kernel + initramfs + cmdline in one signed EFI binary), signs systemd-boot
+and the UKIs, and enrolls keys when the firmware is in **Setup Mode** — refusing to
+enroll over an unsigned chain so it can't brick the next boot. It detects whether to
+keep Microsoft keys (`--microsoft`, for discrete GPUs / option-ROM firmware) or
+enroll **own keys only** (`--own-keys-only`, strongest). It stays signed across
+`linux`/`systemd`/`sbctl` upgrades via `sbctl sign -s` + a verify-only pacman hook,
+and `hyprconf doctor` flags it if Secure Boot is later turned off.
+
+You still finish two **manual** UEFI steps software can't do — set a **firmware admin
+password** (then `hyprconf secureboot ack-firmware-password`) and toggle **Secure
+Boot → Enabled**. Optional `hyprconf secureboot tpm-bind` adds TPM2 measured-boot
+PCR binding (FIDO2 stays the default decrypt factor). Full details and residual risks
+(DMA, cold-boot, rollback) are in [`docs/security-hardening.md`](docs/security-hardening.md).
+
+> UEFI + LUKS2 only. `sbctl` stays commented in `packages` (installed on demand).
+> If a boot fails, disable Secure Boot in firmware to recover — the UKI still boots
+> with SB off — then fix and re-sign.
 
 ---
 

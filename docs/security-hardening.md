@@ -107,39 +107,78 @@ Check slots any time: `sudo systemd-cryptenroll /dev/nvme0n1p2`.
 
 ---
 
-## Hands-on: close the Evil-Maid gap (Secure Boot + signed UKI)
+## Close the Evil-Maid gap (Secure Boot + signed UKI): `hyprconf secureboot`
 
-Neither key-only LUKS nor idle-poweroff fixes this: `/boot` is an unencrypted ESP
-and Secure Boot is off, so someone with brief physical access can tamper with the
-kernel/initramfs and capture your data the next time *you* unlock. The fix is a
-**signed Unified Kernel Image** (kernel + initramfs + cmdline as one signed EFI
-binary) under **Secure Boot**.
+**A YubiKey LUKS unlock does not, by itself, stop this.** Two separate bypasses:
 
-> Do this with the passphrase/recovery key still working, and ideally rehearse in a
-> VM first — a signing/firmware mistake can leave the machine unbootable.
+1. **Boot-chain tampering.** `/boot` is an unencrypted ESP and the initramfs is
+   unsigned, so someone with brief physical access can trojan it to capture the
+   unwrapped **LUKS master key** the next time *you* unlock — your FIDO2 PIN and
+   touch don't help, you hand them to what looks like a normal boot. Once they have
+   the master key they never need your YubiKey again.
+2. **The coexisting passphrase slot.** The installer sets the LUKS passphrase equal
+   to your login password and keeps it as a slot, so an attacker can ignore the
+   YubiKey and brute-force that weaker, reused slot offline.
 
-1. Put the firmware in **Setup Mode** (clear the platform key in the UEFI menu).
-2. Keys + enrollment:
-   ```
-   sudo pacman -S sbctl
-   sudo sbctl create-keys
-   sudo sbctl enroll-keys -m          # -m keeps Microsoft keys (needed by some firmware/dGPUs)
-   ```
-3. Build a **UKI** via mkinitcpio: in `/etc/mkinitcpio.d/linux.preset` set an
-   `_uki=` output path under the ESP and drop the separate `_image=`, then
-   `sudo mkinitcpio -P`. Put the kernel cmdline in `/etc/kernel/cmdline`.
-4. Point a systemd-boot entry at the UKI (or boot the UKI directly), then sign it:
-   ```
-   sudo sbctl sign -s /boot/EFI/Linux/arch-linux.efi
-   sudo sbctl sign -s /boot/EFI/systemd/systemd-bootx64.efi
-   sudo sbctl sign -s /boot/EFI/BOOT/BOOTX64.EFI
-   sudo sbctl verify
-   ```
-5. Reboot, enable Secure Boot in the firmware, confirm `bootctl status` shows
-   `Secure Boot: enabled` and `sbctl status` is good.
-6. (Best) bind LUKS to the **TPM2 with a PCR policy** so the disk only unlocks on
-   an unmodified boot chain: `sudo systemd-cryptenroll --tpm2-device=auto
-   --tpm2-pcrs=7+11 /dev/nvme0n1p2` (keep the YubiKey + recovery key enrolled).
+The fix is **layered** — all three together, because each closes a different hole:
+
+| Layer | Closes | Command |
+|-------|--------|---------|
+| Secure Boot + **signed UKI** (kernel+initramfs+cmdline as one signed EFI binary) | boot-chain tampering | `hyprconf secureboot setup` |
+| **Firmware admin password** + locked boot menu | someone just disabling Secure Boot | *(manual, in UEFI)* → `hyprconf secureboot ack-firmware-password` |
+| **Key-only LUKS** (FIDO2 + recovery key, no passphrase) | the weak passphrase slot | `hyprconf secureboot harden` |
+
+> Keep the passphrase/recovery key working until you've tested a reboot, and ideally
+> rehearse in a VM — a signing/firmware mistake can leave the machine unbootable. If
+> a boot fails, **disable Secure Boot in firmware to recover** (the UKI still boots
+> with SB off), fix, and re-sign.
+
+### Automated flow
+
+```
+sudo hyprconf secureboot setup     # installs sbctl, converts to a signed UKI,
+                                   # creates+signs keys, verifies, installs a
+                                   # pacman verify hook, and enrolls keys if the
+                                   # firmware is already in Setup Mode
+```
+
+`setup` is idempotent and refuses to enroll keys unless `sbctl verify` is clean
+(enrolling over an unsigned chain would brick the next Secure-Boot-on boot). It
+picks a **key policy** automatically — own-keys-only where safe, or keeps Microsoft
+keys (`--microsoft`) when a discrete GPU / option-ROM-dependent firmware is detected
+— and you can force either with `--own-keys-only` / `--microsoft`.
+
+Then finish the two **irreducibly manual** steps in your UEFI menu — software can't
+do these — and verify:
+
+1. Set an **Administrator/Supervisor password** and lock the one-time boot menu /
+   disable USB boot (a setup password alone often still allows F12 boot). Then
+   `hyprconf secureboot ack-firmware-password`.
+2. Set **Secure Boot → Enabled** (and, if `setup` couldn't enroll, first enter Setup
+   Mode and run `hyprconf secureboot enroll`).
+3. Back in Linux: `hyprconf secureboot status` → expect `Secure Boot: enabled` and
+   `sbctl verify: clean`. `hyprconf doctor` flags it if SB is later turned off.
+
+It **stays** signed across `linux` / `systemd` / `sbctl` upgrades: every binary is
+tracked with `sbctl sign -s`, so sbctl's own pacman hook re-signs it, and a
+hyprconf verify hook warns loudly if anything ends up unsigned.
+
+### Optional: TPM2 measured-boot binding
+
+`hyprconf secureboot tpm-bind` binds LUKS unlock to the TPM so the disk only unlocks
+on an unmodified boot chain. **FIDO2 remains the default factor** (the TPM is never
+in the FIDO2 path). Note PCR 11 (the UKI measurement) changes on every kernel
+update, so plain `7+11` must be **re-enrolled each update**; PCR 7 + PIN is stable
+and recommended. A PIN blocks auto-unlock if the machine is stolen powered-off.
+
+### What this does *not* cover
+
+Secure Boot is a signature gate, not a complete defense. Residual, out of scope:
+**DMA** (Thunderbolt/PCILeech) and **cold-boot** RAM extraction of the master key
+(mitigate with IOMMU/kernel DMA protection and preferring poweroff/hibernate over
+suspend); **rollback** to an old, validly-signed UKI; and a **fully compromised
+running OS** (root can read the master key and the sbctl keys). If you kept Microsoft
+keys, also keep the firmware's **DBX** revocation list current via `fwupdmgr`.
 
 ---
 

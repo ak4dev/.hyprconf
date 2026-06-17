@@ -1321,6 +1321,37 @@ offer_yubikey_setup() {
   rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup
 }
 
+offer_secureboot_setup() {
+  [[ "${HYPRCONF_CI:-0}" == "1" ]] && return 0
+
+  printf '\n%s  ────────────────────────────────────────────────────────────────%s\n' "$DM" "$RS"
+  printf '%s  Secure Boot setup (optional)%s\n'                                          "$GR" "$RS"
+  printf '%s  · Converts the boot chain to a signed Unified Kernel Image and signs%s\n'  "$DM" "$RS"
+  printf '%s    it with your own sbctl keys.%s\n'                                        "$DM" "$RS"
+  printf '%s  · Closes the evil-maid gap a YubiKey alone does NOT: a tampered%s\n'        "$DM" "$RS"
+  printf '%s    initramfs cannot run once Secure Boot is enabled.%s\n'                    "$DM" "$RS"
+  printf '%s  · You still finish in firmware: set an admin password + enable Secure%s\n'  "$DM" "$RS"
+  printf '%s    Boot. If the next boot fails, disable Secure Boot in firmware to%s\n'     "$DM" "$RS"
+  printf '%s    recover (the UKI still boots with SB off).%s\n'                           "$DM" "$RS"
+  printf '%s  · Best done AFTER YubiKey setup so the FIDO2 cmdline is captured.%s\n'      "$DM" "$RS"
+
+  printf '\n%s  Set up Secure Boot (signed UKI) now? [y/N]: %s' "$AM" "$RS"
+  read -r ans
+  [[ "$ans" =~ ^[Yy]$ ]] || return 0
+
+  # Temp NOPASSWD sudo so the helper's pacman/systemctl calls succeed
+  # non-interactively inside the chroot (mirrors offer_yubikey_setup).
+  echo "${USERNAME} ALL=(ALL) NOPASSWD: ALL" > /mnt/etc/sudoers.d/zz-hyprconf-setup
+  chmod 440 /mnt/etc/sudoers.d/zz-hyprconf-setup
+
+  log_step "Launching Secure Boot setup in chroot..."
+  arch-chroot /mnt env SUDO_USER="${USERNAME}" HYPRCONF_CHROOT=1 HYPRCONF_INSTALLER=1 \
+    bash "/home/${USERNAME}/.hyprconf/stow/hypr/.local/bin/hyprconf-secureboot" setup \
+    || log_warn "Secure Boot setup didn't finish — run 'hyprconf secureboot setup' after first boot to retry."
+
+  rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup
+}
+
 unmount_all() {
   log_step "Unmounting filesystems..."
   umount -R /mnt
@@ -1354,6 +1385,7 @@ arch_install() {
   configure_in_chroot
   run_setup_in_chroot
   offer_yubikey_setup
+  offer_secureboot_setup
 
   # Inject test SSH public key before unmounting (CI only)
   if [[ "${HYPRCONF_CI:-0}" == "1" && -n "${HYPRCONF_CI_SSH_PUBKEY:-}" ]]; then
@@ -1373,7 +1405,9 @@ arch_install() {
   printf '%s  · Log in as %s — Hyprland starts automatically on tty1.%s\n'         "$DM" "$USERNAME" "$RS"
   printf '%s  · Run "hyprconf yubikey setup" anytime to add FIDO2 login 2FA / LUKS unlock.%s\n' "$DM" "$RS"
   printf '%s  · Once FIDO2 LUKS unlock is verified, "hyprconf yubikey harden-luks" removes%s\n' "$DM" "$RS"
-  printf '%s    the passphrase for key-only unlock (one-way — read the docs first).%s\n\n'      "$DM" "$RS"
+  printf '%s    the passphrase for key-only unlock (one-way — read the docs first).%s\n'        "$DM" "$RS"
+  printf '%s  · "hyprconf secureboot setup" signs the boot chain (UKI); then enable Secure%s\n' "$DM" "$RS"
+  printf '%s    Boot + set a firmware password in UEFI. "hyprconf secureboot status" checks it.%s\n\n' "$DM" "$RS"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
