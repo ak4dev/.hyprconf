@@ -58,18 +58,13 @@ def get_option(section: str, key: str) -> str | None:
 
     try:
         d = json.loads(raw)
-        # str field: gradients, paths, and string options come through here
+        # Priority order: str > custom > col > float(if meaningful) > int/float fallback
         s = d.get("str")
         if s is not None and str(s).strip():
             return str(s)
-        # custom field: CUSTOM-type options report their value here — notably the
-        # multi-value gaps form "3 3 3 3". gaps_in/gaps_out are CUSTOM types, so
-        # they ALWAYS come through `custom` (never `int`) and silently showed the
-        # default before this.
-        custom = d.get("custom")
-        if custom is not None and str(custom).strip():
-            return str(custom)
-        # col field: ARGB integer → hex string
+        c = d.get("custom")
+        if c is not None and str(c).strip():
+            return str(c)
         col = d.get("col")
         if col is not None and int(col) != 0:
             return f"0x{int(col) & 0xFFFFFFFF:08x}"
@@ -78,7 +73,6 @@ def get_option(section: str, key: str) -> str | None:
         i = d.get("int", 0)
         if f != 0.0 and f != float(i):
             return str(f)
-        # Fall back to int (covers bools, pure ints, and floats like 1.0)
         for field in ("int", "float"):
             v = d.get(field)
             if v is not None:
