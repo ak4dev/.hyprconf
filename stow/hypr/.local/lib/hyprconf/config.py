@@ -117,15 +117,18 @@ def save_pending(pending: dict[str, dict[str, str]]) -> tuple[bool, int]:
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
 
         # Split user zone from managed block (accept both legacy and new marker)
-        if MANAGED_MARKER in existing:
-            pre, _, _ = existing.partition(MANAGED_MARKER)
-        elif _LEGACY_MARKER in existing:
-            pre, _, _ = existing.partition(_LEGACY_MARKER)
-        else:
-            pre = existing
+        pre = existing  # fallback: no marker found
+        for m in (MANAGED_MARKER, _LEGACY_MARKER):
+            if m in existing:
+                pre, _, existing = existing.partition(m)
+                break
 
-        # Load current managed entries
-        managed = read_all_persisted()
+        # Parse the managed block directly from the remaining text (avoids a second file read)
+        managed: dict[str, str] = {}
+        for ln in existing.splitlines():
+            m2 = _MANAGED_LINE_RE.match(ln.strip())
+            if m2:
+                managed[m2.group(1).strip()] = m2.group(2).strip()
 
         # Merge pending on top
         for sec, opts in pending.items():
