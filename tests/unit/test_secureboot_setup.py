@@ -179,6 +179,25 @@ def test_enroll_own_keys_passes_brick_override() -> None:
     )
 
 
+def test_enroll_clears_efivarfs_immutable_flag() -> None:
+    # The kernel marks efivarfs PK/KEK/db entries immutable so a stray write can't
+    # brick firmware. sbctl 0.x does NOT clear that flag itself — `sbctl enroll-keys`
+    # aborts with "File is immutable … chattr -i files in efivarfs". enroll_keys must
+    # drop the flag before enrolling, or enrollment fails on every machine whose
+    # firmware marks the vars immutable (i.e. essentially all of them).
+    body = _func_body("enroll_keys")
+    assert "_clear_efivar_immutable" in body, (
+        "enroll_keys must clear the efivarfs immutable flag before sbctl enroll-keys"
+    )
+    # the clear must precede the actual sbctl enroll invocation
+    assert body.index("_clear_efivar_immutable") < body.index('sbctl "${args[@]}"')
+    helper = _func_body("_clear_efivar_immutable")
+    assert "chattr -i" in helper, "must use chattr -i to drop the immutable flag"
+    assert "/sys/firmware/efi/efivars/" in helper
+    # best-effort: never let a missing var or rejected ioctl trip the ERR-trap rollback
+    assert "2>/dev/null" in helper or "|| true" in helper
+
+
 def test_setup_does_not_enroll_over_unsigned_chain() -> None:
     body = _func_body("do_setup")
     # setup must verify before it is willing to enroll

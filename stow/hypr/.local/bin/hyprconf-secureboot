@@ -101,13 +101,17 @@ backup() {
 
 rollback() {
     warn "═══ ROLLING BACK FILE CHANGES ═══"
-    local f
-    for f in "${BACKED_UP[@]:-}"; do
-        local src="${BACKUP_DIR}${f}"
-        [[ -f "$src" ]] || { warn "No backup for $f — skip"; continue; }
-        cp -a "$src" "$f"
-        ok "Restored: $f"
-    done
+    if (( ${#BACKED_UP[@]} == 0 )); then
+        warn "No file changes were made this run — nothing to restore."
+    else
+        local f
+        for f in "${BACKED_UP[@]}"; do
+            local src="${BACKUP_DIR}${f}"
+            [[ -f "$src" ]] || { warn "No backup for $f — skip"; continue; }
+            cp -a "$src" "$f"
+            ok "Restored: $f"
+        done
+    fi
     warn "Backup files remain in: $BACKUP_DIR"
     warn "If the initramfs/UKI was rebuilt, run: mkinitcpio -P"
     warn "Secure Boot key enrollment is NOT auto-undone — use 'sbctl reset' in"
@@ -353,6 +357,21 @@ verify_report() {
     return 1
 }
 
+# sbctl writes the PK/KEK/db (+dbx) EFI variables to enroll keys, but the kernel
+# marks efivarfs entries immutable so a stray write can't brick firmware. sbctl
+# 0.x does NOT clear that flag itself — it aborts with "File is immutable … you
+# need to chattr -i files in efivarfs" — so drop it here first. Best-effort: vars
+# absent in Setup Mode (e.g. PK), or an efivarfs that rejects the ioctl, are both
+# fine; the kernel re-applies immutability to the vars sbctl then (re)creates.
+_clear_efivar_immutable() {
+    command -v chattr &>/dev/null || return 0
+    local v
+    for v in /sys/firmware/efi/efivars/{PK,KEK,db,dbx}-*; do
+        [[ -e "$v" ]] || continue
+        chattr -i "$v" 2>/dev/null || true
+    done
+}
+
 enroll_keys() {
     step "Enrolling keys into firmware"
     if ! setup_mode; then
@@ -391,6 +410,9 @@ enroll_keys() {
         warn "If the display goes black after enabling Secure Boot, re-enter Setup"
         warn "Mode and re-run with: hyprconf secureboot enroll --microsoft"
     fi
+    # Drop the efivarfs immutable flag so sbctl can write PK/KEK/db (it will not
+    # do this itself — without it, enroll-keys aborts "File is immutable").
+    _clear_efivar_immutable
     sbctl "${args[@]}" >>"$LOG" 2>&1 || die "sbctl enroll-keys failed — see $LOG"
     ok "Keys enrolled. Now enable Secure Boot in firmware (see final instructions)."
 }
