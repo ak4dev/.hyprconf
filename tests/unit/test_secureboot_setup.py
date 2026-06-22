@@ -167,6 +167,18 @@ def test_enroll_requires_setup_mode_and_clean_verify() -> None:
     assert "--microsoft" in body or "-m" in body
 
 
+def test_enroll_own_keys_passes_brick_override() -> None:
+    # Own-keys-only enrollment: modern sbctl ABORTS with an "Option ROM" error
+    # unless --yes-this-might-brick-my-machine (alias --yolo) is passed. Without it,
+    # `sbctl enroll-keys` (no flag) fails and the default no-dGPU "own keys only
+    # (recommended)" path never enrolls.
+    body = _func_body("enroll_keys")
+    assert "--yes-this-might-brick-my-machine" in body or "--yolo" in body, (
+        "own-keys-only enroll must pass sbctl's Option-ROM brick override, else "
+        "`sbctl enroll-keys` aborts and enrollment fails"
+    )
+
+
 def test_setup_does_not_enroll_over_unsigned_chain() -> None:
     body = _func_body("do_setup")
     # setup must verify before it is willing to enroll

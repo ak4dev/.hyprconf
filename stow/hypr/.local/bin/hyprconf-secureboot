@@ -376,6 +376,17 @@ enroll_keys() {
         fi
         info "Keeping Microsoft keys (--microsoft)."
     else
+        # Own keys only: modern sbctl ABORTS with an "Option ROM" error unless the
+        # brick risk is explicitly accepted — firmware that loads Microsoft-signed
+        # option ROMs (e.g. a dGPU) may fail to initialise without the MS keys.
+        # decide_key_policy already warned and offered --microsoft, so honour the
+        # choice by passing the override (feature-detected; older sbctl lacks it and
+        # also does not need it).
+        if sbctl enroll-keys --help 2>&1 | grep -q -- '--yes-this-might-brick-my-machine'; then
+            args+=(--yes-this-might-brick-my-machine)
+        elif sbctl enroll-keys --help 2>&1 | grep -q -- '--yolo'; then
+            args+=(--yolo)
+        fi
         info "Enrolling own keys only (no Microsoft keys)."
         warn "If the display goes black after enabling Secure Boot, re-enter Setup"
         warn "Mode and re-run with: hyprconf secureboot enroll --microsoft"
