@@ -21,7 +21,10 @@ detect_panel() {
         printf '%s\n' "$PANEL"
         return
     fi
-    hyprctl monitors | awk '/^Monitor / && $2 ~ /^eDP-/ {print $2; exit}'
+    # Don't `exit` early: closing the pipe makes hyprctl take SIGPIPE on its
+    # next write, which `set -o pipefail` turns into a flaky 141. Read all input
+    # and keep only the first match.
+    hyprctl monitors | awk '/^Monitor / && $2 ~ /^eDP-/ && !found {print $2; found=1}'
 }
 
 PANEL="$(detect_panel)"
@@ -33,7 +36,7 @@ readonly PANEL
 
 DISABLED=$(hyprctl monitors | awk -v m="$PANEL" '
   $0 ~ "Monitor " m {flag=1}
-  flag && $1=="disabled:" {print $2; exit}
+  flag && $1=="disabled:" && !done {print $2; done=1}
 ')
 
 if [[ "$DISABLED" == "false" ]]; then
