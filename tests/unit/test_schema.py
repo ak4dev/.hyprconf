@@ -363,11 +363,35 @@ def test_new_055_sections_present() -> None:
         "input.tablet",
         "input.tablettool",
         "layout",
+        "scrolling",
+        "gestures.scrolling",
         "ecosystem",
+        "experimental",
         "quirks",
         "debug",
     ):
         assert section in OPTION_SCHEMA, f"missing 0.55 section {section!r}"
+
+
+def test_qtutils_check_renamed_to_guiutils() -> None:
+    """0.55 renamed hyprland-qtutils -> hyprland-guiutils (and the misc option)."""
+    misc = OPTION_SCHEMA["misc"]
+    assert "disable_hyprland_guiutils_check" in misc
+    assert "disable_hyprland_qtutils_check" not in misc
+
+
+def test_scrolling_layout_is_configurable() -> None:
+    """general:layout offers `scrolling`, so its options must be in the schema."""
+    assert "scrolling" in get_all_sections()
+    sc = OPTION_SCHEMA["scrolling"]
+    assert sc["direction"][0] == "enum:left,right,down,up"
+    assert sc["column_width"][0] == "float"
+
+
+def test_shadow_and_glow_colors_are_gradients() -> None:
+    """0.55 types shadow/glow colors as gradients (a plain color is a valid subset)."""
+    assert OPTION_SCHEMA["decoration.shadow"]["color"][0] == "gradient"
+    assert OPTION_SCHEMA["decoration.glow"]["color"][0] == "gradient"
 
 
 def test_removed_options_absent() -> None:

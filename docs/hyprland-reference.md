@@ -258,7 +258,7 @@ general {
     col.inactive_border = rgba(595959aa)
     resize_on_border = false
     allow_tearing    = false
-    layout = bsp           # bsp | dwindle | master
+    layout = dwindle       # dwindle | master | scrolling | monocle
 }
 ```
 
@@ -312,10 +312,11 @@ Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Animations/>
 
 ```ini
 dwindle {
-    pseudotile     = true   # Maintain ratios in tiled mode
     preserve_split = true
-    force_split    = -1     # -1=auto, 0=left/top, 1=right/bottom, 2=right/bottom always
+    smart_split    = false  # Cursor-position split direction (implies preserve_split)
+    force_split    = 0      # 0=follow mouse, 1=left/top, 2=right/bottom
 }
+# Note: pseudotiling is the `pseudo` dispatcher / `pseudo` window rule, not a dwindle option.
 ```
 
 ### misc
@@ -345,8 +346,10 @@ input {
     }
 }
 
+# 0.55 removed the `workspace_swipe` master toggle and `*_fingers` options; the
+# 3-finger swipe is now bound via the gesture system (see the Gestures wiki).
+# The tuning options below still apply to it.
 gestures {
-    workspace_swipe                    = true
     workspace_swipe_invert             = true    # Natural (macOS-style)
     workspace_swipe_distance           = 300
     workspace_swipe_min_speed_to_force = 15
@@ -370,18 +373,16 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/#input>
 ## Window Rules
 
 ```ini
-# windowrule = RULE, FILTER
-windowrule = float,          class:^(pavucontrol)$
-windowrule = size 820 440,   class:^(theme-switcher)$
-windowrule = center on,      class:^(theme-switcher)$
-
-# match: prefix for named matching
-windowrule = match:class theme-switcher, float on, center on, size 820 440
+# 0.55 grammar:  windowrule = EFFECT val[, EFFECT val…], match:PROP regex[, match:…]
+# Every clause carries a value — write `float on`, never a bare `float`.
+# (windowrulev2 and the old `RULE, class:^(…)$` form are rejected since 0.55.)
+windowrule = float on, match:class pavucontrol
+windowrule = float on, center on, size 820 440, match:class theme-switcher
 ```
 
-**Common rules:** `float`, `fullscreen`, `center`, `size W H`, `move X Y`, `pin`, `opacity ACTIVE INACTIVE`, `noblur`, `noborder`, `rounding N`, `workspace N`
+**Common effects:** `float on`, `tile on`, `fullscreen on`, `center on`, `size W H`, `move X Y`, `pin on`, `opacity A [I [F]]`, `no_blur on`, `rounding N`, `border_size N`, `workspace N`
 
-**Filter syntax:** `class:REGEX`, `title:REGEX`, `floating:0/1`, `fullscreen:0/1`, `onworkspace:N`
+**Match props (`match:` prefix):** `match:class REGEX`, `match:title REGEX`, `match:float 0/1`, `match:fullscreen 0/1`, `match:workspace N`, `match:xwayland 0/1`
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
 

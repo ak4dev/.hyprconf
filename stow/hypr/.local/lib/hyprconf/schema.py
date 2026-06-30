@@ -130,8 +130,8 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "range": ("int", "4", "Shadow range/size (px)"),
         "render_power": ("int", "3", "Shadow falloff power [1-4]"),
         "sharp": ("bool", "false", "Sharp shadows (equivalent to infinite render_power)"),
-        "color": ("color", "0xee1a1a1a", "Shadow color (alpha controls opacity)"),
-        "color_inactive": ("color", "unset", "Inactive shadow color (falls back to color)"),
+        "color": ("gradient", "0xee1a1a1a", "Shadow color (alpha controls opacity)"),
+        "color_inactive": ("gradient", "unset", "Inactive shadow color (falls back to color)"),
         "offset": ("vec2", "0 0", "Shadow rendering offset (x y)"),
         "scale": ("float", "1.0", "Shadow scale [0.0-1.0]"),
     },
@@ -144,8 +144,8 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "3",
             "In what power to render the falloff (more power, the faster the falloff) [1 - 4]",
         ),
-        "color": ("color", "0xee1a1a1a", "Glow's color"),
-        "color_inactive": ("color", "", "Inactive glow color"),
+        "color": ("gradient", "0xee1a1a1a", "Glow's color"),
+        "color_inactive": ("gradient", "", "Inactive glow color"),
     },
     # ── decoration.motion_blur ────────────────────────────────────────────────────
     "decoration.motion_blur": {
@@ -544,10 +544,10 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "false",
             "If true, closing a fullscreen window makes the next focused window fullscreen",
         ),
-        "disable_hyprland_qtutils_check": (
+        "disable_hyprland_guiutils_check": (
             "bool",
             "false",
-            "Disable the warning if hyprland-qtutils is not installed",
+            "Disable the warning if hyprland-guiutils is not installed",
         ),
         "enable_anr_dialog": (
             "bool",
@@ -565,6 +565,7 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "false",
             "Whether to disable the warning about not using start-hyprland",
         ),
+        "screencopy_force_8b": ("bool", "true", "Force 8-bit screencopy"),
     },
     # ── layout ────────────────────────────────────────────────────────────────────
     "layout": {
@@ -738,6 +739,12 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "false",
             "Use experimental blurred bg blending (glitched on rotated screens)",
         ),
+        "fp16_sdr_tf": (
+            "enum:0,1",
+            "0",
+            "fp16 SDR-mode workbuffer transfer function: 0=monitor, 1=linear",
+        ),
+        "icc_vcgt_enabled": ("bool", "true", "Send VCGT ramps to KMS with ICC profiles"),
     },
     # ── opengl ────────────────────────────────────────────────────────────────────
     "opengl": {
@@ -835,6 +842,11 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "false",
             "When enabled, closing a window focuses the master window",
         ),
+        "center_ignores_reserved": (
+            "bool",
+            "false",
+            "Center the master window ignoring reserved areas",
+        ),
     },
     # ── ecosystem ─────────────────────────────────────────────────────────────────
     "ecosystem": {
@@ -853,6 +865,11 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
     # ── quirks ────────────────────────────────────────────────────────────────────
     "quirks": {
         "prefer_hdr": ("int", "0", "Report HDR mode as preferred"),
+        "skip_non_kms_dmabuf_formats": (
+            "bool",
+            "false",
+            "Don't report dmabuf formats that can't be imported into KMS",
+        ),
     },
     # ── debug ─────────────────────────────────────────────────────────────────────
     "debug": {
@@ -894,6 +911,80 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "2",
             "Allow fp16 buffer invalidation: 0=no, 1=yes, 2=not on nvidia",
         ),
+        "log_damage": ("bool", "false", "Enable logging of damage"),
+        "ds_handle_same_buffer": (
+            "bool",
+            "true",
+            "Direct-scanout special case for an unmodified buffer",
+        ),
+        "ds_handle_same_buffer_fifo": (
+            "bool",
+            "true",
+            "Direct scanout with unmodified buffer unlocks fifo",
+        ),
+        "fifo_pending_workaround": (
+            "bool",
+            "false",
+            "Fifo workaround for an empty pending list",
+        ),
+        "render_solitary_wo_damage": (
+            "bool",
+            "false",
+            "Render a solitary window with empty damage",
+        ),
+    },
+    # ── scrolling ─────────────────────────────────────────────────────────────────
+    "scrolling": {
+        "column_width": ("float", "0.5", "Default column width [0.1-1.0]"),
+        "fullscreen_on_one_column": (
+            "bool",
+            "true",
+            "A single column on a workspace always spans the entire screen",
+        ),
+        "focus_fit_method": (
+            "enum:0,1",
+            "1",
+            "How a focused column is brought into view: 0=center, 1=fit",
+        ),
+        "follow_focus": (
+            "bool",
+            "true",
+            "Move the layout to bring a focused window into view automatically",
+        ),
+        "follow_min_visible": (
+            "float",
+            "0.4",
+            "Min visible fraction of a focused window for focus to follow [0.0-1.0]",
+        ),
+        "explicit_column_widths": (
+            "str",
+            "0.333, 0.5, 0.667, 1.0",
+            "Comma-separated preset widths cycled by colresize +conf/-conf",
+        ),
+        "direction": (
+            "enum:left,right,down,up",
+            "right",
+            "Direction in which new windows appear and the layout scrolls",
+        ),
+        "wrap_focus": ("bool", "true", "Column focus wraps around at start and end"),
+        "wrap_swapcol": ("bool", "true", "Column movement wraps around at start and end"),
+    },
+    # ── gestures.scrolling ──────────────────────────────────────────────────────────
+    "gestures.scrolling": {
+        "move_snap_to_grid": (
+            "bool",
+            "true",
+            "On releasing the scroll-move gesture, snap to the grid",
+        ),
+        "move_snap_cursor": (
+            "bool",
+            "true",
+            "On releasing the scroll-move gesture, snap the cursor to the focused window",
+        ),
+    },
+    # ── experimental ──────────────────────────────────────────────────────────────
+    "experimental": {
+        "wp_cm_1_2": ("bool", "false", "Allow wp-color-management-v1 version 2"),
     },
 }
 
@@ -925,6 +1016,7 @@ SECTION_ORDER: list[str] = [
     "input.tablet",
     "input.tablettool",
     "gestures",
+    "gestures.scrolling",
     "group",
     "group.groupbar",
     "misc",
@@ -936,7 +1028,9 @@ SECTION_ORDER: list[str] = [
     "xwayland",
     "dwindle",
     "master",
+    "scrolling",
     "ecosystem",
+    "experimental",
     "quirks",
     "debug",
 ]
@@ -958,6 +1052,7 @@ SECTION_LABELS: dict[str, str] = {
     "input.tablet": "  Tablet",
     "input.tablettool": "  Tablet Tool",
     "gestures": "Gestures",
+    "gestures.scrolling": "  Scroll Snap",
     "group": "Group",
     "group.groupbar": "  Groupbar",
     "misc": "Misc",
@@ -969,7 +1064,9 @@ SECTION_LABELS: dict[str, str] = {
     "xwayland": "XWayland",
     "dwindle": "Dwindle",
     "master": "Master",
+    "scrolling": "Scrolling",
     "ecosystem": "Ecosystem",
+    "experimental": "Experimental",
     "quirks": "Quirks",
     "debug": "Debug",
     "monitors": "Monitors",
