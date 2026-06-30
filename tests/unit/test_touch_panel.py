@@ -27,12 +27,13 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent.parent
 TOUCH_PANEL_PATH = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "touch-panel"
 
-# touch-panel needs PyGObject plus the Gtk 3.0 and GtkLayerShell typelibs. In a
-# minimal environment (e.g. the CI container) gi can be importable while the
-# typelibs are absent — gi.require_version() then raises ValueError, which
-# importorskip does NOT catch. Guard the whole GTK setup (require_version + the
-# touch-panel import it triggers) and skip the module unless the full stack is
-# available.
+# These tests build a real Gtk.Window, so they need PyGObject, the Gtk 3.0 and
+# GtkLayerShell typelibs, AND a usable display. A minimal/headless environment
+# (e.g. the CI container) can be missing any of these: gi may be absent
+# (ImportError), a typelib may be missing (gi.require_version raises ValueError),
+# or there may be no display (Gtk.init_check reports failure without raising).
+# importorskip only covers the first; guard the rest and skip the module unless
+# the full GTK + display stack is available.
 gi = pytest.importorskip("gi", reason="python-gobject not installed")
 
 from importlib.machinery import SourceFileLoader  # noqa: E402
@@ -40,13 +41,17 @@ from importlib.machinery import SourceFileLoader  # noqa: E402
 try:
     gi.require_version("Gtk", "3.0")
     gi.require_version("GtkLayerShell", "0.1")
+    from gi.repository import Gtk  # noqa: E402
+
+    if not Gtk.init_check()[0]:
+        raise RuntimeError("no display (headless)")
     # touch-panel has no .py extension — use SourceFileLoader directly.
     _loader = SourceFileLoader("touch_panel", str(TOUCH_PANEL_PATH))
     _spec = importlib.util.spec_from_loader("touch_panel", _loader)
     _tp_mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
     _loader.exec_module(_tp_mod)
-except (ImportError, ValueError) as exc:
-    pytest.skip(f"GTK stack unavailable: {exc}", allow_module_level=True)
+except (ImportError, ValueError, RuntimeError) as exc:
+    pytest.skip(f"GTK stack/display unavailable: {exc}", allow_module_level=True)
 
 TouchPanel = _tp_mod.TouchPanel
 
