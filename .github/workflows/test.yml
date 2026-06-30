@@ -40,10 +40,18 @@ jobs:
       - uses: actions/checkout@v4
       - name: Run tiers 1-2 (unit + integration)
         run: |
+          set +e
           python -m pytest tests/unit/ tests/integration/ \
-            --tb=short -q -n auto \
+            --tb=long -q \
             --cov=stow/hypr/.local/lib/hyprconf \
-            --cov-report=term-missing
+            --cov-report= 2>&1 | tee /tmp/pytest.out
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            { grep -nE '^(FAILED|ERROR)' /tmp/pytest.out; echo '==== TAIL ===='; tail -80 /tmp/pytest.out; } > /tmp/fail.txt
+            enc=$(sed 's/%/%25/g' /tmp/fail.txt | sed ':a;N;$!ba;s/\r//g;s/\n/%0A/g' | cut -c1-7000)
+            echo "::error title=tiers12-failure::${enc}"
+          fi
+          exit $rc
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
