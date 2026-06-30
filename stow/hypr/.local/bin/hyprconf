@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# $USER isn't exported in every environment (containers, cron, some display
+# managers); resolve it once so `set -u` can't trip on later references.
+: "${USER:=$(id -un)}"
+
 readonly THEME_SCRIPT="$HOME/.config/hypr/scripts/theme-switcher/switch_theme.py"
 readonly MONITOR_SCRIPT="$HOME/.config/hypr/scripts/switch_monitor.sh"
 readonly DISPLAY_SCRIPT="$HOME/.config/hypr/scripts/toggle-native-display"

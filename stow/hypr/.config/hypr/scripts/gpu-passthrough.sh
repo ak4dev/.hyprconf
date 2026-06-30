@@ -997,13 +997,16 @@ _gpu_audit() {
 
     # 5. User groups
     printf "\nUser Groups\n"
-    local grp
+    local grp user
+    # $USER isn't exported in every environment (containers, cron, some login
+    # managers); fall back to the real username so `set -u` can't trip on it.
+    user="${USER:-$(id -un)}"
     # shellcheck disable=SC2043  # single group today; loop kept for easy extension
     for grp in kvm; do
-        if id -nG "$USER" | grep -qw "$grp"; then
-            printf "  ✔ %s in '%s' group\n" "$USER" "$grp"
+        if id -nG "$user" | grep -qw "$grp"; then
+            printf "  ✔ %s in '%s' group\n" "$user" "$grp"
         else
-            printf "  ✘ %s not in '%s' group\n" "$USER" "$grp"
+            printf "  ✘ %s not in '%s' group\n" "$user" "$grp"
             errors=$((errors + 1))
         fi
     done
