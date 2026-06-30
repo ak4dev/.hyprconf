@@ -38,13 +38,18 @@ jobs:
           pacman -Syu --noconfirm --needed git python \
             python-pytest python-pytest-asyncio python-pytest-xdist python-pytest-cov
       - uses: actions/checkout@v4
+      # The container runs as root but the checkout is owned by another uid, so
+      # git refuses repo operations (e.g. the git-archive tests) with "dubious
+      # ownership". Trust the workspace.
+      - name: Trust the workspace for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run tiers 1-2 (unit + integration)
         run: |
           set +e
           python -m pytest tests/unit/ tests/integration/ \
-            --tb=long -q \
+            --tb=short -q -n auto \
             --cov=stow/hypr/.local/lib/hyprconf \
-            --cov-report= 2>&1 | tee /tmp/pytest.out
+            --cov-report=term-missing 2>&1 | tee /tmp/pytest.out
           rc=${PIPESTATUS[0]}
           if [ "$rc" -ne 0 ]; then
             { grep -nE '^(FAILED|ERROR)' /tmp/pytest.out; echo '==== TAIL ===='; tail -80 /tmp/pytest.out; } > /tmp/fail.txt
