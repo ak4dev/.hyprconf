@@ -50,10 +50,22 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: Run tiers 1-2 (unit + integration)
         run: |
-          python -m pytest tests/unit/ tests/integration/ \
-            --tb=short -q -n auto \
-            --cov=stow/hypr/.local/lib/hyprconf \
-            --cov-report=term-missing
+          set +e
+          for attempt in 1 2 3 4 5; do
+            echo "::group::attempt $attempt"
+            python -m pytest tests/unit/ tests/integration/ \
+              --tb=long -q -n auto -p no:cacheprovider 2>&1 | tee /tmp/pytest.out
+            rc=${PIPESTATUS[0]}
+            echo "::endgroup::"
+            if [ "$rc" -ne 0 ]; then
+              { echo "FLAKE on attempt $attempt:"; grep -nE '^(FAILED|ERROR)' /tmp/pytest.out; \
+                echo '==== TAIL ===='; tail -90 /tmp/pytest.out; } > /tmp/fail.txt
+              enc=$(sed 's/%/%25/g' /tmp/fail.txt | sed ':a;N;$!ba;s/\r//g;s/\n/%0A/g' | cut -c1-7000)
+              echo "::error title=flake::${enc}"
+              exit 1
+            fi
+          done
+          echo "all 5 attempts passed"
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
