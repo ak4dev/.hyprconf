@@ -1463,7 +1463,7 @@ def test_rule_window_update_writes_whole_filter_not_chars(hypr_dir, capsys):
 
     content = WINRULES_FILE.read_text()
     # Must contain the whole filter token, NOT individual characters
-    assert "class:app" in content, f"filter string mangled: {content!r}"
+    assert "match:class app" in content, f"filter string mangled: {content!r}"
     assert "c, l, a, s, s" not in content, f"filter was iterated char-by-char: {content!r}"
 
 

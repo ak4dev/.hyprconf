@@ -620,6 +620,7 @@ def cmd_rule(args: list[str]) -> int:
     from hyprconf.rules import (
         add_window_rule,
         add_workspace_rule,
+        compose_window_rule,
         delete_rule,
         read_window_rules_with_location,
         read_workspace_rules_with_location,
@@ -655,7 +656,7 @@ def cmd_rule(args: list[str]) -> int:
             rule_str = args[2]
             filter_str = args[3]
             add_window_rule(rule_str, [filter_str])
-            print(f"  {_B}Added:{_R}  windowrule = {rule_str}, {filter_str}")
+            print(f"  {_B}Added:{_R}  {compose_window_rule(rule_str, [filter_str])}")
             return 0
 
         if sub == "delete":
@@ -690,7 +691,7 @@ def cmd_rule(args: list[str]) -> int:
             if not update_window_rule(e.file_path, e.line_idx, args[3], [args[4]]):
                 print(f"{_Y}Failed to update window rule{_R}", file=sys.stderr)
                 return 1
-            print(f"  {_B}Updated:{_R}  [{args[2]}] → windowrule = {args[3]}, {args[4]}")
+            print(f"  {_B}Updated:{_R}  [{args[2]}] → {compose_window_rule(args[3], [args[4]])}")
             return 0
 
         print(f"{_Y}Usage: hyprconf rule window list|add|delete|update{_R}", file=sys.stderr)

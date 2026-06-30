@@ -35,7 +35,7 @@ from .paths import HYPRLAND_CONF, WINRULES_FILE, WKSPRULES_FILE
 
 
 class RuleEntry(NamedTuple):
-    rule: str  # full rule text, e.g. "windowrulev2 = float, class:Alacritty"
+    rule: str  # full rule text, e.g. "windowrule = float on, match:class Alacritty"
     file_path: Path  # source file
     line_idx: int  # 0-based index in file_path
 
@@ -96,22 +96,78 @@ def read_workspace_rules_with_location(
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def add_window_rule(rule: str, filters: list[str], file: Path | None = None) -> bool:
-    """Append ``windowrulev2 = RULE, FILTER...`` to *file*.
+# ─────────────────────────────────────────────────────────────────────────────
+#  Window-rule line composition (Hyprland 0.55 ``match:`` grammar)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Hyprland 0.55 retired the old ``windowrulev2 = <effect>, <field>:<regex>``
+# form: its parser now rejects ``windowrulev2`` outright ("windowrulev2 is
+# deprecated") and the surviving ``windowrule`` keyword expects
+#
+#     windowrule = <effect value>[, <effect value>…], match:<prop> <regex>[, …]
+#
+# i.e. every comma-clause must carry a value (the parser splits on the first
+# space), match props are prefixed with ``match:``, and a few prop names were
+# renamed. We keep accepting ``windowrulev2`` on *read* (legacy user configs)
+# but only ever *write* the new grammar.
 
-    *rule* is the action, e.g. ``"float"``.
-    *filters* are match clauses, e.g. ``["class:Alacritty", "title:.*"]``.
+# Legacy windowrulev2 filter field  ->  current ``match:`` prop name.
+_PROP_RENAMES = {
+    "floating": "float",
+    "pinned": "pin",
+    "onworkspace": "workspace",
+    "initialclass": "initial_class",
+    "initialtitle": "initial_title",
+    "fullscreenstate": "fullscreen_state_internal",
+}
+
+
+def _effect_clause(rule: str) -> str:
+    """Normalise an effect so it always carries a value.
+
+    0.55 requires every clause to have a value, so a bare boolean effect
+    (``float``) becomes ``float on``; effects that already carry one
+    (``size 800 600``, ``opacity 0.9``) are left untouched.
+    """
+    r = rule.strip()
+    return r if " " in r else f"{r} on"
+
+
+def _match_clause(filt: str) -> str:
+    """Convert a legacy ``field:value`` filter to a ``match:field value`` clause.
+
+    Clauses already in ``match:`` form, or without a ``field:value`` colon, are
+    passed through unchanged.
+    """
+    f = filt.strip()
+    if not f or f.startswith("match:"):
+        return f
+    field, sep, value = f.partition(":")
+    if not sep:
+        return f
+    field = field.strip().lower()
+    field = _PROP_RENAMES.get(field, field)
+    return f"match:{field} {value.strip()}"
+
+
+def compose_window_rule(rule: str, filters: list[str]) -> str:
+    """Build a valid Hyprland 0.55 ``windowrule = …`` line from *rule* + *filters*."""
+    clauses = [_effect_clause(rule)]
+    clauses.extend(_match_clause(f) for f in filters if f.strip())
+    return "windowrule = " + ", ".join(clauses)
+
+
+def add_window_rule(rule: str, filters: list[str], file: Path | None = None) -> bool:
+    """Append a ``windowrule = …`` line (0.55 ``match:`` grammar) to *file*.
+
+    *rule* is the effect, e.g. ``"float"`` or ``"size 800 600"``.
+    *filters* are legacy ``field:value`` match clauses, e.g.
+    ``["class:Alacritty", "title:.*"]`` — translated to ``match:`` props.
     *file* defaults to the managed windowrules file.
     """
     if file is None:
         file = WINRULES_FILE
-    filter_str = ", ".join(f.strip() for f in filters if f.strip())
-    line = (
-        f"windowrulev2 = {rule.strip()}, {filter_str}"
-        if filter_str
-        else f"windowrulev2 = {rule.strip()}"
-    )
-    return append_block(file, line)
+    return append_block(file, compose_window_rule(rule, filters))
 
 
 def add_workspace_rule(workspace_id: str, options: str, file: Path | None = None) -> bool:
@@ -138,14 +194,8 @@ def delete_rule(file_path: Path, line_idx: int) -> bool:
 
 
 def update_window_rule(file_path: Path, line_idx: int, rule: str, filters: list[str]) -> bool:
-    """Replace the window rule at *line_idx* in *file_path*."""
-    filter_str = ", ".join(f.strip() for f in filters if f.strip())
-    line = (
-        f"windowrulev2 = {rule.strip()}, {filter_str}"
-        if filter_str
-        else f"windowrulev2 = {rule.strip()}"
-    )
-    return update_line(file_path, line_idx, line)
+    """Replace the window rule at *line_idx* in *file_path* (0.55 ``match:`` grammar)."""
+    return update_line(file_path, line_idx, compose_window_rule(rule, filters))
 
 
 def update_workspace_rule(file_path: Path, line_idx: int, workspace_id: str, options: str) -> bool:

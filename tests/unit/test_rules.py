@@ -131,29 +131,54 @@ def test_add_window_rule_appends(hypr_dir: Path) -> None:
     entries = read_window_rules_with_location(p)
     assert len(entries) == 1
     assert "float" in entries[0].rule
-    assert "class:MyApp" in entries[0].rule
+    assert "match:class MyApp" in entries[0].rule
 
 
 def test_add_window_rule_multiple_filters(hypr_dir: Path) -> None:
     p = _win_rules_file(hypr_dir)
     add_window_rule("float", ["class:Alacritty", "title:.*Edit.*"], file=p)
     entries = read_window_rules_with_location(p)
-    assert "class:Alacritty" in entries[0].rule
-    assert "title:.*Edit.*" in entries[0].rule
+    assert "match:class Alacritty" in entries[0].rule
+    assert "match:title .*Edit.*" in entries[0].rule
 
 
 def test_add_window_rule_no_filters(hypr_dir: Path) -> None:
     p = _win_rules_file(hypr_dir)
     add_window_rule("float", [], file=p)
     entries = read_window_rules_with_location(p)
-    assert "windowrulev2 = float" in entries[0].rule
+    assert "windowrule = float on" in entries[0].rule
 
 
 def test_add_window_rule_format(hypr_dir: Path) -> None:
     p = _win_rules_file(hypr_dir)
     add_window_rule("float", ["class:X"], file=p)
     text = p.read_text()
-    assert "windowrulev2 = float, class:X" in text
+    assert "windowrule = float on, match:class X" in text
+
+
+def test_add_window_rule_never_writes_deprecated_v2(hypr_dir: Path) -> None:
+    """Hyprland 0.55 rejects ``windowrulev2``; the writer must never emit it."""
+    p = _win_rules_file(hypr_dir)
+    add_window_rule("float", ["class:X"], file=p)
+    add_window_rule("size 800 600", ["floating:1", "title:.*"], file=p)
+    assert "windowrulev2" not in p.read_text()
+
+
+def test_add_window_rule_renames_legacy_filter_fields(hypr_dir: Path) -> None:
+    """Legacy v2 field names are mapped to current ``match:`` props."""
+    p = _win_rules_file(hypr_dir)
+    add_window_rule("float", ["floating:1"], file=p)
+    text = p.read_text()
+    assert "match:float 1" in text
+    assert "floating:" not in text
+
+
+def test_compose_window_rule_keeps_valued_effect(hypr_dir: Path) -> None:
+    """An effect that already carries a value is not given a spurious ``on``."""
+    from hyprconf.rules import compose_window_rule
+
+    line = compose_window_rule("size 800 600", ["class:X"])
+    assert line == "windowrule = size 800 600, match:class X"
 
 
 # ---------------------------------------------------------------------------
