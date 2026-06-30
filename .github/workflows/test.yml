@@ -23,6 +23,11 @@ jobs:
       - name: Install toolchain
         run: pacman -Syu --noconfirm --needed git make ruff shellcheck
       - uses: actions/checkout@v4
+      # Without this, git refuses repo ops (root container vs checkout uid) and
+      # `make shellcheck`'s `git ls-files` yields nothing — shellcheck would
+      # then pass vacuously, checking zero scripts.
+      - name: Trust the workspace for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: ShellCheck (all bash scripts)
         run: make shellcheck
       - name: Ruff (lint + format check)
