@@ -44,8 +44,11 @@ done
 # (detected via --help) and values are available.
 args=(--hidden)
 
-if [[ -n "$bg" && -n "$fg" ]] \
-        && wvkbd-mobintl --help 2>&1 | grep -q -- "--bg"; then
+# Capture --help fully before testing it: piping it straight into `grep -q`
+# lets grep close the pipe early, which SIGPIPEs wvkbd-mobintl and (under
+# pipefail) surfaces as a flaky 141. Match in-shell instead.
+help="$(wvkbd-mobintl --help 2>&1 || true)"
+if [[ -n "$bg" && -n "$fg" && "$help" == *"--bg"* ]]; then
     args+=(--bg "$bg" --fg "$fg")
     [[ -n "$accent" ]] && args+=(--press "$accent")
 fi
