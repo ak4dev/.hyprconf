@@ -131,29 +131,56 @@ install_packages() {
     log_ok "All packages installed."
 }
 
-install_yay() {
-    if command -v yay &>/dev/null; then
-        log_ok "yay already installed."
+# hyprconf installs ONLY official-repo packages — it never installs from the AUR
+# automatically. Any foreign (AUR / locally-built) package on the system is
+# offered for removal here, EXCEPT the yay helper itself, which is kept so that
+# `hyprconf addon` can still build AUR packages on demand (with an explicit
+# warning + confirmation). Removal is destructive, so it always prompts and
+# defaults to "no" when stdin is not a terminal.
+remove_aur_packages() {
+    command -v pacman &>/dev/null || return 0
+
+    # Packages to keep even though they are foreign (the AUR helper family).
+    local -a keep=(yay yay-bin yay-git)
+
+    local -a foreign=()
+    local pkg
+    while IFS= read -r pkg; do
+        [[ -z "$pkg" ]] && continue
+        local kept=false k
+        for k in "${keep[@]}"; do
+            [[ "$pkg" == "$k" ]] && kept=true && break
+        done
+        $kept || foreign+=("$pkg")
+    done < <(pacman -Qmq 2>/dev/null)
+
+    if [[ ${#foreign[@]} -eq 0 ]]; then
+        log_ok "No AUR packages installed — nothing to remove."
         return 0
     fi
 
-    log_step "Installing yay (AUR helper)..."
+    log_warn "hyprconf does not use AUR packages. Found ${#foreign[@]} foreign (AUR) package(s):"
+    printf '    %s\n' "${foreign[@]}"
+    printf '%s  Remove them now? This uninstalls them and their unused deps. [y/N] %s' "$WH" "$RS"
 
-    local build_dir; build_dir=$(mktemp -d)
-    # shellcheck disable=SC2064
-    trap "rm -rf '$build_dir'" RETURN
-
-    if ! git clone --depth=1 https://aur.archlinux.org/yay-bin.git "$build_dir/yay-bin"; then
-        log_warn "yay: could not reach AUR — skipping (install manually: cd /tmp && git clone https://aur.archlinux.org/yay-bin.git && cd yay-bin && makepkg -si)."
-        return 0
+    local ans
+    if [[ -t 0 ]]; then
+        read -r ans
+    else
+        ans="n"
     fi
 
-    if ! ( cd "$build_dir/yay-bin" && makepkg -si --noconfirm ); then
-        log_warn "yay: build failed — skipping (install manually: yay-bin from AUR)."
-        return 0
-    fi
-
-    log_ok "yay installed."
+    case "${ans,,}" in
+        y|yes)
+            log_step "Removing ${#foreign[@]} AUR package(s)..."
+            sudo pacman -Rns --noconfirm "${foreign[@]}" \
+                && log_ok "AUR packages removed." \
+                || log_warn "Some AUR packages could not be removed — check output above."
+            ;;
+        *)
+            log_warn "Skipped. To remove manually: sudo pacman -Rns ${foreign[*]}"
+            ;;
+    esac
 }
 
 
@@ -823,20 +850,6 @@ ACTION==\"change\", SUBSYSTEM==\"power_supply\", ATTR{type}==\"Mains\", RUN+=\"$
 # Hardware feature detection — touchscreen OSK and auto-rotation
 # ---------------------------------------------------------------------------
 
-_install_wvkbd() {
-    if command -v wvkbd-mobintl &>/dev/null; then
-        log_ok "wvkbd already installed."
-        return 0
-    fi
-    if ! command -v yay &>/dev/null; then
-        log_warn "yay not found — cannot install wvkbd (AUR). Install manually: yay -S wvkbd"
-        return 1
-    fi
-    log_step "Installing wvkbd (AUR)..."
-    yay -S --noconfirm --needed wvkbd && log_ok "wvkbd installed." \
-        || log_warn "wvkbd install failed — on-screen keyboard unavailable."
-}
-
 write_hardware_conf() {
     local conf_file="$HOME/.config/hypr/conf.d/60-hardware.conf"
     local has_touch=false has_accel=false has_nvidia=false
@@ -937,7 +950,12 @@ setup_hardware_features() {
 
     if _has_touchscreen; then
         log_ok "Touchscreen detected."
-        _install_wvkbd || true
+        # The on-screen keyboard (wvkbd) is AUR-only. hyprconf never installs AUR
+        # packages automatically, so the OSK is NOT installed here — even on touch
+        # devices. The launcher/toggle scripts degrade gracefully when it is
+        # absent; install it manually to enable the OSK.
+        log_warn "On-screen keyboard (wvkbd) is AUR-only and is NOT installed automatically."
+        log_warn "To enable the OSK, install it manually: yay -S wvkbd"
         mkdir -p "$HOME/.config/wvkbd"
         log_step "Installing gtk-layer-shell (required by touch-panel)..."
             sudo pacman -S --noconfirm --needed gtk-layer-shell \
@@ -1461,6 +1479,10 @@ main() {
             fi
         fi
 
+        # Enforce the no-AUR policy on every sync (prompts only when foreign
+        # packages are actually present, so it stays quiet on clean systems).
+        remove_aur_packages
+
         printf '\n%s  ✔ Sync complete.%s\n\n' "$GR" "$RS"
         return 0
     fi
@@ -1479,7 +1501,7 @@ main() {
 
     configure_pacman
     install_packages
-    install_yay
+    remove_aur_packages
     create_directories
     clone_or_update_repo
     sync_vscode_theme_extensions

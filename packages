@@ -130,9 +130,11 @@ openssh
 # Power management
 power-profiles-daemon
 
-# Hardware: on-screen keyboard (auto-installed at setup time if a touchscreen is detected)
-# wvkbd is AUR-only; setup.sh installs it via yay when a touchscreen is found.
-# To install manually: yay -S wvkbd
+# Hardware: on-screen keyboard (OSK) for touch devices
+# wvkbd is AUR-only. hyprconf NEVER installs AUR packages automatically, so the
+# OSK is NOT installed by setup.sh even when a touchscreen is detected. The
+# launcher/toggle/touch-panel scripts degrade gracefully when it is absent.
+# To enable the OSK, install it manually (AUR): yay -S wvkbd
 # wvkbd
 
 # Hardware: accelerometer / auto-rotation (auto-installed if an accelerometer is detected)
@@ -177,3 +179,5 @@ wireguard-tools
 # Addon installs: qemu-desktop edk2-ovmf docker docker-compose dmidecode
 #                 freerdp linux-headers dnsmasq iptables-nft
 #                 looking-glass looking-glass-module-dkms (AUR)
+# NOTE: any AUR package in an addon is installed only after an explicit warning
+#       and confirmation — hyprconf never installs AUR packages automatically.

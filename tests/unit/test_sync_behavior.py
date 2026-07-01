@@ -255,7 +255,7 @@ class TestSyncPath:
         assert "restow" in sync_block, "--full must select restow mode"
 
     def test_setup_hardware_features_in_sync(self) -> None:
-        """setup_hardware_features (installs wvkbd/iio-sensor-proxy) must run on sync."""
+        """setup_hardware_features (installs gtk-layer-shell/iio-sensor-proxy) must run on sync."""
         src = _setup_text()
         sync_idx = src.index('"--sync"')
         sync_block = src[sync_idx : sync_idx + 2000]

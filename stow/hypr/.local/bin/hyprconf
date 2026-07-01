@@ -1975,12 +1975,34 @@ _addon_install() {
   fi
 
   if [[ -n "$aur_pkgs" ]]; then
+    # AUR packages are never installed silently. hyprconf's policy is to install
+    # only official-repo packages automatically; anything from the AUR is built
+    # from source, unvetted by Arch, and must be confirmed explicitly.
+    printf "\n${_y}⚠  WARNING${_r} — the '%s' addon includes AUR package(s):\n" "$name"
+    printf "     ${_b}%s${_r}\n" "$aur_pkgs"
+    printf "   ${_y}AUR packages are built from source and are NOT vetted by the official${_r}\n"
+    printf "   ${_y}Arch repositories or by hyprconf. Install them only if you trust them.${_r}\n"
     if command -v yay &>/dev/null; then
-      printf "${_b}→${_r} Installing %s AUR packages: %s...\n" "$name" "$aur_pkgs"
-      # shellcheck disable=SC2086
-      yay -S --noconfirm --needed $aur_pkgs \
-        && printf "${_g}✓${_r} AUR packages installed.\n" \
-        || printf "${_y}⚠${_r} One or more AUR packages failed to install — check output above.\n"
+      local _aur_ans=""
+      if [[ -t 0 ]]; then
+        printf "   ${_b}Install these AUR packages? [y/N]${_r} "
+        read -r _aur_ans
+      else
+        printf "${_y}⚠${_r} Non-interactive shell — AUR packages skipped (cannot confirm).\n"
+      fi
+      case "${_aur_ans,,}" in
+        y|yes)
+          printf "${_b}→${_r} Installing %s AUR packages: %s...\n" "$name" "$aur_pkgs"
+          # No --noconfirm: let yay show its own PKGBUILD/diff review for AUR safety.
+          # shellcheck disable=SC2086
+          yay -S --needed $aur_pkgs \
+            && printf "${_g}✓${_r} AUR packages installed.\n" \
+            || printf "${_y}⚠${_r} One or more AUR packages failed to install — check output above.\n"
+          ;;
+        *)
+          printf "${_y}⚠${_r} Skipped AUR packages. To install manually: ${_c}yay -S %s${_r}\n" "$aur_pkgs"
+          ;;
+      esac
     else
       printf "${_y}⚠${_r} yay not found — skipping AUR packages: %s\n" "$aur_pkgs"
       printf "${_y}⚠${_r} Install yay first, then re-run: hyprconf addon %s\n" "$name"

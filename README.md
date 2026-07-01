@@ -33,13 +33,13 @@
 
 - **`hyprconf` CLI** — unified control: `hyprconf theme random`, `hyprconf set general gaps_in 8`, `hyprconf keybind add`, `hyprconf monitor set bedroom`, `hyprconf configure` (IOS-style REPL), and more
 - **`hyprconf tui`** — full-screen Textual TUI with arrow-selectable pickers for enums, interactive sliders for numeric fields, and mode lists fetched from `hyprctl`; covers all Hyprland config sections (general, decoration, animations, input, gestures, group, misc, binds, cursor, render, opengl, xwayland, dwindle, master and their subsections), plus keybinds, window/workspace rules, monitors, hyprlock, hypridle, hyprpaper, and a built-in theme picker
-- **One-command setup** — installs packages (including `yay` AUR helper), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
+- **One-command setup** — installs packages (official repos only — **never** the AUR), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
 - **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages; `--force` to hard-reset a diverged branch, `--full` to restow all dotfiles
 - **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
 - **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `hyprconf sync`
-- **Hardware auto-detection** — touchscreen devices get `wvkbd` (AUR on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) and a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged); accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
+- **Hardware auto-detection** — touchscreen devices get a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged) and are wired up for `wvkbd` (on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) — but because `wvkbd` is AUR-only it is **not** installed automatically; install it manually (`yay -S wvkbd`) to enable the OSK; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
 - **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`hyprconf hardware gpu vm`) using `dockurr/windows` with Looking Glass for near-native display; comprehensive VM anti-detection (SMBIOS, CPU flags, device elimination, disk identity) for anti-cheat evasion (EAC, VAC); installed via `hyprconf addon vfio`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, LibreWolf, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
@@ -90,7 +90,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 6. VS Code theme extensions + Firefox extension payloads
 7. Firefox enterprise policies (`/etc/firefox/policies/policies.json`): telemetry disabled, uBlock Origin installed
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
-9. Hardware feature detection: touchscreen → installs `wvkbd` (AUR) + writes `conf.d/60-hardware.conf`; accelerometer → installs + enables `iio-sensor-proxy`
+9. Hardware feature detection: touchscreen → writes `conf.d/60-hardware.conf` + installs `gtk-layer-shell` (the OSK `wvkbd` is AUR-only and is **not** installed automatically); accelerometer → installs + enables `iio-sensor-proxy`
 10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery
 11. Keychron / Lemokey HID permissions: installs udev rule (`70-keychron.rules`) for Keychron (`0x3434`) and Lemokey (`0x362d`) → `TAG+="uaccess"` so `launcher.keychron.com` (WebHID) can remap keys
 12. `ufw` deny-inbound / allow-outbound; enable + start
@@ -99,7 +99,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 
 > **WiFi:** if no wifi profiles were copied from the ISO (e.g. ethernet install), connect after first boot with `nmtui`.
 
-> **AUR dependency:** `bibata-cursor-theme` must be installed manually: `yay -S bibata-cursor-theme`
+> **No AUR, ever:** setup installs **only** official-repo packages — it never installs from the AUR automatically (not even the `yay` helper or the touch-device on-screen keyboard). It also *offers to remove* any foreign/AUR packages already on the system (prompted; the `yay` helper is kept). AUR-only extras such as `bibata-cursor-theme` and `wvkbd` must be installed manually: `yay -S bibata-cursor-theme wvkbd`. AUR packages bundled with `hyprconf addon`s are installed only after an explicit warning and confirmation.
 
 ### [3] hyprconf only *(any existing Hyprland system)*
 
@@ -459,10 +459,11 @@ Detection (checked in order):
 2. Same path → `ID_INPUT_TOUCH=1` — generic touch devices (e.g. ASUS ROG Ally, some AMD-based handhelds) that don't set `ID_INPUT_TOUCHSCREEN`
 3. Same path → `NAME="Wacom * Finger"` + `PHYS="i2c-*"` — Wacom I2C pen+touch digitizers (ThinkPad Yoga, Surface-style devices) whose driver bypasses the generic udev HID rules and never sets `ID_INPUT_TOUCHSCREEN=1`
 
-Installs **`wvkbd`** (AUR, requires `yay`) — a minimal wlroots on-screen keyboard.
+Uses **`wvkbd`** — a minimal wlroots on-screen keyboard. It is **AUR-only**, so `setup.sh` does **not** install it (hyprconf never installs AUR packages automatically). The launcher/toggle scripts and `conf.d/60-hardware.conf` are still wired up; install `wvkbd` yourself to enable the OSK: `yay -S wvkbd`.
 
 | Behaviour | Detail |
 |---|---|
+| Install | Manual (AUR): `yay -S wvkbd` — degrades gracefully when absent |
 | Auto-show | Appears when a text input is focused (`text-input-v3` protocol) |
 | Manual toggle | `Super + Shift + O` |
 | Theme integration | `hyprconf theme` writes `~/.config/wvkbd/colors` and restarts the daemon |
@@ -684,7 +685,7 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 | VPN / Network privacy | `networkmanager-openvpn`, `wireguard-tools` — core (drive any NM OpenVPN/WireGuard profile via `hyprconf vpn`); `proton-vpn-cli` via `hyprconf addon vpn`; `librewolf-bin` via `hyprconf addon librewolf` |
 | Security (optional) | `libfido2`, `pam-u2f`, `yubikey-manager` — for `yubikey-fido2-setup`; commented in `packages`, auto-installed by the script |
 | Testing | `python-pytest`, `python-pytest-asyncio`, `python-coverage` |
-| AUR (manual) | `bibata-cursor-theme` — `yay -S bibata-cursor-theme` *(yay is installed automatically during full setup)* |
+| AUR (manual) | `bibata-cursor-theme`, `wvkbd` (touch OSK) — install manually, e.g. `yay -S bibata-cursor-theme wvkbd`. hyprconf never installs AUR packages automatically (not even `yay`); you must provide `yay` yourself if you want it. |
 | Optional (Nvidia) | `nvidia-utils` *(uncomment in `packages` if needed)* |
 
 ---
