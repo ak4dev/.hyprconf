@@ -98,6 +98,18 @@ def test_log_uses_unique_file_and_tolerates_unwritable() -> None:
     assert 'tee -a "$LOG" 2>/dev/null || true' in txt
 
 
+def test_backup_dir_uses_mktemp_not_predictable_path() -> None:
+    txt = _text()
+    # This helper runs as root and backs up (then restores, on rollback)
+    # boot-critical files. The backup dir must be created atomically via
+    # `mktemp -d` (0700, root-owned) so a local user cannot pre-create or
+    # symlink-seed the path root reads/writes during backup and rollback.
+    assert 'BACKUP_DIR="$(mktemp -d' in txt, (
+        "BACKUP_DIR must be created with `mktemp -d` so the boot-config backup/"
+        "restore path cannot be hijacked (mirrors the LOG hardening)"
+    )
+
+
 # ---------------------------------------------------------------------------
 # State detection — bootctl → mokutil → raw efivar (mokutil is often absent)
 # ---------------------------------------------------------------------------

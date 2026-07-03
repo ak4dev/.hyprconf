@@ -46,9 +46,7 @@ def _noncomment_lines(text: str) -> str:
     Manual-install hints (`# ... yay -S wvkbd`) live in comments and must be
     ignored so we only assert on code that actually executes.
     """
-    return "\n".join(
-        line for line in text.splitlines() if not line.lstrip().startswith("#")
-    )
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
 
 
 def _invokes_command(text: str, cmd: str) -> bool:
@@ -228,8 +226,7 @@ class TestRemoveAurStructure:
 
     def test_wired_into_install_and_sync(self) -> None:
         call_lines = [
-            line for line in _setup_text().splitlines()
-            if line.strip() == "remove_aur_packages"
+            line for line in _setup_text().splitlines() if line.strip() == "remove_aur_packages"
         ]
         assert len(call_lines) >= 2, "remove_aur_packages must run in both install and sync paths"
 

@@ -25,9 +25,13 @@ R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m'
 B='\033[0;34m' C='\033[0;36m' W='\033[1m' N='\033[0m'
 
 # ── Globals ───────────────────────────────────────────────────────────────────
-BACKUP_DIR="/tmp/secureboot-backup-$(date +%Y%m%d-%H%M%S)"
-# Per-run log set in main() via mktemp (a fixed /tmp path can be unwritable for
-# root when a stale copy is owned by another user under fs.protected_regular).
+# BACKUP_DIR and LOG are both set to unique, root-owned paths in main() via
+# mktemp. This script runs as root and backs up (then, on rollback, RESTORES)
+# boot-critical files (/etc/kernel/cmdline, mkinitcpio preset, loader entries), so
+# a predictable /tmp path that another user could pre-create or symlink-seed must
+# not be used. A fixed path can also be unwritable when a stale copy is owned by
+# someone else (fs.protected_regular). The values below are safe fallbacks only.
+BACKUP_DIR="/tmp/secureboot-backup-$$"
 LOG="/tmp/hyprconf-secureboot.log"
 STATE_DIR="/var/lib/hyprconf"
 FWPW_ACK="${STATE_DIR}/secureboot-firmware-password.ack"
@@ -700,6 +704,10 @@ EOF
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 main() {
+    # Unique, root-owned backup dir + log — see note at their definitions. mktemp
+    # -d creates the dir atomically with 0700 perms owned by root, so a local user
+    # cannot pre-seed or symlink-hijack the boot-config backup/restore path.
+    BACKUP_DIR="$(mktemp -d -t secureboot-backup-XXXXXX 2>/dev/null || printf '%s' "/tmp/secureboot-backup-$$")"
     mkdir -p "$BACKUP_DIR"
     LOG="$(mktemp -t hyprconf-secureboot-XXXXXX.log 2>/dev/null || printf '%s' "/tmp/hyprconf-secureboot.$$.log")"
 

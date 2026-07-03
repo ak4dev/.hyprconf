@@ -305,3 +305,61 @@ class TestNetworkConfig:
         assert nm_pos != -1, "Function must check for NM profiles"
         assert iwd_pos != -1, "Function must check for iwd profiles"
         assert nm_pos < iwd_pos, "NM profile copy must be attempted before iwd profile import"
+
+
+class TestTempSudoersCleanup:
+    """The temporary NOPASSWD sudoers drop-in must never be stranded in the
+    installed system, even if setup.sh fails inside the chroot."""
+
+    def test_nopasswd_removed_after_chroot_setup(self) -> None:
+        func = _extract_function("run_setup_in_chroot")
+        assert "rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup" in func, (
+            "run_setup_in_chroot must remove the temporary NOPASSWD sudoers drop-in"
+        )
+
+    def test_nopasswd_cleanup_is_failure_safe(self) -> None:
+        """A setup.sh failure must NOT abort before the drop-in is removed.
+
+        install.sh runs under `set -euo pipefail`, so an unguarded arch-chroot
+        call would strand a permanent `NOPASSWD: ALL` file if setup.sh exits
+        non-zero. The setup exit status must be captured so cleanup always runs.
+        """
+        func = _extract_function("run_setup_in_chroot")
+        setup_pos = func.find("bash /home/${USERNAME}/.hyprconf/setup.sh")
+        rm_pos = func.find("rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup")
+        assert setup_pos != -1 and rm_pos != -1
+        assert setup_pos < rm_pos, "setup.sh must run before the sudoers cleanup"
+        # The chroot call must be status-captured (|| _setup_rc=...) rather than
+        # left to `set -e`, so the subsequent rm is guaranteed to execute.
+        between = func[setup_pos:rm_pos]
+        assert "_setup_rc" in between, (
+            "the chroot setup call must capture its exit status (e.g. || _setup_rc=$?) "
+            "so the NOPASSWD drop-in is removed even when setup.sh fails"
+        )
+
+
+class TestRootAccountLocked:
+    """Admin is sudo-only: the installer locks the root account and never gives it
+    a password (a shared root credential is a reuse/leak risk, and an *empty* root
+    password would be passwordless console root)."""
+
+    def test_root_is_locked(self) -> None:
+        text = _text()
+        assert "passwd -l root" in text, (
+            "the installer must lock the root account (`passwd -l root`) so admin is "
+            "sudo-only and there is no separate root credential"
+        )
+
+    def test_root_is_never_given_a_password(self) -> None:
+        """Root must be LOCKED, not passworded — and not left empty either."""
+        text = _text()
+        assert "root:${USER_PASSWORD}" not in text and "root:$USER_PASSWORD" not in text, (
+            "the installer must not set a root password — root is locked with `passwd -l`"
+        )
+
+    def test_wheel_retains_sudo(self) -> None:
+        """Locking root only makes sense if wheel still has sudo (admin path)."""
+        text = _text()
+        assert "%wheel ALL=(ALL:ALL) ALL" in text, (
+            "wheel must retain full sudo so the user remains an admin after root is locked"
+        )

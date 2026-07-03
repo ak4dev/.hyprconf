@@ -184,12 +184,17 @@ keys, also keep the firmware's **DBX** revocation list current via `fwupdmgr`.
 
 ## Notes / residual items
 
-- **Password reuse (installer default):** the full-disk installer still sets
-  `user == root == LUKS` to one password and does not lock root — left as-is to
-  preserve emergency-mode recovery and CI. `harden-luks` removes the disk side of
-  the reuse; if you want distinct secrets, set a separate root password
-  (`sudo passwd root`) and change your login password so it differs from the LUKS
-  recovery key.
+- **Root account is locked (admin is sudo-only):** the full-disk installer sets the
+  single password on the **user account + LUKS only** and runs `passwd -l root`, so
+  there is no separate root credential to reuse, guess, or leak. Admin is done via
+  `sudo` (the user is in `wheel`). Trade-off: single-user/`rescue.target` mode uses
+  `sulogin`, which refuses a locked root — so recover a broken `sudoers`/PAM (or a
+  lost YubiKey once `pam_u2f` guards sudo) from the **Arch live USB + `arch-chroot`**,
+  not on-machine rescue. This is sharper under Secure Boot: the signed-UKI cmdline
+  can't be edited at the boot menu, so live-USB recovery is the only path. Still want
+  an on-machine root? `sudo passwd -u root && sudo passwd root` re-enables it.
+  The install password is still shared between the user login and LUKS; `harden-luks`
+  removes the disk side of that reuse.
 - **`curl | bash` install trust:** the installer is unsigned. Until a published
   signature exists, prefer cloning the repo, reading `install.sh`/`setup.sh`, and
   running them locally over piping the URL straight to a shell.

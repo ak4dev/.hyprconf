@@ -1198,9 +1198,16 @@ ENTRY2
 # ── User ──────────────────────────────────────────────────────────────────────
 useradd -m -G wheel,audio,video,storage,input,network -s /bin/zsh "${USERNAME}"
 echo "${USERNAME}:${USER_PASSWORD}" | chpasswd
-echo "root:${USER_PASSWORD}" | chpasswd
+# Admin is sudo-only: the wheel member above gets full sudo, and the root account
+# is LOCKED so there is no separate root credential to reuse, guess, or leak (the
+# install password is now the user account + LUKS only). Lock explicitly with
+# `passwd -l` — never just skip setting it, which could leave root with an EMPTY
+# password (passwordless root on the console). Trade-off: single-user/rescue mode
+# (sulogin) refuses a locked root, so recover a broken sudo/PAM via the Arch live
+# USB + arch-chroot (see docs/security-hardening.md).
 echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel
 chmod 440 /etc/sudoers.d/wheel
+passwd -l root
 
 # ── Services ──────────────────────────────────────────────────────────────────
 systemctl enable NetworkManager
@@ -1287,10 +1294,17 @@ run_setup_in_chroot() {
   fi
 
   log_step "Running setup.sh as ${USERNAME} in chroot..."
+  # SECURITY: the temporary NOPASSWD drop-in must be removed whether setup.sh
+  # succeeds OR fails. Capturing the status (instead of letting `set -e` abort
+  # here) guarantees the rm runs — otherwise a mid-setup failure would strand a
+  # permanent `NOPASSWD: ALL` sudoers file in the freshly installed system.
+  local _setup_rc=0
   arch-chroot /mnt runuser -l "${USERNAME}" -c \
-    "export HYPRCONF_CHROOT=1 HYPRCONF_INSTALLER=1; bash /home/${USERNAME}/.hyprconf/setup.sh"
+    "export HYPRCONF_CHROOT=1 HYPRCONF_INSTALLER=1; bash /home/${USERNAME}/.hyprconf/setup.sh" \
+    || _setup_rc=$?
 
   rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup
+  (( _setup_rc == 0 )) || log_die "setup.sh failed in chroot (exit ${_setup_rc}) — temporary NOPASSWD sudo removed."
   log_ok "Dotfiles configured."
 }
 
@@ -1403,6 +1417,8 @@ arch_install() {
   printf '%s  ✔ Arch Linux installed successfully!%s\n'                              "$GR" "$RS"
   printf '%s  · Remove the installation media and reboot.%s\n'                      "$DM" "$RS"
   printf '%s  · Log in as %s — Hyprland starts automatically on tty1.%s\n'         "$DM" "$USERNAME" "$RS"
+  printf '%s  · The root account is locked — use "sudo" for admin (recover a broken sudo%s\n' "$DM" "$RS"
+  printf '%s    via the Arch live USB + arch-chroot; rescue mode cannot log in to locked root).%s\n' "$DM" "$RS"
   printf '%s  · Run "hyprconf yubikey setup" anytime to add FIDO2 login 2FA / LUKS unlock.%s\n' "$DM" "$RS"
   printf '%s  · Once FIDO2 LUKS unlock is verified, "hyprconf yubikey harden-luks" removes%s\n' "$DM" "$RS"
   printf '%s    the passphrase for key-only unlock (one-way — read the docs first).%s\n'        "$DM" "$RS"

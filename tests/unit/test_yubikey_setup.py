@@ -301,6 +301,17 @@ def test_log_uses_unique_file_and_tolerates_unwritable() -> None:
     assert 'tee -a "$LOG" 2>/dev/null || true' in txt
 
 
+def test_backup_dir_uses_mktemp_not_predictable_path() -> None:
+    txt = _text()
+    # Root writes config backups into BACKUP_DIR; a predictable /tmp path could be
+    # pre-created or symlinked by another user. It must be created atomically via
+    # `mktemp -d` (0700, root-owned) rather than a guessable timestamped name.
+    assert 'BACKUP_DIR="$(mktemp -d' in txt, (
+        "BACKUP_DIR must be created with `mktemp -d` so the backup path cannot be "
+        "hijacked (mirrors the LOG hardening)"
+    )
+
+
 def test_enroll_luks_adds_slot_without_initramfs_rebuild() -> None:
     body = _func_body("enroll_luks_key")
     assert body, "enroll_luks_key must exist"

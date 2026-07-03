@@ -175,6 +175,18 @@ ok "Local dev is up-to-date with origin/dev"
 # down) so a release tag is only ever cut from code that has gone green through
 # tier 5 — not from a commit that the test run might still reject.
 
+# Lint + shellcheck are the same gates CI enforces. Run them here (fast, seconds)
+# so a release can never be cut with a red lint job — a formatting/shellcheck
+# regression must never reach stable just because the test suite was green.
+step "Lint gates (ruff + shellcheck)"
+if [[ "$SKIP_TESTS" == true ]]; then
+  warn "Skipping lint gates (--skip-tests) — ensure ruff + shellcheck passed before this call"
+else
+  make lint 2>&1       || die "Ruff lint/format check failed — fix before publishing (run: make fmt)."
+  make shellcheck 2>&1 || die "ShellCheck failed — fix before publishing."
+  ok "Lint + shellcheck clean"
+fi
+
 step "Running test suite"
 
 info "Tiers 1-3: unit / integration / tui"
