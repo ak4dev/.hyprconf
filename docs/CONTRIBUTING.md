@@ -13,7 +13,8 @@
 │
 ├── docs/
 │   ├── CONTRIBUTING.md       # This file
-│   └── hyprland-reference.md # Hyprland config syntax cheatsheet
+│   ├── hyprland-reference.md # Hyprland config syntax cheatsheet
+│   └── security-hardening.md # Threat model + hardening reference (sysctls, SB, LUKS)
 │
 ├── infra/
 │   └── firefox/policies.json # System Firefox privacy policy (installed by setup.sh)
@@ -49,9 +50,14 @@
     │   └── .local/
     │       ├── bin/hyprconf               # CLI entry point → ~/.local/bin/
     │       ├── bin/hyprconf-vpn           # NetworkManager VPN control + kill-switch
+    │       ├── bin/yubikey-fido2-setup    # FIDO2+PIN enrolment (sudo/TTY/DM/SSH/LUKS)
+    │       ├── bin/hyprconf-secureboot    # Signed-UKI Secure Boot setup + verify
+    │       ├── bin/hyprconf-power-monitor # AC/battery power-profile switcher (udev target)
+    │       ├── bin/…                      # + idle-action, autorotate, touch-panel*, wvkbd-*
     │       └── lib/hyprconf/              # Shared Python library
     │           ├── schema.py              # OPTION_SCHEMA — all Hyprland keys + types + defaults
     │           ├── config.py              # Read/write 99-hyprconf-local.conf
+    │           ├── paths.py               # XDG path constants (single source of truth)
     │           ├── hyprctl.py             # hyprctl IPC wrapper
     │           ├── autodetect.py          # First-run config migration
     │           ├── cli.py                 # Python CLI backend
@@ -122,7 +128,7 @@ make build-vm-image  # runs build_image.sh
 
 `build_image.sh` runs Packer to build a full Arch+hyprconf image (exercising `install.sh` end-to-end) and writes `tests/vm/arch-hyprconf.meta` with the build date and commit. The VM launches on port 2223 via `run_install_vm.sh` using a **COW overlay**, so the base image is never dirtied by test runs.
 
-`scripts/publish` detects the image, shows its metadata, and prompts: _use existing_ (fast validation only) or _rebuild_ (re-runs `install.sh` via Packer, ~20 min).
+`scripts/publish` decides automatically whether to rebuild: it reuses the existing image **only** when the install-relevant paths (`install/`, `setup.sh`, `packages`) are byte-identical between `HEAD` and the commit the image was built from; any change there (or an unknown build commit) triggers a rebuild (~20 min, no prompt).
 
 ### Key fixtures (`tests/conftest.py`)
 
@@ -131,7 +137,7 @@ make build-vm-image  # runs build_image.sh
 
 ### CI
 
-`.github/workflows/test.yml` — Tiers 1–3 run on every push/PR via GitHub Actions. Tiers 4–5 require a self-hosted runner with KVM.
+`.github/workflows/test.yml` — a lint job (`make shellcheck` + `make lint`) and Tiers 1–3 run on every push/PR via GitHub Actions, all inside `archlinux:latest` containers. Tiers 4–5 require a self-hosted runner with KVM (`.github/workflows/iso-watchdog.yml` runs the install tier weekly against the latest Arch ISO when such a runner is registered).
 
 **Test packages** (`packages`): `python-pytest`, `python-pytest-asyncio`, `python-coverage`
 
@@ -156,22 +162,30 @@ bash scripts/publish
 
 `scripts/publish` handles the full pipeline automatically:
 
-1. Verifies `dev` branch with a clean working tree
-2. Starts the tier-4 test VM if not already running (stops it when done)
-3. Runs all 5 test tiers (aborts on any failure)
-4. **Tier 5 — install image detection**: checks for `tests/vm/arch-hyprconf.qcow2`; if found, displays its build date and commit, then prompts:
-   - **Use existing** — skip `install.sh` re-execution, run post-install validation (~fast)
-   - **Rebuild** — re-run Packer to exercise `install.sh` end-to-end (~20 min)
-   - If no image exists, builds automatically (no prompt)
-5. Starts the tier-5 VM on port 2223 via COW overlay; stops it on exit
-6. Builds a filtered release archive from `HEAD` using `git archive` + `.gitattributes`
-7. Pushes `HEAD` to `origin/stable`
-8. Creates and pushes the annotated tag `v<hyprconf.__version__>` unless it already points at `HEAD`
+1. Verifies `dev` branch, a clean working tree, **and** that local `dev` is
+   byte-identical to `origin/dev` (commit *and push* before publishing)
+2. **Lint gates**: runs `make lint` (ruff check + format) and `make shellcheck`
+   — a release can never be cut with a red lint job
+3. Runs test tiers 1–3 (`make test`; aborts on any failure)
+4. **Tier 5 — install image decision** (automatic, no prompt): reuses
+   `tests/vm/arch-hyprconf.qcow2` only when `install/`, `setup.sh`, and
+   `packages` are unchanged since the image's build commit; otherwise rebuilds
+   via Packer (~20 min, exercising `install.sh` end-to-end)
+5. Starts the tier-4 VM (if needed) and runs tier 4, then starts the tier-5 VM
+   on port 2223 via COW overlay and runs tier 5; both are stopped on exit
+6. **Version bump** (after the suite is green): bumps patch/minor/major in
+   `__init__.py`, commits, and pushes to `origin/dev`
+7. Builds a filtered release archive from `HEAD` using `git archive` + `.gitattributes`
+8. Creates the annotated tag `v<hyprconf.__version__>` (unless it already points at `HEAD`)
+9. Pushes `HEAD` to `origin/stable` (`--force-with-lease`) and pushes the tag
 
 Files excluded from the release archive: `tests/` `scripts/` `.github/` `web/` `docs/` `AGENTS.md` `Makefile` `.editorconfig` `pyproject.toml` `__pycache__/` `*.pyc`
 
 | Flag | Effect |
 |------|--------|
+| `--patch` / `--minor` / `--major` | Which version component to bump (default: patch) |
+| `--skip-bump` | Skip the version bump (version must be pre-bumped manually) |
+| `--skip-tests` | Skip the lint gates and all test tiers (nested harness calls only — the suite must still have passed before any real publish) |
 | `--skip-tag` | Skip annotated release-tag creation |
 | `--dry-run` | Build the release archive locally but do not push branches/tags |
 

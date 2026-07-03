@@ -69,14 +69,14 @@ The installer prompts for one of three modes:
 
 ### [1] Full Arch Linux install *(from the Arch ISO)*
 
-Prompts for username, password, hostname, timezone (auto-detected), network config carry-over, target disk, and partition mode. Then:
+Prompts for username, password, hostname, timezone (auto-detected), target disk, and partition mode (WiFi profiles are carried over from the ISO automatically). Then:
 
 1. Partitions disk — **full wipe** or **unallocated space** (preserves existing partitions; reuses or creates EFI)
 2. LUKS2 encryption (AES-XTS 512-bit) on root
 3. btrfs with subvolumes: `@` `/`, `@home` `/home`, `@snapshots` `/.snapshots`, `@var_log` `/var/log`
 4. `pacstrap` — base system, CPU microcode, NetworkManager, iwd, ZSH
-5. Chroot config: locale, timezone, hostname, `mkinitcpio` (systemd + sd-encrypt), `systemd-boot`, user account, TTY1 auto-login
-6. Pre-clones repo; first-boot hook runs `setup.sh` automatically on login
+5. Chroot config: locale, timezone, hostname, `mkinitcpio` (systemd + sd-encrypt), `systemd-boot`, user account (in `wheel` with full sudo), TTY1 auto-login. The **root account is locked** (`passwd -l root`) — admin is sudo-only, so the install password belongs to the user account + LUKS only. Recover a broken sudo/PAM from the Arch live USB + `arch-chroot` (rescue mode refuses a locked root)
+6. Clones the repo and runs `setup.sh` inside the chroot as the new user — the first boot lands on a fully configured desktop, no follow-up steps
 
 ### [2] Dotfiles only *(existing Arch system)*
 
@@ -254,10 +254,15 @@ hyprconf hardware gpu diagnose         Detailed diagnostic dump
 hyprconf yubikey status          Show keys, PAM coverage, and LUKS FIDO2 slots (read-only)
 hyprconf yubikey setup           Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)
 hyprconf yubikey enroll          Enroll an additional / backup key (login + LUKS slot)
+hyprconf yubikey harden-luks     Remove the passphrase slot → key-only LUKS unlock (one-way)
 hyprconf secureboot status       Secure Boot / Setup Mode / UKI / sbctl verify (read-only)
 hyprconf secureboot setup        Signed UKI + sbctl keys/sign/verify/enroll + pacman hook
 hyprconf secureboot enroll       Enroll keys into firmware (requires Setup Mode)
+hyprconf secureboot sign         (Re)sign + verify the boot chain
+hyprconf secureboot verify       Run 'sbctl verify'
+hyprconf secureboot tpm-bind     Optional: bind LUKS unlock to TPM2 PCRs
 hyprconf secureboot harden       Key-only LUKS — remove the login-reused passphrase slot
+hyprconf secureboot ack-firmware-password  Record that a UEFI admin password has been set
 
 # VPN / Network privacy
 hyprconf vpn status [--json]     Show VPN connection + kill-switch state
@@ -588,11 +593,12 @@ hyprconf yubikey enroll    # add an additional / backup key (login + LUKS slot)
 
 `hyprconf yubikey` escalates with `sudo` as needed and delegates to the stowed
 `yubikey-fido2-setup` helper (also runnable directly: `sudo yubikey-fido2-setup
-[setup|enroll|status]`).
+[setup|enroll|harden-luks|status]`).
 
 `setup` is fully interactive and idempotent — each step is opt-in, every modified
-file is backed up to `/tmp/yubikey-backup-<timestamp>/`, and any failure offers to
-roll back all changes. It covers:
+file is backed up to a unique root-owned `mktemp -d` directory (path printed at the
+start of the run and in the summary), and any failure offers to roll back all
+changes. It covers:
 
 | Surface | What it configures |
 |---|---|

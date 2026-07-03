@@ -198,8 +198,8 @@ what makes `bash <(curl -fsSL hyprconf.sh)` work. What was removed is the
 *elaborate deploy machinery*: the CDK app (`infra/cdk/`), the `hyprconf
 deploy`/`teardown` CLI, and `web/deploy.sh`. Updates are now **manual** — `aws s3
 cp web/… s3://hyprconf-sh/` plus a CloudFront invalidation. Do **not** rebuild the
-CDK app, a deploy CLI, or a React frontend. `scripts/publish` is test → promote dev
-to stable (no deploy step). The only thing under `infra/` is the system Firefox
+CDK app, a deploy CLI, or a React frontend. `scripts/publish` is lint + test → promote
+dev to stable (no deploy step). The only thing under `infra/` is the system Firefox
 policy.
 
 ---

@@ -138,6 +138,7 @@ usage() {
   printf "  hyprconf vpn list                List configured VPN profiles\n"
   printf "  hyprconf vpn connect [name]      Bring up a VPN (default: the only profile)\n"
   printf "  hyprconf vpn disconnect [name]   Tear down the active (or named) VPN\n"
+  printf "  hyprconf vpn toggle              Connect if down, disconnect if up (waybar click)\n"
   printf "  hyprconf vpn import <file>       Import an OpenVPN .ovpn / WireGuard .conf\n"
   printf "  hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode\n"
   printf "\n${_b}Addons${_r}\n"
