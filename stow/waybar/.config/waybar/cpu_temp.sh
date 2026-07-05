@@ -1,28 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# sensors is required; hide the module gracefully if it isn't installed.
+# CPU temperature for waybar. Polled every 2s, so keep it to a single
+# `sensors` invocation and one awk pass (the old version re-ran sensors for
+# each label probe — up to four times per poll).
 command -v sensors &>/dev/null || exit 0
 
-# Extract the first "+XX.X°C" token from a sensors output line.
-# Works regardless of where on the line the temperature appears.
-_extract_temp() {
-    awk '{for(i=1;i<=NF;i++) if($i~/^\+[0-9]+(\.[0-9]+)?°C$/) {
-        gsub(/[+°C]/,"",$i); printf "%.0f", $i+0; exit }}'
-}
-
-# Probe in priority order:
+# Probe priority (first match on the FIRST line carrying each label wins):
 #   Tctl / Tdie  — AMD k10temp
 #   Package id 0 — Intel coretemp (overall package)
 #   Core 0       — Intel coretemp fallback (first physical core)
-cpu_temp=""
-for label in "Tctl" "Tdie" "Package id 0" "Core 0"; do
-    t=$(sensors 2>/dev/null | grep -m1 "${label}" | _extract_temp) || true
-    if [[ -n "$t" ]]; then
-        cpu_temp="$t"
-        break
-    fi
-done
+cpu_temp="$(sensors 2>/dev/null | awk '
+    BEGIN { best = 99 }
+    function temp(line,    i, n, f) {
+        n = split(line, f, /[[:space:]]+/)
+        for (i = 1; i <= n; i++)
+            if (f[i] ~ /^\+[0-9]+(\.[0-9]+)?°C$/) {
+                gsub(/[+°C]/, "", f[i])
+                return sprintf("%.0f", f[i] + 0)
+            }
+        return ""
+    }
+    function take(rank,    t) {
+        if (best <= rank) return
+        t = temp($0)
+        if (t != "") { v = t; best = rank }
+    }
+    /Tctl/         { take(1) }
+    /Tdie/         { take(2) }
+    /Package id 0/ { take(3) }
+    /Core 0/       { take(4) }
+    END { if (best < 99) print v }
+')"
 
 # No readable temperature source — hide the module instead of showing N/A.
 [[ -n "$cpu_temp" ]] || exit 0

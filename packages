@@ -63,8 +63,9 @@ wl-clipboard
 # File manager support (trash, MTP, network mounts)
 gvfs
 
-# System monitoring (waybar scripts)
-upower
+# System monitoring (waybar scripts).  upower is NOT listed: the battery
+# script reads /sys/class/power_supply directly, and upower still arrives as a
+# hard dependency of waybar and power-profiles-daemon.
 lm_sensors
 
 # Python (theme switcher + hyprconf TUI)

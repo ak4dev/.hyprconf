@@ -1,21 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-battery_path=$(upower -e | grep battery_BAT || true)
+# Battery status for waybar. Polled every second, so it must stay cheap: reads
+# /sys/class/power_supply directly in pure bash — zero subprocesses per poll
+# (the old upower version spawned ~12 processes and two D-Bus round trips).
+# Root is env-overridable so hermetic tests can point it at a fake tree.
+_PS_ROOT="${HYPRCONF_PS_ROOT:-/sys/class/power_supply}"
 
-if [[ -z "$battery_path" ]]; then
+battery=""
+for d in "$_PS_ROOT"/BAT*; do
+    [[ -r "$d/capacity" ]] && battery="$d" && break
+done
+
+if [[ -z "$battery" ]]; then
     echo '{"text":"󱐋", "class":"ac"}'
     exit 0
 fi
 
-battery_info=$(upower -i "$battery_path")
+capacity_num="$(< "$battery/capacity")"
+state=""
+[[ -r "$battery/status" ]] && state="$(< "$battery/status")"
+state="${state,,}"
 
-power_draw=$(echo "$battery_info"        | grep -i "energy-rate"  | awk '{print $2}')
-battery_percentage=$(echo "$battery_info" | grep -i "percentage"  | awk '{print $2}')
-state=$(echo "$battery_info"              | grep -i "state"        | awk '{print $2}')
-
-power_draw=$(printf "%.2f" "${power_draw:-0}")
-capacity_num=${battery_percentage%\%}
+# Power draw in W: power_now is µW; older ACPI batteries expose only
+# current_now (µA) × voltage_now (µV) instead. Sign varies by driver — use the
+# magnitude, like upower's energy-rate did.
+pw=0
+if [[ -r "$battery/power_now" ]]; then
+    pw="$(< "$battery/power_now")"
+elif [[ -r "$battery/current_now" && -r "$battery/voltage_now" ]]; then
+    pw=$(( $(< "$battery/current_now") * $(< "$battery/voltage_now") / 1000000 ))
+fi
+(( pw < 0 )) && pw=$(( -pw ))
+# Round µW to two decimals of W without spawning printf-external tools.
+pw=$(( (pw + 5000) / 10000 ))
+printf -v power_draw '%d.%02d' $(( pw / 100 )) $(( pw % 100 ))
 
 if   (( capacity_num > 90 )); then icon="󰁹"
 elif (( capacity_num > 80 )); then icon="󰂁"
@@ -31,4 +50,4 @@ elif (( capacity_num <= 30 ));     then cls="warning"
 else                                    cls="normal"
 fi
 
-echo "{\"text\":\"$icon $battery_percentage ($power_draw W)\", \"class\":\"$cls\"}"
+echo "{\"text\":\"$icon ${capacity_num}% ($power_draw W)\", \"class\":\"$cls\"}"

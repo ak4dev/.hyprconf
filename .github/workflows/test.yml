@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: ["**"]
 
+# Least-privilege token: these jobs only read the repo.
+permissions:
+  contents: read
+
 concurrency:
   group: tests-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

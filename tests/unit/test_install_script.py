@@ -363,3 +363,47 @@ class TestRootAccountLocked:
         assert "%wheel ALL=(ALL:ALL) ALL" in text, (
             "wheel must retain full sudo so the user remains an admin after root is locked"
         )
+
+
+class TestNoSecretsInChrootScript:
+    """The chroot setup script is written to the target disk (/mnt/hyprconf-chroot.sh).
+    USER_PASSWORD must never be expanded into it: even though it is removed after
+    running, a plaintext copy of the LUKS/login password would persist forensically
+    in the filesystem's free space. Secrets travel via stdin from the ISO side."""
+
+    def _chroot_heredoc(self) -> str:
+        """The body written to /mnt/hyprconf-chroot.sh (outer heredoc only)."""
+        text = _text()
+        start = text.index("cat > /mnt/hyprconf-chroot.sh << EOF")
+        end = text.index("\nEOF\n", start)
+        return text[start:end]
+
+    def test_password_never_expanded_into_chroot_script(self) -> None:
+        body = self._chroot_heredoc()
+        assert "USER_PASSWORD" not in body, (
+            "USER_PASSWORD must not be expanded into the on-disk chroot script — "
+            "set the password via stdin (arch-chroot ... chpasswd) instead"
+        )
+
+    def test_password_set_via_stdin_after_chroot(self) -> None:
+        text = _text()
+        assert (
+            'printf \'%s:%s\\n\' "$USERNAME" "$USER_PASSWORD" | arch-chroot /mnt chpasswd' in text
+        ), (
+            "the account password must be piped into chpasswd from the ISO side "
+            "(builtin printf → stdin; never argv, never an on-disk file)"
+        )
+
+    def test_ci_luks_keyfile_enrolled_via_stdin(self) -> None:
+        """CI keyfile enrolment needs the password too — it must also run from the
+        ISO side with the passphrase on stdin (`-d -` style trailing dash)."""
+        fn = _extract_function("configure_in_chroot")
+        assert "cryptsetup luksAddKey" in fn, (
+            "CI keyfile enrolment should live in configure_in_chroot"
+        )
+        idx = fn.index("cryptsetup luksAddKey")
+        line = fn[fn.rindex("\n", 0, idx) : fn.index("\n", idx)]
+        assert "/mnt/etc/crypto_keyfile.bin" in line and line.rstrip().endswith("-"), (
+            "luksAddKey must target the keyfile through /mnt and read the existing "
+            "passphrase from stdin (trailing '-')"
+        )

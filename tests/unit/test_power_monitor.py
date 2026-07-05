@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -97,10 +98,17 @@ fi
     patched_script.chmod(0o755)
 
     env = os.environ.copy()
-    env["PATH"] = f"{fake_dir}:{env['PATH']}"
+    if has_powerprofilesctl:
+        env["PATH"] = f"{fake_dir}:{env['PATH']}"
+    else:
+        # Hermetic "not installed": PATH must hold ONLY the fake dir, or a real
+        # host powerprofilesctl leaks in and the outcome depends on host state
+        # (its Python deps, the current profile, polkit). Bash builtins cover
+        # everything else the script needs; the fake logger is best-effort.
+        env["PATH"] = str(fake_dir)
 
     result = subprocess.run(
-        ["bash", str(patched_script)] + (args or []),
+        [shutil.which("bash") or "bash", str(patched_script)] + (args or []),
         env=env,
         capture_output=True,
         text=True,

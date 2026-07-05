@@ -1126,6 +1126,10 @@ configure_in_chroot() {
 
   # Write the chroot setup script.
   # Unquoted EOF delimiter: our outer variables (USERNAME, TIMEZONE, etc.) expand here.
+  # SECURITY: USER_PASSWORD is deliberately NEVER expanded into this script — it
+  # would land in plaintext on the target disk (and survive forensically even
+  # after rm). chpasswd and the CI luksAddKey run from the ISO side via stdin
+  # after the chroot script completes.
   # Inner heredoc markers (LOADER, ENTRY, ENTRY2) are written verbatim and function
   # normally when the chroot script is executed.
   # The AUTOLOGIN block uses a quoted inner delimiter (<< 'AUTOLOGIN') to preserve \u
@@ -1157,11 +1161,12 @@ echo "KEYMAP=us" > /etc/vconsole.conf
 # ── Initramfs — systemd + sd-encrypt hooks for LUKS ──────────────────────────
 sed -i 's/^HOOKS=.*/HOOKS=(base systemd autodetect microcode modconf keyboard sd-vconsole block sd-encrypt filesystems fsck)/' /etc/mkinitcpio.conf
 
-# CI only: embed a LUKS keyfile so the VM boots unattended (no console to type password)
+# CI only: embed a LUKS keyfile so the VM boots unattended (no console to type
+# password). The keyfile is REGISTERED as a LUKS key from the ISO side after this
+# script finishes (needs the password, which never appears in this file).
 if [[ "${HYPRCONF_CI:-0}" == "1" ]]; then
   dd bs=512 count=4 if=/dev/urandom of=/etc/crypto_keyfile.bin 2>/dev/null
   chmod 000 /etc/crypto_keyfile.bin
-  echo -n "${USER_PASSWORD}" | cryptsetup luksAddKey "${ROOT_PART}" /etc/crypto_keyfile.bin -
   sed -i 's|^FILES=.*|FILES=(/etc/crypto_keyfile.bin)|' /etc/mkinitcpio.conf
 fi
 
@@ -1196,8 +1201,9 @@ options rd.luks.name=${root_uuid}=${LUKS_NAME} root=/dev/mapper/${LUKS_NAME} roo
 ENTRY2
 
 # ── User ──────────────────────────────────────────────────────────────────────
+# (The account password is set from the ISO side via stdin after this script —
+# never expanded into this on-disk file.)
 useradd -m -G wheel,audio,video,storage,input,network -s /bin/zsh "${USERNAME}"
-echo "${USERNAME}:${USER_PASSWORD}" | chpasswd
 # Admin is sudo-only: the wheel member above gets full sudo, and the root account
 # is LOCKED so there is no separate root credential to reuse, guess, or leak (the
 # install password is now the user account + LUKS only). Lock explicitly with
@@ -1242,6 +1248,17 @@ EOF
   chmod +x /mnt/hyprconf-chroot.sh
   arch-chroot /mnt /bin/bash /hyprconf-chroot.sh
   rm -f /mnt/hyprconf-chroot.sh
+
+  # SECURITY: secrets travel via stdin only (printf/echo are shell builtins, so
+  # the password never appears on any argv or inside an on-disk file).
+  printf '%s:%s\n' "$USERNAME" "$USER_PASSWORD" | arch-chroot /mnt chpasswd
+
+  # CI only: register the keyfile embedded above as a LUKS key slot.
+  if [[ "${HYPRCONF_CI:-0}" == "1" ]]; then
+    echo -n "$USER_PASSWORD" \
+      | cryptsetup luksAddKey "$ROOT_PART" /mnt/etc/crypto_keyfile.bin -
+  fi
+
   log_ok "Chroot configuration complete."
 }
 

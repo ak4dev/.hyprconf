@@ -679,7 +679,7 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 | Media & input | `playerctl`, `brightnessctl` |
 | Bluetooth | `bluez`, `bluez-utils`, `blueman` |
 | Networking | `networkmanager`, `network-manager-applet`, `libappindicator` (SNI tray icons for nm-applet/blueman) |
-| System monitoring | `upower`, `lm_sensors`, `iio-sensor-proxy` |
+| System monitoring | `lm_sensors`, `iio-sensor-proxy` |
 | Python | `python`, `python-textual` |
 | File manager support | `gvfs` |
 | Icons & themes | `papirus-icon-theme` (+ optional `adw-gtk3` from AUR) |

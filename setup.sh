@@ -345,8 +345,18 @@ clone_or_update_repo() {
 install_oh_my_zsh() {
     if [ ! -d ~/.oh-my-zsh ]; then
         log_step "Installing Oh My Zsh..."
-        export RUNZSH=no
-        sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+        # SECURITY: clone the repo directly instead of piping the remote install
+        # script into a shell — no execution of unpinned remote code, and the
+        # user's ~/.zshrc is never moved aside (update_zshrc manages it).
+        git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh" \
+            || log_die "Could not clone Oh My Zsh."
+        # The upstream install script also switched the login shell; keep that
+        # behaviour for interactive dotfiles-mode installs (the full installer
+        # already creates the user with -s /bin/zsh).
+        if [[ "${SHELL:-}" != */zsh ]] && command -v zsh &>/dev/null && [[ -t 0 ]]; then
+            chsh -s "$(command -v zsh)" \
+                || log_warn "Could not change the login shell — run: chsh -s $(command -v zsh)"
+        fi
         log_ok "Oh My Zsh installed."
     else
         log_ok "Oh My Zsh already installed."
@@ -536,10 +546,13 @@ _additive_link_package() {
     local linked=0
 
     # Ensure parent directories exist as real dirs (matches stow --no-folding).
+    # __pycache__ is pruned to match the stow --ignore below: running the CLI
+    # regenerates bytecode caches inside the repo tree, and stale .pyc symlinks
+    # must never be shipped into $HOME.
     while IFS= read -r dir; do
         local rel="${dir#"$pkg_root"/}"
         mkdir -p "$target_dir/$rel"
-    done < <(find "$pkg_root" -mindepth 1 -type d)
+    done < <(find "$pkg_root" -mindepth 1 -name __pycache__ -prune -o -type d -print)
 
     while IFS= read -r file; do
         local rel="${file#"$pkg_root"/}"
@@ -551,7 +564,7 @@ _additive_link_package() {
         if ln -s "$(realpath -s --relative-to="$(dirname "$target")" "$file")" "$target"; then
             linked=$((linked + 1))
         fi
-    done < <(find "$pkg_root" \( -type f -o -type l \))
+    done < <(find "$pkg_root" -name __pycache__ -prune -o \( -type f -o -type l \) -print)
 
     [[ $linked -gt 0 ]] && log_ok "Linked $linked new file(s) in $package."
     return 0
@@ -578,7 +591,9 @@ force_stow_package() {
         fi
     done
 
-    if ! stow -d "$stow_dir" -t "$target_dir" --no-folding --"$stow_mode" "$package" 2>/dev/null; then
+    # --ignore=__pycache__: running the Python CLI regenerates bytecode caches
+    # inside the repo tree; they are gitignored and must not be stowed into $HOME.
+    if ! stow -d "$stow_dir" -t "$target_dir" --no-folding --ignore='__pycache__' --"$stow_mode" "$package" 2>/dev/null; then
         if [[ "$stow_mode" == "stow" ]]; then
             # Additive-only mode: GNU stow aborts the entire package on the first
             # conflict, which would leave newly-added files unlinked.  Fall back to
@@ -591,7 +606,7 @@ force_stow_package() {
 
         log_warn "Conflict in $package — backing up and retrying..."
 
-        stow -d "$stow_dir" -t "$target_dir" --no-folding -D "$package" || true
+        stow -d "$stow_dir" -t "$target_dir" --no-folding --ignore='__pycache__' -D "$package" || true
 
         find "$stow_dir/$package" \( -type f -o -type l \) | while read -r file; do
             local rel_path="${file#$stow_dir/$package/}"
@@ -614,7 +629,7 @@ force_stow_package() {
             fi
         done
 
-        stow -d "$stow_dir" -t "$target_dir" --no-folding --restow "$package"
+        stow -d "$stow_dir" -t "$target_dir" --no-folding --ignore='__pycache__' --restow "$package"
     fi
 
     log_ok "Stowed $package."
