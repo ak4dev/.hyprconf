@@ -1,7 +1,7 @@
 pragma Singleton
 import QtQuick
 
-// Mirror of waybar.css @define-color palette.
+// Mirror of waybar.css @define-color palette, plus popout/OSD tokens.
 QtObject {
     readonly property color bgAlpha: "#cc282828"      // rgba(40,40,40,0.8)
     readonly property color fg: "#d4be98"
@@ -19,4 +19,15 @@ QtObject {
 
     readonly property string font: "JetBrainsMono Nerd Font"
     readonly property int fontSize: 14
+
+    // Frosted surfaces (Hyprland blurs them via layerrule, see hyprland.conf)
+    readonly property color surface: "#b8282828"       // rgba(40,40,40,0.72)
+    readonly property color surfaceBorder: "#26d4be98" // fg @ 15%
+    readonly property color divider: "#1ad4be98"       // fg @ 10%
+    readonly property color hover: "#339ccfd8"         // = cyanAlpha
+    readonly property color shadow: "#66000000"
+
+    readonly property int radius: 12
+    readonly property int animFast: 140
+    readonly property int animSlow: 220
 }

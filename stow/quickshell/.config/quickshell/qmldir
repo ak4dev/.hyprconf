@@ -1,3 +1,12 @@
 singleton Theme Theme.qml
+BarText BarText.qml
 Bar Bar.qml
 ScriptModule ScriptModule.qml
+PopoutWindow PopoutWindow.qml
+CalendarPopout CalendarPopout.qml
+VolumePopout VolumePopout.qml
+NetworkPopout NetworkPopout.qml
+MediaPopout MediaPopout.qml
+TrayMenuPopout TrayMenuPopout.qml
+Osd Osd.qml
+ScreenCorners ScreenCorners.qml

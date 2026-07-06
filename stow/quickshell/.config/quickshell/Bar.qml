@@ -1,12 +1,16 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Wayland
 import Quickshell.Hyprland
 import Quickshell.Services.SystemTray
 import Quickshell.Services.Pipewire
+import Quickshell.Services.Mpris
 import Quickshell.Widgets
 
-// One bar per monitor; layout and styling mirror waybar.jsonc + waybar.css.
+// One bar per monitor; layout and styling mirror waybar.jsonc + waybar.css,
+// with quickshell-only extras: frosted popouts, media module, screencast
+// indicator, scroll gestures.
 PanelWindow {
     id: bar
 
@@ -20,10 +24,11 @@ PanelWindow {
     }
     implicitHeight: 24
     color: "transparent"
+    WlrLayershell.namespace: "quickshell:bar"
 
     readonly property string home: Quickshell.env("HOME")
 
-    // ---- clock (waybar: format + format-alt toggled on click)
+    // ---- clock (left-click: calendar popout, middle-click: alt format)
     SystemClock {
         id: clock
         precision: SystemClock.Seconds
@@ -45,6 +50,9 @@ PanelWindow {
     // initial title via IPC; events take over after the first focus change.
     property string seedTitle: ""
     property int seedTries: 0
+
+    // screencast indicator state (hyprland "screencast" event)
+    property bool casting: false
 
     Process {
         id: seedProc
@@ -76,6 +84,8 @@ PanelWindow {
         function onRawEvent(event) {
             if (event.name === "activewindow")
                 bar.seedTitle = ""
+            else if (event.name === "screencast")
+                bar.casting = event.data.split(",")[0] === "1"
         }
     }
 
@@ -87,12 +97,22 @@ PanelWindow {
     readonly property real vol: sink?.audio?.volume ?? 0
     readonly property bool muted: sink?.audio?.muted ?? false
 
+    // ---- mpris (media module)
+    readonly property var player: {
+        const ps = Mpris.players.values
+        return ps.find(p => p.isPlaying) ?? (ps.length > 0 ? ps[0] : null)
+    }
+
     // ---- streaming cpu/mem/net stats (single long-lived sampler)
     property int cpuPct: 0
     property string memText: ""
     property string netKind: "off"
     property string netDown: "0B/s"
     property string netUp: "0B/s"
+    property string netIface: ""
+    property string netIp: ""
+    property string netRxTotal: ""
+    property string netTxTotal: ""
 
     Process {
         running: true
@@ -106,16 +126,88 @@ PanelWindow {
                     bar.netKind = j.net
                     bar.netDown = j.down
                     bar.netUp = j.up
+                    bar.netIface = j.iface ?? ""
+                    bar.netIp = j.ip ?? ""
+                    bar.netRxTotal = j.rxt ?? ""
+                    bar.netTxTotal = j.txt ?? ""
                 } catch (e) {}
             }
         }
     }
 
-    component BarText: Text {
-        font.family: Theme.font
-        font.pixelSize: Theme.fontSize
-        color: Theme.fg
-        textFormat: Text.PlainText
+    // ---- popouts
+    readonly property var popoutNames: ["calendar", "volume", "network", "media"]
+    property string openPopout: ""
+    property var trayHandle: null
+
+    function itemCenterX(it): real {
+        return it.mapToItem(null, it.width / 2, 0).x
+    }
+
+    function togglePopout(name, anchorX) {
+        if (popout.open && bar.openPopout === name) {
+            popout.close()
+            return
+        }
+        bar.openPopout = name
+        popout.anchorX = anchorX
+        popout.open = true
+    }
+
+    // Entry point for `qs ipc call popouts toggle <name>` — names are
+    // validated against the fixed list; the argument is never executed.
+    function ipcToggle(name): string {
+        const anchorItems = {
+            calendar: clockItem,
+            volume: volItem,
+            network: netItem,
+            media: mediaItem
+        }
+        if (!bar.popoutNames.includes(name))
+            return "unknown popout: " + name
+        if (name === "media" && bar.player === null)
+            return "no media player"
+        bar.togglePopout(name, bar.itemCenterX(anchorItems[name]))
+        return "ok"
+    }
+
+    function openTrayMenu(trayItem, anchorX) {
+        bar.trayHandle = trayItem.menu
+        bar.togglePopout("tray", anchorX)
+    }
+
+    PopoutWindow {
+        id: popout
+        bar: bar
+        screen: bar.screen
+        onOpenChanged: {
+            if (!open)
+                bar.openPopout = ""
+        }
+        contentComponent: bar.openPopout === "calendar" ? calComp
+                        : bar.openPopout === "volume" ? volComp
+                        : bar.openPopout === "network" ? netComp
+                        : bar.openPopout === "media" ? mediaComp
+                        : bar.openPopout === "tray" ? trayComp
+                        : null
+    }
+
+    Component { id: calComp; CalendarPopout {} }
+    Component { id: volComp; VolumePopout {} }
+    Component {
+        id: netComp
+        NetworkPopout { barWin: bar }
+    }
+    Component {
+        id: mediaComp
+        MediaPopout { player: bar.player }
+    }
+    Component {
+        id: trayComp
+        TrayMenuPopout {
+            handle: bar.trayHandle
+            onDismissed: popout.close()
+        }
     }
 
     Rectangle {
@@ -137,6 +229,18 @@ PanelWindow {
                 radius: 12
                 color: Theme.bgAlpha
 
+                Behavior on width {
+                    NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
+                }
+
+                // scroll on the island cycles workspaces on this monitor
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.NoButton
+                    onWheel: wheel => Hyprland.dispatch(
+                        wheel.angleDelta.y < 0 ? "workspace m+1" : "workspace m-1")
+                }
+
                 Row {
                     id: wsRow
                     anchors.centerIn: parent
@@ -151,6 +255,10 @@ PanelWindow {
                             width: visible ? pill.width + 8 : 0 // button margin 0 4
                             height: 20
 
+                            Behavior on width {
+                                NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
+                            }
+
                             Rectangle {
                                 id: pill
                                 x: 4
@@ -161,6 +269,13 @@ PanelWindow {
                                      : wsMouse.containsMouse ? Theme.cyanAlpha
                                      : "transparent"
 
+                                Behavior on width {
+                                    NumberAnimation { duration: Theme.animFast; easing.type: Easing.OutCubic }
+                                }
+                                Behavior on color {
+                                    ColorAnimation { duration: Theme.animFast }
+                                }
+
                                 BarText {
                                     id: wsLabel
                                     anchors.centerIn: parent
@@ -168,6 +283,10 @@ PanelWindow {
                                     color: wsButton.modelData.focused ? Theme.accent
                                          : wsMouse.containsMouse ? Theme.cyan
                                          : Theme.comment
+
+                                    Behavior on color {
+                                        ColorAnimation { duration: Theme.animFast }
+                                    }
                                 }
 
                                 MouseArea {
@@ -226,7 +345,13 @@ PanelWindow {
 
             MouseArea {
                 anchors.fill: parent
-                onClicked: bar.clockAlt = !bar.clockAlt
+                acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                onClicked: mouse => {
+                    if (mouse.button === Qt.MiddleButton)
+                        bar.clockAlt = !bar.clockAlt
+                    else
+                        bar.togglePopout("calendar", bar.itemCenterX(clockItem))
+                }
             }
         }
 
@@ -235,6 +360,57 @@ PanelWindow {
             id: rightRow
             anchors.right: parent.right
             height: parent.height
+
+            Item { // screencast indicator
+                visible: bar.casting
+                width: visible ? 18 : 0
+                height: parent.height
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: Theme.red
+
+                    SequentialAnimation on opacity {
+                        running: bar.casting
+                        loops: Animation.Infinite
+                        NumberAnimation { from: 1; to: 0.35; duration: 700 }
+                        NumberAnimation { from: 0.35; to: 1; duration: 700 }
+                    }
+                }
+            }
+
+            Item { // mpris media
+                id: mediaItem
+                visible: bar.player !== null
+                width: visible ? mediaText.implicitWidth + 16 : 0
+                height: parent.height
+
+                BarText {
+                    id: mediaText
+                    x: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    color: Theme.orange
+                    text: {
+                        const t = bar.player?.trackTitle || "media"
+                        return (bar.player?.isPlaying ? "󰎈 " : "󰏤 ")
+                             + (t.length > 24 ? t.substring(0, 24) + "…" : t)
+                    }
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    acceptedButtons: Qt.LeftButton | Qt.MiddleButton
+                    onClicked: mouse => {
+                        if (mouse.button === Qt.MiddleButton && bar.player?.canTogglePlaying)
+                            bar.player.togglePlaying()
+                        else
+                            bar.togglePopout("media", bar.itemCenterX(mediaItem))
+                    }
+                }
+            }
 
             Item { // tray: padding 0 8, icon 16, spacing 8
                 visible: SystemTray.items.values.length > 0
@@ -251,27 +427,30 @@ PanelWindow {
                         model: SystemTray.items
 
                         delegate: Item {
-                            id: trayItem
+                            id: trayIcon
                             required property var modelData
                             width: 16
                             height: 16
 
                             IconImage {
                                 anchors.fill: parent
-                                source: trayItem.modelData.icon
+                                source: trayIcon.modelData.icon
                             }
 
                             MouseArea {
                                 anchors.fill: parent
                                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                                 onClicked: mouse => {
-                                    if (mouse.button === Qt.LeftButton && !trayItem.modelData.onlyMenu) {
-                                        trayItem.modelData.activate()
+                                    const item = trayIcon.modelData
+                                    const ax = trayIcon.mapToItem(null, trayIcon.width / 2, 0).x
+                                    if (mouse.button === Qt.RightButton
+                                            || (mouse.button === Qt.LeftButton && item.onlyMenu)) {
+                                        if (item.hasMenu)
+                                            bar.openTrayMenu(item, ax)
                                     } else if (mouse.button === Qt.MiddleButton) {
-                                        trayItem.modelData.secondaryActivate()
+                                        item.secondaryActivate()
                                     } else {
-                                        const p = trayItem.mapToItem(null, 0, trayItem.height)
-                                        trayItem.modelData.display(bar, p.x, p.y)
+                                        item.activate()
                                     }
                                 }
                             }
@@ -302,7 +481,7 @@ PanelWindow {
                 height: parent.height
                 command: ["bash", bar.home + "/.config/waybar/cpu_temp.sh"]
                 intervalMs: 2000
-                prefix: ""
+                prefix: ""
                 textColor: Theme.green
                 padL: 2
             }
@@ -342,6 +521,7 @@ PanelWindow {
             }
 
             Item { // network (min-width 180 like waybar.css)
+                id: netItem
                 width: Math.max(netText.implicitWidth + 16, 180)
                 height: parent.height
 
@@ -353,9 +533,15 @@ PanelWindow {
                         : (bar.netKind === "wifi" ? "󰖩" : "󰈀")
                           + " ↓" + bar.netDown + " ↑" + bar.netUp
                 }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: bar.togglePopout("network", bar.itemCenterX(netItem))
+                }
             }
 
-            Item { // pulseaudio
+            Item { // pulseaudio: click popout, middle mute, right pavucontrol, wheel ±5%
+                id: volItem
                 width: volText.implicitWidth + 16
                 height: parent.height
 
@@ -371,7 +557,22 @@ PanelWindow {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: Quickshell.execDetached(["pavucontrol"])
+                    acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
+                    onClicked: mouse => {
+                        if (mouse.button === Qt.MiddleButton && bar.sink?.audio)
+                            bar.sink.audio.muted = !bar.sink.audio.muted
+                        else if (mouse.button === Qt.RightButton)
+                            Quickshell.execDetached(["pavucontrol"])
+                        else
+                            bar.togglePopout("volume", bar.itemCenterX(volItem))
+                    }
+                    onWheel: wheel => {
+                        if (!bar.sink?.audio)
+                            return
+                        const step = wheel.angleDelta.y > 0 ? 0.05 : -0.05
+                        bar.sink.audio.volume =
+                            Math.max(0, Math.min(1, bar.sink.audio.volume + step))
+                    }
                 }
             }
 
