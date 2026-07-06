@@ -1,0 +1,3 @@
+singleton Theme Theme.qml
+Bar Bar.qml
+ScriptModule ScriptModule.qml
