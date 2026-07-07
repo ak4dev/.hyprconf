@@ -14,7 +14,7 @@
 
 set -uo pipefail
 
-# ── Colors (suppressed when stdout is not a TTY, e.g. waybar/--json) ──────────
+# ── Colors (suppressed when stdout is not a TTY, e.g. the bar/--json) ─────────
 if [[ -t 1 ]]; then
   B=$'\e[1m'; C=$'\e[36m'; G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'
 else
@@ -63,7 +63,7 @@ _vpn_profiles() {
     | awk -F: '$2=="vpn" || $2=="wireguard" { print $1 }'
 }
 
-# Minimal JSON string escaper for values embedded in the waybar payload. An NM
+# Minimal JSON string escaper for values embedded in the module payload. An NM
 # profile name is user-controlled and may contain a backslash or double-quote;
 # escaping keeps the tooltip valid JSON. (Tunnel device names are regex-
 # constrained to [a-z]+[0-9]* upstream, so only the profile name needs this.)
@@ -82,7 +82,8 @@ cmd_status() {
   ks="$(_ks_status_fast)"   # on | off | proton — instant, no daemon call
 
   if (( json )); then
-    # waybar custom-module shape: {"text","tooltip","class"}. text is a bare
+    # waybar-protocol module shape (read by quickshell's ScriptModule):
+    # {"text","tooltip","class"}. text is a bare
     # on/off glyph — the profile/interface/kill-switch detail lives in the
     # tooltip, shown on hover.
     local text tip cls
@@ -101,7 +102,7 @@ cmd_status() {
       proton) tip+="\nKill-switch: ProtonVPN" ;;
       *)      tip+="\nKill-switch: off" ;;
     esac
-    # \n stays literal in the JSON string — waybar/pango render it as a newline.
+    # \n stays literal in the JSON string — the bar renders it as a newline.
     printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$text" "$tip" "$cls"
     return 0
   fi
@@ -178,7 +179,7 @@ cmd_connect() {
   fi
 }
 
-# Toggle the active VPN — used by the waybar module's on-click.
+# Toggle the active VPN — used by the bar module's on-click.
 cmd_toggle() {
   require_nmcli
   if [[ -n "$(_active_profile)" ]]; then
@@ -404,7 +405,7 @@ usage() {
   printf '  hyprconf vpn list              List configured VPN profiles\n'
   printf '  hyprconf vpn connect [name]    Bring up a VPN (default: the only profile)\n'
   printf '  hyprconf vpn disconnect [name] Tear down the active (or named) VPN\n'
-  printf '  hyprconf vpn toggle            Connect if down, disconnect if up (waybar click)\n'
+  printf '  hyprconf vpn toggle            Connect if down, disconnect if up (bar click)\n'
   printf '  hyprconf vpn import <file>     Import an OpenVPN .ovpn / WireGuard .conf\n'
   printf '  hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode\n'
   printf '\n'

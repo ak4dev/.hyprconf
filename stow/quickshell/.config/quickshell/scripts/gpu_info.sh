@@ -77,7 +77,7 @@ _amd() {
 if ! _nvidia; then
     if ! _amd; then
         # No supported GPU detected (e.g. Intel iGPU only).
-        # Emit no output so waybar hides the module rather than showing N/A.
+        # Emit no output so the bar hides the module rather than showing N/A.
         exit 0
     fi
 fi

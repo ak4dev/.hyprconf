@@ -1,16 +1,19 @@
 """Coverage tests for the previously-untested switch_theme.py functions.
 
-Covers (29 functions):
-  hex_to_rgb_str, hex_to_rgba, hex_to_hypr_rgba, is_dark_color,
+Covers (26 functions):
+  hex_to_rgb_str, hex_to_hypr_rgba, is_dark_color,
   detect_repo_root, get_all_themes, read_state, write_state,
   get_adjacent_theme, load_json_file, load_vscode_base_defaults,
   parse_user_js, generate_kitty_theme, load_kitty_theme,
   update_dunst, update_hyprland_borders, update_hyprlock_colors,
-  update_hyprpaper, update_waybar_colors, update_waybar,
+  update_hyprpaper,
   update_vscode, reload_hyprland, notify_theme_change,
   resolve_code_config_root, resolve_firefox_theme_id,
   ensure_firefox_theme_payload, wofi_select,
   _generate_btop_theme, update_btop
+
+The quickshell bar needs no update_* step here: Theme.qml watches the theme
+files directly (the waybar CSS pipeline was removed with waybar).
 """
 
 from __future__ import annotations
@@ -66,16 +69,6 @@ def test_hex_to_rgb_str_black():
 
 def test_hex_to_rgb_str_white():
     assert st.hex_to_rgb_str("#ffffff") == "255,255,255"
-
-
-def test_hex_to_rgba_default_alpha():
-    result = st.hex_to_rgba("#ff0080")
-    assert result == "rgba(255, 0, 128, 0.8)"
-
-
-def test_hex_to_rgba_custom_alpha():
-    result = st.hex_to_rgba("#ffffff", 1.0)
-    assert result == "rgba(255, 255, 255, 1.0)"
 
 
 def test_hex_to_hypr_rgba_default_alpha():
@@ -502,52 +495,6 @@ def test_update_hyprpaper_skips_when_wallpaper_missing(tmp_path, monkeypatch, ca
 
     st.update_hyprpaper(theme)
     assert conf.read_text() == HYPRPAPER_STUB  # unchanged
-
-
-# ---------------------------------------------------------------------------
-# update_waybar_colors / update_waybar
-# ---------------------------------------------------------------------------
-
-WAYBAR_CSS = """\
-@define-color background #282a36;
-@define-color foreground #f8f8f2;
-@define-color accent #8be9fd;
-"""
-
-
-def test_update_waybar_colors_replaces_values():
-    new_theme = {**DARK_THEME, "accent": "#ff79c6"}
-    result = st.update_waybar_colors(WAYBAR_CSS, new_theme)
-    assert "@define-color accent #ff79c6;" in result
-
-
-def test_update_waybar_colors_preserves_unknown_keys():
-    css = "@define-color unknown-key #aabbcc;\n"
-    result = st.update_waybar_colors(css, DARK_THEME)
-    assert "@define-color unknown-key #aabbcc;" in result
-
-
-def test_update_waybar_colors_adds_background_alpha():
-    result = st.update_waybar_colors(WAYBAR_CSS, DARK_THEME)
-    # must add a background-alpha line
-    assert "background-alpha" in result
-
-
-def test_update_waybar_reads_and_writes_file(tmp_path, monkeypatch):
-    css_file = tmp_path / "waybar.css"
-    css_file.write_text(WAYBAR_CSS)
-    monkeypatch.setattr(st, "WAYBAR_CONFIG_FILE", str(css_file))
-
-    new_theme = {**DARK_THEME, "accent": "#ff79c6"}
-    st.update_waybar(new_theme)
-
-    assert "#ff79c6" in css_file.read_text()
-
-
-def test_update_waybar_raises_when_css_missing(tmp_path, monkeypatch):
-    monkeypatch.setattr(st, "WAYBAR_CONFIG_FILE", str(tmp_path / "missing.css"))
-    with pytest.raises(FileNotFoundError):
-        st.update_waybar(DARK_THEME)
 
 
 # ---------------------------------------------------------------------------

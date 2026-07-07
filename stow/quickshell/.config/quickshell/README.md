@@ -1,36 +1,40 @@
-# Quickshell bar (experiment)
+# Quickshell bar
 
-QtQuick replacement for the waybar setup, mirroring `stow/waybar`'s layout
-and module set, then extending it with frosted-glass popouts, a volume OSD,
-and rounded screen corners. Colors are driven live by hyprconf's theme
-switcher. Lives on the `feat/quickshell-bar` branch; waybar's config is
-untouched and its exec line is kept (commented) in `hyprland.conf` for
-rollback.
+QtQuick status bar (the waybar replacement — waybar is fully retired): the
+same module set plus frosted-glass popouts, a macOS-style Control Center, a
+volume OSD, and rounded screen corners. Colors are driven live by hyprconf's
+theme switcher. API reference for agents/contributors:
+`docs/quickshell-reference.md` (repo) + <https://quickshell.org/docs/> for the
+installed version.
 
 ## Runtime
 
-`launch.sh` prefers `qs` from the official `quickshell` package (repo:
-`extra`). Until that is installed, it falls back to a user-local package
-tree at `~/.local/opt/quickshell` (extracted `quickshell` + `cpptrace` +
-`libdwarf` Arch packages, GPG-signature verified against the pacman keyring;
-the Qt6 stack comes from the system). To switch to the real package:
+`launch.sh` resolves the quickshell binary — preferring `qs` from the official
+`quickshell` package (repo: `extra`, listed in `packages`) — and forwards any
+arguments, so it serves both the autostart line (no args = run the shell) and
+keybind IPC calls (`launch.sh ipc call popouts toggle calendar`). Until the
+package is installed it falls back to a user-local tree at
+`~/.local/opt/quickshell` (extracted `quickshell` + `cpptrace` + `libdwarf`
+Arch packages, GPG-verified against the pacman keyring; the Qt6 stack comes
+from the system). To switch to the real package:
 
 ```sh
-sudo pacman -S quickshell
+sudo pacman -S quickshell     # or just run `hyprconf sync` and accept
 rm -rf ~/.local/opt/quickshell
 hyprctl reload
 ```
 
 ## Theming
 
-`Theme.qml` reads the *same source of truth* as waybar/kitty/dunst: the
-active theme name in `~/.config/hypr/.current-theme` selects
+`Theme.qml` reads the *same source of truth* as kitty/dunst: the active theme
+name in `~/.config/hypr/.current-theme` selects
 `theme-switcher/themes/<name>.json`, whose keys (`background`, `foreground`,
 `comment`, `accent`, `cyan`, `green`, `red`, `orange`, `purple`) drive the
-bar. `yellow`/`pink` fall back to fixed values when a theme omits them, just
-like waybar. Both files are watched, so switching themes recolors the bar
-live with no restart. Translucent tokens (bar/popout/OSD surfaces) are
-derived from the theme background at reduced alpha.
+bar. `yellow`/`pink` fall back to fixed values when a theme omits them. Both
+files are watched, so switching themes recolors the bar live with no restart
+(the theme switcher has no bar-specific step at all). Translucent tokens
+(bar/popout/OSD surfaces) are derived from the theme background at reduced
+alpha.
 
 ## Bar modules
 
@@ -41,31 +45,39 @@ Center) · cpu · cpu-temp · memory · gpu · vpn · network · volume · batte
 The network module prefers the ethernet icon when a wired link is up, and
 clicking it opens the Control Center.
 
-The cpu-temp, GPU, VPN, and battery modules re-run the existing scripts from
-`~/.config/waybar/` unchanged via `ScriptModule`, so their hermetic tests
-still cover them. cpu/mem/net come from one long-lived `stats.sh` sampler.
+The cpu-temp, GPU, and battery modules run the polling scripts in
+`scripts/` (moved here from the retired waybar package, covered by
+`tests/unit/test_quickshell_scripts.py`) via `ScriptModule`; the VPN module
+polls `hyprconf vpn status --json`. cpu/mem/net come from one long-lived
+`stats.sh` sampler (also tested hermetically — its system paths are
+`HYPRCONF_STATS_*`-overridable).
 
-## Popouts & extras (quickshell-only)
+## Popouts & extras
 
 Borderless frosted panels blurred by Hyprland (`layerrule` in
 `hyprland.conf`), each dismissed by clicking outside (`HyprlandFocusGrab`):
 
-- **Control Center** (click the network module) — macOS-style unified panel:
+- **Control Center** (click the network module, or `Super+Shift+N`) —
+  macOS-style unified panel:
   - Wi-Fi + Bluetooth toggle tiles.
-  - **Wi-Fi network list** (nmcli scan) — click to connect; open/saved
-    networks connect directly, secured ones reveal an inline password box.
+  - **Wi-Fi network list** — native `Quickshell.Networking` (NetworkManager
+    over D-Bus): scans only while the panel is open, click to connect;
+    saved/open networks connect directly, secured ones reveal an inline
+    password box (`WifiNetwork.connectWithPsk`), and a wrong password
+    re-opens it (`connectionFailed(NoSecrets)`).
   - Volume slider + **output and input (mic) device pickers**, mic mute.
   - Bluetooth device list (connect/disconnect, battery).
   - Only *pairing a new Bluetooth device* still opens an app
     (`blueman-manager`); everything else is inline.
 
-  Wi-Fi via `nmcli`, Bluetooth via `Quickshell.Bluetooth`, audio via
-  Pipewire. Radio toggles and connect calls use argv (no shell). A Wi-Fi
-  password is passed to `nmcli` as an argument (briefly visible in this
-  user's own process list) and is never stored or logged. The popout sets
-  `WlrLayershell.keyboardFocus: OnDemand` so the password box can type.
-- **Calendar** (click clock) — live time/date header + month grid with
-  weekend shading, today highlighted; prev/next, click title for today.
+  Wi-Fi via `Quickshell.Networking`, Bluetooth via `Quickshell.Bluetooth`,
+  audio via Pipewire — all over D-Bus/native sockets. **No subprocesses, no
+  polling, and the Wi-Fi password never appears in argv or any process
+  list.** The popout sets `WlrLayershell.keyboardFocus: OnDemand` so the
+  password box can type.
+- **Calendar** (click clock, or `Super+Shift+C`) — live time/date header +
+  month grid with weekend shading, today highlighted; prev/next, click title
+  for today.
 - **Volume** (click volume) — slider, mute, output-device switcher.
 - **Volume OSD** — macOS-style pill at the bottom of the focused monitor on
   volume/mute change; input-transparent, auto-hides.
@@ -77,10 +89,9 @@ right-click (or left-click for menu-only items) opens the item's menu as a
 frosted `TrayMenuPopout`. Quickshell's native menu APIs
 (`SystemTrayItem.display()`, `QsMenuAnchor`) render nothing in this
 layer-shell bar, so the menu is custom-drawn. **Known limitation:** nested
-dbusmenu submenus (the Wi-Fi network list, audio-profile pickers) render
-empty inside the layer-shell popup in Quickshell 0.3.0 — the top-level menu
-(Enable Wi-Fi, Disconnect, Connection Information, Edit Connections, …)
-works.
+dbusmenu submenus render empty inside the layer-shell popup in Quickshell
+0.3.0 — the top-level menu works. (The old nm-applet menu use-case is gone:
+Wi-Fi lives in the Control Center.)
 
 Module gestures: volume scroll = ±5%, middle-click = mute, right-click =
 pavucontrol; workspaces scroll = switch; clock middle-click = toggle date
@@ -89,26 +100,36 @@ format.
 ### Popout IPC / keybinds
 
 `IpcHandler` target `popouts` exposes `toggle <calendar|volume|controlcenter>`
-(the name is validated against a fixed list and never executed). Once the
-`quickshell` package is installed so `qs` is on `PATH`, these can be bound in
-`keybinds.conf`, e.g.:
+(the name is validated against a fixed list and never executed). Bound in
+`keybinds.conf` through `launch.sh` (works with either runtime):
 
 ```
-bind = $mainMod, C, exec, qs ipc call popouts toggle calendar
+bind = $mainMod SHIFT, C, exec, ~/.config/quickshell/launch.sh ipc call popouts toggle calendar
+bind = $mainMod SHIFT, N, exec, ~/.config/quickshell/launch.sh ipc call popouts toggle controlcenter
 ```
 
 ## Security notes
 
-- No network I/O — only local sockets (Hyprland IPC, Pipewire, D-Bus SNI).
-- All externally-controlled strings (window titles, tray menu labels) render
-  as `Text.PlainText` — never rich text, never interpolated into a shell.
+- No network I/O — only local sockets (Hyprland IPC, Pipewire, D-Bus:
+  NetworkManager/BlueZ/SNI).
+- All externally-controlled strings (window titles, SSIDs, device names,
+  tray menu labels) render as `Text.PlainText` — never rich text, never
+  interpolated into a shell. String properties are `??`-guarded so model
+  churn can't assign `undefined`.
 - Subprocess calls use `Quickshell.execDetached([...])` argv arrays (no
-  `sh -c`); the reused waybar scripts are unchanged.
+  `sh -c`); the Wi-Fi PSK goes to NetworkManager over D-Bus, never argv.
 - `Theme.qml` only *reads* theme files; it never writes or executes them.
+
+## Gotchas
+
+- Quickshell only watches files it has already **loaded** — lazily-loaded
+  components (popout contents) may not hot-reload until something watched
+  (e.g. `shell.qml`) is touched or `qs` is restarted.
+- The `hyprland.conf` exec line is guarded by `pgrep -x quickshell` so
+  `hyprctl reload` never restarts a running bar (a restart tears down the
+  StatusNotifierWatcher and breaks the tray). If quickshell is killed, run
+  `hyprctl reload` (or `launch.sh`) to bring it back.
 
 ## Not yet done
 
 - Tooltips for the plain modules (memory %, GPU details).
-- `hyprconf setup` integration / package-list entry for `quickshell`.
-- Popout keybinds are documented above but not added to `keybinds.conf`
-  (they need the `qs` binary on `PATH`, i.e. the installed package).

@@ -50,7 +50,7 @@ then replace `poweroff` with `systemctl hibernate` in `hyprconf-idle-action`.
 core `networkmanager-openvpn` plugin) or WireGuard — provider-agnostically:
 
 ```
-hyprconf vpn status [--json]     # connection + kill-switch state (waybar reads --json)
+hyprconf vpn status [--json]     # connection + kill-switch state (the bar reads --json)
 hyprconf vpn import <file>       # .ovpn → OpenVPN, .conf → WireGuard
 hyprconf vpn connect [name]      # defaults to the only profile if just one
 hyprconf vpn killswitch on|off|status

@@ -1,116 +1,83 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import Quickshell.Services.Pipewire
 import Quickshell.Bluetooth
+import Quickshell.Networking
 import Quickshell.Widgets
 
 // macOS-style Control Center: Wi-Fi (with in-panel network list + connect),
 // Bluetooth, and full audio (volume + output/input device pickers). Only
 // Bluetooth *pairing* still delegates to an app (blueman); everything else
-// is handled inline. Radio toggles and nmcli calls use argv (no shell). A
-// Wi-Fi password is passed to `nmcli` as an argument — briefly visible in
-// this user's own process list — and is never stored or logged.
+// is handled inline. Wi-Fi uses Quickshell.Networking (NetworkManager over
+// D-Bus): radio toggles, scans, and connects — including the PSK — never
+// touch a shell, argv, or the process list, and nothing is polled; state is
+// pushed by NetworkManager.
 Column {
     id: root
     width: 340
     spacing: 12
 
-    // ---------------- Wi-Fi (NetworkManager via nmcli) ----------------
-    property bool wifiEnabled: false
-    property string wifiSsid: ""
-    property var networks: []
+    // ---------------- Wi-Fi (Quickshell.Networking) ----------------
+    readonly property var wifiDev:
+        Networking.devices.values.find(d => d.type === DeviceType.Wifi) ?? null
+    readonly property bool wifiEnabled: Networking.wifiEnabled
+    readonly property string wifiSsid:
+        wifiDev?.networks.values.find(n => n.connected)?.name ?? ""
     property string pwSsid: ""          // ssid whose password box is open
-    property string busySsid: ""        // ssid a connect is in flight for
 
-    Process {
-        id: wifiStatus
-        command: ["bash", "-c",
-            "nmcli -t radio wifi; nmcli -t -f active,ssid dev wifi | awk -F: '$1==\"yes\"{print $2; exit}'"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                const l = text.split("\n")
-                root.wifiEnabled = (l[0] ?? "").trim() === "enabled"
-                root.wifiSsid = (l[1] ?? "").trim()
-            }
-        }
-    }
-    Process {
-        id: scanProc
-        command: ["bash", "-c", "nmcli -t -f IN-USE,SIGNAL,SECURITY,SSID device wifi list"]
-        stdout: StdioCollector { onStreamFinished: root.parseNetworks(text) }
-    }
-    Timer {
-        interval: 5000; running: true; repeat: true; triggeredOnStart: true
-        onTriggered: { wifiStatus.running = true; scanProc.running = true }
-    }
+    // Scan only while the panel is open (the Loader destroys it on close).
+    // Networking.devices populates asynchronously over D-Bus, so wifiDev is
+    // usually still null at onCompleted — enable the scanner whenever the
+    // device (re)appears as well.
+    onWifiDevChanged: if (wifiDev) wifiDev.scannerEnabled = true
+    Component.onCompleted: if (wifiDev) wifiDev.scannerEnabled = true
+    Component.onDestruction: if (wifiDev) wifiDev.scannerEnabled = false
 
-    function parseNetworks(txt) {
+    // Strongest-first, deduped by SSID, capped like the nmcli list was.
+    readonly property var networks: {
+        if (!wifiDev)
+            return []
         const seen = ({})
         const out = []
-        for (const raw of txt.split("\n")) {
-            if (!raw) continue
-            const line = raw.replace(/\\:/g, "￿")   // unescape nmcli colons
-            const p = line.split(":")
-            if (p.length < 4) continue
-            const ssid = p.slice(3).join(":").replace(/￿/g, ":")
-            if (!ssid || seen[ssid]) continue
-            seen[ssid] = true
-            out.push({
-                ssid: ssid,
-                signal: parseInt(p[1]) || 0,
-                secured: p[2] !== "" && p[2] !== "--",
-                inUse: p[0] === "*"
-            })
+        for (const n of wifiDev.networks.values) {
+            if (!n.name || seen[n.name])
+                continue
+            seen[n.name] = true
+            out.push(n)
         }
-        out.sort((a, b) => b.signal - a.signal)
-        root.networks = out.slice(0, 6)
+        out.sort((a, b) => b.signalStrength - a.signalStrength)
+        return out.slice(0, 6)
     }
 
     function toggleWifi() {
-        Quickshell.execDetached(["nmcli", "radio", "wifi", root.wifiEnabled ? "off" : "on"])
-        soon.restart()
-    }
-    Timer { id: soon; interval: 700; onTriggered: { wifiStatus.running = true; scanProc.running = true } }
-
-    // connect to open / already-saved networks; on failure open the pw box
-    Process {
-        id: connectProc
-        property string ssid: ""
-        command: ["nmcli", "-w", "15", "device", "wifi", "connect", ssid]
-        onExited: code => {
-            root.busySsid = ""
-            if (code === 0) { root.pwSsid = ""; soon.restart() }
-            else root.pwSsid = connectProc.ssid   // needs a password
-        }
-    }
-    function connectTo(ssid) {
-        root.busySsid = ssid
-        connectProc.ssid = ssid
-        connectProc.running = true
-    }
-    // connect with a password
-    Process {
-        id: pwProc
-        property string ssid: ""
-        property string pw: ""
-        command: ["nmcli", "-w", "25", "device", "wifi", "connect", ssid, "password", pw]
-        onExited: code => {
-            root.busySsid = ""
-            if (code === 0) { root.pwSsid = ""; soon.restart() }
-        }
-    }
-    function submitPw(ssid, pw) {
-        if (pw.length === 0) return
-        root.busySsid = ssid
-        pwProc.ssid = ssid
-        pwProc.pw = pw
-        pwProc.running = true
+        Networking.wifiEnabled = !Networking.wifiEnabled
     }
 
-    function wifiGlyph(sig, secured) {
-        const base = sig >= 75 ? "󰤨" : sig >= 50 ? "󰤥" : sig >= 25 ? "󰤢" : sig > 0 ? "󰤟" : "󰤯"
-        return base
+    function isOpenNet(net) {
+        return net.security === WifiSecurityType.Open
+            || net.security === WifiSecurityType.Owe
+    }
+
+    // Saved/open networks connect directly; secured unknown ones get the
+    // inline password box. A wrong PSK re-opens it via connectionFailed.
+    function connectTo(net) {
+        if (net.connected)
+            return
+        if (net.known || isOpenNet(net))
+            net.connect()
+        else
+            root.pwSsid = net.name
+    }
+
+    function submitPw(net, pw) {
+        if (pw.length === 0)
+            return
+        net.connectWithPsk(pw)
+        root.pwSsid = ""
+    }
+
+    function wifiGlyph(sig) {
+        return sig >= 0.75 ? "󰤨" : sig >= 0.5 ? "󰤥" : sig >= 0.25 ? "󰤢" : sig > 0 ? "󰤟" : "󰤯"
     }
 
     // ---------------- Bluetooth ----------------
@@ -180,7 +147,9 @@ Column {
             sublabel: {
                 if (!root.btOn) return "Off"
                 const c = Bluetooth.devices.values.filter(d => d.connected)
-                return c.length > 0 ? c[0].name : "On"
+                // `?? "On"`: a device can be mid-teardown with no name — a
+                // QString property must never be assigned undefined.
+                return c.length > 0 ? (c[0].name ?? "On") : "On"
             }
             active: root.btOn
             onClicked: if (root.btAdapter) root.btAdapter.enabled = !root.btAdapter.enabled
@@ -203,38 +172,51 @@ Column {
                 width: root.width
                 spacing: 2
 
+                // Wrong PSK → NetworkManager reports NoSecrets → re-open the
+                // password box for this network.
+                // `?.` / `?? null` guards throughout: scan results churn the
+                // model, so a delegate can briefly outlive its modelData.
+                Connections {
+                    target: netEntry.modelData ?? null
+                    function onConnectionFailed(reason) {
+                        if (reason === ConnectionFailReason.NoSecrets)
+                            root.pwSsid = netEntry.modelData.name
+                    }
+                }
+
                 Rectangle {
                     width: parent.width; height: 30; radius: 8
                     color: nm.containsMouse ? Theme.hover : "transparent"
 
                     BarText {
                         x: 8; anchors.verticalCenter: parent.verticalCenter
-                        text: root.wifiGlyph(netEntry.modelData.signal, netEntry.modelData.secured)
+                        text: root.wifiGlyph(netEntry.modelData?.signalStrength ?? 0)
                         font.pixelSize: 14
-                        color: netEntry.modelData.inUse ? Theme.accent : Theme.fg
+                        color: netEntry.modelData?.connected ? Theme.accent : Theme.fg
                     }
                     BarText {
                         x: 34; width: parent.width - 120
                         anchors.verticalCenter: parent.verticalCenter
                         elide: Text.ElideRight; font.pixelSize: 12
-                        text: netEntry.modelData.ssid
-                        color: netEntry.modelData.inUse ? Theme.fg : Theme.comment
+                        text: netEntry.modelData?.name ?? ""
+                        color: netEntry.modelData?.connected ? Theme.fg : Theme.comment
                     }
                     BarText {
                         anchors.right: parent.right; anchors.rightMargin: 10
                         anchors.verticalCenter: parent.verticalCenter
                         font.pixelSize: 11
-                        text: root.busySsid === netEntry.modelData.ssid ? "…"
-                            : netEntry.modelData.inUse ? "connected"
-                            : netEntry.modelData.secured ? "󰤪" : ""
-                        color: netEntry.modelData.inUse ? Theme.green : Theme.comment
+                        text: !netEntry.modelData ? ""
+                            : netEntry.modelData.stateChanging ? "…"
+                            : netEntry.modelData.connected ? "connected"
+                            : !root.isOpenNet(netEntry.modelData) ? "󰤪" : ""
+                        color: netEntry.modelData?.connected ? Theme.green : Theme.comment
                     }
                     MouseArea {
                         id: nm; anchors.fill: parent; hoverEnabled: true
                         onClicked: {
-                            if (netEntry.modelData.inUse) return
-                            if (root.pwSsid === netEntry.modelData.ssid) root.pwSsid = ""
-                            else root.connectTo(netEntry.modelData.ssid)
+                            if (!netEntry.modelData || netEntry.modelData.connected) return
+                            if (root.pwSsid === netEntry.modelData.name) root.pwSsid = ""
+                            else root.connectTo(netEntry.modelData)
                         }
                     }
                 }
@@ -242,7 +224,7 @@ Column {
                 // inline password box (opens when a secured connect needs one)
                 Rectangle {
                     width: parent.width; height: 32; radius: 8
-                    visible: root.pwSsid === netEntry.modelData.ssid
+                    visible: netEntry.modelData != null && root.pwSsid === netEntry.modelData.name
                     color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.08)
 
                     Row {
@@ -262,7 +244,7 @@ Column {
                             clip: true
                             focus: visible
                             onVisibleChanged: if (visible) forceActiveFocus()
-                            onAccepted: { root.submitPw(netEntry.modelData.ssid, text); text = "" }
+                            onAccepted: { if (netEntry.modelData) root.submitPw(netEntry.modelData, text); text = "" }
                             BarText {
                                 anchors.verticalCenter: parent.verticalCenter
                                 visible: pwInput.text.length === 0
@@ -278,7 +260,7 @@ Column {
                             }
                             MouseArea {
                                 id: joinM; anchors.fill: parent; hoverEnabled: true
-                                onClicked: { root.submitPw(netEntry.modelData.ssid, pwInput.text); pwInput.text = "" }
+                                onClicked: { if (netEntry.modelData) root.submitPw(netEntry.modelData, pwInput.text); pwInput.text = "" }
                             }
                         }
                     }
@@ -341,9 +323,9 @@ Column {
                 model: root.sinks
                 delegate: DeviceRow {
                     required property var modelData
-                    label: modelData.description || modelData.name
+                    label: modelData?.description || modelData?.name || ""
                     current: modelData === Pipewire.defaultAudioSink
-                    onPicked: Pipewire.preferredDefaultAudioSink = modelData
+                    onPicked: if (modelData) Pipewire.preferredDefaultAudioSink = modelData
                 }
             }
         }
@@ -369,9 +351,9 @@ Column {
                 model: root.sources
                 delegate: DeviceRow {
                     required property var modelData
-                    label: modelData.description || modelData.name
+                    label: modelData?.description || modelData?.name || ""
                     current: modelData === Pipewire.defaultAudioSource
-                    onPicked: Pipewire.preferredDefaultAudioSource = modelData
+                    onPicked: if (modelData) Pipewire.preferredDefaultAudioSource = modelData
                 }
             }
         }
@@ -406,33 +388,35 @@ Column {
             delegate: Rectangle {
                 id: btRow
                 required property var modelData
-                visible: modelData.bonded || modelData.paired || modelData.connected
+                visible: modelData != null
+                    && (modelData.bonded || modelData.paired || modelData.connected)
                 width: parent.width; height: visible ? 30 : 0; radius: 8
                 color: btM.containsMouse ? Theme.hover : "transparent"
                 BarText {
                     x: 8; anchors.verticalCenter: parent.verticalCenter
                     text: "󰂱"; font.pixelSize: 13
-                    color: btRow.modelData.connected ? Theme.accent : Theme.comment
+                    color: btRow.modelData?.connected ? Theme.accent : Theme.comment
                 }
                 BarText {
                     x: 32; width: parent.width - 120
                     anchors.verticalCenter: parent.verticalCenter
                     elide: Text.ElideRight; font.pixelSize: 12
-                    text: btRow.modelData.name
-                    color: btRow.modelData.connected ? Theme.fg : Theme.comment
+                    text: btRow.modelData?.name ?? ""
+                    color: btRow.modelData?.connected ? Theme.fg : Theme.comment
                 }
                 BarText {
                     anchors.right: parent.right; anchors.rightMargin: 10
                     anchors.verticalCenter: parent.verticalCenter
                     font.pixelSize: 11
-                    text: btRow.modelData.connected
+                    text: !btRow.modelData ? ""
+                        : btRow.modelData.connected
                         ? (btRow.modelData.batteryAvailable ? Math.round(btRow.modelData.battery * 100) + "%  connected" : "connected")
                         : "connect"
-                    color: btRow.modelData.connected ? Theme.green : Theme.comment
+                    color: btRow.modelData?.connected ? Theme.green : Theme.comment
                 }
                 MouseArea {
                     id: btM; anchors.fill: parent; hoverEnabled: true
-                    onClicked: btRow.modelData.connected = !btRow.modelData.connected
+                    onClicked: if (btRow.modelData) btRow.modelData.connected = !btRow.modelData.connected
                 }
             }
         }

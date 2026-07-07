@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 SCRIPT = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf-vpn"
 HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 PACKAGES = REPO_ROOT / "packages"
-WAYBAR_JSONC = REPO_ROOT / "stow" / "waybar" / ".config" / "waybar" / "waybar.jsonc"
+BAR_QML = REPO_ROOT / "stow" / "quickshell" / ".config" / "quickshell" / "Bar.qml"
 
 # Resolve the *real* nft now, before any fake shadows it on PATH (used only by
 # the optional syntax-validation test).
@@ -69,7 +69,7 @@ def test_script_bash_syntax() -> None:
 
 
 def test_json_output_has_no_color_escapes() -> None:
-    # --json runs non-TTY in waybar; colors must be gated on `[[ -t 1 ]]`.
+    # --json runs non-TTY in the bar's ScriptModule; colors must be gated on `[[ -t 1 ]]`.
     assert "[[ -t 1 ]]" in _text()
 
 
@@ -144,7 +144,7 @@ def test_vpn_addon_post_install_is_non_interactive() -> None:
 
 
 # ===========================================================================
-# Static analysis: waybar module + doctor integration
+# Static analysis: bar module + doctor integration
 # ===========================================================================
 
 
@@ -154,14 +154,13 @@ def test_doctor_runs_vpn_check() -> None:
     assert "_doctor_check_vpn" in txt.split("cmd_doctor()", 1)[1]
 
 
-def test_waybar_module_wired() -> None:
-    raw = WAYBAR_JSONC.read_text(encoding="utf-8")
-    cfg = json.loads(re.sub(r"^\s*//.*$", "", raw, flags=re.M))
-    assert "custom/vpn" in cfg["modules-right"]
-    mod = cfg["custom/vpn"]
-    assert "vpn status --json" in mod["exec"]
-    assert mod["return-type"] == "json"
-    assert "vpn toggle" in mod["on-click"]
+def test_bar_vpn_module_wired() -> None:
+    """The quickshell bar must poll `hyprconf vpn status --json` (argv form)
+    and toggle the VPN on click."""
+    txt = BAR_QML.read_text(encoding="utf-8")
+    assert '"vpn", "status", "--json"' in txt
+    assert '"vpn", "toggle"' in txt
+    assert '/.local/bin/hyprconf"' in txt
 
 
 # ===========================================================================
@@ -353,7 +352,7 @@ def test_status_json_disconnected_class(tmp_path: Path) -> None:
 
 def test_status_json_escapes_quotes_in_profile_name(tmp_path: Path) -> None:
     # NM connection names are user-controlled and may contain a double-quote or
-    # backslash; the waybar tooltip must stay valid JSON (no broken/injected
+    # backslash; the module JSON must stay valid (no broken/injected
     # payload) and carry the name verbatim once parsed.
     rc, out, _, _ = _run_vpn(
         tmp_path,

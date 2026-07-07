@@ -4,6 +4,14 @@
 # instead of re-forking a sampler every poll.
 set -u
 
+# System paths and pacing are env-overridable so the hermetic test suite can
+# point them at a fake tree (never readonly — see testing rules).
+: "${HYPRCONF_STATS_NET_ROOT:=/sys/class/net}"
+: "${HYPRCONF_STATS_PROC_STAT:=/proc/stat}"
+: "${HYPRCONF_STATS_PROC_MEMINFO:=/proc/meminfo}"
+: "${HYPRCONF_STATS_INTERVAL:=1}"
+: "${HYPRCONF_STATS_ITERATIONS:=0}"   # 0 = run forever; N = exit after N samples
+
 # SI-decimal size with an arbitrary unit suffix (e.g. "46.2kB/s", "1.3GB").
 human() {
     local b=$1 u=${2:-B/s}
@@ -21,11 +29,11 @@ gib() {
 }
 
 prev_total=0 prev_idle=0 prev_rx=0 prev_tx=0
-first=1
+first=1 iter=0
 
 while :; do
     # ---- cpu: aggregate line of /proc/stat
-    read -r _ user nice system idle iowait irq softirq steal _ < /proc/stat
+    read -r _ user nice system idle iowait irq softirq steal _ < "$HYPRCONF_STATS_PROC_STAT"
     total=$(( user + nice + system + idle + iowait + irq + softirq + steal ))
     idle_all=$(( idle + iowait ))
     dtotal=$(( total - prev_total ))
@@ -41,19 +49,23 @@ while :; do
             MemTotal:)     mem_total=$val ;;
             MemAvailable:) mem_avail=$val; break ;;
         esac
-    done < /proc/meminfo
+    done < "$HYPRCONF_STATS_PROC_MEMINFO"
     mem="$(gib $(( mem_total - mem_avail )))/$(gib "$mem_total")G"
 
     # ---- network. Ethernet takes precedence: if any wired interface has a
     # link up, show it (icon + rates); otherwise fall back to the default-
     # route interface (Wi-Fi / other).
     iface="" net=off
-    for _d in /sys/class/net/*; do
+    for _d in "$HYPRCONF_STATS_NET_ROOT"/*; do
         _n=${_d##*/}
         [[ $_n == lo ]] && continue
         [[ -d $_d/wireless ]] && continue        # not Wi-Fi
         [[ -e $_d/device ]] || continue          # skip virtual (veth/docker/…)
-        if [[ "$(<"$_d/operstate" 2>/dev/null)" == up ]]; then
+        # NB: `$(<file 2>/dev/null)` silently captures "" on bash 5.3 (known
+        # quirk) — read the file with `read`, which also avoids a fork.
+        _op=""
+        [[ -r $_d/operstate ]] && read -r _op < "$_d/operstate"
+        if [[ $_op == up ]]; then
             iface=$_n net=eth
             break
         fi
@@ -61,13 +73,13 @@ while :; do
     if [[ -z $iface ]]; then
         iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
         if [[ -n $iface ]]; then
-            [[ -d /sys/class/net/$iface/wireless ]] && net=wifi || net=eth
+            [[ -d $HYPRCONF_STATS_NET_ROOT/$iface/wireless ]] && net=wifi || net=eth
         fi
     fi
     rx=0 tx=0
-    if [[ -n $iface && -r /sys/class/net/$iface/statistics/rx_bytes ]]; then
-        rx=$(< "/sys/class/net/$iface/statistics/rx_bytes")
-        tx=$(< "/sys/class/net/$iface/statistics/tx_bytes")
+    if [[ -n $iface && -r $HYPRCONF_STATS_NET_ROOT/$iface/statistics/rx_bytes ]]; then
+        read -r rx < "$HYPRCONF_STATS_NET_ROOT/$iface/statistics/rx_bytes"
+        read -r tx < "$HYPRCONF_STATS_NET_ROOT/$iface/statistics/tx_bytes"
     else
         net=off
     fi
@@ -82,7 +94,10 @@ while :; do
     else
         printf '{"cpu":%d,"mem":"%s","net":"%s","down":"%s","up":"%s"}\n' \
             "$cpu" "$mem" "$net" "$(human "$drx")" "$(human "$dtx")"
+        if (( HYPRCONF_STATS_ITERATIONS > 0 && ++iter >= HYPRCONF_STATS_ITERATIONS )); then
+            exit 0
+        fi
     fi
 
-    sleep 1
+    sleep "$HYPRCONF_STATS_INTERVAL"
 done

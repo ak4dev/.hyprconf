@@ -47,7 +47,7 @@ zsh-autosuggestions
 fastfetch
 
 # Bar, launcher, notifications
-waybar
+quickshell
 hyprlauncher
 dunst
 
@@ -63,9 +63,9 @@ wl-clipboard
 # File manager support (trash, MTP, network mounts)
 gvfs
 
-# System monitoring (waybar scripts).  upower is NOT listed: the battery
-# script reads /sys/class/power_supply directly, and upower still arrives as a
-# hard dependency of waybar and power-profiles-daemon.
+# System monitoring (bar scripts in ~/.config/quickshell/scripts/).  upower is
+# NOT listed: the battery script reads /sys/class/power_supply directly, and
+# upower still arrives as a hard dependency of power-profiles-daemon.
 lm_sensors
 
 # Python (theme switcher + hyprconf TUI)
@@ -123,7 +123,7 @@ networkmanager
 network-manager-applet
 # libappindicator — runtime AppIndicator/StatusNotifier lib. Without it,
 # `nm-applet --indicator` and blueman-applet render blank/white-box tray icons
-# in waybar's SNI tray (it is not a hard dependency of either applet).
+# in the bar's SNI tray (it is not a hard dependency of either applet).
 libappindicator
 # iwd  # optional: wifi backend for NetworkManager (guarded by `command -v iwctl`)
 openssh
@@ -168,7 +168,7 @@ wireguard-tools
 # stays commented here for users who don't use Secure Boot. Manual: sudo pacman -S sbctl
 # sbctl             # Secure Boot key manager (create-keys/sign/verify/enroll)
 
-# Optional: uncomment if using an Nvidia GPU (gpu_info.sh waybar widget)
+# Optional: uncomment if using an Nvidia GPU (gpu_info.sh bar widget)
 # nvidia-utils
 # egl-wayland is required for Nvidia + Wayland; nvidia-open, nvidia-utils, and
 # egl-wayland are installed automatically by setup.sh / hyprconf sync when an

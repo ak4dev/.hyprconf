@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Battery status for waybar. Polled every second, so it must stay cheap: reads
+# Battery status for the quickshell bar. Polled every second, so it must stay cheap: reads
 # /sys/class/power_supply directly in pure bash — zero subprocesses per poll
 # (the old upower version spawned ~12 processes and two D-Bus round trips).
 # Root is env-overridable so hermetic tests can point it at a fake tree.

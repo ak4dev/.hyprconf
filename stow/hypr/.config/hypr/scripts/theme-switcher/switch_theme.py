@@ -27,7 +27,6 @@ def detect_repo_root(start: Path) -> Path:
 
 REPO_ROOT = detect_repo_root(SCRIPT_DIR)
 THEMES_DIR = os.path.join(SCRIPT_DIR, "themes")
-WAYBAR_CONFIG_FILE = os.path.expanduser("~/.config/waybar/waybar.css")
 HYPRPAPER_CONFIG_FILE = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
 KITTY_CONFIG_FILE = os.path.expanduser("~/.config/kitty/kitty.conf")
 WOFI_STYLE_FILE = os.path.expanduser(
@@ -101,10 +100,6 @@ _RE_GTK_DARK = re.compile(r"^(gtk-application-prefer-dark-theme\s*=).*$", re.MUL
 _RE_QT_APPEARANCE = re.compile(r"(\[Appearance\]\n)")
 _RE_BTOP_SAFE_NAME = re.compile(r"[^a-zA-Z0-9._-]")
 _RE_BTOP_COLOR_THEME = re.compile(r"^color_theme\s*=.*$", re.MULTILINE)
-_RE_WAYBAR_COLOR = re.compile(r"@define-color\s+(\w+)\s+[^;]+;")
-_RE_WAYBAR_BG_ALPHA = re.compile(r"@define-color background-alpha\s+[^;]+;")
-_RE_WAYBAR_BG_ANCHOR = re.compile(r"(@define-color background\s+[^;]+;)")
-_RE_WAYBAR_RGBA_BG = re.compile(r"background:\s*rgba\(40,\s*42,\s*54,\s*0\.\d+\);")
 
 FIREFOX_ENFORCED_PREFS = {
     # --- UI ---
@@ -396,12 +391,6 @@ def blend_colors(hex1: str, hex2: str, ratio: float = 0.15) -> str:
     g = max(0, min(255, int(g1 + (g2 - g1) * ratio)))
     b = max(0, min(255, int(b1 + (b2 - b1) * ratio)))
     return f"#{r:02x}{g:02x}{b:02x}"
-
-
-def hex_to_rgba(hex_color: str, alpha: float = 0.8) -> str:
-    hex_color = hex_color.lstrip("#")
-    r, g, b = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
-    return f"rgba({r}, {g}, {b}, {alpha})"
 
 
 def hex_to_hypr_rgba(hex_color: str, alpha_hex: str = "ee") -> str:
@@ -753,49 +742,6 @@ def load_kitty_theme(kitty_config_path: str):
     # Write the updated lines back to kitty.conf
     with open(KITTY_CONFIG_FILE, "w") as kitty_config:
         kitty_config.write("\n".join(lines) + "\n")
-
-
-def update_waybar_colors(config_text: str, theme_colors: dict) -> str:
-    def replacer(match):
-        color_name = match.group(1)
-        if color_name in theme_colors:
-            return f"@define-color {color_name} {theme_colors[color_name]};"
-        else:
-            return match.group(0)
-
-    updated_text = _RE_WAYBAR_COLOR.sub(replacer, config_text)
-
-    rgba_bg = hex_to_rgba(theme_colors["background"], 0.8)
-    if "@define-color background-alpha" in updated_text:
-        updated_text = _RE_WAYBAR_BG_ALPHA.sub(
-            f"@define-color background-alpha {rgba_bg};",
-            updated_text,
-        )
-    else:
-        updated_text = _RE_WAYBAR_BG_ANCHOR.sub(
-            r"\1\n@define-color background-alpha " + rgba_bg + ";",
-            updated_text,
-            count=1,
-        )
-
-    updated_text = _RE_WAYBAR_RGBA_BG.sub(
-        "background: @background-alpha;",
-        updated_text,
-    )
-
-    return updated_text
-
-
-def update_waybar(theme_colors: dict[str, str]):
-    """Update Waybar CSS theme."""
-    if not os.path.exists(WAYBAR_CONFIG_FILE):
-        raise FileNotFoundError(f"Waybar config not found: {WAYBAR_CONFIG_FILE}")
-    with open(WAYBAR_CONFIG_FILE) as f:
-        css = f.read()
-    updated_css = update_waybar_colors(css, theme_colors)
-    with open(WAYBAR_CONFIG_FILE, "w") as f:
-        f.write(updated_css)
-    print("Waybar theme updated.")
 
 
 def update_hyprpaper(theme: dict[str, str]):
@@ -1987,7 +1933,8 @@ def update_btop(theme: dict[str, str], theme_name: str = "") -> None:
         else:
             theme_path = f"/usr/share/btop/themes/{btop_key}.theme"
     else:
-        theme_path = _generate_btop_theme(theme, theme_name or "generated")
+        generated = _generate_btop_theme(theme, theme_name or "generated")
+        theme_path = os.path.splitext(os.path.basename(generated))[0]
 
     try:
         with open(BTOP_CONF_FILE, encoding="utf-8") as f:
@@ -2053,7 +2000,8 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
         generated = generate_kitty_theme(theme)
         load_kitty_theme(generated)
 
-    update_waybar(theme)
+    # The quickshell bar needs no per-app step here: Theme.qml watches
+    # .current-theme and the theme JSON directly and repaints live.
     update_hyprpaper(theme)
     update_hyprtoolkit(theme)
     update_dunst(theme)

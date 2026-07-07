@@ -191,7 +191,9 @@ exec       = program  # Runs at startup AND on every `hyprctl reload`
 
 ```ini
 exec      = pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf
-exec      = pkill waybar; waybar -c ~/.config/waybar/waybar.jsonc
+# Guarded launch: `hyprctl reload` re-runs exec lines, so daemons that must
+# NOT restart on reload (the quickshell bar) get a pgrep guard.
+exec      = pgrep -x quickshell >/dev/null || ~/.config/quickshell/launch.sh
 exec-once = systemctl --user start hyprpolkitagent
 exec-once = hypridle
 exec      = wl-paste --type text --watch cliphist store

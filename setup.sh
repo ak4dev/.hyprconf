@@ -290,7 +290,7 @@ clone_or_update_repo() {
                     || log_die "Force reset to $upstream failed."
             else
                 # The theme switcher writes generated output THROUGH the stow
-                # symlinks into git-tracked files (waybar.css, theme-colors.conf,
+                # symlinks into git-tracked files (theme-colors.conf,
                 # kitty generated.conf, dunstrc, hyprlock.conf, btop.conf), so a
                 # themed machine has a chronically dirty working tree.  A plain
                 # `git pull --ff-only` then aborts ("local changes would be

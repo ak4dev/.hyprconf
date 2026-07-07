@@ -138,7 +138,7 @@ usage() {
   printf "  hyprconf vpn list                List configured VPN profiles\n"
   printf "  hyprconf vpn connect [name]      Bring up a VPN (default: the only profile)\n"
   printf "  hyprconf vpn disconnect [name]   Tear down the active (or named) VPN\n"
-  printf "  hyprconf vpn toggle              Connect if down, disconnect if up (waybar click)\n"
+  printf "  hyprconf vpn toggle              Connect if down, disconnect if up (bar click)\n"
   printf "  hyprconf vpn import <file>       Import an OpenVPN .ovpn / WireGuard .conf\n"
   printf "  hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode\n"
   printf "\n${_b}Addons${_r}\n"
@@ -971,7 +971,7 @@ _doctor_check_symlinks() {
   printf "\n${_b}Symlinks${_r}\n"
   local broken
   broken=$(find "$HOME/.config/hypr" "$HOME/.config/kitty" \
-    "$HOME/.config/waybar" "$HOME/.config/dunst" \
+    "$HOME/.config/quickshell" "$HOME/.config/dunst" \
     -xtype l 2>/dev/null | head -20) || true
   if [[ -z "$broken" ]]; then
     _doctor_pass "No broken symlinks in managed config dirs"

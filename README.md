@@ -42,9 +42,10 @@
 - **Hardware auto-detection** — touchscreen devices get a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged) and are wired up for `wvkbd` (on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) — but because `wvkbd` is AUR-only it is **not** installed automatically; install it manually (`yay -S wvkbd`) to enable the OSK; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
 - **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`hyprconf hardware gpu vm`) using `dockurr/windows` with Looking Glass for near-native display; comprehensive VM anti-detection (SMBIOS, CPU flags, device elimination, disk identity) for anti-cheat evasion (EAC, VAC); installed via `hyprconf addon vfio`
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
-- **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, Waybar, Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, LibreWolf, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
+- **Quickshell bar** — QtQuick status bar (`stow/quickshell`), one per monitor: workspaces island, window title, clock with calendar popout, custom SNI tray, cpu/temp/mem/gpu/vpn/net/volume/battery modules, screencast indicator, volume OSD, rounded screen corners, and a macOS-style **Control Center** (click the network module or `Super+Shift+N`) with inline Wi-Fi connect (native NetworkManager D-Bus — passwords never touch a process list), Bluetooth devices, and audio output/input pickers. Colors repaint live on theme switch; popouts also toggle via `qs ipc` keybinds
+- **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, the quickshell bar (live, no restart), Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, LibreWolf, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch. Add **LibreWolf** (privacy fork — RFP, no telemetry) via `hyprconf addon librewolf`; it's auto-themed by the same engine
-- **VPN & kill-switch** — `hyprconf vpn` manages any NetworkManager VPN profile (OpenVPN or WireGuard) provider-agnostically: `status`/`list`/`connect`/`disconnect`/`import`, plus a waybar indicator. `hyprconf vpn killswitch on` enforces fail-closed VPN-only networking — delegating to ProtonVPN's maintained kill-switch when the `vpn` addon is installed, or a self-contained nftables egress guard otherwise. ProtonVPN's official CLI (NetShield, Secure Core) installs via `hyprconf addon vpn`
+- **VPN & kill-switch** — `hyprconf vpn` manages any NetworkManager VPN profile (OpenVPN or WireGuard) provider-agnostically: `status`/`list`/`connect`/`disconnect`/`import`, plus a bar indicator (click to toggle). `hyprconf vpn killswitch on` enforces fail-closed VPN-only networking — delegating to ProtonVPN's maintained kill-switch when the `vpn` addon is installed, or a self-contained nftables egress guard otherwise. ProtonVPN's official CLI (NetShield, Secure Core) installs via `hyprconf addon vpn`
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
 - **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. hyprlock is actively kept password-only — it's repointed at `system-auth` so it can't inherit the key requirement from `login` and lock you out
 - **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
@@ -135,6 +136,7 @@ Key paths:
 | `stow/hypr/.local/bin/hyprconf` | CLI entry point |
 | `stow/hypr/.config/hypr/scripts/` | Theme engine, TUI, monitor switching |
 | `stow/hypr/.local/lib/hyprconf/` | Python library (schema, config, keybinds, …) |
+| `stow/quickshell/.config/quickshell/` | Status bar (QML) + its polling scripts |
 | `setup.sh` | Bootstrap + sync entry point |
 | `packages` | Arch packages (one per line) |
 | `install/install.sh` | Self-contained installer |
@@ -269,7 +271,7 @@ hyprconf vpn status [--json]     Show VPN connection + kill-switch state
 hyprconf vpn list                List configured VPN profiles
 hyprconf vpn connect [name]      Bring up a VPN (default: the only profile)
 hyprconf vpn disconnect [name]   Tear down the active (or named) VPN
-hyprconf vpn toggle              Connect if down, disconnect if up (waybar click)
+hyprconf vpn toggle              Connect if down, disconnect if up (bar click)
 hyprconf vpn import <file>       Import an OpenVPN .ovpn / WireGuard .conf
 hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode
 
@@ -440,7 +442,7 @@ Touchpad workspace swiping is configured in `gestures.conf`:
 | Command | Purpose | Restart policy |
 |---|---|---|
 | `pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf` | Wallpaper daemon | Restarted on every `exec` (config reload safe) |
-| `pkill waybar; waybar -c ~/.config/waybar/waybar.jsonc -s ~/.config/waybar/waybar.css` | Status bar | Restarted on every `exec` |
+| `pgrep -x quickshell >/dev/null \|\| ~/.config/quickshell/launch.sh` | Status bar (quickshell) | Launched once; survives `hyprctl reload` (hot-reloads its own QML). A stray waybar from pre-quickshell installs is killed first |
 | `/usr/lib/pam_kwallet_init` | KDE Wallet PAM init | Once |
 | `kwalletd6` | KDE Wallet daemon (SSH/GPG key storage) | Once |
 | `systemctl --user start hyprpolkitagent` | Polkit agent (privilege elevation dialogs) | Once |
@@ -672,7 +674,7 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 | KDE / Qt | `kwallet`, `kwallet-pam`, `plasma-integration`, `breeze`, `breeze-gtk`, `kde-cli-tools`, `qt6-wayland` |
 | Polkit | `hyprpolkitagent` |
 | Terminal & shell | `kitty`, `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, `fastfetch` |
-| Bar / Launcher | `waybar`, `hyprlauncher` |
+| Bar / Launcher | `quickshell`, `hyprlauncher` |
 | Notifications | `dunst` |
 | Applications | `firefox`, `code`, `dolphin`, `htop`, `btop` |
 | Clipboard | `cliphist`, `wl-clipboard` |
@@ -753,6 +755,8 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 | `Super + Shift + Escape` | Lock screen (alt) |
 | `Super + Shift + 4` | Screenshot region |
 | `Super + Shift + V` | Clipboard history (cliphist + hyprlauncher) |
+| `Super + Shift + C` | Bar: toggle calendar popout |
+| `Super + Shift + N` | Bar: toggle Control Center (Wi-Fi / Bluetooth / audio) |
 | `Super + Shift + Backspace` | Toggle native display (eDP-1) |
 | `Super + Shift + B` | Bedroom monitor preset |
 | `Super + Shift + K` | Kitchen monitor preset |

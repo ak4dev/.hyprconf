@@ -71,7 +71,7 @@
     │           ├── hyprpaper.py           # hyprpaper read/write
     │           └── __init__.py
     ├── btop/   kitty/   dunst/   fastfetch/   code-oss/
-    └── waybar/ wallpaper/
+    └── quickshell/ wallpaper/
 theme/                          # Vendor extension payloads (NOT under stow/)
     ├── firefox/extensions/
     └── .vscode-oss/extensions/

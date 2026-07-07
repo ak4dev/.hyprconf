@@ -98,8 +98,8 @@ Column {
                     font.pixelSize: 12
                     width: root.width - 40
                     elide: Text.ElideRight
-                    text: entryRow.modelData.text
-                    color: entryRow.modelData.enabled ? Theme.fg : "#66928374"
+                    text: entryRow.modelData?.text ?? ""
+                    color: entryRow.modelData?.enabled ? Theme.fg : "#66928374"
                 }
             }
 

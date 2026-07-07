@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# CPU temperature for waybar. Polled every 2s, so keep it to a single
+# CPU temperature for the quickshell bar. Polled every 2s, so keep it to a single
 # `sensors` invocation and one awk pass (the old version re-ran sensors for
 # each label probe — up to four times per poll).
 command -v sensors &>/dev/null || exit 0

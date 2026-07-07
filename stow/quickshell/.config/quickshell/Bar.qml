@@ -7,9 +7,9 @@ import Quickshell.Services.SystemTray
 import Quickshell.Services.Pipewire
 import Quickshell.Widgets
 
-// One bar per monitor; layout and styling mirror waybar.jsonc + waybar.css,
-// with quickshell-only extras: frosted popouts, media module, screencast
-// indicator, scroll gestures.
+// One bar per monitor; layout and styling carried over from the retired
+// waybar setup, with quickshell-only extras: frosted popouts, volume OSD,
+// screencast indicator, scroll gestures.
 PanelWindow {
     id: bar
 
@@ -434,7 +434,7 @@ PanelWindow {
 
             ScriptModule { // custom/cpu_temp (padding-left 2)
                 height: parent.height
-                command: ["bash", bar.home + "/.config/waybar/cpu_temp.sh"]
+                command: ["bash", bar.home + "/.config/quickshell/scripts/cpu_temp.sh"]
                 intervalMs: 2000
                 prefix: ""
                 textColor: Theme.green
@@ -456,7 +456,7 @@ PanelWindow {
 
             ScriptModule { // custom/gpu
                 height: parent.height
-                command: ["bash", bar.home + "/.config/waybar/gpu_info.sh"]
+                command: ["bash", bar.home + "/.config/quickshell/scripts/gpu_info.sh"]
                 intervalMs: 2000
                 prefix: "󰾲 "
                 textColor: Theme.purple
@@ -541,7 +541,7 @@ PanelWindow {
 
             ScriptModule { // custom/power_status
                 height: parent.height
-                command: ["bash", bar.home + "/.config/waybar/battery_power_status.sh"]
+                command: ["bash", bar.home + "/.config/quickshell/scripts/battery_power_status.sh"]
                 intervalMs: 1000
                 textColor: Theme.fg
                 classColors: ({

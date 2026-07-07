@@ -131,7 +131,9 @@ Column {
                     anchors.verticalCenter: parent.verticalCenter
                     elide: Text.ElideRight
                     font.pixelSize: 12
-                    text: row.modelData.description || row.modelData.name
+                    // `|| ""`: nodes can be mid-teardown with no strings — a
+                    // QString property must never be assigned undefined.
+                    text: row.modelData?.description || row.modelData?.name || ""
                     color: row.current ? Theme.fg : Theme.comment
                 }
 
@@ -139,7 +141,7 @@ Column {
                     id: rowM
                     anchors.fill: parent
                     hoverEnabled: true
-                    onClicked: Pipewire.preferredDefaultAudioSink = row.modelData
+                    onClicked: if (row.modelData) Pipewire.preferredDefaultAudioSink = row.modelData
                 }
             }
         }
