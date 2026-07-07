@@ -47,6 +47,13 @@ still cover them. cpu/mem/net come from one long-lived `stats.sh` sampler.
 Borderless frosted panels blurred by Hyprland (`layerrule` in
 `hyprland.conf`), each dismissed by clicking outside (`HyprlandFocusGrab`):
 
+- **Control Center** (grid icon `󰕰`) — macOS-style unified panel: Wi-Fi and
+  Bluetooth toggle tiles (click toggles, right-click opens the full app),
+  volume slider, audio-output picker, Bluetooth device list (connect/battery),
+  and launch actions. Wi-Fi state via `nmcli`; Bluetooth via
+  `Quickshell.Bluetooth`; audio via Pipewire. Radio toggles use argv (no
+  shell); credential flows (joining a network) are delegated to `nmtui`
+  (floated via a `nm-float` windowrule) / `blueman-manager`.
 - **Calendar** (click clock) — live time/date header + month grid with
   weekend shading, today highlighted; prev/next, click title for today.
 - **Volume** (click volume) — slider, mute, output-device switcher.

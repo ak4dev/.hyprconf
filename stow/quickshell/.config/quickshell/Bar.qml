@@ -129,7 +129,7 @@ PanelWindow {
     }
 
     // ---- popouts
-    readonly property var popoutNames: ["calendar", "volume", "network"]
+    readonly property var popoutNames: ["calendar", "volume", "network", "controlcenter"]
     property string openPopout: ""
 
     function itemCenterX(it): real {
@@ -159,7 +159,8 @@ PanelWindow {
         const anchorItems = {
             calendar: clockItem,
             volume: volItem,
-            network: netItem
+            network: netItem,
+            controlcenter: ccItem
         }
         if (!bar.popoutNames.includes(name))
             return "unknown popout: " + name
@@ -178,12 +179,14 @@ PanelWindow {
         contentComponent: bar.openPopout === "calendar" ? calComp
                         : bar.openPopout === "volume" ? volComp
                         : bar.openPopout === "network" ? netComp
+                        : bar.openPopout === "controlcenter" ? ccComp
                         : bar.openPopout === "tray" ? trayComp
                         : null
     }
 
     Component { id: calComp; CalendarPopout {} }
     Component { id: volComp; VolumePopout {} }
+    Component { id: ccComp; ControlCenter {} }
     Component {
         id: netComp
         NetworkPopout { barWin: bar }
@@ -346,6 +349,23 @@ PanelWindow {
             id: rightRow
             anchors.right: parent.right
             height: parent.height
+
+            Item { // control center (macOS-style toggles panel)
+                id: ccItem
+                width: 26
+                height: parent.height
+
+                BarText {
+                    anchors.centerIn: parent
+                    text: "󰕰"
+                    color: bar.openPopout === "controlcenter" ? Theme.accent : Theme.fg
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: bar.togglePopout("controlcenter", bar.itemCenterX(ccItem))
+                }
+            }
 
             Item { // screencast indicator
                 visible: bar.casting
