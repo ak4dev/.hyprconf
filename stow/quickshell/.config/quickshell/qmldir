@@ -6,5 +6,6 @@ PopoutWindow PopoutWindow.qml
 CalendarPopout CalendarPopout.qml
 VolumePopout VolumePopout.qml
 NetworkPopout NetworkPopout.qml
+TrayMenuPopout TrayMenuPopout.qml
 Osd Osd.qml
 ScreenCorners ScreenCorners.qml

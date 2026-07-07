@@ -62,7 +62,10 @@ Singleton {
 
     // derived translucent tokens (waybar uses background @ 0.8)
     readonly property color bgAlpha: Qt.rgba(bg.r, bg.g, bg.b, 0.8)
-    readonly property color surface: Qt.rgba(bg.r, bg.g, bg.b, 0.78)
+    // popout/OSD surface — opaque enough to read clearly over any wallpaper
+    // (it has no border), while Hyprland's blur still shows through. Kept a
+    // touch translucent (same for light and dark themes) for the frosted feel.
+    readonly property color surface: Qt.rgba(bg.r, bg.g, bg.b, 0.87)
     readonly property color divider: Qt.rgba(fg.r, fg.g, fg.b, 0.10)
     readonly property color hover: Qt.rgba(cyan.r, cyan.g, cyan.b, 0.20)
     readonly property color purpleAlpha: Qt.rgba(purple.r, purple.g, purple.b, 0.22)

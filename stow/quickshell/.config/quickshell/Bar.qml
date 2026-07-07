@@ -136,6 +136,13 @@ PanelWindow {
         return it.mapToItem(null, it.width / 2, 0).x
     }
 
+    property var trayHandle: null
+
+    function openTrayMenu(trayItem, anchorX) {
+        bar.trayHandle = trayItem.menu
+        bar.togglePopout("tray", anchorX)
+    }
+
     function togglePopout(name, anchorX) {
         if (popout.open && bar.openPopout === name) {
             popout.close()
@@ -171,6 +178,7 @@ PanelWindow {
         contentComponent: bar.openPopout === "calendar" ? calComp
                         : bar.openPopout === "volume" ? volComp
                         : bar.openPopout === "network" ? netComp
+                        : bar.openPopout === "tray" ? trayComp
                         : null
     }
 
@@ -179,6 +187,13 @@ PanelWindow {
     Component {
         id: netComp
         NetworkPopout { barWin: bar }
+    }
+    Component {
+        id: trayComp
+        TrayMenuPopout {
+            handle: bar.trayHandle
+            onDismissed: popout.close()
+        }
     }
 
     Rectangle {
@@ -383,15 +398,11 @@ PanelWindow {
                                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                                 onClicked: mouse => {
                                     const item = trayIcon.modelData
-                                    // Menu is rendered by Quickshell's own menu
-                                    // (handles submenus natively — a hand-rolled
-                                    // QsMenuOpener tree can't keep nested
-                                    // dbusmenu submenus open inside a popup).
-                                    const p = trayIcon.mapToItem(null, 0, trayIcon.height)
+                                    const ax = trayIcon.mapToItem(null, trayIcon.width / 2, 0).x
                                     if (mouse.button === Qt.RightButton
                                             || (mouse.button === Qt.LeftButton && item.onlyMenu)) {
                                         if (item.hasMenu)
-                                            item.display(bar, p.x, p.y)
+                                            bar.openTrayMenu(item, ax)
                                     } else if (mouse.button === Qt.MiddleButton) {
                                         item.secondaryActivate()
                                     } else {
