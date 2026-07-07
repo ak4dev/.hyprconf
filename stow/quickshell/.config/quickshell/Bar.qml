@@ -496,19 +496,26 @@ PanelWindow {
                 onModuleClicked: Quickshell.execDetached([bar.home + "/.local/bin/hyprconf", "vpn", "toggle"])
             }
 
-            Item { // network — sized to content (no fixed min-width; the
-                    // rates already stabilise once traffic is flowing)
+            Item { // network — FIXED width so changing rates don't reflow the
+                    // rest of the right side (the annoying jitter). Left-
+                    // aligned; extreme values elide rather than push.
                 id: netItem
-                width: netText.implicitWidth + 12
+                width: 172
                 height: parent.height
 
                 BarText {
                     id: netText
-                    anchors.centerIn: parent
+                    x: 6
+                    width: parent.width - 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
                     color: Theme.cyan
+                    // "/s" is implied for a rate; dropping it keeps the fixed
+                    // width from eliding when both directions are in kB/s.
                     text: bar.netKind === "off" ? "󰖪 Disconnected"
                         : (bar.netKind === "wifi" ? "󰖩" : "󰈀")
-                          + " ↓" + bar.netDown + " ↑" + bar.netUp
+                          + " ↓" + bar.netDown.replace("/s", "")
+                          + " ↑" + bar.netUp.replace("/s", "")
                 }
 
                 MouseArea {

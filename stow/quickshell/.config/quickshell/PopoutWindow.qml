@@ -22,6 +22,9 @@ PanelWindow {
     visible: open && contentComponent !== null
 
     WlrLayershell.namespace: "quickshell:popouts"
+    // OnDemand lets in-popout text fields (e.g. the Wi-Fi password box) take
+    // keyboard focus; the HyprlandFocusGrab routes input to this surface.
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     exclusionMode: ExclusionMode.Ignore
     color: "transparent"
 
