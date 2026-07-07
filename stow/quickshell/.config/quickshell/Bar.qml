@@ -102,10 +102,6 @@ PanelWindow {
     property string netKind: "off"
     property string netDown: "0B/s"
     property string netUp: "0B/s"
-    property string netIface: ""
-    property string netIp: ""
-    property string netRxTotal: ""
-    property string netTxTotal: ""
 
     Process {
         running: true
@@ -119,17 +115,13 @@ PanelWindow {
                     bar.netKind = j.net
                     bar.netDown = j.down
                     bar.netUp = j.up
-                    bar.netIface = j.iface ?? ""
-                    bar.netIp = j.ip ?? ""
-                    bar.netRxTotal = j.rxt ?? ""
-                    bar.netTxTotal = j.txt ?? ""
                 } catch (e) {}
             }
         }
     }
 
     // ---- popouts
-    readonly property var popoutNames: ["calendar", "volume", "network", "controlcenter"]
+    readonly property var popoutNames: ["calendar", "volume", "controlcenter"]
     property string openPopout: ""
 
     function itemCenterX(it): real {
@@ -159,8 +151,7 @@ PanelWindow {
         const anchorItems = {
             calendar: clockItem,
             volume: volItem,
-            network: netItem,
-            controlcenter: ccItem
+            controlcenter: netItem
         }
         if (!bar.popoutNames.includes(name))
             return "unknown popout: " + name
@@ -178,7 +169,6 @@ PanelWindow {
         }
         contentComponent: bar.openPopout === "calendar" ? calComp
                         : bar.openPopout === "volume" ? volComp
-                        : bar.openPopout === "network" ? netComp
                         : bar.openPopout === "controlcenter" ? ccComp
                         : bar.openPopout === "tray" ? trayComp
                         : null
@@ -187,10 +177,6 @@ PanelWindow {
     Component { id: calComp; CalendarPopout {} }
     Component { id: volComp; VolumePopout {} }
     Component { id: ccComp; ControlCenter {} }
-    Component {
-        id: netComp
-        NetworkPopout { barWin: bar }
-    }
     Component {
         id: trayComp
         TrayMenuPopout {
@@ -350,23 +336,6 @@ PanelWindow {
             anchors.right: parent.right
             height: parent.height
 
-            Item { // control center (macOS-style toggles panel)
-                id: ccItem
-                width: 26
-                height: parent.height
-
-                BarText {
-                    anchors.centerIn: parent
-                    text: "󰕰"
-                    color: bar.openPopout === "controlcenter" ? Theme.accent : Theme.fg
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    onClicked: bar.togglePopout("controlcenter", bar.itemCenterX(ccItem))
-                }
-            }
-
             Item { // screencast indicator
                 visible: bar.casting
                 width: visible ? 18 : 0
@@ -389,7 +358,13 @@ PanelWindow {
             }
 
             Item { // tray: padding 0 8, icon 16, spacing 8
-                visible: SystemTray.items.values.length > 0
+                id: trayBox
+                // Bluetooth (blueman) is filtered out — it's managed by the
+                // Control Center now, so its tray icon is redundant. blueman-
+                // applet keeps running as the pairing agent.
+                readonly property var trayItems: SystemTray.items.values.filter(
+                    i => !(i.id ?? "").toLowerCase().includes("blueman"))
+                visible: trayItems.length > 0
                 width: visible ? trayRow.width + 16 : 0
                 height: parent.height
 
@@ -400,7 +375,7 @@ PanelWindow {
                     spacing: 8
 
                     Repeater {
-                        model: SystemTray.items
+                        model: trayBox.trayItems
 
                         delegate: Item {
                             id: trayIcon
@@ -520,7 +495,7 @@ PanelWindow {
 
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: bar.togglePopout("network", bar.itemCenterX(netItem))
+                    onClicked: bar.togglePopout("controlcenter", bar.itemCenterX(netItem))
                 }
             }
 

@@ -21,7 +21,7 @@ gib() {
 }
 
 prev_total=0 prev_idle=0 prev_rx=0 prev_tx=0
-first=1 tick=0 ip4="" base_rx=-1 base_tx=-1
+first=1
 
 while :; do
     # ---- cpu: aggregate line of /proc/stat
@@ -44,39 +44,44 @@ while :; do
     done < /proc/meminfo
     mem="$(gib $(( mem_total - mem_avail )))/$(gib "$mem_total")G"
 
-    # ---- network: default-route interface
-    iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
-    net=off rx=0 tx=0
+    # ---- network. Ethernet takes precedence: if any wired interface has a
+    # link up, show it (icon + rates); otherwise fall back to the default-
+    # route interface (Wi-Fi / other).
+    iface="" net=off
+    for _d in /sys/class/net/*; do
+        _n=${_d##*/}
+        [[ $_n == lo ]] && continue
+        [[ -d $_d/wireless ]] && continue        # not Wi-Fi
+        [[ -e $_d/device ]] || continue          # skip virtual (veth/docker/…)
+        if [[ "$(<"$_d/operstate" 2>/dev/null)" == up ]]; then
+            iface=$_n net=eth
+            break
+        fi
+    done
+    if [[ -z $iface ]]; then
+        iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
+        if [[ -n $iface ]]; then
+            [[ -d /sys/class/net/$iface/wireless ]] && net=wifi || net=eth
+        fi
+    fi
+    rx=0 tx=0
     if [[ -n $iface && -r /sys/class/net/$iface/statistics/rx_bytes ]]; then
         rx=$(< "/sys/class/net/$iface/statistics/rx_bytes")
         tx=$(< "/sys/class/net/$iface/statistics/tx_bytes")
-        if [[ -d /sys/class/net/$iface/wireless ]]; then net=wifi; else net=eth; fi
+    else
+        net=off
     fi
     drx=$(( rx - prev_rx )) dtx=$(( tx - prev_tx ))
     (( drx < 0 )) && drx=0
     (( dtx < 0 )) && dtx=0
     prev_rx=$rx prev_tx=$tx
 
-    # Session totals since the sampler started (survives counter direction
-    # only, not interface changes — good enough for the popout).
-    (( base_rx < 0 )) && base_rx=$rx base_tx=$tx
-    tot_rx=$(( rx - base_rx )); (( tot_rx < 0 )) && tot_rx=0
-    tot_tx=$(( tx - base_tx )); (( tot_tx < 0 )) && tot_tx=0
-
-    # IPv4 lookup is comparatively expensive — refresh every 5th sample.
-    if (( tick % 5 == 0 )); then
-        ip4=""
-        [[ -n $iface ]] && ip4=$(ip -o -4 addr show dev "$iface" 2>/dev/null | awk '{print $4; exit}')
-    fi
-    tick=$(( tick + 1 ))
-
     # First sample has no baseline for the deltas — skip it.
     if (( first )); then
         first=0
     else
-        printf '{"cpu":%d,"mem":"%s","net":"%s","down":"%s","up":"%s","iface":"%s","ip":"%s","rxt":"%s","txt":"%s"}\n' \
-            "$cpu" "$mem" "$net" "$(human "$drx")" "$(human "$dtx")" \
-            "$iface" "$ip4" "$(human "$tot_rx" B)" "$(human "$tot_tx" B)"
+        printf '{"cpu":%d,"mem":"%s","net":"%s","down":"%s","up":"%s"}\n' \
+            "$cpu" "$mem" "$net" "$(human "$drx")" "$(human "$dtx")"
     fi
 
     sleep 1
