@@ -76,7 +76,7 @@ PanelWindow {
                 anchors.verticalCenter: parent.verticalCenter
                 text: osd.muted ? "󰝟"
                     : osd.vol <= 0.33 ? "󰕿" : osd.vol <= 0.66 ? "󰖀" : "󰕾"
-                color: osd.muted ? Theme.red : Theme.pink
+                color: osd.muted ? Theme.red : Theme.accent
             }
 
             Rectangle {
@@ -84,13 +84,13 @@ PanelWindow {
                 width: 160
                 height: 6
                 radius: 3
-                color: "#40928374"
+                color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.15)
 
                 Rectangle {
                     width: parent.width * Math.min(1, osd.vol)
                     height: parent.height
                     radius: parent.radius
-                    color: osd.muted ? Theme.comment : Theme.pink
+                    color: osd.muted ? Theme.comment : Theme.accent
 
                     Behavior on width {
                         NumberAnimation { duration: 80 }
