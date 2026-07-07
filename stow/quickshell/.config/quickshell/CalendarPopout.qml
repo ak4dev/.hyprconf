@@ -1,12 +1,20 @@
 import QtQuick
+import Quickshell
 
-// Month calendar (upgrade of waybar's clock tooltip). Click the title to
-// jump back to the current month.
+// Modern clock + month calendar (upgrade of waybar's clock tooltip):
+// a large live time/date header over a month grid with weekend shading,
+// today highlighted, and hover feedback. Click the month title for today.
 Column {
     id: root
-    spacing: 8
+    spacing: 12
+    width: 260
 
     property date shown: new Date()
+
+    SystemClock {
+        id: clock
+        precision: SystemClock.Seconds
+    }
 
     function monthShift(delta) {
         const d = new Date(shown)
@@ -15,10 +23,40 @@ Column {
         root.shown = d
     }
 
-    // header: ‹ July 2026 ›
+    // ---- header: big time + full date
+    Column {
+        width: parent.width
+        spacing: 0
+
+        BarText {
+            text: Qt.formatDateTime(clock.date, "h:mm")
+            font.pixelSize: 38
+            color: Theme.accent
+
+            BarText { // seconds, small
+                anchors.left: parent.right
+                anchors.leftMargin: 4
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: 4
+                text: Qt.formatDateTime(clock.date, "ss")
+                font.pixelSize: 14
+                color: Theme.comment
+            }
+        }
+
+        BarText {
+            text: Qt.formatDateTime(clock.date, "dddd, MMMM d")
+            font.pixelSize: 13
+            color: Theme.fg
+        }
+    }
+
+    Rectangle { width: parent.width; height: 1; color: Theme.divider }
+
+    // ---- month nav
     Item {
         width: grid.width
-        height: 24
+        height: 22
 
         BarText {
             anchors.left: parent.left
@@ -28,7 +66,7 @@ Column {
             MouseArea {
                 id: navL
                 anchors.fill: parent
-                anchors.margins: -6
+                anchors.margins: -8
                 hoverEnabled: true
                 onClicked: root.monthShift(-1)
             }
@@ -37,7 +75,8 @@ Column {
         BarText {
             anchors.centerIn: parent
             text: Qt.formatDate(root.shown, "MMMM yyyy")
-            color: titleM.containsMouse ? Theme.cyan : Theme.accent
+            font.pixelSize: 13
+            color: titleM.containsMouse ? Theme.cyan : Theme.fg
             MouseArea {
                 id: titleM
                 anchors.fill: parent
@@ -54,30 +93,32 @@ Column {
             MouseArea {
                 id: navR
                 anchors.fill: parent
-                anchors.margins: -6
+                anchors.margins: -8
                 hoverEnabled: true
                 onClicked: root.monthShift(1)
             }
         }
     }
 
+    // ---- day grid
     Grid {
         id: grid
+        anchors.horizontalCenter: parent.horizontalCenter
         columns: 7
         spacing: 2
 
-        // day-of-week header, Sunday first (en_US, matching the clock format)
         Repeater {
             model: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
             delegate: Item {
+                required property int index
                 required property string modelData
-                width: 30
-                height: 22
+                width: 34
+                height: 20
                 BarText {
                     anchors.centerIn: parent
                     text: parent.modelData
-                    font.pixelSize: 12
-                    color: Theme.comment
+                    font.pixelSize: 11
+                    color: (index === 0 || index === 6) ? Theme.orange : Theme.comment
                 }
             }
         }
@@ -95,6 +136,7 @@ Column {
                     d.setDate(start.getDate() + i)
                     cells.push({
                         day: d.getDate(),
+                        weekend: d.getDay() === 0 || d.getDay() === 6,
                         inMonth: d.getMonth() === m,
                         today: d.getFullYear() === today.getFullYear()
                             && d.getMonth() === today.getMonth()
@@ -107,18 +149,27 @@ Column {
             delegate: Rectangle {
                 id: cell
                 required property var modelData
-                width: 30
-                height: 26
+                width: 34
+                height: 28
                 radius: 8
-                color: modelData.today ? Theme.accent : "transparent"
+                color: modelData.today ? Theme.accent
+                     : cellM.containsMouse ? Theme.hover
+                     : "transparent"
 
                 BarText {
                     anchors.centerIn: parent
                     text: String(cell.modelData.day)
                     font.pixelSize: 12
                     color: cell.modelData.today ? "#282828"
-                         : cell.modelData.inMonth ? Theme.fg
-                         : "#66928374"
+                         : !cell.modelData.inMonth ? "#55928374"
+                         : cell.modelData.weekend ? Theme.orange
+                         : Theme.fg
+                }
+
+                MouseArea {
+                    id: cellM
+                    anchors.fill: parent
+                    hoverEnabled: true
                 }
             }
         }

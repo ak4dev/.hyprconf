@@ -1,10 +1,11 @@
 # Quickshell bar (experiment)
 
-QtQuick replacement for the waybar setup, mirroring `stow/waybar`'s layout,
-colors, and module set, then extending it with frosted-glass popouts, a
-volume OSD, a custom tray menu, and rounded screen corners. Lives on the
-`feat/quickshell-bar` branch; waybar's config is untouched and its exec line
-is kept (commented) in `hyprland.conf` for rollback.
+QtQuick replacement for the waybar setup, mirroring `stow/waybar`'s layout
+and module set, then extending it with frosted-glass popouts, a volume OSD,
+and rounded screen corners. Colors are driven live by hyprconf's theme
+switcher. Lives on the `feat/quickshell-bar` branch; waybar's config is
+untouched and its exec line is kept (commented) in `hyprland.conf` for
+rollback.
 
 ## Runtime
 
@@ -20,11 +21,22 @@ rm -rf ~/.local/opt/quickshell
 hyprctl reload
 ```
 
+## Theming
+
+`Theme.qml` reads the *same source of truth* as waybar/kitty/dunst: the
+active theme name in `~/.config/hypr/.current-theme` selects
+`theme-switcher/themes/<name>.json`, whose keys (`background`, `foreground`,
+`comment`, `accent`, `cyan`, `green`, `red`, `orange`, `purple`) drive the
+bar. `yellow`/`pink` fall back to fixed values when a theme omits them, just
+like waybar. Both files are watched, so switching themes recolors the bar
+live with no restart. Translucent tokens (bar/popout/OSD surfaces) are
+derived from the theme background at reduced alpha.
+
 ## Bar modules
 
 Left: workspaces island (native Hyprland IPC, scroll to cycle) · window
-title. Center: clock. Right: screencast indicator · media · tray · cpu ·
-cpu-temp · memory · gpu · vpn · network · volume · battery.
+title. Center: clock. Right: screencast indicator · tray · cpu · cpu-temp ·
+memory · gpu · vpn · network · volume · battery.
 
 The cpu-temp, GPU, VPN, and battery modules re-run the existing scripts from
 `~/.config/waybar/` unchanged via `ScriptModule`, so their hermetic tests
@@ -32,27 +44,32 @@ still cover them. cpu/mem/net come from one long-lived `stats.sh` sampler.
 
 ## Popouts & extras (quickshell-only)
 
-Frosted panels blurred by Hyprland (`layerrule` in `hyprland.conf`), each
-dismissed by clicking outside (`HyprlandFocusGrab`):
+Borderless frosted panels blurred by Hyprland (`layerrule` in
+`hyprland.conf`), each dismissed by clicking outside (`HyprlandFocusGrab`):
 
-- **Calendar** (click clock) — month view, prev/next, click title for today.
+- **Calendar** (click clock) — live time/date header + month grid with
+  weekend shading, today highlighted; prev/next, click title for today.
 - **Volume** (click volume) — slider, mute, output-device switcher.
 - **Network** (click network) — interface, IPv4, live rates, session totals.
-- **Media** (click media) — MPRIS art/title/progress + transport controls.
-- **Tray menu** (right-click a tray icon) — custom-rendered SNI/dbusmenu
-  with submenus, checkboxes, and icons in the frosted style.
 - **Volume OSD** — macOS-style pill at the bottom of the focused monitor on
   volume/mute change; input-transparent, auto-hides.
 - **Screen corners** — cosmetic rounded bezel, one overlay per monitor,
   fully click-through (empty input region).
 
+Tray icons: left-click activates, middle-click is the secondary action, and
+right-click (or left-click for menu-only items) opens the item's menu via
+Quickshell's own menu renderer — which handles nested dbusmenu submenus
+(Wi-Fi lists, audio profiles) correctly. A hand-rolled frosted menu was
+tried first but could not keep nested submenus open inside a layer-shell
+popup in Quickshell 0.3.0.
+
 Module gestures: volume scroll = ±5%, middle-click = mute, right-click =
-pavucontrol; media middle-click = play/pause; workspaces scroll = switch;
-clock middle-click = toggle date format.
+pavucontrol; workspaces scroll = switch; clock middle-click = toggle date
+format.
 
 ### Popout IPC / keybinds
 
-`IpcHandler` target `popouts` exposes `toggle <calendar|volume|network|media>`
+`IpcHandler` target `popouts` exposes `toggle <calendar|volume|network>`
 (the name is validated against a fixed list and never executed). Once the
 `quickshell` package is installed so `qs` is on `PATH`, these can be bound in
 `keybinds.conf`, e.g.:
@@ -63,20 +80,12 @@ bind = $mainMod, C, exec, qs ipc call popouts toggle calendar
 
 ## Security notes
 
-- No network I/O: album art is only loaded from `file://` URLs; everything
-  else is local sockets (Hyprland IPC, Pipewire, D-Bus SNI/MPRIS).
-- All externally-controlled strings (window titles, MPRIS metadata, tray
-  menu labels) render as `Text.PlainText` — never rich text, never
-  interpolated into a shell command.
+- No network I/O — only local sockets (Hyprland IPC, Pipewire, D-Bus SNI).
+- All externally-controlled strings (window titles, tray menu labels) render
+  as `Text.PlainText` — never rich text, never interpolated into a shell.
 - Subprocess calls use `Quickshell.execDetached([...])` argv arrays (no
   `sh -c`); the reused waybar scripts are unchanged.
-
-## Differences from waybar (intentional)
-
-- On narrow (portrait) monitors the title elides and the clock slides left;
-  waybar let the sections overlap.
-- Workspaces, window title, volume, tray, and media are event-driven
-  (Hyprland IPC socket, Pipewire/MPRIS native) instead of polled.
+- `Theme.qml` only *reads* theme files; it never writes or executes them.
 
 ## Not yet done
 

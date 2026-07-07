@@ -78,8 +78,6 @@ PanelWindow {
             anchors.fill: parent
             radius: Theme.radius
             color: Theme.surface
-            border.width: 1
-            border.color: Theme.surfaceBorder
         }
 
         Loader {

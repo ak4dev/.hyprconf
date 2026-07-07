@@ -17,9 +17,9 @@ ShellRoot {
         delegate: ScreenCorners {}
     }
 
-    // `qs ipc call popouts toggle <calendar|volume|network|media>` — also
-    // usable from hyprland keybinds. Argument is validated in Bar.ipcToggle
-    // and never executed.
+    // `qs ipc call popouts toggle <calendar|volume|network>` — also usable
+    // from hyprland keybinds. Argument is validated in Bar.ipcToggle and
+    // never executed.
     IpcHandler {
         target: "popouts"
 

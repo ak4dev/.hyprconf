@@ -5,7 +5,6 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import Quickshell.Services.SystemTray
 import Quickshell.Services.Pipewire
-import Quickshell.Services.Mpris
 import Quickshell.Widgets
 
 // One bar per monitor; layout and styling mirror waybar.jsonc + waybar.css,
@@ -97,12 +96,6 @@ PanelWindow {
     readonly property real vol: sink?.audio?.volume ?? 0
     readonly property bool muted: sink?.audio?.muted ?? false
 
-    // ---- mpris (media module)
-    readonly property var player: {
-        const ps = Mpris.players.values
-        return ps.find(p => p.isPlaying) ?? (ps.length > 0 ? ps[0] : null)
-    }
-
     // ---- streaming cpu/mem/net stats (single long-lived sampler)
     property int cpuPct: 0
     property string memText: ""
@@ -136,9 +129,8 @@ PanelWindow {
     }
 
     // ---- popouts
-    readonly property var popoutNames: ["calendar", "volume", "network", "media"]
+    readonly property var popoutNames: ["calendar", "volume", "network"]
     property string openPopout: ""
-    property var trayHandle: null
 
     function itemCenterX(it): real {
         return it.mapToItem(null, it.width / 2, 0).x
@@ -160,20 +152,12 @@ PanelWindow {
         const anchorItems = {
             calendar: clockItem,
             volume: volItem,
-            network: netItem,
-            media: mediaItem
+            network: netItem
         }
         if (!bar.popoutNames.includes(name))
             return "unknown popout: " + name
-        if (name === "media" && bar.player === null)
-            return "no media player"
         bar.togglePopout(name, bar.itemCenterX(anchorItems[name]))
         return "ok"
-    }
-
-    function openTrayMenu(trayItem, anchorX) {
-        bar.trayHandle = trayItem.menu
-        bar.togglePopout("tray", anchorX)
     }
 
     PopoutWindow {
@@ -187,8 +171,6 @@ PanelWindow {
         contentComponent: bar.openPopout === "calendar" ? calComp
                         : bar.openPopout === "volume" ? volComp
                         : bar.openPopout === "network" ? netComp
-                        : bar.openPopout === "media" ? mediaComp
-                        : bar.openPopout === "tray" ? trayComp
                         : null
     }
 
@@ -197,17 +179,6 @@ PanelWindow {
     Component {
         id: netComp
         NetworkPopout { barWin: bar }
-    }
-    Component {
-        id: mediaComp
-        MediaPopout { player: bar.player }
-    }
-    Component {
-        id: trayComp
-        TrayMenuPopout {
-            handle: bar.trayHandle
-            onDismissed: popout.close()
-        }
     }
 
     Rectangle {
@@ -382,36 +353,6 @@ PanelWindow {
                 }
             }
 
-            Item { // mpris media
-                id: mediaItem
-                visible: bar.player !== null
-                width: visible ? mediaText.implicitWidth + 16 : 0
-                height: parent.height
-
-                BarText {
-                    id: mediaText
-                    x: 8
-                    anchors.verticalCenter: parent.verticalCenter
-                    color: Theme.orange
-                    text: {
-                        const t = bar.player?.trackTitle || "media"
-                        return (bar.player?.isPlaying ? "󰎈 " : "󰏤 ")
-                             + (t.length > 24 ? t.substring(0, 24) + "…" : t)
-                    }
-                }
-
-                MouseArea {
-                    anchors.fill: parent
-                    acceptedButtons: Qt.LeftButton | Qt.MiddleButton
-                    onClicked: mouse => {
-                        if (mouse.button === Qt.MiddleButton && bar.player?.canTogglePlaying)
-                            bar.player.togglePlaying()
-                        else
-                            bar.togglePopout("media", bar.itemCenterX(mediaItem))
-                    }
-                }
-            }
-
             Item { // tray: padding 0 8, icon 16, spacing 8
                 visible: SystemTray.items.values.length > 0
                 width: visible ? trayRow.width + 16 : 0
@@ -442,11 +383,15 @@ PanelWindow {
                                 acceptedButtons: Qt.LeftButton | Qt.MiddleButton | Qt.RightButton
                                 onClicked: mouse => {
                                     const item = trayIcon.modelData
-                                    const ax = trayIcon.mapToItem(null, trayIcon.width / 2, 0).x
+                                    // Menu is rendered by Quickshell's own menu
+                                    // (handles submenus natively — a hand-rolled
+                                    // QsMenuOpener tree can't keep nested
+                                    // dbusmenu submenus open inside a popup).
+                                    const p = trayIcon.mapToItem(null, 0, trayIcon.height)
                                     if (mouse.button === Qt.RightButton
                                             || (mouse.button === Qt.LeftButton && item.onlyMenu)) {
                                         if (item.hasMenu)
-                                            bar.openTrayMenu(item, ax)
+                                            item.display(bar, p.x, p.y)
                                     } else if (mouse.button === Qt.MiddleButton) {
                                         item.secondaryActivate()
                                     } else {
@@ -520,9 +465,10 @@ PanelWindow {
                 onModuleClicked: Quickshell.execDetached([bar.home + "/.local/bin/hyprconf", "vpn", "toggle"])
             }
 
-            Item { // network (min-width 180 like waybar.css)
+            Item { // network — sized to content (no fixed min-width; the
+                    // rates already stabilise once traffic is flowing)
                 id: netItem
-                width: Math.max(netText.implicitWidth + 16, 180)
+                width: netText.implicitWidth + 12
                 height: parent.height
 
                 BarText {

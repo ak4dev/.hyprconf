@@ -13,8 +13,8 @@ Item {
     property color textColor: Theme.fg
     // class name -> color; unknown classes fall back to textColor
     property var classColors: ({})
-    property int padL: 8
-    property int padR: 8
+    property int padL: 5
+    property int padR: 5
 
     property string text: ""
     property string klass: ""
