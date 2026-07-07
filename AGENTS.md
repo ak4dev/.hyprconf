@@ -4,6 +4,8 @@ See [`.github/copilot-instructions.md`](.github/copilot-instructions.md) for the
 
 Hyprland config reference (syntax cheatsheet): [`docs/hyprland-reference.md`](docs/hyprland-reference.md)
 
+Quickshell API reference (bar/QML cheatsheet): [`docs/quickshell-reference.md`](docs/quickshell-reference.md) — when touching `stow/quickshell/`, always re-verify APIs against the quickshell.org docs for the **installed** version (see the Quickshell Documentation section of the copilot instructions).
+
 ## Project vision (the north star)
 
 hyprconf is an **instantly-deployable, privacy-focused** Arch Linux + Hyprland

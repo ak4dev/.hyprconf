@@ -20,6 +20,26 @@ When making any Hyprland configuration change, consult these resources in order:
 
 ---
 
+## Quickshell Documentation
+
+When modifying any Quickshell feature (anything under `stow/quickshell/`), consult these resources in order — **never work from memory or training data; Quickshell's API is young and changes between minor versions**:
+
+1. **`docs/quickshell-reference.md`** (this repo) — curated cheatsheet covering every Quickshell type in active use: runtime/CLI, PanelWindow + layer shell, Process/FileView/IpcHandler, Hyprland integration, SystemTray, Pipewire, Bluetooth, Networking, and the repo integration map.
+2. **Quickshell docs** — <https://quickshell.org/docs/v0.3.0/types/> — authoritative typed API reference. **Match the docs version to the installed package** (`pacman -Q quickshell`); after an upgrade, swap the `v0.3.0` path segment and re-verify every API you touch. Key modules:
+   - Quickshell (core): <https://quickshell.org/docs/v0.3.0/types/Quickshell/>
+   - Io (Process/FileView/IPC): <https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/>
+   - Wayland (layer shell): <https://quickshell.org/docs/v0.3.0/types/Quickshell.Wayland/>
+   - Hyprland: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Hyprland/>
+   - SystemTray: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Services.SystemTray/>
+   - Pipewire: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Services.Pipewire/>
+   - Bluetooth: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Bluetooth/>
+   - Networking: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Networking/>
+3. The installed build's qmltypes are the ground truth when docs pages are thin: `/usr/lib/qt6/qml/Quickshell/**/*.qmltypes` (or the user-local tree while the fallback runtime is in use).
+
+**When adding features not covered in `docs/quickshell-reference.md`**, add a concise example of the new API to the appropriate section in that file. Preserve the security invariants documented there: argv-only subprocesses (no `sh -c` with external strings), `Text.PlainText` for externally-controlled strings, validated IPC inputs, secrets over D-Bus never argv.
+
+---
+
 ## README
 
 **`README.md` is the primary source of truth for any AI agent working on this project.** Inaccurate README content means flawed context for every future agent — treat drift as a correctness bug, not a documentation gap.
@@ -99,7 +119,7 @@ This is a monorepo — all components (dotfiles, Python library, static site, te
 | `web/` | Static landing page (S3 + CloudFront) — **not user-facing** | ✗ |
 | `tests/` | All test tiers (unit/integration/tui/vm/install) | ✗ |
 | `scripts/` | `publish` script for releases | ✗ |
-| `docs/` | CONTRIBUTING.md, hyprland-reference.md | ✗ |
+| `docs/` | CONTRIBUTING.md, hyprland-reference.md, quickshell-reference.md | ✗ |
 | `.github/` | CI workflows, copilot instructions | ✗ |
 
 ### Key layout rules
