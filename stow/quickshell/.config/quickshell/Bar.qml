@@ -359,11 +359,15 @@ PanelWindow {
 
             Item { // tray: padding 0 8, icon 16, spacing 8
                 id: trayBox
-                // Bluetooth (blueman) is filtered out — it's managed by the
-                // Control Center now, so its tray icon is redundant. blueman-
-                // applet keeps running as the pairing agent.
-                readonly property var trayItems: SystemTray.items.values.filter(
-                    i => !(i.id ?? "").toLowerCase().includes("blueman"))
+                // Bluetooth (blueman) and NetworkManager (nm-applet) icons are
+                // filtered out — both are managed by the Control Center now, so
+                // their tray icons are redundant. The applets keep running as
+                // the Bluetooth pairing agent / network secret agent.
+                readonly property var trayHidden: ["blueman", "nm-applet", "nm_applet"]
+                readonly property var trayItems: SystemTray.items.values.filter(i => {
+                    const id = (i.id ?? "").toLowerCase()
+                    return !trayBox.trayHidden.some(h => id.includes(h))
+                })
                 visible: trayItems.length > 0
                 width: visible ? trayRow.width + 16 : 0
                 height: parent.height

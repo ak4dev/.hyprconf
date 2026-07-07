@@ -35,8 +35,11 @@ derived from the theme background at reduced alpha.
 ## Bar modules
 
 Left: workspaces island (native Hyprland IPC, scroll to cycle) · window
-title. Center: clock. Right: screencast indicator · tray · cpu · cpu-temp ·
-memory · gpu · vpn · network · volume · battery.
+title. Center: clock. Right: screencast indicator · tray (Bluetooth and
+network-manager icons filtered out — both are managed by the Control
+Center) · cpu · cpu-temp · memory · gpu · vpn · network · volume · battery.
+The network module prefers the ethernet icon when a wired link is up, and
+clicking it opens the Control Center.
 
 The cpu-temp, GPU, VPN, and battery modules re-run the existing scripts from
 `~/.config/waybar/` unchanged via `ScriptModule`, so their hermetic tests
@@ -47,7 +50,7 @@ still cover them. cpu/mem/net come from one long-lived `stats.sh` sampler.
 Borderless frosted panels blurred by Hyprland (`layerrule` in
 `hyprland.conf`), each dismissed by clicking outside (`HyprlandFocusGrab`):
 
-- **Control Center** (grid icon `󰕰`) — macOS-style unified panel:
+- **Control Center** (click the network module) — macOS-style unified panel:
   - Wi-Fi + Bluetooth toggle tiles.
   - **Wi-Fi network list** (nmcli scan) — click to connect; open/saved
     networks connect directly, secured ones reveal an inline password box.
@@ -64,7 +67,6 @@ Borderless frosted panels blurred by Hyprland (`layerrule` in
 - **Calendar** (click clock) — live time/date header + month grid with
   weekend shading, today highlighted; prev/next, click title for today.
 - **Volume** (click volume) — slider, mute, output-device switcher.
-- **Network** (click network) — interface, IPv4, live rates, session totals.
 - **Volume OSD** — macOS-style pill at the bottom of the focused monitor on
   volume/mute change; input-transparent, auto-hides.
 - **Screen corners** — cosmetic rounded bezel, one overlay per monitor,
@@ -86,7 +88,7 @@ format.
 
 ### Popout IPC / keybinds
 
-`IpcHandler` target `popouts` exposes `toggle <calendar|volume|network>`
+`IpcHandler` target `popouts` exposes `toggle <calendar|volume|controlcenter>`
 (the name is validated against a fixed list and never executed). Once the
 `quickshell` package is installed so `qs` is on `PATH`, these can be bound in
 `keybinds.conf`, e.g.:
