@@ -57,11 +57,14 @@ Borderless frosted panels blurred by Hyprland (`layerrule` in
   fully click-through (empty input region).
 
 Tray icons: left-click activates, middle-click is the secondary action, and
-right-click (or left-click for menu-only items) opens the item's menu via
-Quickshell's own menu renderer — which handles nested dbusmenu submenus
-(Wi-Fi lists, audio profiles) correctly. A hand-rolled frosted menu was
-tried first but could not keep nested submenus open inside a layer-shell
-popup in Quickshell 0.3.0.
+right-click (or left-click for menu-only items) opens the item's menu as a
+frosted `TrayMenuPopout`. Quickshell's native menu APIs
+(`SystemTrayItem.display()`, `QsMenuAnchor`) render nothing in this
+layer-shell bar, so the menu is custom-drawn. **Known limitation:** nested
+dbusmenu submenus (the Wi-Fi network list, audio-profile pickers) render
+empty inside the layer-shell popup in Quickshell 0.3.0 — the top-level menu
+(Enable Wi-Fi, Disconnect, Connection Information, Edit Connections, …)
+works.
 
 Module gestures: volume scroll = ±5%, middle-click = mute, right-click =
 pavucontrol; workspaces scroll = switch; clock middle-click = toggle date
