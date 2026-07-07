@@ -47,13 +47,20 @@ still cover them. cpu/mem/net come from one long-lived `stats.sh` sampler.
 Borderless frosted panels blurred by Hyprland (`layerrule` in
 `hyprland.conf`), each dismissed by clicking outside (`HyprlandFocusGrab`):
 
-- **Control Center** (grid icon `󰕰`) — macOS-style unified panel: Wi-Fi and
-  Bluetooth toggle tiles (click toggles, right-click opens the full app),
-  volume slider, audio-output picker, Bluetooth device list (connect/battery),
-  and launch actions. Wi-Fi state via `nmcli`; Bluetooth via
-  `Quickshell.Bluetooth`; audio via Pipewire. Radio toggles use argv (no
-  shell); credential flows (joining a network) are delegated to `nmtui`
-  (floated via a `nm-float` windowrule) / `blueman-manager`.
+- **Control Center** (grid icon `󰕰`) — macOS-style unified panel:
+  - Wi-Fi + Bluetooth toggle tiles.
+  - **Wi-Fi network list** (nmcli scan) — click to connect; open/saved
+    networks connect directly, secured ones reveal an inline password box.
+  - Volume slider + **output and input (mic) device pickers**, mic mute.
+  - Bluetooth device list (connect/disconnect, battery).
+  - Only *pairing a new Bluetooth device* still opens an app
+    (`blueman-manager`); everything else is inline.
+
+  Wi-Fi via `nmcli`, Bluetooth via `Quickshell.Bluetooth`, audio via
+  Pipewire. Radio toggles and connect calls use argv (no shell). A Wi-Fi
+  password is passed to `nmcli` as an argument (briefly visible in this
+  user's own process list) and is never stored or logged. The popout sets
+  `WlrLayershell.keyboardFocus: OnDemand` so the password box can type.
 - **Calendar** (click clock) — live time/date header + month grid with
   weekend shading, today highlighted; prev/next, click title for today.
 - **Volume** (click volume) — slider, mute, output-device switcher.
