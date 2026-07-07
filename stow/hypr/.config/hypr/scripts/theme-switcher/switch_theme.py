@@ -1969,7 +1969,10 @@ def update_btop(theme: dict[str, str], theme_name: str = "") -> None:
     If the JSON theme has a "btop" key, the value is treated as a system theme
     name (looked up in /usr/share/btop/themes/) or an absolute path.
     Otherwise a .theme file is generated from the palette and written to
-    ~/.config/btop/themes/.
+    ~/.config/btop/themes/, and referenced by its bare stem: btop resolves
+    names against its theme dirs and does NOT expand ~, and btop.conf is a
+    stowed, git-tracked file that must never gain a /home/<user> path
+    (no-PII invariant).
 
     Updates color_theme in ~/.config/btop/btop.conf.
     """

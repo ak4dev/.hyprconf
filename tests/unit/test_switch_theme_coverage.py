@@ -786,7 +786,11 @@ def test_update_btop_generates_theme_when_no_btop_key(tmp_path, monkeypatch):
     st.update_btop(DARK_THEME, "my-generated-theme")
 
     content = conf.read_text()
-    assert "my-generated-theme" in content
+    # Generated themes are referenced by bare stem (btop resolves names in
+    # its theme dirs) — never by absolute path: btop.conf is git-tracked and
+    # a /home/<user> path would violate the no-PII invariant.
+    assert 'color_theme = "my-generated-theme"' in content
+    assert str(tmp_path) not in content
     # Generated theme file must also exist
     assert (tmp_path / "my-generated-theme.theme").exists()
 
