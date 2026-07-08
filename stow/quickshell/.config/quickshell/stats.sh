@@ -71,7 +71,12 @@ while :; do
         fi
     done
     if [[ -z $iface ]]; then
-        iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
+        # The iface is the token after "dev", NOT a fixed field: gateway-less
+        # default routes (WireGuard/OpenVPN tunnels — "default dev wg0 scope
+        # link") carry no "via <gw>", which shifts a $5-based parse onto
+        # "scope"/"link" and made the bar claim "Disconnected" mid-VPN.
+        iface=$(ip route show default 2>/dev/null \
+            | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')
         if [[ -n $iface ]]; then
             [[ -d $HYPRCONF_STATS_NET_ROOT/$iface/wireless ]] && net=wifi || net=eth
         fi

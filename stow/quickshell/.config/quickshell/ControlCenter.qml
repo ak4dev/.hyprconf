@@ -302,7 +302,7 @@ Column {
                 Rectangle {
                     x: otrack.width * Math.min(1, root.sink?.audio?.volume ?? 0) - 7
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 14; height: 14; radius: 7; color: "#ffffff"
+                    width: 14; height: 14; radius: 7; color: Theme.fg
                 }
                 MouseArea {
                     anchors.fill: parent

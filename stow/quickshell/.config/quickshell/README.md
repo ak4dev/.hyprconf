@@ -125,10 +125,11 @@ bind = $mainMod SHIFT, N, exec, ~/.config/quickshell/launch.sh ipc call popouts 
 - Quickshell only watches files it has already **loaded** — lazily-loaded
   components (popout contents) may not hot-reload until something watched
   (e.g. `shell.qml`) is touched or `qs` is restarted.
-- The `hyprland.conf` exec line is guarded by `pgrep -x quickshell` so
-  `hyprctl reload` never restarts a running bar (a restart tears down the
-  StatusNotifierWatcher and breaks the tray). If quickshell is killed, run
-  `hyprctl reload` (or `launch.sh`) to bring it back.
+- The `hyprland.conf` exec line is guarded by `pgrep -x 'qs|quickshell'`
+  (both names: the process comm is `qs` when the system package is
+  installed) so `hyprctl reload` never restarts a running bar (a restart
+  tears down the StatusNotifierWatcher and breaks the tray). If quickshell
+  is killed, run `hyprctl reload` (or `launch.sh`) to bring it back.
 
 ## Not yet done
 

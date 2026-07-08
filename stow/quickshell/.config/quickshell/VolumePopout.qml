@@ -57,7 +57,7 @@ Column {
             width: parent.width
             height: 6
             radius: 3
-            color: "#40928374"
+            color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.15)
         }
 
         Rectangle {

@@ -160,8 +160,10 @@ Column {
                     anchors.centerIn: parent
                     text: String(cell.modelData.day)
                     font.pixelSize: 12
-                    color: cell.modelData.today ? "#282828"
-                         : !cell.modelData.inMonth ? "#55928374"
+                    // today's number sits on an accent fill — the theme
+                    // background gives contrast on dark and light themes alike
+                    color: cell.modelData.today ? Theme.bg
+                         : !cell.modelData.inMonth ? Qt.rgba(Theme.comment.r, Theme.comment.g, Theme.comment.b, 0.33)
                          : cell.modelData.weekend ? Theme.orange
                          : Theme.fg
                 }

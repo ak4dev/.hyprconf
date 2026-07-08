@@ -244,16 +244,22 @@ def _run_stats(
     net_root: Path,
     *,
     default_route_dev: str | None = "wlan0",
+    route_line: str | None = None,
     iterations: int = 2,
 ) -> list[dict]:
-    """Run stats.sh hermetically for N samples and parse its JSON lines."""
+    """Run stats.sh hermetically for N samples and parse its JSON lines.
+
+    `route_line` overrides the fake `ip route show default` output verbatim
+    (for route shapes beyond the standard `via <gw> dev <iface>` form).
+    """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    route = (
-        f'echo "default via 192.168.1.1 dev {default_route_dev} proto dhcp"\n'
-        if default_route_dev
-        else "exit 0\n"
-    )
+    if route_line is not None:
+        route = f'echo "{route_line}"\n'
+    elif default_route_dev:
+        route = f'echo "default via 192.168.1.1 dev {default_route_dev} proto dhcp"\n'
+    else:
+        route = "exit 0\n"
     _write_exe(bin_dir / "ip", "#!/usr/bin/env bash\n" + route)
     stat_f = tmp_path / "proc_stat"
     stat_f.write_text(PROC_STAT)
@@ -307,4 +313,25 @@ class TestStatsScript:
         (net / "lo").mkdir(parents=True)
         payload = _run_stats(tmp_path, net, default_route_dev=None, iterations=1)[0]
         assert payload["net"] == "off"
+        assert payload["down"] == "0B/s"
+
+    def test_vpn_tunnel_default_route_without_gateway(self, tmp_path: Path) -> None:
+        """WireGuard/OpenVPN default routes have no gateway hop — `ip route
+        show default` prints `default dev wg0 scope link`, not `default via
+        <gw> dev wg0 ...`. The interface must be parsed as the token after
+        `dev`: a fixed `$5` parse reads "link" here, and the bar showed
+        "Disconnected" while the VPN carried all traffic.
+        """
+        net = _fake_net(tmp_path, wired_up=False, wifi=False)
+        wg = net / "wg0"
+        (wg / "statistics").mkdir(parents=True)
+        # Tunnels are virtual: no device/ marker (so the wired-precedence scan
+        # must skip it), no wireless/ dir; wg operstate reads "unknown".
+        (wg / "operstate").write_text("unknown\n")
+        (wg / "statistics" / "rx_bytes").write_text("7000\n")
+        (wg / "statistics" / "tx_bytes").write_text("8000\n")
+        payload = _run_stats(tmp_path, net, route_line="default dev wg0 scope link", iterations=1)[
+            0
+        ]
+        assert payload["net"] == "eth"  # non-wifi iface renders the wired icon
         assert payload["down"] == "0B/s"

@@ -100,7 +100,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 
 > **WiFi:** if no wifi profiles were copied from the ISO (e.g. ethernet install), connect after first boot with `nmtui`.
 
-> **No AUR, ever:** setup installs **only** official-repo packages — it never installs from the AUR automatically (not even the `yay` helper or the touch-device on-screen keyboard). It also *offers to remove* any foreign/AUR packages already on the system (prompted; the `yay` helper is kept). AUR-only extras such as `bibata-cursor-theme` and `wvkbd` must be installed manually: `yay -S bibata-cursor-theme wvkbd`. AUR packages bundled with `hyprconf addon`s are installed only after an explicit warning and confirmation.
+> **No AUR, ever:** setup installs **only** official-repo packages — it never installs from the AUR automatically (not even the `yay` helper or the touch-device on-screen keyboard). It also *offers to remove* any foreign/AUR packages already on the system (prompted; the `yay` helper is kept), and gives packages hyprconf itself has retired (e.g. `waybar`, replaced by the quickshell bar) the same prompted, never-automatic treatment on sync. AUR-only extras such as `bibata-cursor-theme` and `wvkbd` must be installed manually: `yay -S bibata-cursor-theme wvkbd`. AUR packages bundled with `hyprconf addon`s are installed only after an explicit warning and confirmation.
 
 ### [3] hyprconf only *(any existing Hyprland system)*
 
@@ -442,7 +442,7 @@ Touchpad workspace swiping is configured in `gestures.conf`:
 | Command | Purpose | Restart policy |
 |---|---|---|
 | `pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf` | Wallpaper daemon | Restarted on every `exec` (config reload safe) |
-| `pgrep -x quickshell >/dev/null \|\| ~/.config/quickshell/launch.sh` | Status bar (quickshell) | Launched once; survives `hyprctl reload` (hot-reloads its own QML). A stray waybar from pre-quickshell installs is killed first |
+| `pgrep -x 'qs\|quickshell' >/dev/null \|\| ~/.config/quickshell/launch.sh` | Status bar (quickshell) | Launched once; survives `hyprctl reload` (hot-reloads its own QML). The guard matches both process names — the system package runs as `qs`. A stray waybar from pre-quickshell installs is killed first |
 | `/usr/lib/pam_kwallet_init` | KDE Wallet PAM init | Once |
 | `kwalletd6` | KDE Wallet daemon (SSH/GPG key storage) | Once |
 | `systemctl --user start hyprpolkitagent` | Polkit agent (privilege elevation dialogs) | Once |

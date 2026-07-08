@@ -99,7 +99,9 @@ Column {
                     width: root.width - 40
                     elide: Text.ElideRight
                     text: entryRow.modelData?.text ?? ""
-                    color: entryRow.modelData?.enabled ? Theme.fg : "#66928374"
+                    color: entryRow.modelData?.enabled
+                         ? Theme.fg
+                         : Qt.rgba(Theme.comment.r, Theme.comment.g, Theme.comment.b, 0.4)
                 }
             }
 

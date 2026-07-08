@@ -184,6 +184,57 @@ remove_aur_packages() {
 }
 
 
+# Packages hyprconf used to ship but has since replaced (e.g. waybar, retired
+# for the quickshell bar in v3.2). A pre-migration install keeps them forever
+# otherwise: `packages` is additive, stow cannot unstow a package whose source
+# dir left the repo, and nothing else prunes them. Offered for removal, never
+# removed silently — the user may still want them outside hyprconf.
+remove_retired_packages() {
+    command -v pacman &>/dev/null || return 0
+
+    # package -> what replaced it (shown in the prompt)
+    local -A retired=([waybar]="the quickshell bar")
+
+    # The retired waybar stow package also leaves ~/.config/waybar behind:
+    # purge_broken_symlinks (which runs earlier) prunes its dangling links,
+    # so all that remains is the empty dir. rmdir never touches user files.
+    rmdir "$HOME/.config/waybar" 2>/dev/null || true
+
+    local -a present=()
+    local pkg
+    for pkg in "${!retired[@]}"; do
+        pacman -Q "$pkg" &>/dev/null && present+=("$pkg")
+    done
+
+    [[ ${#present[@]} -eq 0 ]] && return 0
+
+    log_warn "Found ${#present[@]} package(s) hyprconf no longer uses:"
+    for pkg in "${present[@]}"; do
+        printf '    %s  (replaced by %s)\n' "$pkg" "${retired[$pkg]}"
+    done
+    printf '%s  Remove them now? This uninstalls them and their unused deps. [y/N] %s' "$WH" "$RS"
+
+    local ans
+    if [[ -t 0 ]]; then
+        read -r ans
+    else
+        ans="n"
+    fi
+
+    case "${ans,,}" in
+        y|yes)
+            log_step "Removing ${#present[@]} retired package(s)..."
+            sudo pacman -Rns --noconfirm "${present[@]}" \
+                && log_ok "Retired packages removed." \
+                || log_warn "Some retired packages could not be removed — check output above."
+            ;;
+        *)
+            log_warn "Skipped. To remove manually: sudo pacman -Rns ${present[*]}"
+            ;;
+    esac
+}
+
+
 create_directories() {
     log_step "Creating required directories..."
     mkdir -p ~/.config ~/.config/hypr ~/.local/bin ~/.vscode-oss/extensions
@@ -1497,6 +1548,9 @@ main() {
         # Enforce the no-AUR policy on every sync (prompts only when foreign
         # packages are actually present, so it stays quiet on clean systems).
         remove_aur_packages
+        # Offer to drop packages hyprconf itself retired (waybar → quickshell);
+        # quiet unless one is actually installed.
+        remove_retired_packages
 
         printf '\n%s  ✔ Sync complete.%s\n\n' "$GR" "$RS"
         return 0
@@ -1526,6 +1580,9 @@ main() {
     update_zshenv
     configure_zprofile
     purge_broken_symlinks
+    # After the purge so the retired waybar config dir is already empty
+    # (dotfiles-only installs on a pre-quickshell system still carry it).
+    remove_retired_packages
     stow_all_packages || true
     seed_hicolor_index
     setup_firefox

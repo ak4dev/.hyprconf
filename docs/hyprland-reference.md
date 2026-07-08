@@ -192,8 +192,10 @@ exec       = program  # Runs at startup AND on every `hyprctl reload`
 ```ini
 exec      = pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf
 # Guarded launch: `hyprctl reload` re-runs exec lines, so daemons that must
-# NOT restart on reload (the quickshell bar) get a pgrep guard.
-exec      = pgrep -x quickshell >/dev/null || ~/.config/quickshell/launch.sh
+# NOT restart on reload (the quickshell bar) get a pgrep guard. Match every
+# name the daemon can run under — quickshell's comm is `qs` when launched
+# via the system package, so guarding only `quickshell` always misses.
+exec      = pgrep -x 'qs|quickshell' >/dev/null || ~/.config/quickshell/launch.sh
 exec-once = systemctl --user start hyprpolkitagent
 exec-once = hypridle
 exec      = wl-paste --type text --watch cliphist store

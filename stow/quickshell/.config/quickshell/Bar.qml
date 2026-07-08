@@ -544,11 +544,13 @@ PanelWindow {
                 command: ["bash", bar.home + "/.config/quickshell/scripts/battery_power_status.sh"]
                 intervalMs: 1000
                 textColor: Theme.fg
+                // Theme tokens, not literals: hardcoded #ffffff "normal" text
+                // was invisible on light themes.
                 classColors: ({
-                    "normal": "#ffffff",
-                    "warning": "#fab005",
-                    "critical": "#f03e3e",
-                    "charging": "#37b24d"
+                    "normal": Theme.fg,
+                    "warning": Theme.yellow,
+                    "critical": Theme.red,
+                    "charging": Theme.green
                 })
             }
         }
