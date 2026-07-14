@@ -329,10 +329,37 @@ dwindle {
 misc {
     force_default_wallpaper = 0
     disable_hyprland_logo   = true
+    allow_session_lock_restore = true   # let a relaunched hyprlock re-lock after
+                                        # the previous locker crashed (pairs with
+                                        # hypridle's after_sleep_cmd re-lock)
+    # Related: lockdead_screen_delay (ms before the red "lockdead" screen),
+    # disable_watchdog_warning (silence the "not started via start-hyprland"
+    # warning — exposed as `hyprconf set misc disable_watchdog_warning`).
 }
 ```
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/>
+
+---
+
+## Session start / stop (start-hyprland)
+
+Since 0.53 the `hyprland` package ships `start-hyprland`, a **watchdog
+launcher**: it runs `Hyprland --watchdog-fd N` as a child, provides crash
+recovery (relaunch on unclean exit) and safe mode. Hyprland warns when started
+without it.
+
+- This repo's `~/.zprofile` (written by `setup.sh`) execs
+  `~/.local/bin/hyprland-session` on tty1, which reaps orphaned compositors /
+  stale `$XDG_RUNTIME_DIR/hypr/<sig>/` dirs from unclean shutdowns, then execs
+  `start-hyprland`.
+- **Stopping the session:** `hyprland-stop` (from any TTY/SSH), or
+  `hyprctl dispatch exit` / the `exit` keybind from inside. Never
+  `pkill start-hyprland` — killing the watchdog orphans Hyprland, which keeps
+  the logind session + every input-device fd open; the next session's
+  keyboard/mouse stay dead until the peripherals are re-plugged. Killing
+  Hyprland itself with SIGKILL is answered by the watchdog relaunching it.
+- Launch flags: `start-hyprland -- -h` (config path, checks, etc.).
 
 ---
 
@@ -351,8 +378,18 @@ input {
 }
 
 # 0.55 removed the `workspace_swipe` master toggle and `*_fingers` options; the
-# 3-finger swipe is now bound via the gesture system (see the Gestures wiki).
-# The tuning options below still apply to it.
+# swipe must be bound explicitly via the gesture system, or swiping does nothing:
+#
+#   gesture = FINGERS, DIRECTION[, mod: MODS][, scale: F], ACTION[, args]
+#   gesture = 3, horizontal, workspace          # this repo (gestures.conf)
+#   gesture = 4, down, mod: SUPER, special, scratchpad
+#
+# Directions: swipe/horizontal/vertical/left/right/up/down/pinch/pinchin/pinchout
+# Actions: workspace, move, resize, special, close, fullscreen, float,
+#          cursorZoom, scroll_move, unset
+# (The current wiki shows the Lua `hl.gesture({...})` form; the hyprlang
+#  `gesture =` keyword above is the 0.54 syntax, still supported.)
+# The tuning options below apply to the workspace swipe gesture.
 gestures {
     workspace_swipe_invert             = true    # Natural (macOS-style)
     workspace_swipe_distance           = 300
@@ -412,11 +449,18 @@ Wiki: <https://wiki.hypr.land/Hypr-Ecosystem/hyprlock/>
 
 ```ini
 general {
-    disable_loading_bar = true
-    hide_cursor         = true
-    grace               = 0         # Seconds before lock is enforced
-    no_fade_in          = false
+    hide_cursor      = true
+    immediate_render = true   # draw instantly (background:color until the
+                              # screenshot/image resource is ready)
+    # Other general{} options (hyprlock ≥ 0.9): ignore_empty_input, text_trim,
+    # fractional_scaling (0/1/2=auto), screencopy_mode (0=gpu/1=cpu),
+    # fail_timeout (ms).
+    # REMOVED from general{}: disable_loading_bar; grace → `--grace N` CLI
+    # flag; no_fade_in → `animations { }` category / fadeIn animation.
 }
+
+# Auth is its own category now (pam enabled by default):
+# auth { pam { enabled = true } fingerprint { enabled = false } }
 
 background {
     monitor     =               # Blank = all monitors
@@ -473,8 +517,9 @@ Wiki: <https://wiki.hypr.land/Hypr-Ecosystem/hypridle/>
 ```ini
 general {
     lock_cmd           = pidof hyprlock || (cliphist wipe && hyprlock)
-    before_sleep_cmd   = cliphist wipe && hyprlock
-    after_sleep_cmd    = hyprctl dispatch dpms on
+    before_sleep_cmd   = loginctl lock-session    # NOT hyprlock directly — see below
+    after_sleep_cmd    = loginctl lock-session; hyprctl dispatch dpms on
+    inhibit_sleep      = 3     # hold sleep until the session is actually locked
     ignore_dbus_inhibit = false
 }
 
@@ -485,8 +530,8 @@ listener {
 }
 
 listener {
-    timeout    = 2700                                            # 45 min — lock
-    on-timeout = pidof hyprlock || (cliphist wipe && hyprlock)
+    timeout    = 2700                             # 45 min — lock (via lock_cmd)
+    on-timeout = loginctl lock-session
     on-resume  = hyprctl dispatch dpms on
 }
 
@@ -502,8 +547,19 @@ listener {
 }
 ```
 
-- `pidof hyprlock ||` prevents double-locking if already locked
-- `before_sleep_cmd` fires on lid close / `systemctl suspend`
+- **Single lock path:** every lock trigger (idle listener, sleep hook, keybind)
+  goes through `loginctl lock-session`, which fires `lock_cmd` exactly once.
+  The `pidof hyprlock ||` guard prevents a second hyprlock instance — two
+  lockers fight over `ext-session-lock` and the loser exits (crashing on the
+  way out in 0.9.x), leaving wakes with no lockscreen.
+- `before_sleep_cmd` fires on lid close / `systemctl suspend`;
+  `after_sleep_cmd` fires on resume. Re-issuing `loginctl lock-session` there
+  relaunches hyprlock if it died across the sleep (guarded no-op otherwise) —
+  pair it with `misc:allow_session_lock_restore = true` in `hyprland.conf`.
+- `inhibit_sleep` modes: `0` off · `1` wait for `before_sleep_cmd` to launch ·
+  `2` auto · `3` wait until a session-lock client reports locked (systemd caps
+  the delay at `InhibitDelayMaxSec`, 5 s by default, so a broken locker cannot
+  block suspend forever).
 - Listeners fire in order; earlier timeouts should always be < later ones
 
 ---

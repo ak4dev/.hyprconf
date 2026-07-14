@@ -573,12 +573,24 @@ configure_zprofile() {
     log_step "Configuring ~/.zprofile..."
     local zprofile="$HOME/.zprofile"
 
-    local old_autostart='[[ $(tty) == /dev/tty1 ]] && exec Hyprland'
-    local autostart='[[ $(tty) == /dev/tty1 ]] && { command -v start-hyprland >/dev/null && exec start-hyprland || exec Hyprland; }'
+    # Autostart evolution: raw Hyprland → start-hyprland (0.53 watchdog) →
+    # hyprland-session (reaps orphaned compositors from unclean shutdowns —
+    # they hold the seat's input devices hostage — then execs the watchdog).
+    local legacy=(
+        '[[ $(tty) == /dev/tty1 ]] && exec Hyprland'
+        '[[ $(tty) == /dev/tty1 ]] && { command -v start-hyprland >/dev/null && exec start-hyprland || exec Hyprland; }'
+    )
+    local autostart='[[ $(tty) == /dev/tty1 ]] && { [[ -x "$HOME/.local/bin/hyprland-session" ]] && exec "$HOME/.local/bin/hyprland-session"; command -v start-hyprland >/dev/null && exec start-hyprland || exec Hyprland; }'
 
-    # Remove legacy autostart line (Hyprland now warns if not started via start-hyprland)
+    # Remove legacy autostart lines. Exact-line fixed-string matching — the
+    # previous sed-based removal treated `[[` as a bracket expression and
+    # never matched anything.
     if [[ -f "$zprofile" ]]; then
-        sed -i "\\|^${old_autostart}$\\|d" "$zprofile" 2>/dev/null || true
+        local tmp
+        tmp="$(mktemp)"
+        grep -vxF -e "${legacy[0]}" -e "${legacy[1]}" "$zprofile" > "$tmp" || true
+        cat "$tmp" > "$zprofile"
+        rm -f "$tmp"
     fi
 
     grep -qxF "$autostart" "$zprofile" 2>/dev/null || echo "$autostart" >> "$zprofile"

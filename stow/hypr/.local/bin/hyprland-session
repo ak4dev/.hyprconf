@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# hyprland-session — tty1 autostart shim (wired into ~/.zprofile by setup.sh).
+#
+# Reaps remnants of a previous unclean shutdown before exec'ing the official
+# start-hyprland watchdog. A killed watchdog leaves an orphaned Hyprland
+# (PPID 1) holding the seat's input devices; starting a new session next to it
+# leaves keyboard/mouse dead until the peripherals are re-plugged. Retiring
+# the orphan first lets logind release the devices, so the new session always
+# opens them fresh. Prefer `hyprland-stop` for intentional shutdowns.
+
+set -u
+
+XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+
+wait_gone() { # <pid> <tenths-of-a-second>
+    local pid=$1 i
+    for ((i = 0; i < $2; i++)); do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 0.1
+    done
+    ! kill -0 "$pid" 2>/dev/null
+}
+
+shopt -s nullglob
+for dir in "$XDG_RUNTIME_DIR"/hypr/*/; do
+    pid=$(head -n1 "${dir}hyprland.lock" 2>/dev/null)
+
+    # Stale dir (crashed/SIGKILLed instance: missing lock file, dead or
+    # recycled pid, dead socket): sweep it so instance enumeration stays
+    # truthful.
+    if [[ ! "$pid" =~ ^[0-9]+$ ]] ||
+        [[ "$(ps -o comm= -p "$pid" 2>/dev/null)" != "Hyprland" ]] ||
+        [[ ! -S "${dir}.socket.sock" ]]; then
+        rm -rf -- "$dir"
+        continue
+    fi
+
+    # Healthy session (watchdog alive) — leave it alone.
+    ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    [[ "$ppid" == "1" ]] || continue
+
+    # Orphaned compositor: ask it to exit, escalate only if unresponsive.
+    HYPRLAND_INSTANCE_SIGNATURE="$(basename "$dir")" \
+        hyprctl dispatch exit >/dev/null 2>&1
+    if ! wait_gone "$pid" 50; then
+        kill -TERM "$pid" 2>/dev/null
+        wait_gone "$pid" 30 || kill -KILL "$pid" 2>/dev/null
+    fi
+done
+
+# Hand off to the official launcher; fall back for pre-0.53 installs.
+if command -v start-hyprland >/dev/null 2>&1; then
+    exec start-hyprland "$@"
+fi
+exec Hyprland "$@"

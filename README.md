@@ -773,7 +773,17 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 - `hyprsync` alias → `hyprconf sync` (backward-compat)
 - `fastfetch` greeting on every shell
 
-`~/.zprofile` auto-starts Hyprland on TTY1 login (replaces `sddm`).
+`~/.zprofile` auto-starts Hyprland on TTY1 login (replaces `sddm`) via
+`hyprland-session`, a shim that first reaps any orphaned compositor left by an
+unclean shutdown (an orphan holds the seat's input devices — the cause of
+"keyboard/mouse dead until re-plugged"), then execs the official
+`start-hyprland` watchdog.
+
+To stop the session from another TTY or over SSH, run `hyprland-stop`.
+Do **not** `pkill start-hyprland`: the watchdog relaunches Hyprland after
+unclean exits, and killing the watchdog itself orphans the compositor.
+`hyprland-stop` asks the compositor to exit over IPC and only escalates to
+signals (watchdog first) if it is unresponsive.
 
 ---
 

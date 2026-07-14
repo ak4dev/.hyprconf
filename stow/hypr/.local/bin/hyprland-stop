@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# hyprland-stop — gracefully stop the running Hyprland session.
+#
+# Run this from any TTY or over SSH instead of pkill'ing start-hyprland.
+# start-hyprland (Hyprland >= 0.53) is a watchdog that holds the compositor as
+# a child process: killing the watchdog orphans Hyprland, which keeps the
+# logind session and every input-device fd open — the next session then gets
+# no keyboard/mouse until the peripherals are physically re-plugged. Killing
+# Hyprland with SIGKILL is just as bad, and the watchdog relaunches it anyway
+# (crash recovery). The clean path is asking the compositor itself to exit.
+
+set -uo pipefail
+
+XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+
+# Emit "<instance-signature> <pid>" for every live instance. Line 1 of
+# hyprland.lock is the compositor pid; a missing IPC socket means the dir is
+# a stale leftover from an earlier SIGKILL, not a live instance.
+live_instances() {
+    local dir pid
+    for dir in "$XDG_RUNTIME_DIR"/hypr/*/; do
+        [[ -f "${dir}hyprland.lock" && -S "${dir}.socket.sock" ]] || continue
+        pid=$(head -n1 "${dir}hyprland.lock" 2>/dev/null)
+        [[ "$pid" =~ ^[0-9]+$ ]] || continue
+        [[ "$(ps -o comm= -p "$pid" 2>/dev/null)" == "Hyprland" ]] || continue
+        printf '%s %s\n' "$(basename "$dir")" "$pid"
+    done
+}
+
+wait_gone() { # <pid> <tenths-of-a-second>
+    local pid=$1 i
+    for ((i = 0; i < $2; i++)); do
+        kill -0 "$pid" 2>/dev/null || return 0
+        sleep 0.1
+    done
+    ! kill -0 "$pid" 2>/dev/null
+}
+
+shopt -s nullglob
+found=0
+
+while read -r sig pid; do
+    found=1
+    echo "hyprland-stop: asking instance ${sig} (pid ${pid}) to exit..."
+    HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl dispatch exit >/dev/null 2>&1 || true
+    if wait_gone "$pid" 100; then
+        echo "hyprland-stop: instance exited cleanly."
+        continue
+    fi
+
+    # Escalating means an unclean exit, which the watchdog would answer by
+    # relaunching Hyprland — retire the watchdog first.
+    wrapper=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+    if [[ -n "$wrapper" && "$wrapper" != "1" ]] &&
+        [[ "$(ps -o comm= -p "$wrapper" 2>/dev/null)" == "start-hyprland" ]]; then
+        kill -TERM "$wrapper" 2>/dev/null || true
+    fi
+
+    echo "hyprland-stop: no reaction to dispatch exit — sending SIGTERM..."
+    kill -TERM "$pid" 2>/dev/null || true
+    wait_gone "$pid" 50 && continue
+
+    echo "hyprland-stop: still alive — SIGKILL. Input devices may stay held;" \
+        "log in on tty1 (hyprland-session cleans up) or re-plug peripherals."
+    kill -KILL "$pid" 2>/dev/null || true
+done < <(live_instances)
+
+if ((!found)); then
+    echo "hyprland-stop: no running Hyprland instance." >&2
+    exit 0
+fi
+
+# A clean compositor exit ends the watchdog too; nudge any that linger.
+for _ in {1..10}; do
+    pgrep -u "$(id -u)" -x start-hyprland >/dev/null || break
+    sleep 0.3
+done
+pkill -u "$(id -u)" -x start-hyprland 2>/dev/null || true
+
+echo "hyprland-stop: session stopped."
