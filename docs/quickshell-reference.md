@@ -351,7 +351,9 @@ IconImage { source: trayItem.icon; implicitSize: 16 }   // icon-theme aware Imag
 | `VolumePopout.qml` / `Osd.qml` | Pipewire, PwObjectTracker; OSD is `mask: Region {}` click-through |
 | `TrayMenuPopout.qml` | QsMenuOpener, QsMenuButtonType, IconImage |
 | `ScreenCorners.qml` | PanelWindow + empty Region mask, Canvas |
-| `stats.sh` / `ScriptModule.qml` | One long-lived `Process` + SplitParser stream; waybar-style JSON modules |
+| `Services.qml` | Singleton owning EVERY bar data source (stats.sh stream, gpu_info.sh stream, battery/vpn polls) — Bar{} is per-monitor via Variants, so per-Bar Processes run once per screen; new data sources go HERE, never in Bar.qml |
+| `stats.sh` / `gpu_info.sh` | Long-lived streams: pure-bash cpu/mem/net/temp sampler (hwmon path resolved once); one `nvidia-smi --loop` piped through one awk (or AMD sysfs loop) |
+| `ScriptModule.qml` | Pure view (padding, class→color, hide-when-empty, blink, click) — bind `text`/`klass` from Services |
 
 Theming flow: `~/.config/hypr/.current-theme` → `theme-switcher/themes/<name>.json`
 → `Theme.qml` FileViews (watched) → live repaint. Hyprland blurs the popout/OSD

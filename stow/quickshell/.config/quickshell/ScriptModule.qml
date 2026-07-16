@@ -1,14 +1,16 @@
 import QtQuick
-import Quickshell.Io
 
-// Generic waybar-style "custom" module: runs `command` every `intervalMs`,
-// expects a single JSON line {"text": ..., "class": ...} on stdout, hides
-// itself when the script prints nothing.
+// Waybar-style bar module chrome for a Services-fed data source: fixed
+// padding, class→color mapping, hide-when-empty, critical blink, click
+// signal. Bind `text`/`klass` from the Services singleton — bars are pure
+// views, and Services runs each sampler exactly once for all screens
+// (this component used to own a Process + poll Timer per bar instance,
+// which duplicated every sampler per monitor).
 Item {
     id: root
 
-    property list<string> command: []
-    property int intervalMs: 2000
+    property string text: ""
+    property string klass: ""
     property string prefix: ""
     property color textColor: Theme.fg
     // class name -> color; unknown classes fall back to textColor
@@ -16,37 +18,10 @@ Item {
     property int padL: 5
     property int padR: 5
 
-    property string text: ""
-    property string klass: ""
-
     signal moduleClicked()
 
     visible: text !== ""
     width: visible ? label.implicitWidth + padL + padR : 0
-
-    Process {
-        id: proc
-        command: root.command
-        stdout: SplitParser {
-            onRead: data => {
-                try {
-                    const j = JSON.parse(data)
-                    root.text = j.text !== undefined ? String(j.text) : ""
-                    root.klass = j["class"] !== undefined ? String(j["class"]) : ""
-                } catch (e) {
-                    // non-JSON line — ignore
-                }
-            }
-        }
-    }
-
-    Timer {
-        interval: root.intervalMs
-        running: true
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: proc.running = true
-    }
 
     Text {
         id: label

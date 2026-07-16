@@ -350,16 +350,76 @@ recovery (relaunch on unclean exit) and safe mode. Hyprland warns when started
 without it.
 
 - This repo's `~/.zprofile` (written by `setup.sh`) execs
-  `~/.local/bin/hyprland-session` on tty1, which reaps orphaned compositors /
-  stale `$XDG_RUNTIME_DIR/hypr/<sig>/` dirs from unclean shutdowns, then execs
-  `start-hyprland`.
+  `~/.local/bin/hyprland-session` on tty1. tty1 is **autologin**, so every
+  session exit — clean or crash — triggers an immediate re-login and another
+  run of the shim. Before exec'ing `start-hyprland` it:
+  1. honors the **hold file** (`$XDG_RUNTIME_DIR/hyprland-session.hold`,
+     written by `hyprland-stop`) by dropping to a plain shell — without it,
+     "stop" is instantly answered by an autologin relaunch;
+  2. reaps orphaned compositors / stale `$XDG_RUNTIME_DIR/hypr/<sig>/` dirs,
+     and orphaned per-session daemons (allowlisted comms at PPID 1: hypridle,
+     hyprpaper, hyprlock, quickshell, …) — an orphaned hypridle holds a stale
+     sleep inhibitor and double-fires lock commands; never touch non-listed
+     PPID-1 processes (nohup'd user jobs carry the dead session's
+     `HYPRLAND_INSTANCE_SIGNATURE` too);
+  3. waits (≤10 s) for logind to finish tearing down previous sessions on the
+     same TTY — starting into a `closing` session brings the compositor up
+     inactive ("Session is not active, waiting for 5s") with dead inputs;
+  4. **backs off on rapid relaunches** (stamp file): a session that died
+     within 90 s of starting is a failed start; attempts 3–6 wait 15/30/60 s,
+     then it gives up into a shell instead of storming (post-resume GPU
+     wedges caused one SIGABRT + re-login every ~7 s).
+- **Autologin is per-machine, not per-install:** setup.sh never configures it
+  (passwordless console = a security decision). Toggle it with
+  `hyprconf autologin [status|on|off|toggle]`, which manages the
+  `getty@tty1.service.d/autologin.conf` drop-in (and detects/removes
+  hand-written drop-ins too). Changes apply at the next getty respawn.
 - **Stopping the session:** `hyprland-stop` (from any TTY/SSH), or
   `hyprctl dispatch exit` / the `exit` keybind from inside. Never
   `pkill start-hyprland` — killing the watchdog orphans Hyprland, which keeps
   the logind session + every input-device fd open; the next session's
   keyboard/mouse stay dead until the peripherals are re-plugged. Killing
   Hyprland itself with SIGKILL is answered by the watchdog relaunching it.
+  `hyprland-stop` writes the hold file *first*, so a single run also stops a
+  crash-relaunch storm whose current instance is mid-init (no IPC socket yet
+  → invisible to instance enumeration); it then asks instances to exit over
+  IPC, escalates watchdog-first only if unresponsive, and finally sweeps any
+  mid-init compositor. Start again from the held tty1 shell with
+  `start-hyprland` (or exit the shell to re-trigger autologin).
 - Launch flags: `start-hyprland -- -h` (config path, checks, etc.).
+
+---
+
+## Nvidia: suspend/resume VRAM preservation
+
+Without explicit configuration the Nvidia driver **discards all video memory
+on S3 suspend**. On wake the compositor's GL context is gone: Hyprland
+SIGABRTs within ~1 min of `PM: suspend exit` (uncaught exception), every EGL
+client dies with it (hyprlock included — "no lockscreen after wake"), and
+relaunches crash in `CCompositor::initServer` until the GPU resettles
+(~1–2 min) — which autologin turns into a relaunch storm.
+
+Required (NVIDIA README "Preserving video memory allocations", applied by
+`setup.sh`, works for proprietary and `nvidia-open`):
+
+```ini
+# /etc/modprobe.d/nvidia-power-management.conf
+options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp
+```
+
+```bash
+systemctl enable nvidia-suspend.service nvidia-resume.service \
+                 nvidia-hibernate.service nvidia-suspend-then-hibernate.service
+mkinitcpio -P   # modprobe.d is baked into the initramfs (modconf + early KMS)
+```
+
+- The services drive `/proc/driver/nvidia/suspend`; the module parameter alone
+  does nothing. `/usr/lib/systemd/system-sleep/nvidia` only covers the resume
+  side.
+- `NVreg_TemporaryFilePath` must be a real filesystem (not tmpfs) with room
+  for a copy of all utilized VRAM — `/var/tmp`, never the `/tmp` default.
+- Verify after a suspend cycle: `journalctl -b -u nvidia-suspend.service` and
+  no new `coredumpctl list Hyprland` entries at the wake timestamp.
 
 ---
 

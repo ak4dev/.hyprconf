@@ -13,7 +13,10 @@ for d in "$_PS_ROOT"/BAT*; do
 done
 
 if [[ -z "$battery" ]]; then
-    echo '{"text":"󱐋", "class":"ac"}'
+    # No battery = desktop. The result can never change, so tell ScriptModule
+    # to stop the 1s poll ("once") — the old behavior spawned a bash every
+    # second forever just to reprint this static glyph.
+    echo '{"text":"󱐋", "class":"ac", "once":true}'
     exit 0
 fi
 

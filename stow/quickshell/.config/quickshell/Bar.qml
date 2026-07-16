@@ -96,29 +96,16 @@ PanelWindow {
     readonly property real vol: sink?.audio?.volume ?? 0
     readonly property bool muted: sink?.audio?.muted ?? false
 
-    // ---- streaming cpu/mem/net stats (single long-lived sampler)
-    property int cpuPct: 0
-    property string memText: ""
-    property string netKind: "off"
-    property string netDown: "0B/s"
-    property string netUp: "0B/s"
-
-    Process {
-        running: true
-        command: ["bash", bar.home + "/.config/quickshell/stats.sh"]
-        stdout: SplitParser {
-            onRead: data => {
-                try {
-                    const j = JSON.parse(data)
-                    bar.cpuPct = j.cpu
-                    bar.memText = j.mem
-                    bar.netKind = j.net
-                    bar.netDown = j.down
-                    bar.netUp = j.up
-                } catch (e) {}
-            }
-        }
-    }
+    // ---- cpu/mem/net/temp stats: fed by the Services singleton (ONE
+    // long-lived sampler for all screens — a per-bar Process here meant one
+    // sampler per monitor). Bridged as bar properties so the module items
+    // below keep their bar.* references.
+    readonly property int cpuPct: Services.cpuPct
+    readonly property string memText: Services.memText
+    readonly property string netKind: Services.netKind
+    readonly property string netDown: Services.netDown
+    readonly property string netUp: Services.netUp
+    readonly property string cpuTemp: Services.cpuTemp
 
     // ---- popouts
     readonly property var popoutNames: ["calendar", "volume", "controlcenter"]
@@ -432,13 +419,20 @@ PanelWindow {
                 }
             }
 
-            ScriptModule { // custom/cpu_temp (padding-left 2)
+            Item { // custom/cpu_temp — fed by the stats.sh stream (padding-left
+                   // 2). Was a 2s polled ScriptModule spawning bash+sensors
+                   // (~28 ms) per tick; the sampler reads hwmon directly.
+                visible: bar.cpuTemp !== ""
+                width: visible ? tempText_.implicitWidth + 7 : 0
                 height: parent.height
-                command: ["bash", bar.home + "/.config/quickshell/scripts/cpu_temp.sh"]
-                intervalMs: 2000
-                prefix: ""
-                textColor: Theme.green
-                padL: 2
+
+                BarText {
+                    id: tempText_
+                    x: 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: bar.cpuTemp
+                    color: Theme.green
+                }
             }
 
             Item { // memory
@@ -454,18 +448,18 @@ PanelWindow {
                 }
             }
 
-            ScriptModule { // custom/gpu
+            ScriptModule { // custom/gpu — Services' long-lived stream
+                           // (nvidia-smi --loop / AMD sysfs loop)
                 height: parent.height
-                command: ["bash", bar.home + "/.config/quickshell/scripts/gpu_info.sh"]
-                intervalMs: 2000
+                text: Services.gpuText
                 prefix: "󰾲 "
                 textColor: Theme.purple
             }
 
-            ScriptModule { // custom/vpn
+            ScriptModule { // custom/vpn (Services polls every 5s)
                 height: parent.height
-                command: [bar.home + "/.local/bin/hyprconf", "vpn", "status", "--json"]
-                intervalMs: 5000
+                text: Services.vpnText
+                klass: Services.vpnClass
                 textColor: Theme.comment
                 classColors: ({
                     "connected": Theme.green,
@@ -539,10 +533,11 @@ PanelWindow {
                 }
             }
 
-            ScriptModule { // custom/power_status
+            ScriptModule { // custom/power_status (Services polls at 1s; stops
+                           // entirely on battery-less desktops via "once")
                 height: parent.height
-                command: ["bash", bar.home + "/.config/quickshell/scripts/battery_power_status.sh"]
-                intervalMs: 1000
+                text: Services.batText
+                klass: Services.batClass
                 textColor: Theme.fg
                 // Theme tokens, not literals: hardcoded #ffffff "normal" text
                 // was invisible on light themes.

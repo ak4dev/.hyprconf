@@ -28,6 +28,7 @@ SCRIPT = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf-vpn"
 HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 PACKAGES = REPO_ROOT / "packages"
 BAR_QML = REPO_ROOT / "stow" / "quickshell" / ".config" / "quickshell" / "Bar.qml"
+SERVICES_QML = REPO_ROOT / "stow" / "quickshell" / ".config" / "quickshell" / "Services.qml"
 
 # Resolve the *real* nft now, before any fake shadows it on PATH (used only by
 # the optional syntax-validation test).
@@ -155,12 +156,15 @@ def test_doctor_runs_vpn_check() -> None:
 
 
 def test_bar_vpn_module_wired() -> None:
-    """The quickshell bar must poll `hyprconf vpn status --json` (argv form)
-    and toggle the VPN on click."""
-    txt = BAR_QML.read_text(encoding="utf-8")
-    assert '"vpn", "status", "--json"' in txt
-    assert '"vpn", "toggle"' in txt
-    assert '/.local/bin/hyprconf"' in txt
+    """Services (the shared sampler singleton — one poll for all screens)
+    must poll `hyprconf vpn status --json` (argv form); the bar module
+    binds to it and toggles the VPN on click."""
+    services = SERVICES_QML.read_text(encoding="utf-8")
+    assert '"vpn", "status", "--json"' in services
+    assert '/.local/bin/hyprconf"' in services
+    bar = BAR_QML.read_text(encoding="utf-8")
+    assert '"vpn", "toggle"' in bar
+    assert "Services.vpnText" in bar
 
 
 # ===========================================================================

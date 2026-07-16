@@ -1,18 +1,33 @@
 #!/usr/bin/env bash
-# hyprland-stop — gracefully stop the running Hyprland session.
+# hyprland-stop — gracefully stop the running Hyprland session, and keep it
+# stopped.
 #
 # Run this from any TTY or over SSH instead of pkill'ing start-hyprland.
 # start-hyprland (Hyprland >= 0.53) is a watchdog that holds the compositor as
 # a child process: killing the watchdog orphans Hyprland, which keeps the
 # logind session and every input-device fd open — the next session then gets
-# no keyboard/mouse until the peripherals are physically re-plugged. Killing
-# Hyprland with SIGKILL is just as bad, and the watchdog relaunches it anyway
-# (crash recovery). The clean path is asking the compositor itself to exit.
+# no keyboard/mouse until the peripherals are physically re-plugged.
+#
+# tty1 is autologin, so killing the session isn't a stop at all: agetty logs
+# back in and relaunches everything within seconds — and after a post-resume
+# GPU wedge that turns into a crash-relaunch storm whose current instance is
+# mid-init (no IPC socket yet), invisible to instance enumeration. So the
+# FIRST thing this script does is write a hold file; hyprland-session honors
+# it on the next autologin by dropping to a plain shell instead of starting
+# Hyprland. Start a new session from that shell with `start-hyprland`, or
+# just exit it to go through autologin again.
 
 set -uo pipefail
 
 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export XDG_RUNTIME_DIR
+
+uid=$(id -u)
+hold_file="$XDG_RUNTIME_DIR/hyprland-session.hold"
+
+# Break the autologin relaunch loop before touching any process, so a single
+# run of this script stops even an active crash storm.
+touch "$hold_file" 2>/dev/null || true
 
 # Emit "<instance-signature> <pid>" for every live instance. Line 1 of
 # hyprland.lock is the compositor pid; a missing IPC socket means the dir is
@@ -62,20 +77,32 @@ while read -r sig pid; do
     wait_gone "$pid" 50 && continue
 
     echo "hyprland-stop: still alive — SIGKILL. Input devices may stay held;" \
-        "log in on tty1 (hyprland-session cleans up) or re-plug peripherals."
+        "the next hyprland-session run (tty1 autologin) cleans up."
     kill -KILL "$pid" 2>/dev/null || true
 done < <(live_instances)
 
 if ((!found)); then
-    echo "hyprland-stop: no running Hyprland instance." >&2
-    exit 0
+    echo "hyprland-stop: no fully-started instance found (a crash-looping one" \
+        "may be mid-init) — holding autologin and sweeping leftovers."
 fi
 
-# A clean compositor exit ends the watchdog too; nudge any that linger.
+# A clean compositor exit ends the watchdog too; give it a moment, then
+# retire stragglers — including a compositor still mid-init, which
+# live_instances cannot see (no IPC socket yet). The hold file is already in
+# place, so nothing relaunches.
 for _ in {1..10}; do
-    pgrep -u "$(id -u)" -x start-hyprland >/dev/null || break
+    pgrep -u "$uid" -x start-hyprland >/dev/null || break
     sleep 0.3
 done
-pkill -u "$(id -u)" -x start-hyprland 2>/dev/null || true
+pkill -u "$uid" -x start-hyprland 2>/dev/null || true
+if pgrep -u "$uid" -x Hyprland >/dev/null; then
+    pkill -u "$uid" -x Hyprland 2>/dev/null || true
+    for _ in {1..10}; do
+        pgrep -u "$uid" -x Hyprland >/dev/null || break
+        sleep 0.3
+    done
+    pkill -u "$uid" -KILL -x Hyprland 2>/dev/null || true
+fi
 
-echo "hyprland-stop: session stopped."
+echo "hyprland-stop: session stopped and held. tty1 autologin lands in a plain"
+echo "  shell; run 'start-hyprland' there (or exit that shell) to start again."

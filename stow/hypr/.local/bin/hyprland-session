@@ -1,17 +1,49 @@
 #!/usr/bin/env bash
 # hyprland-session — tty1 autostart shim (wired into ~/.zprofile by setup.sh).
 #
-# Reaps remnants of a previous unclean shutdown before exec'ing the official
-# start-hyprland watchdog. A killed watchdog leaves an orphaned Hyprland
-# (PPID 1) holding the seat's input devices; starting a new session next to it
-# leaves keyboard/mouse dead until the peripherals are re-plugged. Retiring
-# the orphan first lets logind release the devices, so the new session always
-# opens them fresh. Prefer `hyprland-stop` for intentional shutdowns.
+# tty1 is autologin: every session exit — clean or crash — is answered by an
+# immediate re-login and another run of this script. That makes it the choke
+# point for session hygiene. Four steps before exec'ing the official
+# start-hyprland watchdog:
+#
+#   1. Honor the hold file written by `hyprland-stop`. Without it "stop" is
+#      meaningless under autologin: the session relaunches the moment it dies,
+#      and a post-resume GPU wedge becomes a relaunch storm (one compositor
+#      SIGABRT every ~7 s) that has to be raced from another TTY.
+#   2. Reap orphans of unclean shutdowns: compositors (PPID 1 — they keep the
+#      seat's input-device fds open, the "keyboard/mouse dead until
+#      re-plugged" failure) and per-session daemons (an orphaned hypridle
+#      holds a stale systemd sleep inhibitor — "Delay lock is active ... but
+#      inhibitor timeout is reached" — and fires lock commands at a session
+#      that no longer exists).
+#   3. Give logind a moment to finish tearing down this TTY's previous
+#      session. Starting while the old one is still "closing" brings the new
+#      compositor up inactive ("Session is not active, waiting for 5s") with
+#      input devices in limbo.
+#   4. Back off when starts come fast. A session that died within 90 s never
+#      really started — typically the GPU is still resettling after a resume
+#      crash. Retry immediately twice, then with growing delays, then give up
+#      into a plain shell instead of storming.
 
 set -u
 
 XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 export XDG_RUNTIME_DIR
+
+hold_file="$XDG_RUNTIME_DIR/hyprland-session.hold"
+stamp_file="$XDG_RUNTIME_DIR/hyprland-session.stamp"
+
+# Daemons this config runs strictly as children of Hyprland (exec/exec-once in
+# hyprland.conf). Reparented to PID 1 means their compositor died uncleanly;
+# they have no legitimate standalone use on this machine. Kill by allowlisted
+# comm ONLY — never by environment: user jobs (nohup'd dev servers, etc.) also
+# end up at PPID 1 carrying the dead session's HYPRLAND_INSTANCE_SIGNATURE and
+# must survive. systemd --user services (hyprpolkitagent, portals) never
+# match: their parent is the user manager, not PID 1.
+session_daemons=(hypridle hyprpaper hyprlock hyprpicker hyprsunset xsettingsd
+    nm-applet blueman-applet blueman-tray wl-paste qs quickshell)
+
+say() { printf 'hyprland-session: %s\n' "$*"; }
 
 wait_gone() { # <pid> <tenths-of-a-second>
     local pid=$1 i
@@ -22,13 +54,33 @@ wait_gone() { # <pid> <tenths-of-a-second>
     ! kill -0 "$pid" 2>/dev/null
 }
 
+drop_to_shell() {
+    rm -f -- "$stamp_file"
+    say "$1"
+    say "run 'start-hyprland' to launch a session, or exit this shell to retry via autologin."
+    # Interactive but NOT a login shell: a login shell re-reads ~/.zprofile,
+    # which would exec hyprland-session again and defeat the escape hatch.
+    exec "${SHELL:-/bin/bash}" -i
+}
+
+# --- 1. hyprland-stop hold ---------------------------------------------------
+if [[ -e "$hold_file" ]]; then
+    rm -f -- "$hold_file"
+    drop_to_shell "hold file found (left by hyprland-stop) — not starting Hyprland."
+fi
+
+# --- 2a. reap orphaned compositors -------------------------------------------
+# Sweep stale instance dirs (crashed/SIGKILLed: missing lock file, dead or
+# recycled pid, dead socket) so instance enumeration stays truthful; ask
+# orphaned-but-alive compositors (PPID 1 — their watchdog is gone) to exit,
+# escalating only if unresponsive. Instances with a live watchdog (a session
+# on another VT) are left alone and recorded so the daemon sweep below can
+# spare their helpers.
+live_sigs=" "
 shopt -s nullglob
 for dir in "$XDG_RUNTIME_DIR"/hypr/*/; do
     pid=$(head -n1 "${dir}hyprland.lock" 2>/dev/null)
 
-    # Stale dir (crashed/SIGKILLed instance: missing lock file, dead or
-    # recycled pid, dead socket): sweep it so instance enumeration stays
-    # truthful.
     if [[ ! "$pid" =~ ^[0-9]+$ ]] ||
         [[ "$(ps -o comm= -p "$pid" 2>/dev/null)" != "Hyprland" ]] ||
         [[ ! -S "${dir}.socket.sock" ]]; then
@@ -36,20 +88,89 @@ for dir in "$XDG_RUNTIME_DIR"/hypr/*/; do
         continue
     fi
 
-    # Healthy session (watchdog alive) — leave it alone.
     ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-    [[ "$ppid" == "1" ]] || continue
+    if [[ "$ppid" != "1" ]]; then
+        live_sigs+="$(basename "$dir") "
+        continue
+    fi
 
-    # Orphaned compositor: ask it to exit, escalate only if unresponsive.
+    say "reaping orphaned compositor (pid $pid)..."
     HYPRLAND_INSTANCE_SIGNATURE="$(basename "$dir")" \
         hyprctl dispatch exit >/dev/null 2>&1
     if ! wait_gone "$pid" 50; then
         kill -TERM "$pid" 2>/dev/null
         wait_gone "$pid" 30 || kill -KILL "$pid" 2>/dev/null
     fi
+    rm -rf -- "$dir"
 done
 
-# Hand off to the official launcher; fall back for pre-0.53 installs.
+# --- 2b. reap orphaned per-session daemons -----------------------------------
+orphans=()
+for pid in $(pgrep -u "$(id -u)" -P 1 2>/dev/null); do
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null)
+    listed=false
+    for d in "${session_daemons[@]}"; do
+        [[ "$comm" == "$d" ]] && { listed=true; break; }
+    done
+    $listed || continue
+    # Spare helpers that detached from a compositor that is still alive.
+    sig=$(tr '\0' '\n' <"/proc/$pid/environ" 2>/dev/null |
+        sed -n 's/^HYPRLAND_INSTANCE_SIGNATURE=//p' | head -n1)
+    [[ -n "$sig" && "$live_sigs" == *" $sig "* ]] && continue
+    orphans+=("$pid")
+done
+if ((${#orphans[@]})); then
+    say "reaping ${#orphans[@]} orphaned session daemon(s)..."
+    kill -TERM "${orphans[@]}" 2>/dev/null
+    for pid in "${orphans[@]}"; do
+        wait_gone "$pid" 20 || kill -KILL "$pid" 2>/dev/null
+    done
+fi
+
+# --- 3. wait for logind to tear down this TTY's previous session -------------
+# Bounded: a session can sit in "closing" indefinitely if something unkillable
+# lingers; after 10 s start anyway rather than blocking the login forever.
+my_tty=$(tty 2>/dev/null)
+my_tty="${my_tty#/dev/}"
+tty_busy() {
+    local id
+    while read -r id; do
+        [[ "$id" == "${XDG_SESSION_ID:-}" ]] && continue
+        [[ "$(loginctl show-session "$id" -p TTY --value 2>/dev/null)" == "$my_tty" ]] &&
+            return 0
+    done < <(loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}')
+    return 1
+}
+if [[ -n "$my_tty" && -n "${XDG_SESSION_ID:-}" ]] && command -v loginctl >/dev/null 2>&1; then
+    for ((i = 0; i < 100; i++)); do
+        tty_busy || break
+        ((i == 0)) && say "waiting for logind to release $my_tty..."
+        sleep 0.1
+    done
+fi
+
+# --- 4. rapid-relaunch backoff ------------------------------------------------
+now=$(date +%s) count=1 last=0
+if [[ -r "$stamp_file" ]]; then
+    read -r count last <"$stamp_file" 2>/dev/null || true
+    [[ "$count" =~ ^[0-9]+$ && "$last" =~ ^[0-9]+$ ]] || { count=0 last=0; }
+    if ((now - last < 90)); then count=$((count + 1)); else count=1; fi
+fi
+printf '%s %s\n' "$count" "$now" >"$stamp_file"
+delay=0
+case "$count" in
+1 | 2) ;;
+3) delay=15 ;;
+4) delay=30 ;;
+5 | 6) delay=60 ;;
+*) drop_to_shell "Hyprland died within 90s of starting, $((count - 1)) times in a row — giving up." ;;
+esac
+if ((delay > 0)); then
+    say "last session died within 90s of starting (attempt $count) — waiting ${delay}s before relaunching..."
+    sleep "$delay"
+fi
+
+# --- hand off to the official launcher; fall back for pre-0.53 installs ------
 if command -v start-hyprland >/dev/null 2>&1; then
     exec start-hyprland "$@"
 fi

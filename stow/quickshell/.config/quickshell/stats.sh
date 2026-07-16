@@ -9,6 +9,7 @@ set -u
 : "${HYPRCONF_STATS_NET_ROOT:=/sys/class/net}"
 : "${HYPRCONF_STATS_PROC_STAT:=/proc/stat}"
 : "${HYPRCONF_STATS_PROC_MEMINFO:=/proc/meminfo}"
+: "${HYPRCONF_STATS_HWMON_ROOT:=/sys/class/hwmon}"
 : "${HYPRCONF_STATS_INTERVAL:=1}"
 : "${HYPRCONF_STATS_ITERATIONS:=0}"   # 0 = run forever; N = exit after N samples
 
@@ -27,6 +28,30 @@ gib() {
     local g10=$(( ($1 * 10 + 524288) / 1048576 ))
     printf '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
 }
+
+# ---- cpu temperature source, resolved ONCE (zero forks per tick after this).
+# hwmon exposes the same sensors as `sensors`(1) as plain files: tempN_label +
+# tempN_input (millidegrees). Label priority mirrors the old cpu_temp.sh
+# probe order: AMD k10temp Tctl > Tdie, then Intel coretemp package > core.
+# This replaced the separate 2s cpu_temp.sh ScriptModule, whose bash+sensors
+# spawn cost ~28 ms per poll.
+temp_input="" _rank=99
+for _lbl in "$HYPRCONF_STATS_HWMON_ROOT"/hwmon*/temp*_label; do
+    [[ -r $_lbl ]] || continue
+    _name=""
+    read -r _name < "$_lbl" || continue
+    case $_name in
+        Tctl)           _r=1 ;;
+        Tdie)           _r=2 ;;
+        "Package id 0") _r=3 ;;
+        "Core 0")       _r=4 ;;
+        *) continue ;;
+    esac
+    if (( _r < _rank )); then
+        _rank=$_r
+        temp_input="${_lbl%_label}_input"
+    fi
+done
 
 prev_total=0 prev_idle=0 prev_rx=0 prev_tx=0
 first=1 iter=0
@@ -93,12 +118,20 @@ while :; do
     (( dtx < 0 )) && dtx=0
     prev_rx=$rx prev_tx=$tx
 
+    # ---- cpu temp: read the pre-resolved hwmon file (millidegrees → °C)
+    temp=""
+    if [[ -n $temp_input && -r $temp_input ]]; then
+        _mdeg=""
+        read -r _mdeg < "$temp_input" || _mdeg=""
+        [[ $_mdeg =~ ^-?[0-9]+$ ]] && temp="$(( (_mdeg + 500) / 1000 ))°"
+    fi
+
     # First sample has no baseline for the deltas — skip it.
     if (( first )); then
         first=0
     else
-        printf '{"cpu":%d,"mem":"%s","net":"%s","down":"%s","up":"%s"}\n' \
-            "$cpu" "$mem" "$net" "$(human "$drx")" "$(human "$dtx")"
+        printf '{"cpu":%d,"mem":"%s","net":"%s","down":"%s","up":"%s","temp":"%s"}\n' \
+            "$cpu" "$mem" "$net" "$(human "$drx")" "$(human "$dtx")" "$temp"
         if (( HYPRCONF_STATS_ITERATIONS > 0 && ++iter >= HYPRCONF_STATS_ITERATIONS )); then
             exit 0
         fi

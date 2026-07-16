@@ -161,6 +161,7 @@ usage() {
   printf "  hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu\n"
   printf "  hyprconf power-profile [status|performance|balanced|power-saver|auto]  Power profile\n"
   printf "  hyprconf nightlight [on|off|toggle|status]  Blue light filter\n"
+  printf "  hyprconf autologin [status|on|off|toggle]  Passwordless tty1 autologin (getty drop-in)\n"
   printf "  hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard\n"
   printf "  hyprconf record [start|stop|toggle|status]  Screen recording\n"
   printf "  hyprconf help                    Show this message\n"
@@ -1462,6 +1463,108 @@ _nightlight_off() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+# Autologin — tty1 getty drop-in (passwordless console login)
+# ════════════════════════════════════════════════════════════════════════════
+# setup.sh deliberately does NOT manage autologin: anyone at the physical
+# console gets the session without a password, so it stays a per-machine
+# decision made through this command. The zprofile → hyprland-session
+# autostart works either way; autologin only decides whether a crashed
+# session relaunches unattended (hyprland-session's backoff assumes it can).
+
+readonly _AUTOLOGIN_DIR="/etc/systemd/system/getty@tty1.service.d"
+readonly _AUTOLOGIN_DROPIN="$_AUTOLOGIN_DIR/autologin.conf"
+
+cmd_autologin() {
+  local sub="${1:-status}"
+  case "$sub" in
+    status) _autologin_status ;;
+    on)     _autologin_on ;;
+    off)    _autologin_off ;;
+    toggle)
+      if _autologin_active_file > /dev/null; then
+        _autologin_off
+      else
+        _autologin_on
+      fi
+      ;;
+    *)
+      printf "Usage: hyprconf autologin [status|on|off|toggle]\n" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# Print the first getty@tty1 drop-in that configures --autologin, if any.
+# Checks every *.conf so a hand-written drop-in (any filename) is detected,
+# not just the one this command manages.
+_autologin_active_file() {
+  local f
+  for f in "$_AUTOLOGIN_DIR"/*.conf; do
+    [[ -f "$f" ]] || continue
+    if grep -qs -- '--autologin' "$f"; then
+      printf '%s\n' "$f"
+      return 0
+    fi
+  done
+  return 1
+}
+
+_autologin_user() { # <drop-in file>
+  sed -n 's/.*--autologin[ =]\([^ ]*\).*/\1/p' "$1" | head -n1
+}
+
+_autologin_status() {
+  local f user
+  if f=$(_autologin_active_file); then
+    user=$(_autologin_user "$f")
+    printf "${_y}Autologin is ON${_r} — '%s' logs into tty1 without a password\n" "${user:-?}"
+    printf "  drop-in: %s\n" "$f"
+  else
+    printf "${_g}Autologin is OFF${_r} — tty1 asks for credentials\n"
+  fi
+}
+
+_autologin_on() {
+  local f user
+  if f=$(_autologin_active_file); then
+    user=$(_autologin_user "$f")
+    printf "${_y}Autologin already ON${_r} for '%s' (%s) — leaving the existing drop-in untouched.\n" \
+      "${user:-?}" "$f"
+    return
+  fi
+  printf "Enabling tty1 autologin for ${_b}%s${_r} — anyone at the physical console\n" "$USER"
+  printf "will get this session without a password (needs sudo).\n"
+  sudo install -d -m 755 "$_AUTOLOGIN_DIR"
+  printf '[Service]\nExecStart=\nExecStart=-/usr/bin/agetty --autologin %s --noclear %%I $TERM\n' "$USER" \
+    | sudo tee "$_AUTOLOGIN_DROPIN" > /dev/null
+  sudo systemctl daemon-reload
+  printf "${_g}✔${_r} Autologin ${_b}ON${_r} (%s) — applies at the next getty respawn (logout or reboot).\n" \
+    "$_AUTOLOGIN_DROPIN"
+}
+
+_autologin_off() {
+  # Remove every drop-in that sets --autologin, not only the managed file —
+  # "off" must actually mean off. Each removal is printed, and a drop-in that
+  # mixes autologin with other getty overrides loses those too (they were
+  # part of the same file).
+  local f removed=false
+  for f in "$_AUTOLOGIN_DIR"/*.conf; do
+    [[ -f "$f" ]] || continue
+    grep -qs -- '--autologin' "$f" || continue
+    printf "Removing %s (needs sudo)...\n" "$f"
+    sudo rm -f -- "$f"
+    removed=true
+  done
+  if ! $removed; then
+    printf "${_g}Autologin already OFF.${_r}\n"
+    return
+  fi
+  sudo rmdir --ignore-fail-on-non-empty "$_AUTOLOGIN_DIR" 2>/dev/null || true
+  sudo systemctl daemon-reload
+  printf "${_g}✔${_r} Autologin ${_b}OFF${_r} — tty1 asks for credentials from the next getty respawn.\n"
+}
+
+# ════════════════════════════════════════════════════════════════════════════
 # Color picker — pick colour from screen
 # ════════════════════════════════════════════════════════════════════════════
 
@@ -2169,6 +2272,7 @@ main() {
     power)            cmd_power "$@" ;;
     power-profile|pp) cmd_power_profile "$@" ;;
     nightlight|night) cmd_nightlight "$@" ;;
+    autologin)        cmd_autologin "$@" ;;
     colorpicker|color) cmd_colorpicker "$@" ;;
     record|rec)       cmd_record "$@" ;;
     addon)            cmd_addon "$@" ;;

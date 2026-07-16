@@ -45,12 +45,18 @@ Center) · cpu · cpu-temp · memory · gpu · vpn · network · volume · batte
 The network module prefers the ethernet icon when a wired link is up, and
 clicking it opens the Control Center.
 
-The cpu-temp, GPU, and battery modules run the polling scripts in
-`scripts/` (moved here from the retired waybar package, covered by
-`tests/unit/test_quickshell_scripts.py`) via `ScriptModule`; the VPN module
-polls `hyprconf vpn status --json`. cpu/mem/net come from one long-lived
-`stats.sh` sampler (also tested hermetically — its system paths are
-`HYPRCONF_STATS_*`-overridable).
+Every data source runs exactly once in the `Services` singleton and is
+bound into each screen's bar (`Bar{}` is per-monitor, so per-Bar processes
+would run once per screen): cpu/mem/net/cpu-temp come from the long-lived
+`stats.sh` sampler (temperature read straight from a hwmon path resolved at
+startup), the GPU module from a long-lived `gpu_info.sh` stream (one
+`nvidia-smi --loop` through one awk, or an AMD sysfs loop), the battery
+module from a 1s poll that stops entirely on battery-less desktops
+(`"once": true`), and the VPN module from a 5s `hyprconf vpn status --json`
+poll. All scripts are hermetically tested
+(`tests/unit/test_quickshell_scripts.py`) with `HYPRCONF_*`-overridable
+system paths; `ScriptModule` is the shared module chrome (padding,
+class→color, hide-when-empty, critical blink, click).
 
 ## Popouts & extras
 

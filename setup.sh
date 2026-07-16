@@ -565,6 +565,12 @@ update_zshenv() {
     touch "${ZSHENV}"
     grep -qxF 'export PATH="$HOME/.local/bin:$PATH"' "${ZSHENV}" 2>/dev/null \
         || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "${ZSHENV}"
+    # Keep Python bytecode caches out of the stow tree: the TUI / theme
+    # switcher live under stowed dirs, so a plain run would drop __pycache__
+    # next to the sources inside the repo — which stow then symlinks into
+    # $HOME. Redirecting the cache keeps the speed and the clean tree.
+    grep -qxF 'export PYTHONPYCACHEPREFIX="$HOME/.cache/python"' "${ZSHENV}" 2>/dev/null \
+        || echo 'export PYTHONPYCACHEPREFIX="$HOME/.cache/python"' >> "${ZSHENV}"
     # shellcheck disable=SC2088  # literal ~ is intentional in this user-facing message
     log_ok "~/.zshenv configured."
 }
@@ -994,16 +1000,15 @@ setup_hardware_features() {
             || log_warn "Nvidia package install failed — Hyprland may not start. Install manually: sudo pacman -S nvidia-open nvidia-utils egl-wayland"
         # Add Nvidia modules for early KMS so the display controller is ready
         # before the compositor starts.  Skip if already present to stay idempotent.
+        # Anything that must land inside the initramfs (MODULES=, or modprobe.d
+        # via the modconf hook) flags a single rebuild at the end of this block.
+        local initramfs_dirty=false
         local mkinitcpio=/etc/mkinitcpio.conf
         if [[ -f "$mkinitcpio" ]] && ! grep -qE "^MODULES=.*nvidia" "$mkinitcpio" 2>/dev/null; then
             log_step "Adding Nvidia early-KMS modules to $mkinitcpio..."
             sudo sed -i '/^MODULES=/s/)$/ nvidia nvidia_modeset nvidia_uvm nvidia_drm)/' "$mkinitcpio" \
-                && log_ok "Nvidia modules added to MODULES." \
+                && { log_ok "Nvidia modules added to MODULES."; initramfs_dirty=true; } \
                 || log_warn "Could not update $mkinitcpio — add 'nvidia nvidia_modeset nvidia_uvm nvidia_drm' to MODULES manually."
-            log_step "Rebuilding initramfs..."
-            sudo mkinitcpio -P \
-                && log_ok "Initramfs rebuilt." \
-                || log_warn "mkinitcpio -P failed — rebuild manually: sudo mkinitcpio -P"
         else
             log_ok "Nvidia early-KMS modules already present — skipping."
         fi
@@ -1017,10 +1022,53 @@ setup_hardware_features() {
         if [[ ! -f "$nvidia_modprobe" ]] || ! grep -q "^options nvidia-drm modeset=1" "$nvidia_modprobe" 2>/dev/null; then
             log_step "Setting nvidia-drm modeset=1 in $nvidia_modprobe..."
             printf 'options nvidia-drm modeset=1\n' | sudo tee -a "$nvidia_modprobe" > /dev/null \
-                && log_ok "nvidia-drm modeset=1 set." \
+                && { log_ok "nvidia-drm modeset=1 set."; initramfs_dirty=true; } \
                 || log_warn "Could not write $nvidia_modprobe — add 'options nvidia-drm modeset=1' manually."
         else
             log_ok "nvidia-drm modeset=1 already set."
+        fi
+
+        # Preserve VRAM across suspend/hibernate. Without this the driver drops
+        # all video memory during sleep: on wake the compositor's GL context is
+        # gone (Hyprland SIGABRTs within a minute of resume), hyprlock dies with
+        # it, and relaunch attempts crash in initServer until the GPU resettles
+        # — which tty1 autologin turns into a relaunch storm. NVIDIA's README
+        # requires BOTH the module parameter and the sleep services below (they
+        # drive /proc/driver/nvidia/suspend). The backing file holds a copy of
+        # all utilized VRAM, so it must be on a real filesystem, not tmpfs —
+        # hence /var/tmp, not the /tmp default.
+        local nvidia_power=/etc/modprobe.d/nvidia-power-management.conf
+        if ! grep -qs 'NVreg_PreserveVideoMemoryAllocations=1' "$nvidia_power"; then
+            log_step "Enabling VRAM preservation across suspend ($nvidia_power)..."
+            printf 'options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp\n' \
+                | sudo tee "$nvidia_power" > /dev/null \
+                && { log_ok "VRAM preservation configured."; initramfs_dirty=true; } \
+                || log_warn "Could not write $nvidia_power — add 'options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp' manually."
+        else
+            log_ok "VRAM preservation already configured."
+        fi
+
+        local sleep_services=(nvidia-suspend.service nvidia-resume.service
+            nvidia-hibernate.service nvidia-suspend-then-hibernate.service)
+        local svc to_enable=()
+        for svc in "${sleep_services[@]}"; do
+            systemctl cat "$svc" > /dev/null 2>&1 || continue # not shipped by this driver
+            [[ "$(systemctl is-enabled "$svc" 2>/dev/null)" == "enabled" ]] || to_enable+=("$svc")
+        done
+        if ((${#to_enable[@]} > 0)); then
+            log_step "Enabling Nvidia sleep services (${to_enable[*]})..."
+            sudo systemctl enable "${to_enable[@]}" > /dev/null 2>&1 \
+                && log_ok "Nvidia sleep services enabled." \
+                || log_warn "Could not enable Nvidia sleep services — run: sudo systemctl enable ${sleep_services[*]}"
+        else
+            log_ok "Nvidia sleep services already enabled."
+        fi
+
+        if $initramfs_dirty; then
+            log_step "Rebuilding initramfs (early-KMS modules read modprobe.d from the image)..."
+            sudo mkinitcpio -P \
+                && log_ok "Initramfs rebuilt." \
+                || log_warn "mkinitcpio -P failed — rebuild manually: sudo mkinitcpio -P"
         fi
     else
         log_ok "No Nvidia GPU detected — skipping Nvidia setup."

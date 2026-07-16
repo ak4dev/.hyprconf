@@ -1,83 +1,114 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-_nvidia() {
-    command -v nvidia-smi &>/dev/null || return 1
-    local out
-    out=$(nvidia-smi \
-        --query-gpu=utilization.gpu,power.draw,temperature.gpu,memory.used,memory.total \
-        --format=csv,noheader,nounits 2>/dev/null | tr -d ' ') || return 1
-    [[ -n "$out" ]] || return 1
+# Streaming GPU stats for the quickshell bar: one JSON line per interval on
+# stdout, long-lived (started once by ScriptModule's `streaming` mode).
+#
+# The old one-shot version was respawned by a 2s timer: bash + nvidia-smi +
+# 2×awk + printf per tick ≈ 33 ms of process churn every poll, with nvidia-smi
+# opening a fresh NVML session each time. Streaming keeps ONE nvidia-smi
+# (`--loop` mode, persistent session) piped through ONE awk; the AMD path is a
+# pure-bash sysfs loop with paths resolved once.
+#
+# Emits nothing and exits 0 when no supported GPU exists — the module hides
+# and is NOT restarted. A stream that produced output and then died IS
+# restarted by ScriptModule, so a driver hiccup self-heals.
+#
+# Env knobs are test overrides (hermetic suite drives this with fake trees).
+: "${HYPRCONF_GPU_INTERVAL:=2}"
+: "${HYPRCONF_GPU_DRM_ROOT:=/sys/class/drm}"
+: "${HYPRCONF_GPU_ITERATIONS:=0}"   # AMD loop: 0 = forever; N = exit after N
 
-    local util power temp mem_used mem_total
-    IFS=',' read -r util power temp mem_used mem_total <<< "$out"
+_thermo=$(printf '\ue350')
+_vram_icon=$(printf '\U000F0620')
 
-    local used_gib total_gib pwr
-    used_gib=$(awk "BEGIN {printf \"%.1f\", ${mem_used}/1024}")
-    total_gib=$(awk "BEGIN {printf \"%.1f\", ${mem_total}/1024}")
-    pwr=$(printf "%.0f" "${power}")
-
-    local thermo vram_icon
-    thermo=$(printf '\ue350')
-    vram_icon=$(printf '\U000F0620')
-
-    echo "{\"text\":\"${util}% ${thermo}${temp}° ${vram_icon} ${used_gib}/${total_gib}G\",\"tooltip\":\"Util: ${util}% | Temp: ${temp}° | VRAM: ${used_gib}/${total_gib} GiB | Power: ${pwr}W\"}"
+# bytes → GiB with one decimal (pure integer math, no external tools)
+gib_b() {
+    local g10=$(( ($1 * 10 + 536870912) / 1073741824 ))
+    printf '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
 }
 
-_amd() {
-    local card
-    for card in /sys/class/drm/card[0-9]*/device; do
-        [[ -f "${card}/gpu_busy_percent" ]] || continue
+_nvidia_probe() {
+    command -v nvidia-smi &>/dev/null || return 1
+    nvidia-smi -i 0 --query-gpu=utilization.gpu \
+        --format=csv,noheader,nounits &>/dev/null
+}
 
-        local util
-        util=$(cat "${card}/gpu_busy_percent") || continue
+_nvidia_stream() {
+    # -i 0 pins the first GPU: without it a multi-GPU box emits one line per
+    # GPU per iteration and the bar flaps between them (matches the old
+    # script, which read only the first line).
+    nvidia-smi -i 0 \
+        --query-gpu=utilization.gpu,power.draw,temperature.gpu,memory.used,memory.total \
+        --format=csv,noheader,nounits -l "$HYPRCONF_GPU_INTERVAL" 2>/dev/null |
+        awk -F', *' -v th="$_thermo" -v vi="$_vram_icon" '
+            NF >= 5 {
+                used  = sprintf("%.1f", $4 / 1024)
+                total = sprintf("%.1f", $5 / 1024)
+                printf "{\"text\":\"%s%% %s%s° %s %s/%sG\",\"tooltip\":\"Util: %s%% | Temp: %s° | VRAM: %s/%s GiB | Power: %.0fW\"}\n",
+                    $1, th, $3, vi, used, total, $1, $3, used, total, $2 + 0
+                fflush()
+            }'
+}
 
-        # Temperature: hwmon stores millidegrees C
-        local temp_file temp_str
-        temp_file=$(ls "${card}"/hwmon/hwmon*/temp1_input 2>/dev/null | head -1 || true)
-        if [[ -n "${temp_file}" ]]; then
-            local temp_raw
-            temp_raw=$(awk "BEGIN {printf \"%.0f\", $(cat "${temp_file}")/1000}")
-            temp_str="${temp_raw}°"
-        else
-            temp_str=""
-        fi
+_amd_card=""
+_amd_temp_file=""
 
-        # VRAM in bytes; iGPU may report 0 (shared system RAM)
-        local vram_used vram_total mem_str
-        vram_used=$(cat "${card}/mem_info_vram_used" 2>/dev/null || echo 0)
-        vram_total=$(cat "${card}/mem_info_vram_total" 2>/dev/null || echo 0)
-
-        if [[ "${vram_total}" -gt 0 ]]; then
-            local used_gib total_gib
-            used_gib=$(awk "BEGIN {printf \"%.1f\", ${vram_used}/1073741824}")
-            total_gib=$(awk "BEGIN {printf \"%.1f\", ${vram_total}/1073741824}")
-            mem_str="${used_gib}/${total_gib}G"
-        else
-            mem_str="shared"
-        fi
-
-        local thermo vram_icon
-        thermo=$(printf '\ue350')
-        vram_icon=$(printf '\U000F0620')
-
-        local text
-        if [[ -n "${temp_str}" ]]; then
-            text="${util}% ${thermo}${temp_str} ${vram_icon} ${mem_str}"
-        else
-            text="${util}% ${vram_icon} ${mem_str}"
-        fi
-
-        echo "{\"text\":\"${text}\",\"tooltip\":\"Util: ${util}% | Temp: ${temp_str} | VRAM: ${mem_str}\"}"
+_amd_probe() {
+    local d t
+    for d in "$HYPRCONF_GPU_DRM_ROOT"/card[0-9]*/device; do
+        [[ -f "$d/gpu_busy_percent" ]] || continue
+        _amd_card="$d"
+        for t in "$d"/hwmon/hwmon*/temp1_input; do
+            [[ -r "$t" ]] && { _amd_temp_file="$t"; break; }
+        done
         return 0
     done
     return 1
 }
 
-if ! _nvidia; then
-    if ! _amd; then
-        # No supported GPU detected (e.g. Intel iGPU only).
-        # Emit no output so the bar hides the module rather than showing N/A.
-        exit 0
-    fi
+_amd_stream() {
+    local iter=0 util temp_raw temp_str vram_used vram_total mem_str text
+    while :; do
+        util=0
+        [[ -r "$_amd_card/gpu_busy_percent" ]] && read -r util < "$_amd_card/gpu_busy_percent"
+
+        temp_str=""
+        if [[ -n "$_amd_temp_file" && -r "$_amd_temp_file" ]]; then
+            temp_raw=""
+            read -r temp_raw < "$_amd_temp_file" || temp_raw=""
+            [[ $temp_raw =~ ^[0-9]+$ ]] && temp_str="$(( (temp_raw + 500) / 1000 ))°"
+        fi
+
+        vram_used=0 vram_total=0
+        [[ -r "$_amd_card/mem_info_vram_used"  ]] && read -r vram_used  < "$_amd_card/mem_info_vram_used"
+        [[ -r "$_amd_card/mem_info_vram_total" ]] && read -r vram_total < "$_amd_card/mem_info_vram_total"
+        if (( vram_total > 0 )); then
+            mem_str="$(gib_b "$vram_used")/$(gib_b "$vram_total")G"
+        else
+            mem_str="shared"   # iGPU: VRAM is carved from system RAM
+        fi
+
+        if [[ -n "$temp_str" ]]; then
+            text="${util}% ${_thermo}${temp_str} ${_vram_icon} ${mem_str}"
+        else
+            text="${util}% ${_vram_icon} ${mem_str}"
+        fi
+        printf '{"text":"%s","tooltip":"Util: %s%% | Temp: %s | VRAM: %s"}\n' \
+            "$text" "$util" "$temp_str" "$mem_str"
+
+        if (( HYPRCONF_GPU_ITERATIONS > 0 && ++iter >= HYPRCONF_GPU_ITERATIONS )); then
+            return 0
+        fi
+        sleep "$HYPRCONF_GPU_INTERVAL"
+    done
+}
+
+if _nvidia_probe; then
+    _nvidia_stream
+elif _amd_probe; then
+    _amd_stream
 fi
+# No supported GPU (e.g. Intel iGPU only): exit 0 with no output — the bar
+# hides the module rather than showing N/A.
+exit 0

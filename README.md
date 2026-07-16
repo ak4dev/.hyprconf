@@ -48,7 +48,7 @@
 - **VPN & kill-switch** — `hyprconf vpn` manages any NetworkManager VPN profile (OpenVPN or WireGuard) provider-agnostically: `status`/`list`/`connect`/`disconnect`/`import`, plus a bar indicator (click to toggle). `hyprconf vpn killswitch on` enforces fail-closed VPN-only networking — delegating to ProtonVPN's maintained kill-switch when the `vpn` addon is installed, or a self-contained nftables egress guard otherwise. ProtonVPN's official CLI (NetShield, Secure Core) installs via `hyprconf addon vpn`
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
 - **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. hyprlock is actively kept password-only — it's repointed at `system-auth` so it can't inherit the key requirement from `login` and lock you out
-- **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
+- **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf autologin` (tty1 autologin toggle), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
 
 ---
 
@@ -283,6 +283,7 @@ hyprconf gamemode [on|off|toggle|status]  Toggle performance mode (no animations
 hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu
 hyprconf power-profile [status|performance|balanced|power-saver|auto]  Power profile control
 hyprconf nightlight [on|off|toggle|status]  Blue light filter (hyprsunset/wlsunset)
+hyprconf autologin [status|on|off|toggle]  Passwordless tty1 autologin (getty drop-in)
 hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard (hyprpicker)
 hyprconf record [start|stop|toggle|status]  Screen recording (wf-recorder)
 
@@ -774,16 +775,29 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 - `fastfetch` greeting on every shell
 
 `~/.zprofile` auto-starts Hyprland on TTY1 login (replaces `sddm`) via
-`hyprland-session`, a shim that first reaps any orphaned compositor left by an
-unclean shutdown (an orphan holds the seat's input devices — the cause of
-"keyboard/mouse dead until re-plugged"), then execs the official
-`start-hyprland` watchdog.
+`hyprland-session`, a shim that cleans up after unclean shutdowns before
+exec'ing the official `start-hyprland` watchdog: it reaps orphaned
+compositors and per-session daemons (an orphan holds the seat's input
+devices — the cause of "keyboard/mouse dead until re-plugged" — and an
+orphaned hypridle holds a stale sleep inhibitor), waits for logind to finish
+tearing down the previous session, and backs off when relaunches come fast
+(a post-resume GPU wedge otherwise becomes a crash-relaunch storm under
+tty1 autologin).
 
 To stop the session from another TTY or over SSH, run `hyprland-stop`.
 Do **not** `pkill start-hyprland`: the watchdog relaunches Hyprland after
 unclean exits, and killing the watchdog itself orphans the compositor.
-`hyprland-stop` asks the compositor to exit over IPC and only escalates to
-signals (watchdog first) if it is unresponsive.
+`hyprland-stop` first writes a hold file that makes the next autologin land
+in a plain shell (so the session *stays* stopped — this also breaks an
+active crash storm in one run), then asks the compositor to exit over IPC
+and only escalates to signals (watchdog first) if it is unresponsive. Start
+again from the held tty1 shell with `start-hyprland`, or just exit it.
+
+On Nvidia, `setup.sh` also configures suspend/resume VRAM preservation
+(`NVreg_PreserveVideoMemoryAllocations=1` + the `nvidia-suspend/resume/
+hibernate` services) — without it the GPU loses all video memory across
+sleep and Hyprland/hyprlock crash on every wake. See
+`docs/hyprland-reference.md` for details.
 
 ---
 

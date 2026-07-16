@@ -1,6 +1,6 @@
 """
 Tests for new CLI commands: doctor, clipboard, screenshot, gamemode, power,
-nightlight, colorpicker, record, theme generate.
+nightlight, autologin, colorpicker, record, theme generate.
 
 Validates that each command function exists in the hyprconf binary,
 has correct dispatcher entries, and appears in help text.
@@ -564,3 +564,64 @@ class TestThemeGenerate:
         """python-pillow must be in the packages file."""
         pkgs = (REPO_ROOT / "packages").read_text()
         assert "python-pillow" in pkgs
+
+
+# ---------------------------------------------------------------------------
+# 10. cmd_autologin
+# ---------------------------------------------------------------------------
+
+
+class TestCmdAutologin:
+    """Verify hyprconf autologin command (tty1 getty drop-in toggle)."""
+
+    def test_function_exists(self) -> None:
+        assert "cmd_autologin()" in _bin_text()
+
+    def test_dispatcher_entry(self) -> None:
+        text = _bin_text()
+        lines = [l.strip() for l in text.splitlines() if "autologin)" in l and "cmd_autologin" in l]
+        assert lines, "autologin must have a dispatcher entry in main()"
+
+    def test_help_text(self) -> None:
+        assert "hyprconf autologin" in _bin_text()
+
+    def test_on_off_toggle_status(self) -> None:
+        text = _bin_text()
+        idx = text.index("cmd_autologin()")
+        body = text[idx : idx + 500]
+        assert "on" in body
+        assert "off" in body
+        assert "toggle" in body
+        assert "status" in body
+
+    def test_defaults_to_status(self) -> None:
+        """No argument must show status, never flip a security setting."""
+        text = _bin_text()
+        idx = text.index("cmd_autologin()")
+        body = text[idx : idx + 200]
+        assert '"${1:-status}"' in body
+
+    def test_manages_getty_dropin(self) -> None:
+        text = _bin_text()
+        assert "getty@tty1.service.d" in text
+        assert "--autologin" in text
+
+    def test_daemon_reload_after_change(self) -> None:
+        """Drop-in changes must be followed by a systemd daemon-reload."""
+        text = _bin_text()
+        idx = text.index("_autologin_on()")
+        assert "systemctl daemon-reload" in text[idx : idx + 1200]
+        idx = text.index("_autologin_off()")
+        assert "systemctl daemon-reload" in text[idx : idx + 1200]
+
+    def test_detects_foreign_dropins(self) -> None:
+        """Any *.conf in the drop-in dir counts, not just the managed file."""
+        text = _bin_text()
+        idx = text.index("_autologin_active_file()")
+        body = text[idx : idx + 400]
+        assert '"$_AUTOLOGIN_DIR"/*.conf' in body
+
+    def test_not_managed_by_setup(self) -> None:
+        """setup.sh must not silently configure autologin on install."""
+        setup = (REPO_ROOT / "setup.sh").read_text()
+        assert "--autologin" not in setup

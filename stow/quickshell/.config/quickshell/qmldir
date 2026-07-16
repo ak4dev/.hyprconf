@@ -1,4 +1,5 @@
 singleton Theme Theme.qml
+singleton Services Services.qml
 BarText BarText.qml
 Bar Bar.qml
 ScriptModule ScriptModule.qml
