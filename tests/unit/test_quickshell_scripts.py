@@ -292,9 +292,9 @@ class TestStatsCpuTemp:
         hwmon = _fake_hwmon(tmp_path, sensors)
         net = tmp_path / "net"
         (net / "lo").mkdir(parents=True)
-        payload = _run_stats(
-            tmp_path, net, default_route_dev=None, iterations=1, hwmon_root=hwmon
-        )[0]
+        payload = _run_stats(tmp_path, net, default_route_dev=None, iterations=1, hwmon_root=hwmon)[
+            0
+        ]
         return payload["temp"]
 
     def test_amd_tctl_wins_over_tdie(self, tmp_path: Path) -> None:
