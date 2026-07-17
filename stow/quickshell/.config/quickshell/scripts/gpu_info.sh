@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Streaming GPU stats for the quickshell bar: one JSON line per interval on
-# stdout, long-lived (started once by ScriptModule's `streaming` mode).
+# stdout, long-lived (started once by the Services singleton, shared by all screens).
 #
 # The old one-shot version was respawned by a 2s timer: bash + nvidia-smi +
 # 2×awk + printf per tick ≈ 33 ms of process churn every poll, with nvidia-smi
@@ -12,7 +12,7 @@ set -euo pipefail
 #
 # Emits nothing and exits 0 when no supported GPU exists — the module hides
 # and is NOT restarted. A stream that produced output and then died IS
-# restarted by ScriptModule, so a driver hiccup self-heals.
+# restarted by Services, so a driver hiccup self-heals.
 #
 # Env knobs are test overrides (hermetic suite drives this with fake trees).
 : "${HYPRCONF_GPU_INTERVAL:=2}"

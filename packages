@@ -63,10 +63,10 @@ wl-clipboard
 # File manager support (trash, MTP, network mounts)
 gvfs
 
-# System monitoring (bar scripts in ~/.config/quickshell/scripts/).  upower is
-# NOT listed: the battery script reads /sys/class/power_supply directly, and
+# System monitoring: nothing to install.  The bar samplers read the kernel
+# interfaces directly (stats.sh: /proc + hwmon sysfs for CPU temp; battery:
+# /sys/class/power_supply), so neither lm_sensors nor upower is needed —
 # upower still arrives as a hard dependency of power-profiles-daemon.
-lm_sensors
 
 # Python (theme switcher + hyprconf TUI)
 python

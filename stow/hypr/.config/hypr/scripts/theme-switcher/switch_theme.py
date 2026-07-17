@@ -841,10 +841,15 @@ def update_vscode(theme: dict[str, Any]) -> None:
 
     extension = vscode_cfg.get("extension")
     if extension:
+        # Marketplace IDs are case-insensitive but install dirs are lowercased
+        # (Catppuccin.catppuccin-vsc → catppuccin.catppuccin-vsc-3.18.1-…), so
+        # compare case-folded or every switch re-spawns a background install.
+        ext_lower = extension.lower()
         ext_dir = Path.home() / ".vscode-oss" / "extensions"
         already_installed = (
             any(
-                p.is_dir() and (p.name == extension or p.name.startswith(f"{extension}-"))
+                p.is_dir()
+                and (p.name.lower() == ext_lower or p.name.lower().startswith(f"{ext_lower}-"))
                 for p in ext_dir.iterdir()
             )
             if ext_dir.exists()
@@ -1968,11 +1973,15 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
         if not source_root.exists():
             return
 
+        ext_lower = extension_id.lower()
         matches = [
             candidate
             for candidate in source_root.iterdir()
             if candidate.is_dir()
-            and (candidate.name == extension_id or candidate.name.startswith(f"{extension_id}-"))
+            and (
+                candidate.name.lower() == ext_lower
+                or candidate.name.lower().startswith(f"{ext_lower}-")
+            )
         ]
 
         if not matches:

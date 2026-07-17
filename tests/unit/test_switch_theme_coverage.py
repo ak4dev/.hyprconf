@@ -536,6 +536,51 @@ def test_update_vscode_skips_when_no_cli(monkeypatch):
     st.update_vscode(theme)  # must not raise
 
 
+def _vscode_install_probe(tmp_path, monkeypatch):
+    """Fake home + settings file; record background install spawns."""
+    settings_file = tmp_path / "User" / "settings.json"
+    settings_file.parent.mkdir(parents=True)
+    settings_file.write_text("{}")
+    monkeypatch.setattr(st, "CODE_SETTINGS_FILE", str(settings_file))
+    monkeypatch.setattr(st, "CODE_CLI", "/usr/bin/code-oss")
+    monkeypatch.setattr(st, "load_vscode_base_defaults", lambda: {})
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    spawns = []
+    monkeypatch.setattr(st.subprocess, "Popen", lambda cmd, **kw: spawns.append(cmd))
+    return spawns
+
+
+def test_update_vscode_extension_match_is_case_insensitive(tmp_path, monkeypatch):
+    """Marketplace IDs are case-insensitive but install dirs are lowercased
+    (Catppuccin.catppuccin-vsc → catppuccin.catppuccin-vsc-3.18.1-…); a
+    case-sensitive check re-spawned a background install on every switch."""
+    spawns = _vscode_install_probe(tmp_path, monkeypatch)
+    ext_dir = tmp_path / ".vscode-oss" / "extensions"
+    (ext_dir / "catppuccin.catppuccin-vsc-3.18.1-universal").mkdir(parents=True)
+
+    theme = {
+        **DARK_THEME,
+        "vscode": {"theme": "Catppuccin Mocha", "extension": "Catppuccin.catppuccin-vsc"},
+    }
+    st.update_vscode(theme)
+
+    assert spawns == []  # already installed — no background install
+
+
+def test_update_vscode_installs_when_extension_missing(tmp_path, monkeypatch):
+    spawns = _vscode_install_probe(tmp_path, monkeypatch)
+    (tmp_path / ".vscode-oss" / "extensions").mkdir(parents=True)
+
+    theme = {
+        **DARK_THEME,
+        "vscode": {"theme": "Dracula", "extension": "dracula-theme.theme-dracula"},
+    }
+    st.update_vscode(theme)
+
+    assert len(spawns) == 1
+    assert "--install-extension" in spawns[0]
+
+
 # ---------------------------------------------------------------------------
 # reload_hyprland
 # ---------------------------------------------------------------------------

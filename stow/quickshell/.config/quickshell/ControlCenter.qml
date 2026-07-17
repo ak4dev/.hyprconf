@@ -3,7 +3,6 @@ import Quickshell
 import Quickshell.Services.Pipewire
 import Quickshell.Bluetooth
 import Quickshell.Networking
-import Quickshell.Widgets
 
 // macOS-style Control Center: Wi-Fi (with in-panel network list + connect),
 // Bluetooth, and full audio (volume + output/input device pickers). Only

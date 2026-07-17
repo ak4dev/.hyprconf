@@ -59,4 +59,4 @@ typecheck: ## Run mypy on the Python library (informational — not yet a CI gat
 clean: ## Remove build artefacts and caches
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
-	rm -rf .pytest_cache .ruff_cache .mypy_cache
+	rm -rf .pytest_cache .ruff_cache .mypy_cache .coverage
