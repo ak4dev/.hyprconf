@@ -132,6 +132,27 @@ def test_pam_targets_sudo_login_dm_and_ssh() -> None:
         assert dm in txt
 
 
+def test_pam_wires_every_detected_display_manager() -> None:
+    """Every detected DM PAM file must be offered, not just one.
+
+    Each file is an independent login path — a box with both sddm and gdm
+    installed has /etc/pam.d/sddm AND /etc/pam.d/gdm-password.  The old code
+    used a single-choice ask_pick menu, so whichever DM wasn't picked kept a
+    key-free graphical login.
+    """
+    body = _func_body("configure_pam")
+    assert 'for dm in "${dms[@]}"' in body, (
+        "configure_pam must iterate every detected display manager"
+    )
+    assert 'pam_add_u2f "/etc/pam.d/$dm"' in body, (
+        "each detected display manager must get the pam_u2f line"
+    )
+    assert "ask_pick" not in body, (
+        "display managers must not be narrowed to one via an ask_pick menu — "
+        "the unpicked ones stay unprotected"
+    )
+
+
 def test_pam_insertion_is_idempotent() -> None:
     # pam_add_u2f skips files that already contain pam_u2f
     txt = _text()

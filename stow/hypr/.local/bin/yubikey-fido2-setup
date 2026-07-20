@@ -321,7 +321,13 @@ configure_pam() {
     ask_yn "Protect sudo with YubiKey?" y       && pam_add_u2f /etc/pam.d/sudo
     ask_yn "Protect TTY login with YubiKey?" y  && pam_add_u2f /etc/pam.d/login
 
-    # Display manager — auto-detect which PAM files exist
+    # Display manager — auto-detect which PAM files exist.  EVERY detected DM is
+    # offered, not just one: each PAM file is an independent login path, so
+    # protecting a single one leaves the rest as key-free graphical logins.  A
+    # machine with both sddm and gdm installed has /etc/pam.d/sddm AND
+    # /etc/pam.d/gdm-password; wiring only the one picked from a menu silently
+    # left the other unprotected.  Entries that don't exist on this system are
+    # skipped by the -f test, so the list stays portable across distros.
     local -a dms=()
     local dm
     for dm in sddm gdm-password gdm lightdm lxdm xdm; do
@@ -330,14 +336,11 @@ configure_pam() {
 
     if (( ${#dms[@]} == 0 )); then
         warn "No display manager PAM files found — skipping"
-    elif (( ${#dms[@]} == 1 )); then
-        ask_yn "Protect ${dms[0]} (display manager) with YubiKey?" y \
-            && pam_add_u2f "/etc/pam.d/${dms[0]}"
     else
-        local chosen_dm
-        ask_pick chosen_dm "Multiple display manager PAM files found — pick one:" \
-            "${dms[@]}" "skip"
-        [[ "$chosen_dm" != "skip" ]] && pam_add_u2f "/etc/pam.d/$chosen_dm"
+        for dm in "${dms[@]}"; do
+            ask_yn "Protect $dm (display manager) with YubiKey?" y \
+                && pam_add_u2f "/etc/pam.d/$dm"
+        done
     fi
 
     if ask_yn "Protect SSH logins with YubiKey?" y; then
