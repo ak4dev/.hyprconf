@@ -294,25 +294,49 @@ pam_add_u2f() {
     ok "Updated: $file"
 }
 
-# Keep the lock screen PASSWORD-ONLY. hyprlock's packaged PAM config is
-# `auth include login`, and pam_add_u2f adds pam_u2f (required) to
-# /etc/pam.d/login — so without this shield the lock screen would demand the
-# YubiKey and become IMPOSSIBLE to unlock whenever the key is absent (critical
-# self-lockout). Authenticate hyprlock against the untouched system-auth stack
-# (password via pam_unix) instead of login.
-shield_hyprlock() {
-    local hl="/etc/pam.d/hyprlock"
-    [[ -f "$hl" ]] && backup "$hl"
-    cat > "$hl" <<'PAMHL'
-# Managed by yubikey-fido2-setup — hyprlock is intentionally PASSWORD-ONLY.
-# Do NOT add the YubiKey (FIDO2) auth module here or `include login`: a missing
-# or failed key would make the lock screen impossible to unlock. Authenticate
-# against system-auth (the user's password) instead.
+# Screen lockers are kept PASSWORD-ONLY.  Two independent failure modes make a
+# key-protected locker a hard lockout of a running session:
+#
+#   1. Stack inheritance.  A locker whose packaged PAM config is
+#      `auth include login` (hyprlock's default) picks up the pam_u2f line
+#      pam_add_u2f writes into /etc/pam.d/login, so a missing or failed key
+#      makes the screen impossible to unlock.
+#
+#   2. Unreadable authfile.  Lockers authenticate as the *session user*, not
+#      root, while $U2F_KEYS is 0640 root:root.  pam_u2f's
+#      get_devices_from_authfile() defaults its return to PAM_AUTHINFO_UNAVAIL
+#      and hits it whenever open() fails, so an unprivileged locker on a stack
+#      containing pam_u2f fails EVERY unlock — with the key inserted or not.
+#      (nouserok does not rescue this: it only downgrades ENOENT, not EACCES.)
+#
+# Both are fixed the same way: give each locker its own PAM file that
+# authenticates against the untouched system-auth stack (password via
+# pam_unix).  The user's password always unlocks; the key never gates it.
+#
+# The list is deliberately unconditional — writing a PAM file for a locker that
+# isn't installed is inert, whereas skipping one that gets installed later
+# silently re-arms the lockout.
+readonly -a LOCKER_PAM_SERVICES=(hyprlock cosmic-greeter)
+
+shield_lockers() {
+    local svc path
+    for svc in "${LOCKER_PAM_SERVICES[@]}"; do
+        path="/etc/pam.d/$svc"
+        [[ -f "$path" ]] && backup "$path"
+        cat > "$path" <<PAMLOCK
+# Managed by yubikey-fido2-setup — $svc is intentionally PASSWORD-ONLY.
+# Do NOT add the YubiKey (FIDO2) auth module here or \`include login\`:
+#   · a missing or failed key would make the lock screen impossible to unlock;
+#   · lockers run as the session user and cannot read the 0640 root-owned
+#     authfile, so pam_u2f would return PAM_AUTHINFO_UNAVAIL and reject every
+#     unlock attempt even with the key inserted.
+# Authenticate against system-auth (the user's password) instead.
 auth        include     system-auth
-PAMHL
-    chown root:root "$hl"
-    chmod 644 "$hl"
-    ok "hyprlock kept password-only — your login password unlocks it (never the key)"
+PAMLOCK
+        chown root:root "$path"
+        chmod 644 "$path"
+    done
+    ok "Lockers kept password-only (${LOCKER_PAM_SERVICES[*]}) — your login password unlocks them, never the key"
 }
 
 configure_pam() {
@@ -348,9 +372,10 @@ configure_pam() {
         configure_ssh
     fi
 
-    # Always shield the lock screen — even if login wasn't protected above, this
-    # guarantees a missing/failed key can never lock you out of your own session.
-    shield_hyprlock
+    # Always shield the lock screens — even if login wasn't protected above,
+    # this guarantees a missing/failed key can never lock you out of your own
+    # running session.
+    shield_lockers
 }
 
 # ── 6. SSH daemon ─────────────────────────────────────────────────────────────
@@ -905,6 +930,24 @@ do_status() {
         if grep -q "pam_u2f.so" "/etc/pam.d/$f"; then ok "/etc/pam.d/$f"; found=1; fi
     done
     (( found )) || warn "pam_u2f not found in any PAM file — run 'setup' first."
+
+    # Lockers must be the inverse of the above: no pam_u2f, no `include login`,
+    # and the file must EXIST — a missing one falls through to /etc/pam.d/other
+    # (pam_deny), which is just as unopenable as an inherited key requirement.
+    step "Lock screen shields (must be password-only)"
+    local svc path
+    for svc in "${LOCKER_PAM_SERVICES[@]}"; do
+        path="/etc/pam.d/$svc"
+        if [[ ! -f "$path" ]]; then
+            warn "$path missing — PAM falls back to 'other' (pam_deny): $svc can never unlock. Run 'setup'."
+        elif grep -qE '^[^#]*pam_u2f\.so' "$path"; then
+            warn "$path requires the YubiKey — lockout risk, and it cannot read the 0640 authfile as your user. Run 'setup'."
+        elif grep -qE '^[^#]*include[[:space:]]+login\b' "$path"; then
+            warn "$path includes 'login', inheriting its pam_u2f line — lockout risk. Run 'setup'."
+        else
+            ok "$path password-only"
+        fi
+    done
 
     step "LUKS FIDO2 slots"
     if [[ $EUID -ne 0 ]]; then

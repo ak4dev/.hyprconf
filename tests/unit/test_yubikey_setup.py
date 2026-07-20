@@ -10,6 +10,7 @@ documented behaviour. No root, hardware, or live system is required.
 
 from __future__ import annotations
 
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -160,28 +161,67 @@ def test_pam_insertion_is_idempotent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# hyprlock is INTENTIONALLY left password-only — the script must never touch it
+# Screen lockers are INTENTIONALLY password-only — a key requirement on a
+# locker is a hard lockout of a running session
 # ---------------------------------------------------------------------------
 
 
-def test_shields_hyprlock_password_only() -> None:
-    # hyprlock's packaged PAM config is `auth include login`, and the setup adds
-    # pam_u2f (required) to /etc/pam.d/login — so it MUST rewrite
-    # /etc/pam.d/hyprlock to authenticate against the untouched system-auth stack
-    # (password only). Otherwise a missing/failed key makes the lock screen
-    # impossible to unlock — a critical self-lockout.
-    text = _text()
-    assert "/etc/pam.d/hyprlock" in text, "setup must manage hyprlock's PAM config"
-    body = _func_body("shield_hyprlock")
-    assert "system-auth" in body, "hyprlock must authenticate against system-auth"
-    assert "pam_u2f" not in body, "hyprlock must never include pam_u2f"
+def _locker_services() -> list[str]:
+    match = re.search(r"LOCKER_PAM_SERVICES=\(([^)]*)\)", _text())
+    assert match, "LOCKER_PAM_SERVICES array not found"
+    return match.group(1).split()
 
 
-def test_configure_pam_shields_hyprlock() -> None:
-    assert "shield_hyprlock" in _func_body("configure_pam"), (
-        "configure_pam must call shield_hyprlock so the lock screen stays "
+def test_shielded_lockers_include_hyprlock_and_cosmic() -> None:
+    """Every locker that can reach /etc/pam.d/login must be shielded.
+
+    COSMIC's lock screen calls pam_start("cosmic-greeter") unprivileged inside
+    the user session.  Two ways that bricks an unlock, both observed:
+
+      · the stack reaches /etc/pam.d/login's pam_u2f line — pam_u2f cannot
+        open the 0640 root:root authfile as the session user, so
+        get_devices_from_authfile() returns PAM_AUTHINFO_UNAVAIL and every
+        unlock is rejected whether or not the key is inserted;
+      · the file is absent entirely — PAM falls back to /etc/pam.d/other
+        (pam_deny), which also can never authenticate.
+    """
+    services = _locker_services()
+    assert "hyprlock" in services, "hyprlock must stay shielded"
+    assert "cosmic-greeter" in services, (
+        "COSMIC's locker (pam service 'cosmic-greeter') must be shielded — "
+        "otherwise its lock screen can never authenticate"
+    )
+
+
+def test_shielded_lockers_emit_password_only_stack() -> None:
+    body = _func_body("shield_lockers")
+    assert "system-auth" in body, "lockers must authenticate against system-auth"
+    # Only ACTIVE directives matter: the emitted file carries explanatory PAM
+    # comments that legitimately name pam_u2f and `include login`.
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        assert "pam_u2f.so" not in stripped, f"locker stack must never activate pam_u2f: {line!r}"
+        assert not re.search(r"\binclude\s+login\b", stripped), (
+            f"locker stack must never include the login stack: {line!r}"
+        )
+
+
+def test_configure_pam_shields_lockers() -> None:
+    assert "shield_lockers" in _func_body("configure_pam"), (
+        "configure_pam must call shield_lockers so lock screens stay "
         "password-only after pam_u2f is added to /etc/pam.d/login"
     )
+
+
+def test_status_reports_locker_shield_state() -> None:
+    """`status` must surface a broken/missing shield — that is the only warning
+    a user gets before a suspend/resume leaves them unable to unlock."""
+    txt = _text()
+    assert "Lock screen shields" in txt, "status must report locker shield state"
+    for token in ("falls back", "pam_u2f", "include"):
+        assert token in txt
 
 
 # ---------------------------------------------------------------------------

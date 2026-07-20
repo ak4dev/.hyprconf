@@ -45,7 +45,7 @@
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch. Add **LibreWolf** (privacy fork — RFP, no telemetry) manually (`yay -S librewolf-bin`); it's auto-themed by the same engine
 - **VPN & kill-switch** — `hyprconf-vpn` manages any NetworkManager VPN profile (OpenVPN or WireGuard) provider-agnostically: `status`/`list`/`connect`/`disconnect`/`import`, plus a bar indicator (click to toggle). `hyprconf-vpn killswitch on` enforces fail-closed VPN-only networking — delegating to ProtonVPN's maintained kill-switch when its official CLI is installed (manual AUR: `proton-vpn-cli`), or a self-contained nftables egress guard otherwise
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
-- **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. hyprlock is actively kept password-only — it's repointed at `system-auth` so it can't inherit the key requirement from `login` and lock you out
+- **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. Screen lockers (hyprlock, and COSMIC's `cosmic-greeter`) are actively kept password-only — each is repointed at `system-auth` so it can't inherit the key requirement from `login` and lock you out
 
 ---
 
@@ -501,9 +501,18 @@ another `systemd-cryptenroll --fido2-device=auto` keyslot to the LUKS device.
 per-user credential counts, which `/etc/pam.d/*` files carry `pam_u2f`, and the
 number of FIDO2 token slots per LUKS device.
 
-**hyprlock is intentionally *not* protected by the YubiKey** — the screen locker
-stays password-only (`/etc/pam.d/hyprlock` → `system-auth`) for reliable unlock,
-while the LUKS passphrase always remains as a fallback key slot.
+**Screen lockers are intentionally *not* protected by the YubiKey** — each
+locker gets its own PAM file pointing at `system-auth` (currently `hyprlock` and
+`cosmic-greeter`, COSMIC's lock screen) so unlock stays password-only and
+reliable, while the LUKS passphrase always remains as a fallback key slot.
+
+This is a lockout guard, not a convenience: lockers authenticate as *your user*,
+not root, and `/etc/security/u2f_keys` is `0640 root:root`. A locker whose stack
+reaches `/etc/pam.d/login` therefore hits a `pam_u2f` that cannot open the
+authfile, which returns `PAM_AUTHINFO_UNAVAIL` and rejects **every** unlock —
+with the key inserted or not. A missing locker PAM file is equally fatal: PAM
+falls back to `/etc/pam.d/other` (`pam_deny`). `yubikey-fido2-setup status`
+reports the state of each shield.
 
 > Requires a LUKS2 root for boot-unlock (`systemd-cryptenroll` needs LUKS2). The
 > YubiKey packages stay commented in `packages` since they only apply to YubiKey
