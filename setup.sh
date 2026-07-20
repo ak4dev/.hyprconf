@@ -1435,6 +1435,88 @@ EOF
     fi
 }
 
+# ── Screen-locker PAM shields ────────────────────────────────────────────────
+#
+# A Wayland lock screen authenticates as the *session user*, never as root,
+# which makes two PAM states an unrecoverable lockout of a running session:
+#
+#   · No /etc/pam.d/<service> at all — PAM falls back to /etc/pam.d/other
+#     (pam_deny), so the locker can never authenticate anybody.  Arch ships no
+#     /etc/pam.d/cosmic-greeter, so COSMIC's lock screen is broken on install.
+#   · A stack carrying pam_u2f, either directly or inherited via
+#     `include login` once yubikey-fido2-setup has added the key to
+#     /etc/pam.d/login.  /etc/security/u2f_keys is 0640 root:root, so as the
+#     session user pam_u2f's open() gets EACCES and it returns
+#     PAM_AUTHINFO_UNAVAIL — rejecting every unlock attempt, with the key
+#     inserted or not (nouserok does not help; it only downgrades ENOENT).
+#
+# Correcting this here (rather than only in yubikey-fido2-setup) means a locker
+# installed *after* the system was built — COSMIC added later, say — is repaired
+# by the next `setup.sh --sync`.  Stacks that are already password-only, and any
+# other customisation the user made, are left untouched, so this stays quiet and
+# idempotent.  Keep the list in sync with LOCKER_PAM_SERVICES in
+# stow/hypr/.local/bin/yubikey-fido2-setup.
+#
+# Entries are "pam-service:binary" — the binary gates on the locker actually
+# being installed, so we never litter PAM files for absent software.
+declare -ra HYPRCONF_LOCKER_PAM=(
+    "hyprlock:hyprlock"
+    "cosmic-greeter:cosmic-greeter"
+)
+
+# True when $1 is a PAM stack that would demand the YubiKey from an
+# unprivileged locker: an active pam_u2f line, or an `include login` that
+# inherits one.  Comments are ignored (^[^#]*).  $2 overrides the login stack
+# that `include login` resolves to (defaults to the real one; parameterised so
+# the behaviour is testable against fixtures).
+_locker_pam_is_hazardous() {
+    local file="$1" login_stack="${2:-/etc/pam.d/login}"
+    grep -qE '^[^#]*pam_u2f\.so' "$file" && return 0
+    grep -qE '^[^#]*include[[:space:]]+login\b' "$file" \
+        && grep -qE '^[^#]*pam_u2f\.so' "$login_stack" 2>/dev/null \
+        && return 0
+    return 1
+}
+
+_write_locker_pam() {
+    local svc="$1" path="/etc/pam.d/$1"
+    sudo tee "$path" >/dev/null <<PAMLOCK
+# Managed by hyprconf — $svc is intentionally PASSWORD-ONLY.
+# Do NOT add the YubiKey (FIDO2) auth module here or \`include login\`:
+#   · a missing or failed key would make the lock screen impossible to unlock;
+#   · lockers run as the session user and cannot read the 0640 root-owned
+#     /etc/security/u2f_keys, so pam_u2f returns PAM_AUTHINFO_UNAVAIL and
+#     rejects every unlock attempt even with the key inserted.
+# Authenticate against system-auth (the user's password) instead.
+auth        include     system-auth
+PAMLOCK
+}
+
+ensure_locker_pam() {
+    local entry svc bin path stamp
+    for entry in "${HYPRCONF_LOCKER_PAM[@]}"; do
+        svc="${entry%%:*}"
+        bin="${entry##*:}"
+        # Only manage lockers that are actually installed.
+        command -v "$bin" &>/dev/null || continue
+        path="/etc/pam.d/$svc"
+
+        if [[ ! -f "$path" ]]; then
+            log_step "Creating password-only PAM stack for $svc..."
+            _write_locker_pam "$svc" \
+                && log_ok "$path created — $svc unlocks with your password." \
+                || log_warn "Could not write $path — $svc may be unable to unlock."
+        elif _locker_pam_is_hazardous "$path"; then
+            stamp="$(date +%Y%m%d-%H%M%S)"
+            log_step "Correcting $path (a key requirement there is a lockout)..."
+            sudo cp -a "$path" "${path}.bak.${stamp}" 2>/dev/null || true
+            _write_locker_pam "$svc" \
+                && log_ok "$path is password-only again (backup: ${path}.bak.${stamp})." \
+                || log_warn "Could not rewrite $path — $svc may be unable to unlock."
+        fi
+    done
+}
+
 sync_services() {
     log_step "Enabling system services..."
 
@@ -1607,6 +1689,7 @@ main() {
         reapply_current_theme
         sync_services
         setup_hardening
+        ensure_locker_pam
         reload_hyprland
 
         # After stowing, check for any packages not yet installed.
@@ -1686,6 +1769,7 @@ main() {
     enable_services
     setup_hardening
     sync_services
+    ensure_locker_pam
     reload_hyprland
 
     printf '\n%s  ✔ Setup complete. Restart your terminal or source your ~/.zshrc.%s\n\n' "$GR" "$RS"

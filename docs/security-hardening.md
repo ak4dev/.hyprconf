@@ -12,6 +12,7 @@ steps that require your YubiKey and a reboot to validate (so they are deliberate
 | **Idle → power off on battery** | hypridle powers the machine **off** after 60 min idle on battery (RAM keys flushed, disk re-encrypted at rest) and suspends on AC. | `hypridle.conf` + `hyprconf-idle-action` |
 | **Kernel sysctls** | `kptr_restrict`, `dmesg_restrict`, `yama.ptrace_scope=1`, unprivileged BPF off, BPF JIT hardening, TTY ldisc autoload off, rp_filter, ICMP-redirect off. | `/etc/sysctl.d/90-hyprconf-hardening.conf` |
 | **Resolver** | LLMNR + mDNS responders disabled. | `/etc/systemd/resolved.conf.d/90-hyprconf-hardening.conf` |
+| **Screen-locker PAM shields** | Every installed locker (`hyprlock`, and COSMIC's `cosmic-greeter`) gets a password-only `system-auth` stack. A missing file would fall through to `/etc/pam.d/other` (`pam_deny`); an inherited `pam_u2f` would return `PAM_AUTHINFO_UNAVAIL` because the locker runs as your user and cannot read the `0640 root:root` authfile. Either way the screen could never be unlocked. Corrected on sync, so a locker installed later is repaired automatically. | `setup.sh:ensure_locker_pam` |
 | **Browser** | Firefox hardened via an enterprise `policies.json` (telemetry/studies/Pocket off, uBlock Origin force-installed) plus a `user.js` reapplied on every theme switch. | `/etc/firefox/policies/policies.json` + profile `user.js` |
 
 All are reversible — delete the drop-in file (or revert the rule) and re-sync.
