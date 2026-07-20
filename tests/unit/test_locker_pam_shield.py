@@ -19,6 +19,7 @@ asserted statically.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -41,19 +42,38 @@ def _extract_function(name: str) -> str:
     return result.stdout
 
 
-def _is_hazardous(stack: str, login_stack: str = "") -> bool:
-    """Run the real _locker_pam_is_hazardous() against fixture files."""
+def _is_hazardous(stack: str, login_stack: str = "", home: str | None = None) -> bool:
+    """Run the real _locker_pam_is_hazardous() against fixture files.
+
+    Every collaborating function is injected — extracting only the entry point
+    would leave the helpers undefined, and `command not found` would silently
+    read as "safe".  HOME is overridden so the per-user authfile fallback
+    resolves into the fixture tree instead of the developer's real home.
+    """
     fragment = "\n".join(
         [
             "set -uo pipefail",
+            _extract_function("_pam_u2f_line"),
+            _extract_function("_pam_u2f_authfile_of"),
+            _extract_function("_authfile_readable_by_user"),
             _extract_function("_locker_pam_is_hazardous"),
             f'_locker_pam_is_hazardous "{stack}" "{login_stack}" && echo HAZARD || echo SAFE',
         ]
     )
+    env = {**os.environ, "HOME": home or "/nonexistent-home"}
+    env.pop("XDG_CONFIG_HOME", None)
     out = subprocess.run(
-        ["bash", "-c", fragment], capture_output=True, text=True, timeout=30
+        ["bash", "-c", fragment], capture_output=True, text=True, timeout=30, env=env
     ).stdout
     return "HAZARD" in out
+
+
+def _authfile(tmp_path: Path, *, readable: bool) -> Path:
+    """An authfile the running test user can, or cannot, read."""
+    path = tmp_path / ("readable_keys" if readable else "unreadable_keys")
+    path.write_text("andy:credential\n")
+    path.chmod(0o644 if readable else 0o000)
+    return path
 
 
 # ---------------------------------------------------------------------------
@@ -69,9 +89,75 @@ def test_password_only_stack_is_safe(tmp_path: Path) -> None:
     assert not _is_hazardous(str(stack))
 
 
-def test_active_pam_u2f_is_hazardous(tmp_path: Path) -> None:
+def test_pam_u2f_with_unreadable_authfile_is_hazardous(tmp_path: Path) -> None:
+    """The observed COSMIC failure: pam_u2f can't open the authfile as the
+    session user, returns PAM_AUTHINFO_UNAVAIL, and no unlock ever succeeds."""
+    keys = _authfile(tmp_path, readable=False)
     stack = tmp_path / "cosmic-greeter"
-    stack.write_text("auth required pam_u2f.so authfile=/etc/security/u2f_keys cue\n")
+    stack.write_text(f"auth required pam_u2f.so authfile={keys} cue\n")
+    assert _is_hazardous(str(stack))
+
+
+def test_pam_u2f_with_missing_authfile_is_hazardous(tmp_path: Path) -> None:
+    stack = tmp_path / "cosmic-greeter"
+    stack.write_text(f"auth required pam_u2f.so authfile={tmp_path / 'absent'} cue\n")
+    assert _is_hazardous(str(stack))
+
+
+def test_pam_u2f_with_readable_authfile_is_left_alone(tmp_path: Path) -> None:
+    """A deliberate, working 2FA locker must NOT be silently downgraded to
+    password-only by an unattended sync — that would weaken a setup the user
+    chose on purpose."""
+    keys = _authfile(tmp_path, readable=True)
+    stack = tmp_path / "cosmic-greeter"
+    stack.write_text(f"auth required pam_u2f.so authfile={keys} cue\n")
+    assert not _is_hazardous(str(stack))
+
+
+def _seed_per_user_authfile(home: Path) -> None:
+    keys = home / ".config" / "Yubico" / "u2f_keys"
+    keys.parent.mkdir(parents=True, exist_ok=True)
+    keys.write_text("andy:credential\n")
+    keys.chmod(0o600)
+
+
+def test_pam_u2f_with_enrolled_per_user_authfile_is_left_alone(tmp_path: Path) -> None:
+    """No authfile= means pam_u2f reads a per-user path under $HOME. When the
+    user is actually enrolled there, that is a working 2FA locker."""
+    home = tmp_path / "home"
+    home.mkdir()
+    _seed_per_user_authfile(home)
+    stack = tmp_path / "cosmic-greeter"
+    stack.write_text("auth required pam_u2f.so cue\n")
+    assert not _is_hazardous(str(stack), home=str(home))
+
+
+def test_pam_u2f_with_absent_per_user_authfile_is_hazardous(tmp_path: Path) -> None:
+    """Nothing enrolled and no nouserok: pam_u2f returns PAM_AUTHINFO_UNAVAIL
+    and the `required` stack rejects every unlock."""
+    home = tmp_path / "home"
+    home.mkdir()
+    stack = tmp_path / "cosmic-greeter"
+    stack.write_text("auth required pam_u2f.so cue\n")
+    assert _is_hazardous(str(stack), home=str(home))
+
+
+def test_nouserok_rescues_an_absent_authfile(tmp_path: Path) -> None:
+    """pam-u2f downgrades a *missing* authfile to PAM_IGNORE under nouserok, so
+    the stack falls through to the password and the screen still opens."""
+    home = tmp_path / "home"
+    home.mkdir()
+    stack = tmp_path / "cosmic-greeter"
+    stack.write_text(f"auth required pam_u2f.so authfile={tmp_path / 'absent'} nouserok\n")
+    assert not _is_hazardous(str(stack), home=str(home))
+
+
+def test_nouserok_does_not_rescue_an_unreadable_authfile(tmp_path: Path) -> None:
+    """util.c downgrades ENOENT only — EACCES still yields
+    PAM_AUTHINFO_UNAVAIL, which is exactly the observed COSMIC failure."""
+    keys = _authfile(tmp_path, readable=False)
+    stack = tmp_path / "cosmic-greeter"
+    stack.write_text(f"auth required pam_u2f.so authfile={keys} nouserok\n")
     assert _is_hazardous(str(stack))
 
 
@@ -86,14 +172,26 @@ def test_commented_pam_u2f_is_safe(tmp_path: Path) -> None:
     assert not _is_hazardous(str(stack))
 
 
-def test_include_login_is_hazardous_when_login_carries_the_key(tmp_path: Path) -> None:
+def test_include_login_is_hazardous_when_inherited_authfile_is_unreadable(
+    tmp_path: Path,
+) -> None:
+    keys = _authfile(tmp_path, readable=False)
     login = tmp_path / "login"
-    login.write_text(
-        "auth required pam_u2f.so authfile=/etc/security/u2f_keys\nauth include system-auth\n"
-    )
+    login.write_text(f"auth required pam_u2f.so authfile={keys}\nauth include system-auth\n")
     stack = tmp_path / "hyprlock"
     stack.write_text("auth include login\n")
     assert _is_hazardous(str(stack), str(login))
+
+
+def test_include_login_is_left_alone_when_inherited_authfile_is_readable(
+    tmp_path: Path,
+) -> None:
+    keys = _authfile(tmp_path, readable=True)
+    login = tmp_path / "login"
+    login.write_text(f"auth required pam_u2f.so authfile={keys}\nauth include system-auth\n")
+    stack = tmp_path / "hyprlock"
+    stack.write_text("auth include login\n")
+    assert not _is_hazardous(str(stack), str(login))
 
 
 def test_include_login_is_safe_when_login_has_no_key(tmp_path: Path) -> None:

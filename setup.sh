@@ -1464,18 +1464,75 @@ declare -ra HYPRCONF_LOCKER_PAM=(
     "cosmic-greeter:cosmic-greeter"
 )
 
-# True when $1 is a PAM stack that would demand the YubiKey from an
-# unprivileged locker: an active pam_u2f line, or an `include login` that
-# inherits one.  Comments are ignored (^[^#]*).  $2 overrides the login stack
-# that `include login` resolves to (defaults to the real one; parameterised so
-# the behaviour is testable against fixtures).
+# Print the active pam_u2f line the stack would execute — its own, or the one
+# it inherits via `include login` — or fail when it reaches none.  Comments are
+# ignored (^[^#]*).
+_pam_u2f_line() {
+    local file="$1" login_stack="$2" line=""
+    line=$(grep -oE '^[^#]*pam_u2f\.so[^#]*' "$file" 2>/dev/null | head -1)
+    if [[ -z "$line" ]] \
+        && grep -qE '^[^#]*include[[:space:]]+login\b' "$file" 2>/dev/null; then
+        line=$(grep -oE '^[^#]*pam_u2f\.so[^#]*' "$login_stack" 2>/dev/null | head -1)
+    fi
+    [[ -n "$line" ]] || return 1
+    printf '%s\n' "$line"
+}
+
+# The authfile a given pam_u2f line reads.  Without an explicit authfile= the
+# module falls back to a per-user path under $HOME.
+_pam_u2f_authfile_of() {
+    local line="$1"
+    if [[ "$line" =~ authfile=([^[:space:]]+) ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+    else
+        printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/Yubico/u2f_keys"
+    fi
+}
+
+# Can an unprivileged session user read $1?  setup.sh runs as that user (it
+# escalates per-command with sudo), so `-r` answers exactly the right question.
+# If it is ever invoked as root, `-r` always succeeds, so fall back to the
+# world-readable bit — the only claim we can make without knowing the user.
+_authfile_readable_by_user() {
+    local file="$1" mode=""
+    [[ -e "$file" ]] || return 1
+    if (( EUID == 0 )); then
+        mode=$(stat -c '%a' "$file" 2>/dev/null) || return 1
+        [[ -n "$mode" ]] || return 1
+        (( (8#$mode & 4) != 0 ))
+    else
+        [[ -r "$file" ]]
+    fi
+}
+
+# True only when $1 is a locker stack that would DEMONSTRABLY fail: it reaches a
+# pam_u2f line whose authfile the session user cannot read, so pam_u2f returns
+# PAM_AUTHINFO_UNAVAIL and every unlock is rejected — key inserted or not.
+#
+# A stack that reaches pam_u2f with a *readable* authfile is deliberately left
+# alone: that is a working 2FA locker somebody configured on purpose, and
+# silently downgrading it to password-only would weaken their setup behind their
+# back.  Sync runs unattended and often, so it only ever auto-corrects provably
+# broken states, never merely unusual ones.  (yubikey-fido2-setup's own
+# shield_lockers is unconditional by contrast — that one runs interactively and
+# is the thing that puts pam_u2f into /etc/pam.d/login in the first place.)
+#
+# $2 overrides the login stack `include login` resolves to, so the behaviour is
+# testable against fixtures rather than the live /etc.
 _locker_pam_is_hazardous() {
-    local file="$1" login_stack="${2:-/etc/pam.d/login}"
-    grep -qE '^[^#]*pam_u2f\.so' "$file" && return 0
-    grep -qE '^[^#]*include[[:space:]]+login\b' "$file" \
-        && grep -qE '^[^#]*pam_u2f\.so' "$login_stack" 2>/dev/null \
-        && return 0
-    return 1
+    local file="$1" login_stack="${2:-/etc/pam.d/login}" line="" authfile=""
+    line=$(_pam_u2f_line "$file" "$login_stack") || return 1
+    authfile=$(_pam_u2f_authfile_of "$line")
+
+    # Readable — the 2FA locker genuinely works, so it is not ours to touch.
+    _authfile_readable_by_user "$authfile" && return 1
+    # Absent *and* nouserok — pam_u2f returns PAM_IGNORE and the stack falls
+    # through to the password, so the screen still opens.  nouserok does NOT
+    # rescue a present-but-unreadable file: pam-u2f downgrades ENOENT only
+    # (`if (errno == ENOENT && cfg->nouserok)` in util.c), so EACCES still
+    # yields PAM_AUTHINFO_UNAVAIL.
+    [[ ! -e "$authfile" && "$line" == *nouserok* ]] && return 1
+    return 0
 }
 
 _write_locker_pam() {
@@ -1508,7 +1565,7 @@ ensure_locker_pam() {
                 || log_warn "Could not write $path — $svc may be unable to unlock."
         elif _locker_pam_is_hazardous "$path"; then
             stamp="$(date +%Y%m%d-%H%M%S)"
-            log_step "Correcting $path (a key requirement there is a lockout)..."
+            log_step "Correcting $path (its key requirement cannot be satisfied — unreadable authfile)..."
             sudo cp -a "$path" "${path}.bak.${stamp}" 2>/dev/null || true
             _write_locker_pam "$svc" \
                 && log_ok "$path is password-only again (backup: ${path}.bak.${stamp})." \
