@@ -104,5 +104,12 @@ if pgrep -u "$uid" -x Hyprland >/dev/null; then
     pkill -u "$uid" -KILL -x Hyprland 2>/dev/null || true
 fi
 
+# The supervised locker (hyprlock.service, Restart=on-failure) outlives the
+# compositor by design, but with the session gone it just retries against a
+# dead display — and would lock the next session the moment it starts. Stop
+# it; the next lock_cmd starts it fresh.
+systemctl --user stop hyprlock.service 2>/dev/null || true
+systemctl --user reset-failed hyprlock.service 2>/dev/null || true
+
 echo "hyprland-stop: session stopped and held. tty1 autologin lands in a plain"
 echo "  shell; run 'start-hyprland' there (or exit that shell) to start again."

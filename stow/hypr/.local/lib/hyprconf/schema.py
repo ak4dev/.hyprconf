@@ -2,8 +2,7 @@
 hyprconf.schema — Canonical option schema for all Hyprland configuration keys.
 
 This module is the SINGLE SOURCE OF TRUTH for every configurable option that
-hyprconf exposes.  Both the CLI (get/set/configure) and the TUI import from
-here; neither may define its own schema.
+hyprconf exposes.  The TUI imports from here; it may not define its own schema.
 
 ──────────────────────────────────────────────────────────────────────────────
 AI-CHANGELOG INTERFACE
@@ -11,14 +10,12 @@ AI-CHANGELOG INTERFACE
 When a new Hyprland release ships with changed configuration keys:
 
 1.  Obtain the changelog / diff from https://github.com/hyprwm/Hyprland/releases
-2.  Run:  hyprconf schema dump > schema_before.json
-3.  Identify affected entries in OPTION_SCHEMA below (each entry is a tuple:
+2.  Identify affected entries in OPTION_SCHEMA below (each entry is a tuple:
     (type_str, default_str, description)).
-4.  Add / rename / remove entries as required.
-5.  Run:  hyprconf schema dump > schema_after.json
-        diff schema_before.json schema_after.json
-6.  If a section or key is renamed, also update SECTION_ORDER and SECTION_LABELS.
-7.  Run:  hyprconf schema validate   to catch type/format issues.
+3.  Add / rename / remove entries as required.
+4.  If a section or key is renamed, also update SECTION_ORDER and SECTION_LABELS.
+5.  Run:  pytest tests/unit/test_schema.py   — the currency invariants catch
+    type/format issues and sections unreachable from the TUI sidebar.
 
 Option types understood by hyprconf:
     int        — integer (may be negative)
@@ -33,11 +30,6 @@ Option types understood by hyprconf:
 """
 
 from __future__ import annotations
-
-import re
-
-_HEX_COLOR_RE = re.compile(r"^0x[0-9a-fA-F]{6,8}$")
-_HASH_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6,8}$")
 
 # ── Type alias ────────────────────────────────────────────────────────────────
 # (type_str, default_str, description)
@@ -1079,111 +1071,3 @@ SECTION_LABELS: dict[str, str] = {
     "theme": "Theme",
     "hardware": "Hardware",
 }
-
-# ── Helper functions ──────────────────────────────────────────────────────────
-
-
-def get_section_keys(section: str) -> list[str]:
-    """Return ordered list of option keys for a section, or [] if unknown."""
-    return list(OPTION_SCHEMA.get(section, {}).keys())
-
-
-def get_option_meta(section: str, key: str) -> OptionMeta | None:
-    """Return (type, default, description) for section:key, or None if unknown."""
-    return OPTION_SCHEMA.get(section, {}).get(key)
-
-
-def get_all_sections() -> list[str]:
-    """Return all configurable sections (no separators, no special sections)."""
-    return list(OPTION_SCHEMA.keys())
-
-
-def validate_value(type_str: str, value: str) -> tuple[bool, str]:
-    """Validate a value against its type string.
-
-    Returns (ok, error_message).  error_message is empty when ok is True.
-    """
-    v = value.strip()
-    if type_str == "int":
-        try:
-            int(v)
-            return True, ""
-        except ValueError:
-            return False, f"expected integer, got: {v!r}"
-
-    if type_str == "float":
-        try:
-            float(v)
-            return True, ""
-        except ValueError:
-            return False, f"expected number, got: {v!r}"
-
-    if type_str == "bool":
-        if v.lower() in ("true", "false", "yes", "no", "on", "off", "0", "1"):
-            return True, ""
-        return False, f"expected true/false, got: {v!r}"
-
-    if type_str.startswith("enum:"):
-        choices = [c for c in type_str[5:].split(",") if c]
-        if v in choices:
-            return True, ""
-        return False, f"expected one of [{', '.join(choices)}], got: {v!r}"
-
-    if type_str == "color":
-        # Accept 0xAARRGGBB, #rrggbb, rgb(), rgba(), or keywords like "unset"
-        if _HEX_COLOR_RE.match(v) or _HASH_COLOR_RE.match(v):
-            return True, ""
-        if v.startswith("rgb(") or v.startswith("rgba("):
-            return True, ""
-        if v.lower() in ("unset",):
-            return True, ""
-        return False, f"expected color (hex, rgb(), rgba(), or 'unset'), got: {v!r}"
-
-    # gradient, vec2, str — accept anything
-    return True, ""
-
-
-def format_type_short(type_str: str) -> str:
-    """Return a short display label for a type string."""
-    if type_str.startswith("enum:"):
-        return "enum"
-    return type_str
-
-
-def schema_to_dict() -> dict:
-    """Serialize OPTION_SCHEMA to a plain dict suitable for JSON export.
-
-    Used by `hyprconf schema dump` for machine-readable output.
-    Schema shape::
-
-        {
-            "sections": {
-                "general": {
-                    "keys": {
-                        "gaps_in": {
-                            "type": "int",
-                            "default": "5",
-                            "description": "Gap between tiled windows"
-                        },
-                        ...
-                    }
-                },
-                ...
-            },
-            "section_order": [...],
-            "section_labels": {...}
-        }
-    """
-    sections: dict = {}
-    for section, keys in OPTION_SCHEMA.items():
-        sections[section] = {
-            "keys": {
-                k: {"type": t, "default": d, "description": desc}
-                for k, (t, d, desc) in keys.items()
-            }
-        }
-    return {
-        "sections": sections,
-        "section_order": SECTION_ORDER,
-        "section_labels": SECTION_LABELS,
-    }

@@ -4,7 +4,7 @@ This documents the hardening hyprconf applies automatically and the hands-on
 steps that require your YubiKey and a reboot to validate (so they are deliberately
 **not** run unattended).
 
-## Applied automatically (every install + `hyprconf sync`)
+## Applied automatically (every install + `setup.sh --sync`)
 
 | Area | What | Where |
 |---|---|---|
@@ -17,9 +17,9 @@ steps that require your YubiKey and a reboot to validate (so they are deliberate
 All are reversible — delete the drop-in file (or revert the rule) and re-sync.
 
 For a privacy-focused browser beyond hardened Firefox, install **LibreWolf** (a
-Firefox fork with RFP and telemetry stripped) on demand: `hyprconf addon
-librewolf`. It is auto-themed by the same engine; hyprconf applies only theme
-prefs to it, leaving LibreWolf's own hardening untouched.
+Firefox fork with RFP and telemetry stripped) manually from the AUR: `yay -S
+librewolf-bin`. It is auto-themed by the same engine; hyprconf applies only
+theme prefs to it, leaving LibreWolf's own hardening untouched.
 
 ### Opt-in: disable unprivileged user namespaces
 
@@ -46,21 +46,21 @@ then replace `poweroff` with `systemctl hibernate` in `hyprconf-idle-action`.
 
 ## VPN-only mode (kill-switch)
 
-`hyprconf vpn` drives any VPN profile NetworkManager manages — OpenVPN (via the
+`hyprconf-vpn` drives any VPN profile NetworkManager manages — OpenVPN (via the
 core `networkmanager-openvpn` plugin) or WireGuard — provider-agnostically:
 
 ```
-hyprconf vpn status [--json]     # connection + kill-switch state (the bar reads --json)
-hyprconf vpn import <file>       # .ovpn → OpenVPN, .conf → WireGuard
-hyprconf vpn connect [name]      # defaults to the only profile if just one
-hyprconf vpn killswitch on|off|status
+hyprconf-vpn status [--json]     # connection + kill-switch state (the bar reads --json)
+hyprconf-vpn import <file>       # .ovpn → OpenVPN, .conf → WireGuard
+hyprconf-vpn connect [name]      # defaults to the only profile if just one
+hyprconf-vpn killswitch on|off|status
 ```
 
 `killswitch on` enforces **fail-closed, VPN-only networking** — if the tunnel
 drops, traffic is blocked rather than leaking onto the clear net. Two backends,
 chosen automatically:
 
-- **ProtonVPN** (`hyprconf addon vpn` installs `proton-vpn-cli`): delegates to
+- **ProtonVPN** (manual AUR install: `yay -S proton-vpn-cli`): delegates to
   Proton's own maintained kill-switch (`protonvpn config set kill-switch
   standard`), which also covers DNS and re-connection.
 - **Generic** (any other NM VPN): a self-contained nftables table
@@ -76,9 +76,9 @@ Notes:
 - The generic table is **session-scoped** — it is not auto-loaded at boot (a
   mis-set kill-switch must never strand a machine with no network). To make it
   persist, wire `/etc/hyprconf/killswitch.nft` into `nftables.service`.
-- `hyprconf vpn status` reports `Kill-switch: ON … no VPN up — traffic is
+- `hyprconf-vpn status` reports `Kill-switch: ON … no VPN up — traffic is
   fail-closed` so the blocked-and-disconnected state is unambiguous.
-- Turn it off with `hyprconf vpn killswitch off` (removes the table / unsets the
+- Turn it off with `hyprconf-vpn killswitch off` (removes the table / unsets the
   Proton setting).
 
 ---
@@ -90,7 +90,7 @@ that passphrase is, by installer default, your login password. So the disk is on
 as strong as that one reused secret. To make the disk **key-only**:
 
 ```
-hyprconf yubikey harden-luks
+yubikey-fido2-setup harden-luks
 ```
 
 It refuses unless a FIDO2 slot already exists, **enrolls an offline recovery key
@@ -107,7 +107,7 @@ Check slots any time: `sudo systemd-cryptenroll /dev/nvme0n1p2`.
 
 ---
 
-## Close the Evil-Maid gap (Secure Boot + signed UKI): `hyprconf secureboot`
+## Close the Evil-Maid gap (Secure Boot + signed UKI): `hyprconf-secureboot`
 
 **A YubiKey LUKS unlock does not, by itself, stop this.** Two separate bypasses:
 
@@ -124,9 +124,9 @@ The fix is **layered** — all three together, because each closes a different h
 
 | Layer | Closes | Command |
 |-------|--------|---------|
-| Secure Boot + **signed UKI** (kernel+initramfs+cmdline as one signed EFI binary) | boot-chain tampering | `hyprconf secureboot setup` |
-| **Firmware admin password** + locked boot menu | someone just disabling Secure Boot | *(manual, in UEFI)* → `hyprconf secureboot ack-firmware-password` |
-| **Key-only LUKS** (FIDO2 + recovery key, no passphrase) | the weak passphrase slot | `hyprconf secureboot harden` |
+| Secure Boot + **signed UKI** (kernel+initramfs+cmdline as one signed EFI binary) | boot-chain tampering | `hyprconf-secureboot setup` |
+| **Firmware admin password** + locked boot menu | someone just disabling Secure Boot | *(manual, in UEFI)* → `hyprconf-secureboot ack-firmware-password` |
+| **Key-only LUKS** (FIDO2 + recovery key, no passphrase) | the weak passphrase slot | `hyprconf-secureboot harden` |
 
 > Keep the passphrase/recovery key working until you've tested a reboot, and ideally
 > rehearse in a VM — a signing/firmware mistake can leave the machine unbootable. If
@@ -136,7 +136,7 @@ The fix is **layered** — all three together, because each closes a different h
 ### Automated flow
 
 ```
-sudo hyprconf secureboot setup     # installs sbctl, converts to a signed UKI,
+sudo hyprconf-secureboot setup     # installs sbctl, converts to a signed UKI,
                                    # creates+signs keys, verifies, installs a
                                    # pacman verify hook, and enrolls keys if the
                                    # firmware is already in Setup Mode
@@ -153,11 +153,11 @@ do these — and verify:
 
 1. Set an **Administrator/Supervisor password** and lock the one-time boot menu /
    disable USB boot (a setup password alone often still allows F12 boot). Then
-   `hyprconf secureboot ack-firmware-password`.
+   `hyprconf-secureboot ack-firmware-password`.
 2. Set **Secure Boot → Enabled** (and, if `setup` couldn't enroll, first enter Setup
-   Mode and run `hyprconf secureboot enroll`).
-3. Back in Linux: `hyprconf secureboot status` → expect `Secure Boot: enabled` and
-   `sbctl verify: clean`. `hyprconf doctor` flags it if SB is later turned off.
+   Mode and run `hyprconf-secureboot enroll`).
+3. Back in Linux: `hyprconf-secureboot status` → expect `Secure Boot: enabled` and
+   `sbctl verify: clean`. `hyprconf-secureboot status` reports if SB is later turned off.
 
 It **stays** signed across `linux` / `systemd` / `sbctl` upgrades: every binary is
 tracked with `sbctl sign -s`, so sbctl's own pacman hook re-signs it, and a
@@ -165,7 +165,7 @@ hyprconf verify hook warns loudly if anything ends up unsigned.
 
 ### Optional: TPM2 measured-boot binding
 
-`hyprconf secureboot tpm-bind` binds LUKS unlock to the TPM so the disk only unlocks
+`hyprconf-secureboot tpm-bind` binds LUKS unlock to the TPM so the disk only unlocks
 on an unmodified boot chain. **FIDO2 remains the default factor** (the TPM is never
 in the FIDO2 path). Note PCR 11 (the UKI measurement) changes on every kernel
 update, so plain `7+11` must be **re-enrolled each update**; PCR 7 + PIN is stable

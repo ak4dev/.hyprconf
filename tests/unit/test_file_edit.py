@@ -9,7 +9,6 @@ from hyprconf.file_edit import (
     append_block,
     delete_line,
     delete_lines,
-    insert_line,
     insert_lines,
     read_lines,
     update_line,
@@ -151,23 +150,6 @@ def test_append_block_creates_parent_dirs(tmp_path: Path) -> None:
     assert p.exists()
 
 
-# ---------------------------------------------------------------------------
-# insert_line / insert_lines
-# ---------------------------------------------------------------------------
-
-
-def test_insert_line_at_start(tmp_path: Path) -> None:
-    p = _file(tmp_path, "a\nb\n")
-    assert insert_line(p, 0, "X") is True
-    assert read_lines(p) == ["X", "a", "b"]
-
-
-def test_insert_line_at_end(tmp_path: Path) -> None:
-    p = _file(tmp_path, "a\nb\n")
-    assert insert_line(p, 99, "Z") is True
-    assert read_lines(p)[-1] == "Z"
-
-
 def test_insert_lines_batch(tmp_path: Path) -> None:
     p = _file(tmp_path, "a\nd\n")
     assert insert_lines(p, 1, ["b", "c"]) is True
@@ -279,18 +261,6 @@ def test_insert_lines_returns_false_on_oserror(tmp_path: Path) -> None:
     p.write_text("a\nb\n")
     with _mock.patch("hyprconf.file_edit._write_lines", side_effect=OSError("nope")):
         result = insert_lines(p, 0, ["new"])
-    assert result is False
-
-
-def test_insert_line_returns_false_on_oserror(tmp_path: Path) -> None:
-    import unittest.mock as _mock
-
-    from hyprconf.file_edit import insert_line
-
-    p = tmp_path / "test.conf"
-    p.write_text("a\nb\n")
-    with _mock.patch("hyprconf.file_edit._write_lines", side_effect=OSError("nope")):
-        result = insert_line(p, 0, "new")
     assert result is False
 
 

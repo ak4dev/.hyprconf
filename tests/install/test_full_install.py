@@ -25,7 +25,6 @@ release to ``stable``.
 
 from __future__ import annotations
 
-import json
 import sys
 from collections.abc import Generator
 from pathlib import Path
@@ -138,31 +137,15 @@ def test_packages_installed(install_vm: VMClient) -> None:
 
 
 @pytest.mark.install
-def test_hyprconf_schema_works(install_vm: VMClient) -> None:
-    """hyprconf schema dump outputs valid JSON after install."""
-    result = install_vm.run("hyprconf schema dump 2>&1", check=False)
-    assert result.returncode == 0
-    data = json.loads(result.stdout)
-    assert isinstance(data, dict) and len(data) > 0
-
-
-@pytest.mark.install
-def test_hyprconf_get_works(install_vm: VMClient) -> None:
-    """hyprconf get general gaps_in returns a value."""
-    result = install_vm.run("hyprconf get general gaps_in 2>&1", check=False)
-    assert result.returncode == 0
-    assert "general:gaps_in" in result.stdout
-
-
-@pytest.mark.install
-def test_hyprconf_set_persists(install_vm: VMClient) -> None:
-    """hyprconf set <section> <key> <value> persists across a re-get."""
-    install_vm.run("hyprconf set general gaps_in 99 2>&1")
-    result = install_vm.run("hyprconf get general gaps_in 2>&1", check=False)
-    assert result.returncode == 0
-    assert "99" in result.stdout
-    # Reset to default
-    install_vm.run("hyprconf set general gaps_in 5 2>&1", check=False)
+def test_hyprconf_library_importable(install_vm: VMClient) -> None:
+    """The Python library (the TUI's backend) is installed and importable."""
+    result = install_vm.run(
+        "PYTHONPATH=~/.local/lib python3 -c "
+        "'from hyprconf.schema import OPTION_SCHEMA; print(len(OPTION_SCHEMA))' 2>&1",
+        check=False,
+    )
+    assert result.returncode == 0, f"hyprconf library not importable:\n{result.stdout}"
+    assert int(result.stdout.strip()) > 0
 
 
 @pytest.mark.install
@@ -178,9 +161,9 @@ def test_no_broken_symlinks(install_vm: VMClient) -> None:
 
 @pytest.mark.install
 def test_hyprconf_sync_idempotent(install_vm: VMClient) -> None:
-    """Running hyprconf sync twice both succeed without error."""
-    first = install_vm.run("hyprconf sync --no-reload 2>&1", check=False)
-    second = install_vm.run("hyprconf sync --no-reload 2>&1", check=False)
+    """Running setup.sh --sync twice both succeed without error."""
+    first = install_vm.run("bash ~/.hyprconf/setup.sh --sync 2>&1", check=False)
+    second = install_vm.run("bash ~/.hyprconf/setup.sh --sync 2>&1", check=False)
     assert first.returncode == 0, f"First sync failed:\n{first.stdout}"
     assert second.returncode == 0, f"Second sync failed:\n{second.stdout}"
 
@@ -253,30 +236,19 @@ def test_resolver_hardening_applied(install_vm: VMClient) -> None:
 
 @pytest.mark.install
 def test_vpn_helper_deployed(install_vm: VMClient) -> None:
-    """The hyprconf-vpn helper is stowed and wired into the CLI."""
-    result = install_vm.run("hyprconf vpn --help 2>&1", check=False)
-    assert result.returncode == 0, f"hyprconf vpn failed:\n{result.stdout}"
+    """The standalone hyprconf-vpn helper is stowed and functional."""
+    result = install_vm.run("hyprconf-vpn --help 2>&1", check=False)
+    assert result.returncode == 0, f"hyprconf-vpn failed:\n{result.stdout}"
     assert "killswitch" in result.stdout, (
-        f"hyprconf vpn help missing the kill-switch surface:\n{result.stdout}"
+        f"hyprconf-vpn help missing the kill-switch surface:\n{result.stdout}"
     )
 
 
 @pytest.mark.install
 def test_vpn_status_runs(install_vm: VMClient) -> None:
-    """`hyprconf vpn status` runs against NetworkManager without error and
+    """`hyprconf-vpn status` runs against NetworkManager without error and
     reports a (disconnected) state — proving the helper is functional, not just
     present."""
-    result = install_vm.run("hyprconf vpn status 2>&1", check=False)
-    assert result.returncode == 0, f"hyprconf vpn status failed:\n{result.stdout}"
+    result = install_vm.run("hyprconf-vpn status 2>&1", check=False)
+    assert result.returncode == 0, f"hyprconf-vpn status failed:\n{result.stdout}"
     assert "Kill-switch" in result.stdout, f"vpn status output unexpected:\n{result.stdout}"
-
-
-@pytest.mark.install
-def test_bolt_on_addons_registered(install_vm: VMClient) -> None:
-    """The bolt-on addon catalogue (incl. the new vpn + librewolf) is present."""
-    result = install_vm.run("hyprconf addon 2>&1", check=False)
-    assert result.returncode == 0
-    for addon in ("vfio", "vpn", "librewolf"):
-        assert addon in result.stdout, (
-            f"Addon '{addon}' not listed by 'hyprconf addon':\n{result.stdout}"
-        )

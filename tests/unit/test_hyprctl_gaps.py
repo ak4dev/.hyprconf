@@ -161,22 +161,6 @@ def test_get_monitors_returns_parsed_list(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# set_monitor
-# ---------------------------------------------------------------------------
-
-
-def test_set_monitor_returns_false_when_inactive(monkeypatch):
-    monkeypatch.delenv("HYPRLAND_INSTANCE_SIGNATURE", raising=False)
-    assert hyprctl.set_monitor("HDMI-A-1,1920x1080@60,0x0,1") is False
-
-
-def test_set_monitor_returns_true_on_success(monkeypatch):
-    monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
-    with patch("subprocess.run", return_value=_mock_run(0, "ok")):
-        assert hyprctl.set_monitor("HDMI-A-1,1920x1080@60,0x0,1") is True
-
-
-# ---------------------------------------------------------------------------
 # reload
 # ---------------------------------------------------------------------------
 

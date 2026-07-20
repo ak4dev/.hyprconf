@@ -8,9 +8,7 @@ from hyprconf.hyprlock import (
     BLOCK_DEFAULTS,
     BLOCK_TYPES,
     add_hyprlock_block,
-    delete_hyprlock_block,
     read_hyprlock_blocks,
-    update_hyprlock_field,
 )
 
 HYPRLOCK_CONF = """\
@@ -111,68 +109,6 @@ def test_missing_file_returns_empty(hypr_dir: Path) -> None:
 def test_empty_file_returns_empty(hypr_dir: Path) -> None:
     p = _lock_file(hypr_dir, "")
     assert read_hyprlock_blocks(p) == []
-
-
-# ---------------------------------------------------------------------------
-# update_hyprlock_field
-# ---------------------------------------------------------------------------
-
-
-def test_update_general_field(hypr_dir: Path) -> None:
-    p = _lock_file(hypr_dir)
-    blocks = read_hyprlock_blocks(p)
-    general = next(b for b in blocks if b.block_type == "general")
-    assert (
-        update_hyprlock_field(p, general.start_line, general.end_line, "hide_cursor", "false")
-        is True
-    )
-    updated = read_hyprlock_blocks(p)
-    gen = next(b for b in updated if b.block_type == "general")
-    assert gen.fields["hide_cursor"] == "false"
-
-
-def test_update_background_brightness(hypr_dir: Path) -> None:
-    p = _lock_file(hypr_dir)
-    blocks = read_hyprlock_blocks(p)
-    bg = next(b for b in blocks if b.block_type == "background")
-    update_hyprlock_field(p, bg.start_line, bg.end_line, "brightness", "0.5")
-    updated = read_hyprlock_blocks(p)
-    bg2 = next(b for b in updated if b.block_type == "background")
-    assert bg2.fields["brightness"] == "0.5"
-
-
-def test_update_inserts_new_field(hypr_dir: Path) -> None:
-    p = _lock_file(hypr_dir)
-    blocks = read_hyprlock_blocks(p)
-    general = next(b for b in blocks if b.block_type == "general")
-    update_hyprlock_field(p, general.start_line, general.end_line, "new_key", "new_value")
-    updated = read_hyprlock_blocks(p)
-    gen = next(b for b in updated if b.block_type == "general")
-    assert gen.fields["new_key"] == "new_value"
-
-
-# ---------------------------------------------------------------------------
-# delete_hyprlock_block
-# ---------------------------------------------------------------------------
-
-
-def test_delete_label_block(hypr_dir: Path) -> None:
-    p = _lock_file(hypr_dir)
-    blocks = read_hyprlock_blocks(p)
-    label = next(b for b in blocks if b.block_type == "label")
-    assert delete_hyprlock_block(p, label.start_line, label.end_line) is True
-    remaining = read_hyprlock_blocks(p)
-    assert not any(b.block_type == "label" for b in remaining)
-
-
-def test_delete_preserves_other_blocks(hypr_dir: Path) -> None:
-    p = _lock_file(hypr_dir)
-    initial_count = len(read_hyprlock_blocks(p))
-    blocks = read_hyprlock_blocks(p)
-    label = next(b for b in blocks if b.block_type == "label")
-    delete_hyprlock_block(p, label.start_line, label.end_line)
-    remaining = read_hyprlock_blocks(p)
-    assert len(remaining) == initial_count - 1
 
 
 # ---------------------------------------------------------------------------

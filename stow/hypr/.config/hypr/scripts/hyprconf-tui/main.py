@@ -3000,7 +3000,7 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(
         description="hyprconf TUI — Hyprland configuration suite",
-        prog="hyprconf tui",
+        prog="hyprconf",
     )
     parser.add_argument(
         "--section",

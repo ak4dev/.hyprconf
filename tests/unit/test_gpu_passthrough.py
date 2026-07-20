@@ -28,8 +28,6 @@ SCRIPT = (
     / "gpu-passthrough.sh"
 )
 
-HYPRCONF_BIN = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
-
 
 # ---------------------------------------------------------------------------
 # Fake sysfs / lspci helpers
@@ -3581,15 +3579,15 @@ class TestGpuUnloadNvidiaModulesFailure:
 
 
 # ---------------------------------------------------------------------------
-# CLI dispatch (hyprconf hardware gpu ...)
+# Standalone dispatch (gpu-passthrough.sh <command>)
 # ---------------------------------------------------------------------------
 
 
 class TestCliDispatch:
-    """Test the CLI dispatch in hyprconf binary for gpu subcommands.
+    """Test gpu-passthrough.sh's standalone subcommand dispatch.
 
-    These tests run the real hyprconf binary with fake PATH entries
-    to mock system commands, verifying that subcommand routing works.
+    These tests run the real script with fake PATH entries to mock
+    system commands, verifying that subcommand routing works.
     """
 
     def _run_hyprconf(
@@ -3600,22 +3598,12 @@ class TestCliDispatch:
         *,
         sysfs_root: Path | None = None,
     ) -> subprocess.CompletedProcess:
-        # Set up the GPU passthrough script in the fake HOME
-        script_dir = home_dir / ".config" / "hypr" / "scripts"
-        script_dir.mkdir(parents=True, exist_ok=True)
-        script_dest = script_dir / "gpu-passthrough.sh"
-        if not script_dest.exists():
-            import shutil
-
-            shutil.copy2(SCRIPT, script_dest)
-
         env = os.environ.copy()
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["HOME"] = str(home_dir)
-        # Prevent hyprconf from trying real hyprctl etc.
         env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
         return subprocess.run(
-            ["bash", str(HYPRCONF_BIN), "hardware", "gpu"] + args,
+            ["bash", str(SCRIPT)] + args,
             capture_output=True,
             text=True,
             env=env,
@@ -5474,23 +5462,15 @@ class TestGpuVmIsRunning:
 
 
 class TestGpuVmUsbCliDispatch:
-    """Tests for CLI dispatch of vm usb subcommands."""
+    """Tests for standalone dispatch of vm usb subcommands."""
 
     def _run_hyprconf(self, args, bin_dir, home_dir):
-        script_dir = home_dir / ".config" / "hypr" / "scripts"
-        script_dir.mkdir(parents=True, exist_ok=True)
-        script_dest = script_dir / "gpu-passthrough.sh"
-        if not script_dest.exists():
-            import shutil
-
-            shutil.copy2(SCRIPT, script_dest)
-
         env = os.environ.copy()
         env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
         env["HOME"] = str(home_dir)
         env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
         return subprocess.run(
-            ["bash", str(HYPRCONF_BIN), "hardware", "gpu"] + args,
+            ["bash", str(SCRIPT)] + args,
             capture_output=True,
             text=True,
             env=env,

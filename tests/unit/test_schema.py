@@ -1,19 +1,48 @@
-"""Tests for hyprconf.schema — option schema, validation, and serialisation."""
+"""Tests for hyprconf.schema — option-schema data integrity and currency."""
 
 from __future__ import annotations
 
-import pytest
-from hyprconf.schema import (
-    OPTION_SCHEMA,
-    SECTION_LABELS,
-    SECTION_ORDER,
-    format_type_short,
-    get_all_sections,
-    get_option_meta,
-    get_section_keys,
-    schema_to_dict,
-    validate_value,
-)
+import re
+
+from hyprconf.schema import OPTION_SCHEMA, SECTION_LABELS, SECTION_ORDER
+
+_HEX_COLOR_RE = re.compile(r"^0x[0-9a-fA-F]{6,8}$")
+_HASH_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6,8}$")
+
+
+def validate_value(type_str: str, value: str) -> tuple[bool, str]:
+    """Test oracle for the schema type contract (see the module docstring of
+    hyprconf.schema): each declared default must satisfy its declared type."""
+    v = value.strip()
+    if type_str == "int":
+        try:
+            int(v)
+            return True, ""
+        except ValueError:
+            return False, f"expected integer, got: {v!r}"
+    if type_str == "float":
+        try:
+            float(v)
+            return True, ""
+        except ValueError:
+            return False, f"expected number, got: {v!r}"
+    if type_str == "bool":
+        if v.lower() in ("true", "false", "yes", "no", "on", "off", "0", "1"):
+            return True, ""
+        return False, f"expected true/false, got: {v!r}"
+    if type_str.startswith("enum:"):
+        choices = [c for c in type_str[5:].split(",") if c]
+        if v in choices:
+            return True, ""
+        return False, f"expected one of [{', '.join(choices)}], got: {v!r}"
+    if type_str == "color":
+        if _HEX_COLOR_RE.match(v) or _HASH_COLOR_RE.match(v):
+            return True, ""
+        if v.startswith(("rgb(", "rgba(")) or v.lower() == "unset":
+            return True, ""
+        return False, f"expected color (hex, rgb(), rgba(), or 'unset'), got: {v!r}"
+    return True, ""  # gradient, vec2, str — accept anything
+
 
 # ---------------------------------------------------------------------------
 # OPTION_SCHEMA structure
@@ -51,258 +80,6 @@ def test_schema_subsection_dot_notation() -> None:
     dot_sections = [s for s in OPTION_SCHEMA if "." in s]
     assert len(dot_sections) > 0
     assert "decoration.blur" in OPTION_SCHEMA
-
-
-# ---------------------------------------------------------------------------
-# get_section_keys
-# ---------------------------------------------------------------------------
-
-
-def test_get_section_keys_general() -> None:
-    keys = get_section_keys("general")
-    assert "gaps_in" in keys
-    assert "border_size" in keys
-
-
-def test_get_section_keys_unknown_section() -> None:
-    assert get_section_keys("nonexistent_section") == []
-
-
-def test_get_section_keys_returns_list() -> None:
-    result = get_section_keys("general")
-    assert isinstance(result, list)
-
-
-# ---------------------------------------------------------------------------
-# get_option_meta
-# ---------------------------------------------------------------------------
-
-
-def test_get_option_meta_known_key() -> None:
-    meta = get_option_meta("general", "gaps_in")
-    assert meta is not None
-    type_str, default, desc = meta
-    assert type_str == "int"
-    assert default == "5"
-    assert "gap" in desc.lower()
-
-
-def test_get_option_meta_unknown_section() -> None:
-    assert get_option_meta("nonexistent", "key") is None
-
-
-def test_get_option_meta_unknown_key() -> None:
-    assert get_option_meta("general", "nonexistent_key") is None
-
-
-def test_get_option_meta_subsection() -> None:
-    meta = get_option_meta("decoration.blur", "enabled")
-    assert meta is not None
-    assert meta[0] == "bool"
-
-
-# ---------------------------------------------------------------------------
-# get_all_sections
-# ---------------------------------------------------------------------------
-
-
-def test_get_all_sections_returns_list() -> None:
-    sections = get_all_sections()
-    assert isinstance(sections, list)
-    assert len(sections) > 0
-
-
-def test_get_all_sections_matches_schema() -> None:
-    assert set(get_all_sections()) == set(OPTION_SCHEMA.keys())
-
-
-# ---------------------------------------------------------------------------
-# validate_value — int
-# ---------------------------------------------------------------------------
-
-
-def test_validate_int_valid() -> None:
-    ok, msg = validate_value("int", "42")
-    assert ok is True
-    assert msg == ""
-
-
-def test_validate_int_negative() -> None:
-    ok, _ = validate_value("int", "-5")
-    assert ok is True
-
-
-def test_validate_int_invalid() -> None:
-    ok, msg = validate_value("int", "hello")
-    assert ok is False
-    assert msg != ""
-
-
-def test_validate_int_float_string() -> None:
-    ok, _ = validate_value("int", "3.14")
-    assert ok is False
-
-
-# ---------------------------------------------------------------------------
-# validate_value — float
-# ---------------------------------------------------------------------------
-
-
-def test_validate_float_valid() -> None:
-    ok, _ = validate_value("float", "1.5")
-    assert ok is True
-
-
-def test_validate_float_integer_string() -> None:
-    ok, _ = validate_value("float", "2")
-    assert ok is True
-
-
-def test_validate_float_invalid() -> None:
-    ok, msg = validate_value("float", "not_a_number")
-    assert ok is False
-    assert msg != ""
-
-
-# ---------------------------------------------------------------------------
-# validate_value — bool
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "v", ["true", "false", "yes", "no", "on", "off", "0", "1", "True", "FALSE"]
-)
-def test_validate_bool_valid_values(v: str) -> None:
-    ok, _ = validate_value("bool", v)
-    assert ok is True
-
-
-def test_validate_bool_invalid() -> None:
-    ok, msg = validate_value("bool", "maybe")
-    assert ok is False
-    assert msg != ""
-
-
-# ---------------------------------------------------------------------------
-# validate_value — enum
-# ---------------------------------------------------------------------------
-
-
-def test_validate_enum_valid() -> None:
-    ok, _ = validate_value("enum:dwindle,master,scrolling", "dwindle")
-    assert ok is True
-
-
-def test_validate_enum_invalid() -> None:
-    ok, msg = validate_value("enum:dwindle,master", "unknown")
-    assert ok is False
-    assert "dwindle" in msg
-
-
-def test_validate_enum_case_sensitive() -> None:
-    ok, _ = validate_value("enum:dwindle,master", "Dwindle")
-    assert ok is False
-
-
-# ---------------------------------------------------------------------------
-# validate_value — color
-# ---------------------------------------------------------------------------
-
-
-def test_validate_color_hex_format() -> None:
-    ok, _ = validate_value("color", "0xffaabbcc")
-    assert ok is True
-
-
-def test_validate_color_hash_format() -> None:
-    ok, _ = validate_value("color", "#aabbcc")
-    assert ok is True
-
-
-def test_validate_color_invalid() -> None:
-    ok, _ = validate_value("color", "red")
-    assert ok is False
-
-
-def test_validate_color_rgb_format() -> None:
-    ok, _ = validate_value("color", "rgb(255, 128, 0)")
-    assert ok is True
-
-
-def test_validate_color_rgba_format() -> None:
-    ok, _ = validate_value("color", "rgba(255, 128, 0, 0.5)")
-    assert ok is True
-
-
-def test_validate_color_unset() -> None:
-    ok, _ = validate_value("color", "unset")
-    assert ok is True
-
-
-# ---------------------------------------------------------------------------
-# validate_value — gradient / vec2 / str (permissive)
-# ---------------------------------------------------------------------------
-
-
-def test_validate_gradient_accepts_anything() -> None:
-    ok, _ = validate_value("gradient", "0xff000000 0xffffffff 45deg")
-    assert ok is True
-
-
-def test_validate_vec2_accepts_anything() -> None:
-    ok, _ = validate_value("vec2", "0 0")
-    assert ok is True
-
-
-def test_validate_str_accepts_anything() -> None:
-    ok, _ = validate_value("str", "any string at all")
-    assert ok is True
-
-
-# ---------------------------------------------------------------------------
-# format_type_short
-# ---------------------------------------------------------------------------
-
-
-def test_format_type_short_enum() -> None:
-    assert format_type_short("enum:a,b,c") == "enum"
-
-
-def test_format_type_short_int() -> None:
-    assert format_type_short("int") == "int"
-
-
-def test_format_type_short_passthrough() -> None:
-    assert format_type_short("color") == "color"
-
-
-# ---------------------------------------------------------------------------
-# schema_to_dict
-# ---------------------------------------------------------------------------
-
-
-def test_schema_to_dict_has_sections() -> None:
-    d = schema_to_dict()
-    assert "sections" in d
-    assert "section_order" in d
-
-
-def test_schema_to_dict_sections_structure() -> None:
-    d = schema_to_dict()
-    for _section, data in d["sections"].items():
-        assert "keys" in data
-        for _key, meta in data["keys"].items():
-            assert "type" in meta
-            assert "default" in meta
-            assert "description" in meta
-
-
-def test_schema_to_dict_json_serialisable() -> None:
-    import json
-
-    d = schema_to_dict()
-    result = json.dumps(d)
-    assert isinstance(result, str) and len(result) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -382,7 +159,7 @@ def test_qtutils_check_renamed_to_guiutils() -> None:
 
 def test_scrolling_layout_is_configurable() -> None:
     """general:layout offers `scrolling`, so its options must be in the schema."""
-    assert "scrolling" in get_all_sections()
+    assert "scrolling" in OPTION_SCHEMA
     sc = OPTION_SCHEMA["scrolling"]
     assert sc["direction"][0] == "enum:left,right,down,up"
     assert sc["column_width"][0] == "float"

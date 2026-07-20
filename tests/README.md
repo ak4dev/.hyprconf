@@ -53,10 +53,10 @@ make test-install
 
 | Tier | What It Tests | Command | Requirements |
 |------|--------------|---------|--------------|
-| 1 — Unit | All Python config parsers/writers (1,122 tests) | `make test-unit` | None |
-| 2 — Integration | CLI layer with mock hyprctl | `make test-integration` | None |
+| 1 — Unit | All Python config parsers/writers + shipped scripts | `make test-unit` | None |
+| 2 — Integration | Installer sparse-checkout + publish pipeline | `make test-integration` | None |
 | 3 — TUI | Textual Pilot headless UI tests | `make test-tui` | `python-pytest-asyncio` |
-| 4 — VM | Every CLI subcommand against live Hyprland | `make test-vm` | KVM + `qemu-full` + running VM |
+| 4 — VM | Sync, TUI, and theme engine against live Hyprland | `make test-vm` | KVM + `qemu-full` + running VM |
 | 5 — Install | Full `install/install.sh` end-to-end | `make test-install` | KVM + `packer` + built image |
 
 ---
@@ -77,8 +77,9 @@ tests/
 │   ├── test_hyprlock.py
 │   ├── test_hypridle.py
 │   └── test_hyprpaper.py
-├── integration/              # Tier 2 — CLI layer, subprocess mocked
-│   └── test_cli_get_set.py
+├── integration/              # Tier 2 — installer + publish pipeline plumbing
+│   ├── test_installer_sparse_checkout.py
+│   └── test_publish_pipeline.py
 ├── tui/                      # Tier 3 — Textual Pilot, fully headless
 │   └── test_tui_basic.py
 ├── vm/                       # Tier 4 — SSH into live QEMU/Hyprland VM

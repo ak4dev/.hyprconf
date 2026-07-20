@@ -79,28 +79,6 @@ def read_persisted(section: str, key: str) -> str | None:
     return None
 
 
-def read_all_persisted() -> dict[str, str]:
-    """Return all persisted key=value pairs from the managed block.
-
-    Keys are in hyprctl format:  section:subsection:key
-    """
-    path = _effective_overrides_path()
-    if not path.exists():
-        return {}
-
-    result: dict[str, str] = {}
-    in_block = False
-    for ln in path.read_text(encoding="utf-8").splitlines():
-        if MANAGED_MARKER in ln or _LEGACY_MARKER in ln:
-            in_block = True
-            continue
-        if in_block:
-            m = _MANAGED_LINE_RE.match(ln.strip())
-            if m:
-                result[m.group(1).strip()] = m.group(2).strip()
-    return result
-
-
 # ── Write ──────────────────────────────────────────────────────────────────────
 
 
@@ -146,16 +124,6 @@ def save_pending(pending: dict[str, dict[str, str]]) -> tuple[bool, int]:
         return True, len(managed)
     except OSError:
         return False, 0
-
-
-def upsert_option(section: str, key: str, value: str) -> bool:
-    """Immediately write a single option to the overrides file.
-
-    Equivalent to save_pending with a single-key pending dict, but
-    more convenient for the CLI's immediate-write use case.
-    """
-    ok, _ = save_pending({section: {key: value}})
-    return ok
 
 
 # ── Legacy migration ───────────────────────────────────────────────────────────

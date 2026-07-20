@@ -20,10 +20,8 @@ from pathlib import Path
 from .file_edit import (
     append_block,
     delete_lines,
-    insert_lines,
     read_lines,
     strip_comment,
-    update_line,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -184,38 +182,6 @@ def read_blocks(path: Path) -> list[ConfigBlock]:
             )
 
     return blocks
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Writers
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def update_block_field(
-    path: Path,
-    start_line: int,
-    end_line: int,
-    key: str,
-    value: str,
-) -> bool:
-    """Set *key* = *value* inside the block spanning [start_line, end_line].
-
-    If the key already exists it is updated in-place.  If it does not exist,
-    a new line is inserted before the closing brace.
-    Returns True on success.
-    """
-    lines = read_lines(path)
-    for i in range(start_line, min(end_line + 1, len(lines))):
-        m = _KEY_VAL_RE.match(_strip(lines[i]))
-        if m and m.group(1) == key:
-            # Preserve leading whitespace from the original line
-            indent = len(lines[i]) - len(lines[i].lstrip())
-            return update_line(path, i, " " * indent + f"{key} = {value}")
-
-    # Key not found — insert before the closing brace
-    if 0 <= end_line < len(lines):
-        return insert_lines(path, end_line, ["    " + f"{key} = {value}"])
-    return False
 
 
 def delete_block(path: Path, start_line: int, end_line: int) -> bool:

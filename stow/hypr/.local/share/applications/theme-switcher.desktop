@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=Theme
 Comment=Switch the desktop colour theme
-Exec=kitty --app-id theme-switcher -e bash -lc "~/.local/bin/hyprconf theme || { echo; echo 'Error — press any key to close'; read -n1; }"
+Exec=kitty --app-id theme-switcher -e bash -lc "python3 ~/.config/hypr/scripts/theme-switcher/switch_theme.py || { echo; echo 'Error — press any key to close'; read -n1; }"
 Icon=preferences-desktop-theme
 Terminal=false
 Type=Application
@@ -10,8 +10,8 @@ Keywords=theme;color;scheme;switch;
 
 [Desktop Action Wofi]
 Name=Theme (wofi picker)
-Exec=bash -lc "~/.local/bin/hyprconf theme pick"
+Exec=bash -lc "python3 ~/.config/hypr/scripts/theme-switcher/switch_theme.py --pick"
 
 [Desktop Action List]
 Name=List Themes
-Exec=kitty --app-id theme-switcher -e bash -lc "~/.local/bin/hyprconf theme list | less -R; read -n1"
+Exec=kitty --app-id theme-switcher -e bash -lc "python3 ~/.config/hypr/scripts/theme-switcher/switch_theme.py --list | less -R; read -n1"

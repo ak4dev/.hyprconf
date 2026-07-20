@@ -153,7 +153,7 @@ Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Environment-variable
 
 ## Nvidia GPU
 
-`setup.sh` / `hyprconf sync` auto-detects an Nvidia GPU and writes these env vars
+`setup.sh` (and `setup.sh --sync`) auto-detects an Nvidia GPU and writes these env vars
 into `~/.config/hypr/conf.d/60-hardware.conf`:
 
 ```ini
@@ -334,7 +334,7 @@ misc {
                                         # hypridle's after_sleep_cmd re-lock)
     # Related: lockdead_screen_delay (ms before the red "lockdead" screen),
     # disable_watchdog_warning (silence the "not started via start-hyprland"
-    # warning — exposed as `hyprconf set misc disable_watchdog_warning`).
+    # warning — settable in the hyprconf TUI, misc section).
 }
 ```
 
@@ -370,10 +370,10 @@ without it.
      then it gives up into a shell instead of storming (post-resume GPU
      wedges caused one SIGABRT + re-login every ~7 s).
 - **Autologin is per-machine, not per-install:** setup.sh never configures it
-  (passwordless console = a security decision). Toggle it with
-  `hyprconf autologin [status|on|off|toggle]`, which manages the
-  `getty@tty1.service.d/autologin.conf` drop-in (and detects/removes
-  hand-written drop-ins too). Changes apply at the next getty respawn.
+  (passwordless console = a security decision). Toggle it by adding/removing
+  the `/etc/systemd/system/getty@tty1.service.d/autologin.conf` drop-in
+  (`ExecStart=-/sbin/agetty -o '-p -f -- \\u' --noclear --autologin <user> %I $TERM`).
+  Changes apply at the next getty respawn.
 - **Stopping the session:** `hyprland-stop` (from any TTY/SSH), or
   `hyprctl dispatch exit` / the `exit` keybind from inside. Never
   `pkill start-hyprland` — killing the watchdog orphans Hyprland, which keeps
@@ -699,47 +699,17 @@ Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/>
 
 ---
 
-## hyprconf keyword tool
+## hyprconf TUI
 
-`hyprconf` wraps `hyprctl keyword` with a type-checked schema, readline tab completion, and persistent writes to `~/.config/hypr/conf.d/99-hyprconf-local.conf`.
+`hyprconf` launches a full-screen Textual TUI with type-checked editing of every
+Hyprland config section (schema-driven pickers for enums, sliders for numerics),
+plus keybinds, window/workspace rules, monitors, hyprlock, hypridle, hyprpaper,
+hardware daemons, and the theme picker. Writes persist to
+`~/.config/hypr/conf.d/99-hyprconf-local.conf`.
 
-The shared Python core (`~/.local/lib/hyprconf/`) is the single source of truth for all configuration state. Both the CLI and TUI import from it — no business logic is duplicated.
-
-```bash
-# Read options
-hyprconf get                         # list sections
-hyprconf get general                 # all options in section (with live values)
-hyprconf get general gaps_in         # single option with type + description
-
-# Write options (validates type, applies live, persists)
-hyprconf set general gaps_in 8
-hyprconf set decoration rounding 12
-hyprconf set misc vrr 1
-
-# Interactive REPL (Tab completes section/key names, history navigation)
-hyprconf configure
-# hyprconf(config)# general         → enter section
-# hyprconf(config-general)# gaps_in 8
-# hyprconf(config-general)# no gaps_in   → reset to default
-# hyprconf(config-general)# gaps_in ?    → show details
-# hyprconf(config-general)# show         → list all options
-# hyprconf(config-general)# exit         → back to root
-
-# Schema / AI changelog interface
-hyprconf schema dump                 # JSON of all sections/keys/types/defaults/descriptions
-hyprconf schema list-sections        # list section names
-hyprconf schema keys general         # keys in a section
-
-# First-run detection: locate and non-destructively migrate existing config
-hyprconf autodetect
-
-# Hardware auto-detection (touchscreen / accelerometer)
-# Touchscreen: checks ID_INPUT_TOUCHSCREEN=1 (standard HID) OR
-#              NAME="Wacom * Finger" + PHYS="i2c-*" (Wacom I2C, e.g. ThinkPad X13 Yoga)
-hyprconf hardware status             # show detected hardware + daemon state
-hyprconf hardware osk [on|off|toggle]   # start/stop/toggle wvkbd on-screen keyboard
-hyprconf hardware rotate <on|off>    # start/stop autorotate daemon
-```
+The shared Python core (`~/.local/lib/hyprconf/`) is the single source of truth
+for all configuration state; the TUI imports from it — no business logic is
+duplicated. The option schema lives in `hyprconf/schema.py`.
 
 Persistence key format: `section:subsection:key = value` (matching `hyprctl keyword` syntax).
 

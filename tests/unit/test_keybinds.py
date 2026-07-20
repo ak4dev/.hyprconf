@@ -6,7 +6,6 @@ from pathlib import Path
 
 from hyprconf.keybinds import (
     add_keybind,
-    delete_keybind,
     read_keybinds,
     read_keybinds_with_location,
     update_keybind,
@@ -145,28 +144,6 @@ def test_add_keybind_formats_correctly(hypr_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# delete_keybind
-# ---------------------------------------------------------------------------
-
-
-def test_delete_keybind(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
-    p.write_text("bind = SUPER, T, exec, kitty\nbind = SUPER, F, exec, firefox\n")
-    entries = read_keybinds_with_location(p)
-    first = entries[0]
-    assert delete_keybind(first.file_path, first.line_idx) is True
-    remaining = read_keybinds_with_location(p)
-    assert len(remaining) == 1
-    assert remaining[0].args == "firefox"
-
-
-def test_delete_keybind_invalid_idx(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
-    p.write_text("bind = SUPER, T, exec, kitty\n")
-    assert delete_keybind(p, 999) is False
-
-
-# ---------------------------------------------------------------------------
 # update_keybind
 # ---------------------------------------------------------------------------
 
@@ -197,31 +174,6 @@ def test_update_keybind_invalid_idx(hypr_dir: Path) -> None:
     p = hypr_dir / "keybinds.conf"
     p.write_text("bind = SUPER, T, exec, kitty\n")
     assert update_keybind(p, 999, "bind", "SUPER", "T", "exec", "kitty") is False
-
-
-# ---------------------------------------------------------------------------
-# Round-trip: add → read → update → read → delete → read
-# ---------------------------------------------------------------------------
-
-
-def test_full_crud_round_trip(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
-    p.write_text("")
-
-    # Add
-    add_keybind("bind", "SUPER", "G", "exec", "nautilus", file=p)
-    entries = read_keybinds_with_location(p)
-    assert len(entries) == 1
-    e = entries[0]
-
-    # Update
-    update_keybind(e.file_path, e.line_idx, "bind", "SUPER", "G", "exec", "thunar")
-    entries = read_keybinds_with_location(p)
-    assert entries[0].args == "thunar"
-
-    # Delete
-    delete_keybind(entries[0].file_path, entries[0].line_idx)
-    assert read_keybinds_with_location(p) == []
 
 
 # ---------------------------------------------------------------------------

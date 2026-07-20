@@ -99,7 +99,7 @@ A release containing at least one `feat:` commit gets a minor bump; at least one
 
 ## Project Structure
 
-This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a standalone CLI/TUI binary (`hyprconf`) combined with the maintainer's personal dotfiles. Configs live under `stow/<package>/` and are symlinked into `$HOME` by `setup.sh` / `hyprconf sync`. The Python core library lives at `stow/hypr/.local/lib/hyprconf/`.
+This repo is the **hyprconf configuration suite** for Arch Linux + Hyprland: a standalone TUI (`hyprconf`) combined with the maintainer's personal dotfiles. Configs live under `stow/<package>/` and are symlinked into `$HOME` by `setup.sh` / `setup.sh --sync`. The Python core library lives at `stow/hypr/.local/lib/hyprconf/`.
 
 - Do not manually create files under `~/.config/` — add them to the appropriate `stow/<package>/` directory instead.
 - Do not create new top-level stow packages without also adding any required binaries to the `packages` file.
@@ -137,19 +137,15 @@ This is a monorepo — all components (dotfiles, Python library, static site, te
 - When introducing any new binary dependency (in a config, script, or keybind), add its Arch package to `packages` in the appropriate commented section.
 - Hardware-specific or optional packages must be commented out with a note explaining the condition (e.g. `# nvidia-utils` for Nvidia GPU users).
 - Use `pacman -Qo <binary>` to confirm the correct package name before adding.
-- **Keep the core `packages` list minimal (project vision: minimal core + bolt-on).** Anything heavy or specialised (a VPN provider's CLI, GPU-passthrough tooling, an alternate browser) belongs in an **addon**, not the base. Only add to `packages` what a private desktop universally needs.
+- **Keep the core `packages` list minimal (project vision: minimal core + bolt-on).** Anything heavy or specialised (a VPN provider's CLI, GPU-passthrough tooling, an alternate browser) stays a **documented manual install**, not part of the base. Only add to `packages` what a private desktop universally needs.
 
-## Addons (`hyprconf addon <name>`)
+## Optional package sets
 
-Optional, bolt-on package sets live in the `_addon_*` functions of `stow/hypr/.local/bin/hyprconf` (current addons: `dev`, `vfio`, `vpn`, `librewolf`). To add one, register the name in `_ADDON_NAMES` and add a matching `case` branch to each of the five functions — there are no others to touch:
-
-- `_addon_description` — one-line summary shown by `hyprconf addon`.
-- `_addon_packages` — space-separated official-repo (`pacman`) packages.
-- `_addon_aur_packages` — space-separated AUR (`yay`) packages.
-- `_addon_post_install` — arbitrary post-steps; **print guidance, never run interactive/blocking commands** (sign-ins, prompts) — addon installs must stay unattended.
-- `_addon_is_installed` — returns 0 when the addon's key package is present (drives the status column).
-
-Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s addon tests) and list it in the README addon table.
+The former `hyprconf addon` system was removed with the CLI. Heavy or
+specialised stacks stay out of the base and are documented as manual installs:
+GPU passthrough/VFIO packages are checked (and the pacman command printed) by
+`gpu-passthrough.sh setup`; ProtonVPN's CLI and LibreWolf are manual AUR
+installs noted in `packages` and the docs. Never auto-install AUR packages.
 
 ## Keybindings
 
@@ -187,8 +183,8 @@ Add unit coverage for the new entry (see `tests/unit/test_hyprconf_vpn.py`'s add
 - **All regular work is pushed to `dev` only.** Never push directly to `stable` or any other branch unless the user explicitly asks.
 - **Never push to any remote unless the user explicitly asks.** Commit locally, then wait for the user to say "push". Unsolicited pushes risk exposing unreviewed changes, PII, or broken code. The only exception is if the user's instruction unambiguously includes a push (e.g., "commit and push").
 - **Never run `scripts/publish` unless the user explicitly says to publish.** Publishing promotes `dev` to `stable` and creates a release tag — it is a deliberate, user-directed action, not a side-effect of regular development. When in doubt, commit locally and wait.
-- **Hardware detection and generated config changes must be sync-patchable.** Any change to hardware detection logic (touchscreen, keyboard, accelerometer, GPU) or to files generated at setup/sync time (e.g. `60-hardware.conf`) must land exclusively in code paths that `hyprconf sync` already calls — specifically `setup_hardware_features()`, `write_hardware_conf()`, and `stow_all_packages()`. This guarantees existing installs are fully patched by running `hyprconf sync` with no manual intervention. Never gate such logic behind install-only paths.
-- **All install-time fixes must also be applied by `hyprconf sync`.** Any bug fix or configuration that belongs in the install path (packages, services, system config files) must also be applied idempotently in the `hyprconf sync` code path — `sync_services()`, `setup_hardware_features()`, `write_hardware_conf()`, or a dedicated helper called from the sync block in `main()`. A user on an older install must be able to pick up the fix by running `hyprconf sync` with no manual steps. Never land a fix only in `install/install.sh` without a matching idempotent sync-time counterpart.
+- **Hardware detection and generated config changes must be sync-patchable.** Any change to hardware detection logic (touchscreen, keyboard, accelerometer, GPU) or to files generated at setup/sync time (e.g. `60-hardware.conf`) must land exclusively in code paths that `setup.sh --sync` already calls — specifically `setup_hardware_features()`, `write_hardware_conf()`, and `stow_all_packages()`. This guarantees existing installs are fully patched by running `setup.sh --sync` with no manual intervention. Never gate such logic behind install-only paths.
+- **All install-time fixes must also be applied by `setup.sh --sync`.** Any bug fix or configuration that belongs in the install path (packages, services, system config files) must also be applied idempotently in the sync code path — `sync_services()`, `setup_hardware_features()`, `write_hardware_conf()`, or a dedicated helper called from the sync block in `main()`. A user on an older install must be able to pick up the fix by running `setup.sh --sync` with no manual steps. Never land a fix only in `install/install.sh` without a matching idempotent sync-time counterpart.
 
 ## Scripts
 
@@ -241,7 +237,7 @@ Config files under `stow/` must use `~` or relative paths since they are stowed 
 These findings may help future agents avoid common pitfalls:
 
 - **Never use `git update-index --skip-worktree`** — this hides files from the working tree while keeping them tracked. If `.gitignore` or `.editorconfig` goes missing, editors and tools silently break. If a previous rebase sets skip-worktree flags, clear them immediately with `git update-index --no-skip-worktree <file> && git checkout -- <file>`.
-- **Branding: `.hyprconf` vs `hyprconf.sh`** — the project name is stylised as **`.hyprconf`** (with leading dot) everywhere except when referring to the domain/URL, which is **`hyprconf.sh`**. Never write "hyprconf" without a leading dot unless it's the domain, a CLI binary name (`hyprconf theme`, `hyprconf sync`), or the install command.
+- **Branding: `.hyprconf` vs `hyprconf.sh`** — the project name is stylised as **`.hyprconf`** (with leading dot) everywhere except when referring to the domain/URL, which is **`hyprconf.sh`**. Never write "hyprconf" without a leading dot unless it's the domain, a binary name (`hyprconf`, `hyprconf-vpn`), or the install command.
 - **Default theme is `ai:circuit`** — `setup.sh:reapply_current_theme()` defaults to `ai:circuit` when no theme state exists.
 - **Bash 5.3 `$(< file 2>/dev/null)` is broken** — the redirect breaks the `$(<)` special form, returning empty. Use `$(cat file 2>/dev/null)` instead.
 - **Number keys 3/4 are NOT bound to workspaces** — F1/F2 are used instead for workspaces 3/4.

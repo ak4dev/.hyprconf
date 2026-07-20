@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .block_conf import ConfigBlock, add_block, delete_block, read_blocks, update_block_field
+from .block_conf import ConfigBlock, add_block, read_blocks
 from .paths import HYPRLOCK_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,27 +80,6 @@ BLOCK_DEFAULTS: dict[str, dict[str, str]] = {
 def read_hyprlock_blocks(path: Path | None = None) -> list[ConfigBlock]:
     """Return all blocks from hyprlock.conf."""
     return read_blocks(path or HYPRLOCK_FILE)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Writers
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def update_hyprlock_field(
-    path: Path,
-    start_line: int,
-    end_line: int,
-    key: str,
-    value: str,
-) -> bool:
-    """Update a single field within a hyprlock block."""
-    return update_block_field(path, start_line, end_line, key, value)
-
-
-def delete_hyprlock_block(path: Path, start_line: int, end_line: int) -> bool:
-    """Delete the block spanning [start_line, end_line]."""
-    return delete_block(path, start_line, end_line)
 
 
 def add_hyprlock_block(

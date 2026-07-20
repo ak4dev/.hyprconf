@@ -3,8 +3,10 @@ set -euo pipefail
 
 # gpu-passthrough.sh — GPU detection, VFIO mode management, and passthrough
 #
-# Sourced by the hyprconf binary (hyprconf hardware gpu …).
-# All functions prefixed with _gpu_ to avoid namespace collisions.
+# Runs standalone (gpu-passthrough.sh <command>) and doubles as a library:
+# setup.sh sources it for boot-time binding sync, so all functions are
+# prefixed with _gpu_ to avoid namespace collisions and dispatch only
+# happens when the script is executed directly.
 #
 # Mode system (mirrors omarchy approach):
 #   mode vm   — bind GPU + IOMMU group to vfio-pci (ready for VM)
@@ -20,6 +22,9 @@ readonly _GPU_LOG="/tmp/hyprconf-gpu-passthrough.log"
 : "${_GPU_VFIO_CONF:=/etc/modprobe.d/vfio.conf}"
 readonly _GPU_STATE_MARKER="/var/run/hyprconf-gpu-mode"
 : "${_GPU_SYSFS:=/sys}"
+# Official-repo packages the passthrough + Windows VM stack needs (checked by
+# setup; never auto-installed — printed as a pacman command for the user).
+readonly _GPU_VFIO_PACKAGES="qemu-desktop edk2-ovmf docker docker-compose dmidecode freerdp linux-headers dnsmasq iptables-nft"
 
 # ── Logging ────────────────────────────────────────────────────────────────────
 
@@ -70,7 +75,7 @@ _gpu_ensure_sudo() {
     # Validate sudo credentials (prompts for password if needed).
     # All subsequent sudo -n calls will use the cached credential.
     if ! sudo -v 2>/dev/null; then
-        printf "  ✘ Root privileges required. Run with: sudo hyprconf hardware gpu mode ...\n" >&2
+        printf "  ✘ Root privileges required. Run with: sudo gpu-passthrough.sh mode ...\n" >&2
         return 1
     fi
 }
@@ -476,7 +481,7 @@ _gpu_read_state_marker() {
 _gpu_mode_get() {
     # Show current GPU mode.
     if ! _gpu_load_config 2>/dev/null; then
-        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n"
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n"
         return 1
     fi
 
@@ -497,7 +502,7 @@ _gpu_mode_vm() {
     local pci_override="${2:-}"
 
     if ! _gpu_load_config; then
-        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n" >&2
         return 1
     fi
 
@@ -538,7 +543,7 @@ _gpu_mode_vm() {
                 if _gpu_has_vm_boot_entry; then
                     printf "  → Reboot and select the \"GPU Passthrough\" boot entry.\n" >&2
                 else
-                    printf "  → Run 'hyprconf hardware gpu setup' to create boot entries,\n" >&2
+                    printf "  → Run 'gpu-passthrough.sh setup' to create boot entries,\n" >&2
                     printf "    then reboot and select the \"GPU Passthrough\" entry.\n" >&2
                 fi
                 return 1
@@ -647,7 +652,7 @@ _gpu_mode_host() {
     local pci_override="${1:-}"
 
     if ! _gpu_load_config; then
-        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n" >&2
         return 1
     fi
 
@@ -782,7 +787,7 @@ _gpu_mode_none() {
     local pci_override="${1:-}"
 
     if ! _gpu_load_config; then
-        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n" >&2
         return 1
     fi
 
@@ -959,7 +964,7 @@ _gpu_audit() {
             fi
         else
             printf "  ⚠ Multi-NVIDIA detected — no GPU Passthrough boot entry found.\n"
-            printf "    Run 'hyprconf hardware gpu setup' to create dual boot entries.\n"
+            printf "    Run 'gpu-passthrough.sh setup' to create dual boot entries.\n"
             warnings=$((warnings + 1))
         fi
 
@@ -1141,24 +1146,29 @@ _gpu_setup() {
         printf "✔ VFIO modprobe options already configured.\n"
     fi
 
-    # 4. Install packages via addon
-    printf "\nInstalling VFIO packages...\n"
-    printf "(This will run: hyprconf addon vfio)\n\n"
-
-    # The actual addon install is handled by the caller (cmd_hardware gpu setup)
-    # to avoid circular sourcing. We just signal what's needed.
-    printf "__NEED_ADDON_VFIO__\n"
+    # 4. VFIO packages — signal the dispatcher only if any are missing.
+    printf "\nChecking VFIO packages...\n"
+    local _vfio_pkg _vfio_missing=""
+    for _vfio_pkg in $_GPU_VFIO_PACKAGES; do
+        pacman -Qi "$_vfio_pkg" &>/dev/null || _vfio_missing="$_vfio_missing $_vfio_pkg"
+    done
+    if [[ -n "$_vfio_missing" ]]; then
+        printf "  ⚠ Missing:%s\n" "$_vfio_missing"
+        printf "__NEED_ADDON_VFIO__\n"
+    else
+        printf "  ✔ All VFIO packages installed.\n"
+    fi
 
     # 5. Driver blacklisting / boot-time binding is configured AFTER GPU
-    # selection (see _gpu_configure_boot_binding called from the CLI dispatch).
+    # selection (see _gpu_configure_boot_binding called from _gpu_main setup).
 
     # 6. Detect GPUs and let user choose
     printf "\nDetected GPUs:\n\n"
     _gpu_detect
 
-    printf "Run 'hyprconf hardware gpu mode vm' to bind the GPU to vfio-pci.\n"
-    printf "Run 'hyprconf hardware gpu mode host' to restore to host driver.\n"
-    printf "Run 'hyprconf hardware gpu audit' to verify system readiness.\n"
+    printf "Run 'gpu-passthrough.sh mode vm' to bind the GPU to vfio-pci.\n"
+    printf "Run 'gpu-passthrough.sh mode host' to restore to host driver.\n"
+    printf "Run 'gpu-passthrough.sh audit' to verify system readiness.\n"
 }
 
 _gpu_configure_blacklist() {
@@ -1701,7 +1711,7 @@ _gpu_save_config() {
 
     mkdir -p "$_GPU_CONF_DIR"
     {
-        printf '# Generated by hyprconf hardware gpu setup — %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+        printf '# Generated by gpu-passthrough.sh setup — %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
         printf 'GPU_PCI_ADDR="%s"\n' "$pci_addr"
         printf 'GPU_VENDOR_ID="%s"\n' "$vendor_id"
         printf 'GPU_DEVICE_ID="%s"\n' "$device_id"
@@ -1972,7 +1982,7 @@ _gpu_report() {
             printf "  Mode:        %s (%s)\n" "$mode" "$cfg_driver"
         fi
     else
-        printf "  Configured:  none (run: hyprconf hardware gpu setup)\n"
+        printf "  Configured:  none (run: gpu-passthrough.sh setup)\n"
     fi
 
     # Blacklist status
@@ -2346,8 +2356,8 @@ _gpu_vm_usb() {
     else
         printf "\n  No USB devices saved for VM.\n"
     fi
-    printf "\n  Add:    hyprconf hardware gpu vm usb add\n"
-    printf "  Remove: hyprconf hardware gpu vm usb remove\n"
+    printf "\n  Add:    gpu-passthrough.sh vm usb add\n"
+    printf "  Remove: gpu-passthrough.sh vm usb remove\n"
 }
 
 _gpu_vm_usb_add() {
@@ -2497,7 +2507,7 @@ _gpu_vm_usb_hotplug() {
     if [[ "$action" == "add" ]]; then
         if ! docker exec "$_GPU_VM_CONTAINER" test -d /dev/bus/usb 2>/dev/null; then
             printf "  ⚠ Container lacks USB bus access (/dev/bus/usb not mounted).\n" >&2
-            printf "    Restart VM to apply: hyprconf hardware gpu vm stop && hyprconf hardware gpu vm launch\n" >&2
+            printf "    Restart VM to apply: gpu-passthrough.sh vm stop && gpu-passthrough.sh vm launch\n" >&2
             _gpu_log "WARN" "USB hot-add skipped (no /dev/bus/usb): ${vid_pid}"
             return 1
         fi
@@ -2571,7 +2581,7 @@ _gpu_vm_save_config() {
     # File contains VM_PASSWORD — must be readable only by owner.
     ( umask 077
       cat > "$_GPU_VM_CONF" <<EOF
-# Generated by hyprconf hardware gpu vm install — $(date '+%Y-%m-%d %H:%M:%S')
+# Generated by gpu-passthrough.sh vm install — $(date '+%Y-%m-%d %H:%M:%S')
 VM_RAM="${VM_RAM}"
 VM_CPU="${VM_CPU}"
 VM_DISK="${VM_DISK}"
@@ -2751,11 +2761,11 @@ _gpu_vm_generate_compose() {
     # Generate docker-compose.yml with GPU passthrough, Looking Glass,
     # and comprehensive anti-detection (SMBIOS, CPU, disk, devices).
     if ! _gpu_load_config; then
-        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n" >&2
         return 1
     fi
     if ! _gpu_vm_load_config; then
-        printf "Windows VM not configured. Run: hyprconf hardware gpu vm install\n" >&2
+        printf "Windows VM not configured. Run: gpu-passthrough.sh vm install\n" >&2
         return 1
     fi
 
@@ -2891,7 +2901,7 @@ EOF
 _gpu_vm_install() {
     # Interactive setup wizard for Windows VM configuration.
     if ! _gpu_load_config; then
-        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n" >&2
         return 1
     fi
 
@@ -2991,8 +3001,8 @@ _gpu_vm_install() {
     printf "    sudo modprobe kvmfr static_size_mb=%s\n" "$VM_IVSHMEM_SIZE"
     printf "    (Add 'kvmfr' to /etc/modules-load.d/ for persistence)\n"
     printf "    GPU must have a display connected (monitor, second cable, or dummy plug)\n"
-    printf "  Launch:  hyprconf hardware gpu vm launch\n"
-    printf "  Status:  hyprconf hardware gpu vm status\n"
+    printf "  Launch:  gpu-passthrough.sh vm launch\n"
+    printf "  Status:  gpu-passthrough.sh vm status\n"
 }
 
 _gpu_vm_launch() {
@@ -3007,11 +3017,11 @@ _gpu_vm_launch() {
     done
 
     if ! _gpu_load_config; then
-        printf "GPU passthrough not configured. Run: hyprconf hardware gpu setup\n" >&2
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n" >&2
         return 1
     fi
     if ! _gpu_vm_load_config; then
-        printf "Windows VM not configured. Run: hyprconf hardware gpu vm install\n" >&2
+        printf "Windows VM not configured. Run: gpu-passthrough.sh vm install\n" >&2
         return 1
     fi
 
@@ -3032,8 +3042,8 @@ _gpu_vm_launch() {
 
     if [[ "$container_status" == "running" ]]; then
         printf "VM is already running.\n"
-        printf "  Connect: hyprconf hardware gpu vm connect\n"
-        printf "  Stop:    hyprconf hardware gpu vm stop\n"
+        printf "  Connect: gpu-passthrough.sh vm connect\n"
+        printf "  Stop:    gpu-passthrough.sh vm stop\n"
         return 0
     fi
 
@@ -3059,9 +3069,9 @@ _gpu_vm_launch() {
     done
 
     printf "✔ VM is running.\n"
-    printf "  Connect: hyprconf hardware gpu vm connect\n"
-    printf "  Stop:    hyprconf hardware gpu vm stop\n"
-    printf "  Status:  hyprconf hardware gpu vm status\n"
+    printf "  Connect: gpu-passthrough.sh vm connect\n"
+    printf "  Stop:    gpu-passthrough.sh vm stop\n"
+    printf "  Status:  gpu-passthrough.sh vm status\n"
 }
 
 _gpu_vm_connect() {
@@ -3076,12 +3086,12 @@ _gpu_vm_connect() {
     done
 
     if ! _gpu_vm_load_config; then
-        printf "Windows VM not configured. Run: hyprconf hardware gpu vm install\n" >&2
+        printf "Windows VM not configured. Run: gpu-passthrough.sh vm install\n" >&2
         return 1
     fi
 
     if ! _gpu_vm_is_running; then
-        printf "VM is not running. Start with: hyprconf hardware gpu vm launch\n" >&2
+        printf "VM is not running. Start with: gpu-passthrough.sh vm launch\n" >&2
         return 1
     fi
 
@@ -3109,7 +3119,7 @@ _gpu_vm_connect_inner() {
             win:fullScreen=yes \
             win:autoResize=yes \
             &
-        printf "  Stop VM: hyprconf hardware gpu vm stop\n"
+        printf "  Stop VM: gpu-passthrough.sh vm stop\n"
         if [[ -n "$rdp_bin" ]]; then
             printf "  RDP:     %s /v:127.0.0.1:3389 /u:%s /p:%s\n" "$rdp_bin" "${VM_USERNAME}" "${VM_PASSWORD}"
         fi
@@ -3153,7 +3163,7 @@ _gpu_vm_connect_inner() {
             printf "✔ VM stopped.\n"
         else
             printf "→ RDP disconnected. VM still running.\n"
-            printf "  Stop with: hyprconf hardware gpu vm stop\n"
+            printf "  Stop with: gpu-passthrough.sh vm stop\n"
         fi
     else
         printf "  Install looking-glass-client (AUR) or freerdp for display.\n"
@@ -3178,7 +3188,7 @@ _gpu_vm_stop() {
     printf "→ Stopping Windows VM...\n"
     docker-compose -f "$_GPU_VM_COMPOSE" down 2>/dev/null
     printf "✔ VM stopped.\n"
-    printf "  Restore GPU: hyprconf hardware gpu mode host\n"
+    printf "  Restore GPU: gpu-passthrough.sh mode host\n"
 }
 
 _gpu_vm_status() {
@@ -3197,7 +3207,7 @@ _gpu_vm_status() {
     if _gpu_vm_load_config; then
         printf "  VM:     %s RAM, %s cores, %s disk\n" "${VM_RAM}" "${VM_CPU}" "${VM_DISK}"
     else
-        printf "  VM:     not configured (run: hyprconf hardware gpu vm install)\n"
+        printf "  VM:     not configured (run: gpu-passthrough.sh vm install)\n"
         return 0
     fi
 
@@ -3238,3 +3248,145 @@ _gpu_vm_remove() {
     printf "✔ Windows VM removed.\n"
     printf "  Shared folder ~/Windows/ was preserved.\n"
 }
+
+# ── Standalone entry point ────────────────────────────────────────────────────
+
+_gpu_usage() {
+    cat <<'EOF'
+Usage: gpu-passthrough.sh <command>
+
+  status                     Current passthrough configuration + binding state
+  detect                     List GPUs and their IOMMU groups
+  setup                      Interactive setup wizard (select GPU, boot binding)
+  audit                      Verify system readiness (IOMMU, modules, config)
+  mode                       Show current mode
+  mode vm [--force] [gpu]    Bind GPU (+IOMMU group) to vfio-pci for a VM
+  mode host [gpu]            Restore GPU to its host driver
+  mode none [gpu]            Unbind GPU from all drivers (power saving)
+  diagnose                   Deep diagnostic dump
+  report                     Machine-readable report
+  vm [status]                Windows VM container status
+  vm install|launch|connect|stop|remove
+  vm usb [add|remove]        USB hotplug into the running VM
+EOF
+}
+
+_gpu_die() {
+    printf '%b\n' "$1" >&2
+    exit 1
+}
+
+# Resolve the target GPU for mode commands: explicit argument, else the GPU
+# chosen during setup.
+_gpu_mode_target() {
+    local target="${1:-}"
+    if [[ -z "$target" ]]; then
+        if _gpu_load_config && [[ -n "${GPU_PCI_ADDR:-}" ]]; then
+            printf '→ Using configured GPU: %s\n' "${GPU_NAME:-$GPU_PCI_ADDR}" >&2
+            target="$GPU_PCI_ADDR"
+        else
+            _gpu_die "No GPU given and none configured — run 'gpu-passthrough.sh setup' first."
+        fi
+    fi
+    _gpu_resolve "$target" || _gpu_die "Cannot resolve GPU: $target"
+}
+
+_gpu_main() {
+    local sub="${1:-status}"
+    shift || true
+
+    case "$sub" in
+        status)   _gpu_status ;;
+        detect)   _gpu_detect ;;
+        setup)
+            local setup_output
+            setup_output=$(_gpu_setup)
+            # The wizard emits __NEED_ADDON_VFIO__ when the VFIO stack is
+            # missing; the former dispatcher auto-installed it. Standalone we
+            # print the exact pacman command instead (official repos only).
+            if grep -q "__NEED_ADDON_VFIO__" <<<"$setup_output"; then
+                grep -v "__NEED_ADDON_VFIO__" <<<"$setup_output" || true
+                printf '\n→ VFIO packages required. Install them, then re-run setup:\n'
+                printf '    sudo pacman -S --needed %s\n' "$_GPU_VFIO_PACKAGES"
+                exit 1
+            fi
+            printf '%s\n' "$setup_output"
+            _gpu_setup_select
+            _gpu_configure_boot_binding
+            printf "\n✔ Setup complete. Run 'gpu-passthrough.sh audit' to verify.\n"
+            ;;
+        audit)    _gpu_audit ;;
+        diagnose) _gpu_diagnose ;;
+        report)   _gpu_report ;;
+        mode)
+            local mode_target="${1:-}"
+            shift || true
+            case "$mode_target" in
+                "") _gpu_mode_get ;;
+                vm)
+                    local force=""
+                    if [[ "${1:-}" == "--force" ]]; then force="force"; shift; fi
+                    local pci_addr
+                    pci_addr=$(_gpu_mode_target "${1:-}")
+                    if [[ "$force" != "force" ]] && _gpu_is_display_gpu "$pci_addr"; then
+                        _gpu_die "Refusing to bind GPU at ${pci_addr} — it has an active display connector.\nUnbinding this GPU will freeze your desktop.\nUse --force to override."
+                    fi
+                    printf '→ Binding GPU at %s to vfio-pci...\n' "$pci_addr"
+                    _gpu_mode_vm "$force" "$pci_addr" \
+                        && printf '✔ GPU %s bound to vfio-pci — ready for VM passthrough.\n' "$pci_addr" \
+                        || _gpu_die "Failed to bind GPU ${pci_addr} to vfio-pci."
+                    ;;
+                host)
+                    local pci_addr
+                    pci_addr=$(_gpu_mode_target "${1:-}")
+                    printf '→ Restoring GPU at %s to host driver...\n' "$pci_addr"
+                    _gpu_mode_host "$pci_addr" \
+                        && printf '✔ GPU %s returned to host.\n' "$pci_addr" \
+                        || _gpu_die "Failed to restore GPU ${pci_addr} to host."
+                    ;;
+                none)
+                    local pci_addr
+                    pci_addr=$(_gpu_mode_target "${1:-}")
+                    printf '→ Unbinding GPU at %s from all drivers...\n' "$pci_addr"
+                    _gpu_mode_none "$pci_addr" \
+                        && printf '✔ GPU %s unbound from all drivers.\n' "$pci_addr" \
+                        || _gpu_die "Failed to unbind GPU ${pci_addr}."
+                    ;;
+                *) _gpu_die "Unknown mode: ${mode_target}\nUsage: gpu-passthrough.sh mode [vm|host|none]" ;;
+            esac
+            ;;
+        vm)
+            local vm_sub="${1:-status}"
+            shift || true
+            case "$vm_sub" in
+                status)  _gpu_vm_status ;;
+                install) _gpu_vm_install ;;
+                launch)  _gpu_vm_launch "$@" ;;
+                connect) _gpu_vm_connect "$@" ;;
+                stop)    _gpu_vm_stop ;;
+                remove)  _gpu_vm_remove ;;
+                usb)
+                    local usb_sub="${1:-}"
+                    shift || true
+                    case "$usb_sub" in
+                        ""|list) _gpu_vm_usb ;;
+                        add)     _gpu_vm_usb_add ;;
+                        remove)  _gpu_vm_usb_remove ;;
+                        *) _gpu_die "Unknown usb subcommand: ${usb_sub}\nUsage: gpu-passthrough.sh vm usb [list|add|remove]" ;;
+                    esac
+                    ;;
+                *) _gpu_die "Unknown vm command: ${vm_sub}\nUsage: gpu-passthrough.sh vm [status|install|launch|connect|stop|remove|usb]" ;;
+            esac
+            ;;
+        help|-h|--help) _gpu_usage ;;
+        *)
+            printf 'Unknown command: %s\n\n' "$sub" >&2
+            _gpu_usage >&2
+            exit 1
+            ;;
+    esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    _gpu_main "$@"
+fi

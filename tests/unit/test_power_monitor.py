@@ -1,4 +1,4 @@
-"""Tests for hyprconf-power-monitor script and hyprconf power-profile CLI command."""
+"""Tests for the hyprconf-power-monitor script and its setup.sh installation."""
 
 from __future__ import annotations
 
@@ -8,13 +8,8 @@ import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 POWER_MONITOR = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf-power-monitor"
 SETUP_SH = REPO_ROOT / "setup.sh"
-
-
-def _bin_text() -> str:
-    return HYPRCONF_BIN.read_text()
 
 
 def _setup_text() -> str:
@@ -207,102 +202,6 @@ class TestPowerMonitorScriptExists:
     def test_strict_mode(self) -> None:
         text = POWER_MONITOR.read_text()
         assert "set -euo pipefail" in text
-
-
-# ===========================================================================
-# hyprconf power-profile CLI command tests (static analysis)
-# ===========================================================================
-
-
-class TestCmdPowerProfile:
-    """Verify hyprconf power-profile command structure in the binary."""
-
-    def test_function_exists(self) -> None:
-        assert "cmd_power_profile()" in _bin_text()
-
-    def test_dispatcher_entry(self) -> None:
-        text = _bin_text()
-        lines = [
-            l.strip()
-            for l in text.splitlines()
-            if "power-profile" in l and "cmd_power_profile" in l
-        ]
-        assert lines, "power-profile must have a dispatcher entry in main()"
-
-    def test_pp_alias(self) -> None:
-        """pp shortcut must also dispatch to cmd_power_profile."""
-        text = _bin_text()
-        assert "pp)" in text
-
-    def test_help_text(self) -> None:
-        assert "hyprconf power-profile" in _bin_text()
-
-    def test_status_subcommand(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_power_profile()")
-        body = text[idx : idx + 2500]
-        assert "status)" in body
-
-    def test_performance_subcommand(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_power_profile()")
-        body = text[idx : idx + 2500]
-        assert "performance" in body
-
-    def test_balanced_subcommand(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_power_profile()")
-        body = text[idx : idx + 2500]
-        assert "balanced" in body
-
-    def test_power_saver_subcommand(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_power_profile()")
-        body = text[idx : idx + 2500]
-        assert "power-saver" in body
-
-    def test_auto_subcommand(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_power_profile()")
-        body = text[idx : idx + 2500]
-        assert "auto)" in body
-
-    def test_calls_powerprofilesctl(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_power_profile()")
-        body = text[idx : idx + 2500]
-        assert "powerprofilesctl" in body
-
-    def test_usage_on_invalid_arg(self) -> None:
-        text = _bin_text()
-        idx = text.index("cmd_power_profile()")
-        body = text[idx : idx + 2500]
-        assert "Usage:" in body
-
-
-# ===========================================================================
-# Doctor checks for power profile (static analysis)
-# ===========================================================================
-
-
-class TestDoctorPowerProfile:
-    """Verify doctor checks for power profile auto-switching."""
-
-    def test_doctor_checks_udev_rule(self) -> None:
-        text = _bin_text()
-        assert "99-hyprconf-power.rules" in text
-
-    def test_doctor_checks_power_monitor(self) -> None:
-        text = _bin_text()
-        assert "hyprconf-power-monitor" in text
-
-    def test_doctor_battery_guard(self) -> None:
-        """Doctor power-profile checks should be guarded by battery presence."""
-        text = _bin_text()
-        # The BAT* check should appear in the doctor section
-        idx = text.index("_doctor_check_hardware()")
-        body = text[idx : idx + 2000]
-        assert "BAT" in body
 
 
 # ===========================================================================

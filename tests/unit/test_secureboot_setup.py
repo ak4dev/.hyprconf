@@ -1,7 +1,7 @@
 """
-Unit tests for hyprconf-secureboot — the Secure Boot (signed UKI) setup &
-verification helper (stowed to ~/.local/bin), its hyprconf CLI / doctor wiring,
-the installer hook, and the UKI-awareness added to yubikey-fido2-setup.
+Unit tests for hyprconf-secureboot — the standalone Secure Boot (signed UKI)
+setup & verification helper (stowed to ~/.local/bin), the installer hook, and
+the UKI-awareness added to yubikey-fido2-setup.
 
 All tests are static-analysis only: they assert the script is valid bash, is
 reachable on a new system (lives under stow/, not the export-ignored scripts/),
@@ -18,7 +18,6 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).parent.parent.parent
 SCRIPT = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf-secureboot"
 YUBIKEY = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "yubikey-fido2-setup"
-HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 INSTALL = REPO_ROOT / "install" / "install.sh"
 PACKAGES = REPO_ROOT / "packages"
 README = REPO_ROOT / "README.md"
@@ -27,10 +26,6 @@ HARDENING = REPO_ROOT / "docs" / "security-hardening.md"
 
 def _text() -> str:
     return SCRIPT.read_text(encoding="utf-8")
-
-
-def _bin_text() -> str:
-    return HYPRCONF_BIN.read_text(encoding="utf-8")
 
 
 def _func_body(name: str, path: Path = SCRIPT) -> str:
@@ -347,61 +342,6 @@ def test_no_hardcoded_block_devices() -> None:
 
 
 # ---------------------------------------------------------------------------
-# hyprconf CLI integration: `hyprconf secureboot <sub>`
-# ---------------------------------------------------------------------------
-
-
-def test_cli_cmd_secureboot_exists() -> None:
-    assert "cmd_secureboot()" in _bin_text()
-
-
-def test_cli_dispatcher_entry() -> None:
-    lines = [
-        l.strip()
-        for l in _bin_text().splitlines()
-        if "cmd_secureboot " in l and l.lstrip().startswith("secureboot")
-    ]
-    assert lines, "secureboot must have a dispatcher entry in main()"
-
-
-def test_cli_help_lists_secureboot() -> None:
-    assert "hyprconf secureboot" in _bin_text()
-
-
-def test_cli_references_script_and_escalates() -> None:
-    txt = _bin_text()
-    assert 'SECUREBOOT_SCRIPT="$HOME/.local/bin/hyprconf-secureboot"' in txt
-    assert "sudo" in _func_body("_sb_run", HYPRCONF_BIN)
-    for sub in ("status", "setup", "enroll", "sign", "verify", "harden"):
-        assert sub in _func_body("cmd_secureboot", HYPRCONF_BIN)
-
-
-# ---------------------------------------------------------------------------
-# hyprconf doctor integration: a read-only drift check, silent on non-SB systems
-# ---------------------------------------------------------------------------
-
-
-def test_doctor_check_exists_and_is_wired() -> None:
-    txt = _bin_text()
-    assert "_doctor_check_secureboot()" in txt
-    # called from cmd_doctor
-    body = _func_body("cmd_doctor", HYPRCONF_BIN)
-    assert "_doctor_check_secureboot" in body
-
-
-def test_doctor_check_is_readonly_and_gated() -> None:
-    body = _func_body("_doctor_check_secureboot", HYPRCONF_BIN)
-    # UEFI-gated and reads SB state without root (efivar / bootctl)
-    assert "/sys/firmware/efi/efivars" in body
-    assert "8be4df61-93ca-11d2-aa0d-00e098032b8c" in body
-    # no mutating commands in a health check
-    for mutating in ("sbctl sign", "enroll-keys", "sed -i", "mkinitcpio"):
-        assert mutating not in body, f"doctor check must not call {mutating}"
-    # stays silent on systems that never engaged Secure Boot (no nagging)
-    assert "return 0" in body
-
-
-# ---------------------------------------------------------------------------
 # Installer integration: offer_secureboot_setup, CI-skipped, after YubiKey
 # ---------------------------------------------------------------------------
 
@@ -447,13 +387,13 @@ def test_packages_lists_sbctl_commented() -> None:
 
 def test_readme_documents_secureboot() -> None:
     txt = README.read_text(encoding="utf-8")
-    assert "hyprconf secureboot" in txt
+    assert "hyprconf-secureboot" in txt
     assert "Unified Kernel Image" in txt or "signed UKI" in txt
 
 
 def test_hardening_doc_describes_layered_flow() -> None:
     txt = HARDENING.read_text(encoding="utf-8")
-    assert "hyprconf secureboot" in txt
+    assert "hyprconf-secureboot" in txt
     # the doc must name the layered controls and the bypass it closes
     assert "signed UKI" in txt or "Unified Kernel Image" in txt
     assert "firmware" in txt.lower() and "password" in txt.lower()

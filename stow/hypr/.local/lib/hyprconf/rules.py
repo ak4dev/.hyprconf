@@ -21,11 +21,9 @@ from typing import NamedTuple
 from .file_edit import (
     SOURCE_RE,
     append_block,
-    delete_line,
     read_lines,
     resolve_source_paths,
     strip_comment,
-    update_line,
 )
 from .paths import HYPRLAND_CONF, WINRULES_FILE, WKSPRULES_FILE
 
@@ -186,27 +184,6 @@ def add_workspace_rule(workspace_id: str, options: str, file: Path | None = None
         else f"workspace = {workspace_id.strip()}"
     )
     return append_block(file, line)
-
-
-def delete_rule(file_path: Path, line_idx: int) -> bool:
-    """Delete the rule line at *line_idx* in *file_path*."""
-    return delete_line(file_path, line_idx)
-
-
-def update_window_rule(file_path: Path, line_idx: int, rule: str, filters: list[str]) -> bool:
-    """Replace the window rule at *line_idx* in *file_path* (0.55 ``match:`` grammar)."""
-    return update_line(file_path, line_idx, compose_window_rule(rule, filters))
-
-
-def update_workspace_rule(file_path: Path, line_idx: int, workspace_id: str, options: str) -> bool:
-    """Replace the workspace rule at *line_idx* in *file_path*."""
-    options = options.strip()
-    line = (
-        f"workspace = {workspace_id.strip()}, {options}"
-        if options
-        else f"workspace = {workspace_id.strip()}"
-    )
-    return update_line(file_path, line_idx, line)
 
 
 # ─────────────────────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "hyprconf"
 # Single source of truth: the version is read from the package (bumped by scripts/publish).
 dynamic = ["version"]
-description = "Hyprland configuration suite — CLI/TUI binary and Arch Linux dotfiles"
+description = "Hyprland configuration suite — TUI and Arch Linux dotfiles"
 # 3.12 is the real floor: CI tests 3.12, Arch ships ≥3.13, and switch_theme.py
 # uses 3.12 f-string syntax. (Declared >=3.11 was stale/untested.)
 requires-python = ">=3.12"

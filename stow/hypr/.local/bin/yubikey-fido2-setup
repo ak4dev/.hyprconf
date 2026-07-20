@@ -304,7 +304,7 @@ shield_hyprlock() {
     local hl="/etc/pam.d/hyprlock"
     [[ -f "$hl" ]] && backup "$hl"
     cat > "$hl" <<'PAMHL'
-# Managed by `hyprconf yubikey` — hyprlock is intentionally PASSWORD-ONLY.
+# Managed by yubikey-fido2-setup — hyprlock is intentionally PASSWORD-ONLY.
 # Do NOT add the YubiKey (FIDO2) auth module here or `include login`: a missing
 # or failed key would make the lock screen impossible to unlock. Authenticate
 # against system-auth (the user's password) instead.
@@ -526,7 +526,7 @@ configure_luks() {
     # manual rebuild.
     if command -v sbctl &>/dev/null && [[ -d /var/lib/sbctl/keys || -d /usr/share/secureboot/keys ]]; then
         sbctl sign-all >>"$LOG" 2>&1 && ok "Re-signed boot chain for Secure Boot (sbctl)" \
-            || warn "sbctl re-sign failed — run 'sudo hyprconf secureboot sign' before rebooting"
+            || warn "sbctl re-sign failed — run 'sudo hyprconf-secureboot sign' before rebooting"
     fi
     warn "Reboot to test LUKS unlock with YubiKey. Passphrase still works as fallback."
 }
@@ -882,7 +882,7 @@ do_status() {
 
     step "Login credentials ($U2F_KEYS)"
     if [[ $EUID -ne 0 ]]; then
-        warn "Run with sudo (or 'hyprconf yubikey status') to read root-owned details."
+        warn "Run with sudo (or 'yubikey-fido2-setup status') to read root-owned details."
     elif [[ -f "$U2F_KEYS" ]]; then
         local line user count
         while IFS= read -r line; do
@@ -1040,7 +1040,7 @@ usage_yk() {
   YubiKey FIDO2+PIN setup — Arch Linux
 
   Usage: yubikey-fido2-setup [setup|enroll|harden-luks|status]
-         hyprconf yubikey    [setup|enroll|harden-luks|status]
+         yubikey-fido2-setup [setup|enroll|harden-luks|status]
 
     setup        Full first-time setup: sudo, TTY login, display manager, SSH, LUKS
     enroll       Enroll an additional / backup key (login + optional LUKS keyslot)

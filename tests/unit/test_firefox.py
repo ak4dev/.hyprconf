@@ -708,7 +708,7 @@ def test_get_default_firefox_profile_legacy_preferred_when_both_exist(
 
 # ---------------------------------------------------------------------------
 # LibreWolf — Firefox-fork theming via the shared engine
-# (hyprconf addon librewolf)
+# (installed manually: yay -S librewolf-bin)
 # ---------------------------------------------------------------------------
 
 

@@ -105,7 +105,7 @@ Singleton {
 
     Process {
         id: vpnProc
-        command: [root.home + "/.local/bin/hyprconf", "vpn", "status", "--json"]
+        command: [root.home + "/.local/bin/hyprconf-vpn", "status", "--json"]
         stdout: SplitParser {
             onRead: data => {
                 try {

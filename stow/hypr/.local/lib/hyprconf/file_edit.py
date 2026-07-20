@@ -186,19 +186,3 @@ def insert_lines(path: Path, line_idx: int, new_lines: list[str]) -> bool:
         return True
     except OSError:
         return False
-
-
-def insert_line(path: Path, line_idx: int, content: str) -> bool:
-    """Insert *content* at position *line_idx* (0-based), shifting lines down.
-
-    If *line_idx* >= len(lines), the line is appended.
-    Returns True on success.
-    """
-    lines = read_lines(path)
-    line_idx = min(line_idx, len(lines))
-    lines.insert(line_idx, content)
-    try:
-        _write_lines(path, lines)
-        return True
-    except OSError:
-        return False

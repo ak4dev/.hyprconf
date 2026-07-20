@@ -22,7 +22,7 @@ depends=(
 )
 optdepends=(
     'aws-cli: for deploy/teardown infrastructure commands'
-    'wofi: for theme picker launcher (hyprconf theme pick)'
+    'wofi: fallback launcher for the theme picker (switch_theme.py --pick)'
 )
 makedepends=('git')
 provides=('hyprconf')

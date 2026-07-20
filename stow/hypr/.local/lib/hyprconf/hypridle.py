@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .block_conf import ConfigBlock, add_block, delete_block, read_blocks, update_block_field
+from .block_conf import ConfigBlock, add_block, read_blocks
 from .paths import HYPRIDLE_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -17,16 +17,20 @@ from .paths import HYPRIDLE_FILE
 
 BLOCK_TYPES: tuple[str, ...] = ("general", "listener")
 
+# Defaults mirror the shipped hypridle.conf invariant: every lock path goes
+# through `loginctl lock-session` -> lock_cmd -> the supervised hyprlock.service
+# user unit. Never template a raw `hyprlock` — an unsupervised locker dies
+# across suspend/resume and leaves the session on the lockdead screen.
 BLOCK_DEFAULTS: dict[str, dict[str, str]] = {
     "general": {
-        "lock_cmd": "pidof hyprlock || hyprlock",
-        "before_sleep_cmd": "hyprlock",
-        "after_sleep_cmd": "hyprctl dispatch dpms on",
+        "lock_cmd": "systemctl --user start hyprlock.service",
+        "before_sleep_cmd": "loginctl lock-session",
+        "after_sleep_cmd": "systemctl --user restart hyprlock.service; hyprctl dispatch dpms on",
         "ignore_dbus_inhibit": "false",
     },
     "listener": {
         "timeout": "300",
-        "on-timeout": "hyprlock",
+        "on-timeout": "loginctl lock-session",
         "on-resume": "",
     },
 }
@@ -40,27 +44,6 @@ BLOCK_DEFAULTS: dict[str, dict[str, str]] = {
 def read_hypridle_blocks(path: Path | None = None) -> list[ConfigBlock]:
     """Return all blocks from hypridle.conf."""
     return read_blocks(path or HYPRIDLE_FILE)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Writers
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def update_hypridle_field(
-    path: Path,
-    start_line: int,
-    end_line: int,
-    key: str,
-    value: str,
-) -> bool:
-    """Update a single field within a hypridle block."""
-    return update_block_field(path, start_line, end_line, key, value)
-
-
-def delete_hypridle_block(path: Path, start_line: int, end_line: int) -> bool:
-    """Delete the block spanning [start_line, end_line]."""
-    return delete_block(path, start_line, end_line)
 
 
 def add_hypridle_block(
@@ -81,16 +64,3 @@ def add_hypridle_block(
     if block_type == "listener":
         fields = {k: v for k, v in fields.items() if v or k != "on-resume"}
     return add_block(path, block_type, fields)
-
-
-def add_listener(
-    timeout: str,
-    on_timeout: str,
-    on_resume: str = "",
-    path: Path | None = None,
-) -> bool:
-    """Convenience: append a listener block with the given values."""
-    overrides: dict[str, str] = {"timeout": timeout, "on-timeout": on_timeout}
-    if on_resume:
-        overrides["on-resume"] = on_resume
-    return add_hypridle_block("listener", overrides, path)

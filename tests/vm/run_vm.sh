@@ -57,7 +57,7 @@ _wait_for_ssh() {
     echo "VM is reachable."
 }
 
-# Ensure the VM's hyprconf repo is on origin/dev so that 'hyprconf sync'
+# Ensure the VM's hyprconf repo is on origin/dev so that 'setup.sh --sync'
 # (which runs 'git restore .') restores to the current dev codebase.
 # Uses a git bundle pushed host→VM to avoid any outbound network from the VM
 # (QEMU SLiRP NAT cannot reach external hosts reliably).
@@ -114,7 +114,7 @@ _sync_vm_to_dev() {
 
     rm -f "${bundle}"
 
-    # Allow SSH through ufw so hyprconf sync (which enables ufw with deny-incoming)
+    # Allow SSH through ufw so setup.sh --sync (which enables ufw with deny-incoming)
     # does not lock out subsequent SSH connections from the test suite.
     ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \

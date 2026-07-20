@@ -112,16 +112,6 @@ def get_monitors() -> list[dict]:
         return []
 
 
-def set_monitor(keyword: str) -> bool:
-    """Apply a monitor= keyword at runtime.
-
-    keyword should be in the format:  NAME,RESxRES@HZ,XxY,SCALE[,vrr,N]
-    """
-    if not is_active():
-        return False
-    return _run(["hyprctl", "keyword", "monitor", keyword]) is not None
-
-
 # ── Reload ─────────────────────────────────────────────────────────────────────
 
 

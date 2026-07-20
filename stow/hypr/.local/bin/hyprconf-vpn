@@ -5,7 +5,7 @@
 # networkmanager-openvpn plugin, WireGuard natively) behind a small, scriptable
 # surface. Works against any imported NM VPN profile — no provider lock-in.
 #
-# When ProtonVPN's official CLI (`protonvpn`, from `hyprconf addon vpn`) is
+# When ProtonVPN's official CLI (`protonvpn`, AUR: proton-vpn-cli) is
 # present, the kill-switch delegates to Proton's own maintained implementation;
 # otherwise a self-contained nftables fail-closed leak-guard is used.
 #
@@ -115,7 +115,7 @@ cmd_status() {
   fi
   case "$ks" in
     on)     info "Kill-switch: ${G}on${N}" ;;
-    proton) info "Kill-switch: managed by ProtonVPN — check: ${B}hyprconf vpn killswitch status${N}" ;;
+    proton) info "Kill-switch: managed by ProtonVPN — check: ${B}hyprconf-vpn killswitch status${N}" ;;
     *)      info "Kill-switch: ${Y}off${N}" ;;
   esac
   if [[ "$ks" == "on" && -z "$profile" ]]; then
@@ -132,7 +132,7 @@ cmd_list() {
   active="$(_active_profile)"
   if [[ -z "$profiles" ]]; then
     note "No VPN profiles configured."
-    info "Import one with: ${B}hyprconf vpn import <file.ovpn|file.conf>${N}"
+    info "Import one with: ${B}hyprconf-vpn import <file.ovpn|file.conf>${N}"
     return 0
   fi
   printf '%b\n' "${B}VPN profiles${N}"
@@ -207,7 +207,7 @@ cmd_disconnect() {
 cmd_import() {
   require_nmcli
   local file="${1:-}"
-  [[ -z "$file" ]] && die "Usage: hyprconf vpn import <file.ovpn|file.conf>"
+  [[ -z "$file" ]] && die "Usage: hyprconf-vpn import <file.ovpn|file.conf>"
   [[ -f "$file" ]] || die "File not found: $file"
 
   local vpn_type=""
@@ -237,7 +237,7 @@ cmd_import() {
 
   info "Importing ${vpn_type} profile from ${B}${file}${N}..."
   if nmcli connection import type "$vpn_type" file "$file" >/dev/null; then
-    ok "Imported. Connect with: hyprconf vpn connect"
+    ok "Imported. Connect with: hyprconf-vpn connect"
   else
     die "Import failed — check 'nmcli connection import type $vpn_type file \"$file\"'."
   fi
@@ -315,7 +315,7 @@ _ks_render() {
 # hyprconf generic VPN kill-switch — fail-closed egress leak-guard.
 # Drops all output except: loopback, established/related (keeps a live tunnel
 # and its control channel up), the VPN tunnel device, the local LAN, and the
-# detected VPN server endpoint(s). Remove with: hyprconf vpn killswitch off
+# detected VPN server endpoint(s). Remove with: hyprconf-vpn killswitch off
 table inet ${KS_TABLE} {
   chain output {
     type filter hook output priority -10; policy drop;
@@ -348,7 +348,7 @@ cmd_killswitch() {
         fi
         return 0
       fi
-      command -v nft &>/dev/null || die "nft not found — install nftables (or use 'hyprconf addon vpn' for Proton's kill-switch)."
+      command -v nft &>/dev/null || die "nft not found — install nftables (or install ProtonVPN's CLI for its own kill-switch)."
       local dev; dev="$(_tunnel_device)"
       [[ -z "$dev" ]] && warn "No VPN tunnel up — kill-switch will block all clearnet until you connect."
       info "Applying generic nftables kill-switch..."
@@ -391,7 +391,7 @@ cmd_killswitch() {
       fi
       ;;
     *)
-      die "Usage: hyprconf vpn killswitch [on|off|status]"
+      die "Usage: hyprconf-vpn killswitch [on|off|status]"
       ;;
   esac
 }
@@ -399,20 +399,20 @@ cmd_killswitch() {
 # ── usage / dispatch ─────────────────────────────────────────────────────────
 
 usage() {
-  printf '%b' "${B}${C}hyprconf vpn${N} — NetworkManager VPN control\n\n"
+  printf '%b' "${B}${C}hyprconf-vpn${N} — NetworkManager VPN control\n\n"
   printf '%b' "${B}Usage${N}\n"
-  printf '  hyprconf vpn status [--json]   Show connection + kill-switch state\n'
-  printf '  hyprconf vpn list              List configured VPN profiles\n'
-  printf '  hyprconf vpn connect [name]    Bring up a VPN (default: the only profile)\n'
-  printf '  hyprconf vpn disconnect [name] Tear down the active (or named) VPN\n'
-  printf '  hyprconf vpn toggle            Connect if down, disconnect if up (bar click)\n'
-  printf '  hyprconf vpn import <file>     Import an OpenVPN .ovpn / WireGuard .conf\n'
-  printf '  hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode\n'
+  printf '  hyprconf-vpn status [--json]   Show connection + kill-switch state\n'
+  printf '  hyprconf-vpn list              List configured VPN profiles\n'
+  printf '  hyprconf-vpn connect [name]    Bring up a VPN (default: the only profile)\n'
+  printf '  hyprconf-vpn disconnect [name] Tear down the active (or named) VPN\n'
+  printf '  hyprconf-vpn toggle            Connect if down, disconnect if up (bar click)\n'
+  printf '  hyprconf-vpn import <file>     Import an OpenVPN .ovpn / WireGuard .conf\n'
+  printf '  hyprconf-vpn killswitch on|off|status   Fail-closed VPN-only mode\n'
   printf '\n'
   printf '%b' "${B}Notes${N}\n"
   printf '  • Wraps the profiles NetworkManager already manages (any provider).\n'
   printf '  • For ProtonVPN'\''s official client (NetShield + maintained kill-switch):\n'
-  printf '      hyprconf addon vpn   then   protonvpn signin\n'
+  printf '      yay -S proton-vpn-cli   (AUR, manual)   then   protonvpn signin\n'
 }
 
 main() {

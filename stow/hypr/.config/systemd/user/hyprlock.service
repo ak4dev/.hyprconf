@@ -1,0 +1,50 @@
+# hyprlock.service — supervised screen locker.
+#
+# hyprlock segfaults/aborts at nearly every suspend exit on this machine
+# (journal: hyprlock coredumps timestamped to the second of "PM: suspend
+# exit"), and a dead locker while the session is locked leaves Hyprland's
+# lockdead screen with no way to authenticate — the "system won't resume"
+# symptom. A one-shot re-lock at wake (the old after_sleep_cmd approach) races
+# the crash: the doomed instance is often still alive when the guard checks
+# and dies seconds later. systemd supervises instead: it owns the
+# single-instance guarantee (start on an active unit is a no-op) and restarts
+# the locker whenever it dies without unlocking, no matter when that happens.
+# Needs misc:allow_session_lock_restore=true (hyprland.conf) so the fresh
+# instance can take over the still-held session lock.
+#
+# Never enabled; started on demand by hypridle's lock_cmd.
+
+[Unit]
+Description=Screen locker (supervised hyprlock)
+# Retry forever: a locker that keeps coming back is strictly better than a
+# locked session with no locker. The restart backoff below bounds the spam.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+# A locker started outside this unit (raw `hyprlock` in a terminal) already
+# holds ext-session-lock; a second instance would be refused by the compositor
+# and crash-loop here. ExecCondition exit codes 1-254 skip the start cleanly:
+# the unit goes inactive and Restart= does not fire.
+ExecCondition=/bin/sh -c '! pidof hyprlock'
+# Privacy: drop clipboard history before the screen locks. "-" = still lock if
+# cliphist is missing or fails; re-running on a crash-restart is harmless.
+ExecStartPre=-/usr/bin/cliphist wipe
+ExecStart=/usr/bin/hyprlock
+# Restarting this unit is lock-safe: hyprlock has no SIGTERM handler (verified
+# in v0.9.5 source) — only SIGUSR1 unlocks — and per ext-session-lock the
+# compositor keeps the session locked until a locker explicitly unlocks. The
+# wake path (hypridle after_sleep_cmd) relies on this: it restarts the unit so
+# every wake gets an instance that never crossed the suspend. Cap the stop so
+# a GPU-hung instance can't stall that handoff for the default 90s.
+TimeoutStopSec=5
+# hyprlock exits 0 on successful unlock — no restart. Anything else (the
+# post-resume SIGSEGV/SIGABRT, a lost compositor connection) means the lock
+# screen went down while it was still needed: relaunch after 1s, backing off
+# toward 60s for persistent failures (e.g. no compositor to connect to).
+# hyprland-session and hyprland-stop stop this unit once the session is gone
+# for good.
+Restart=on-failure
+RestartSec=1
+RestartSteps=6
+RestartMaxDelaySec=60

@@ -137,30 +137,6 @@ def delete_monitor(file_path: Path, line_idx: int) -> bool:
     return delete_line(file_path, line_idx)
 
 
-def enable_monitor(name: str, file: Path | None = None) -> bool:
-    """Switch a disabled monitor to ``preferred`` resolution."""
-    if file is None:
-        file = MONITORS_FILE
-    existing = read_monitor_configs(file)
-    for mc in existing:
-        if mc.name == name and mc.is_disabled:
-            return upsert_monitor(name, "preferred", "auto", "1", file=file)
-    return False
-
-
-def disable_monitor(name: str, file: Path | None = None) -> bool:
-    """Set a monitor to ``disable``."""
-    if file is None:
-        file = MONITORS_FILE
-    existing = read_monitor_configs(file)
-    for mc in existing:
-        if mc.name == name:
-            new_line = f"monitor = {name}, disable"
-            return update_line(file, mc.line_idx, new_line)
-    # Not found — append a disable line
-    return append_block(file, f"monitor = {name}, disable")
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 #  Field-level get / set  (used by CLI configure interface)
 # ─────────────────────────────────────────────────────────────────────────────
@@ -190,76 +166,3 @@ def _build_extras(d: dict[str, str]) -> str:
         if key in d:
             pairs.append(f"{key}, {d[key]}")
     return ", ".join(pairs)
-
-
-def get_monitor_fields(name: str | None = None, file: Path | None = None) -> str:
-    """Return a formatted table of configured monitors (or a single monitor).
-
-    Output is a human-readable string suitable for terminal display.
-    """
-    configs = read_monitor_configs(file)
-    if name:
-        configs = [c for c in configs if c.name == name]
-        if not configs:
-            return f"  Monitor '{name}' not found in monitors.conf."
-
-    if not configs:
-        return "  No monitor configs found."
-
-    lines: list[str] = []
-    for mc in configs:
-        ex = _parse_extras_dict(mc.extras)
-        lines.append(f"\n  {mc.name}")
-        lines.append(f"    {'res':<16} {mc.resolution}")
-        lines.append(f"    {'pos':<16} {mc.position}")
-        lines.append(f"    {'scale':<16} {mc.scale}")
-        for f in sorted(_EXTRAS_FIELDS):
-            val = ex.get(f, "")
-            if val or name:  # always show all fields when querying one monitor
-                lines.append(f"    {f:<16} {val or '(unset)'}")
-    return "\n".join(lines)
-
-
-def update_monitor_field(name: str, field: str, value: str, file: Path | None = None) -> bool:
-    """Update a single field of an existing monitor config.
-
-    Handles the three basic positional fields (res, pos, scale) directly and
-    routes all other fields through the extras string.  If the monitor is not
-    yet in monitors.conf, a new entry is created with sensible defaults for
-    the fields that are not being set.
-
-    Returns True on success.
-    """
-    field = field.lower()
-    if field not in _MONITOR_FIELDS:
-        raise ValueError(
-            f"Unknown monitor field '{field}'. Valid: {', '.join(sorted(_MONITOR_FIELDS))}"
-        )
-
-    configs = read_monitor_configs(file)
-    mc = next((c for c in configs if c.name == name), None)
-
-    if mc is None:
-        # No existing entry — create a minimal one first
-        res = value if field == "res" else "preferred"
-        pos = value if field == "pos" else "auto"
-        scale = value if field == "scale" else "1"
-        extras = ""
-        if field in _EXTRAS_FIELDS:
-            extras = f"{field}, {value}"
-        return upsert_monitor(name, res, pos, scale, extras, file=file)
-
-    # Update in-place
-    res, pos, scale = mc.resolution, mc.position, mc.scale
-    ex = _parse_extras_dict(mc.extras)
-
-    if field == "res":
-        res = value
-    elif field == "pos":
-        pos = value
-    elif field == "scale":
-        scale = value
-    else:
-        ex[field] = value
-
-    return upsert_monitor(name, res, pos, scale, _build_extras(ex), file=file)

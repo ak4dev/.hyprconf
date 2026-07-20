@@ -7,11 +7,9 @@ from pathlib import Path
 from hyprconf.config import (
     MANAGED_MARKER,
     migrate_legacy,
-    read_all_persisted,
     read_persisted,
     save_pending,
     section_key_to_hyprctl,
-    upsert_option,
 )
 
 # ---------------------------------------------------------------------------
@@ -41,39 +39,6 @@ def test_deeply_nested_key(hypr_dir: Path) -> None:
 
 def test_read_persisted_missing_file(hypr_dir: Path) -> None:
     assert read_persisted("general", "gaps_in") is None
-
-
-# ---------------------------------------------------------------------------
-# upsert_option + read_persisted round-trip
-# ---------------------------------------------------------------------------
-
-
-def test_upsert_and_read_int(hypr_dir: Path) -> None:
-    assert upsert_option("general", "gaps_in", "12") is True
-    assert read_persisted("general", "gaps_in") == "12"
-
-
-def test_upsert_and_read_bool(hypr_dir: Path) -> None:
-    upsert_option("decoration.blur", "enabled", "true")
-    assert read_persisted("decoration.blur", "enabled") == "true"
-
-
-def test_upsert_updates_existing(hypr_dir: Path) -> None:
-    upsert_option("general", "gaps_in", "5")
-    upsert_option("general", "gaps_in", "20")
-    assert read_persisted("general", "gaps_in") == "20"
-
-
-def test_upsert_preserves_other_keys(hypr_dir: Path) -> None:
-    upsert_option("general", "gaps_in", "8")
-    upsert_option("general", "border_size", "2")
-    assert read_persisted("general", "gaps_in") == "8"
-    assert read_persisted("general", "border_size") == "2"
-
-
-def test_read_absent_key_returns_none(hypr_dir: Path) -> None:
-    upsert_option("general", "gaps_in", "8")
-    assert read_persisted("general", "nonexistent_key") is None
 
 
 # ---------------------------------------------------------------------------
@@ -115,14 +80,6 @@ def test_save_pending_preserves_user_zone(hypr_dir: Path) -> None:
     assert "general:gaps_in = 5" in text
 
 
-def test_save_pending_idempotent(hypr_dir: Path) -> None:
-    save_pending({"general": {"gaps_in": "8"}})
-    save_pending({"general": {"gaps_in": "8"}})
-    all_keys = read_all_persisted()
-    # Key should appear exactly once
-    assert list(all_keys.values()).count("8") == 1
-
-
 def test_save_pending_sorted_keys(hypr_dir: Path) -> None:
     save_pending({"z_section": {"z_key": "1"}, "a_section": {"a_key": "2"}})
     import hyprconf.config as cfg
@@ -131,27 +88,6 @@ def test_save_pending_sorted_keys(hypr_dir: Path) -> None:
     managed_lines = [l for l in lines if "=" in l and not l.startswith("#")]
     keys = [l.split("=")[0].strip() for l in managed_lines]
     assert keys == sorted(keys)
-
-
-# ---------------------------------------------------------------------------
-# read_all_persisted
-# ---------------------------------------------------------------------------
-
-
-def test_read_all_persisted_empty(hypr_dir: Path) -> None:
-    assert read_all_persisted() == {}
-
-
-def test_read_all_persisted_multiple(hypr_dir: Path) -> None:
-    save_pending(
-        {
-            "general": {"gaps_in": "8"},
-            "decoration.blur": {"enabled": "false"},
-        }
-    )
-    result = read_all_persisted()
-    assert result.get("general:gaps_in") == "8"
-    assert result.get("decoration:blur:enabled") == "false"
 
 
 # ---------------------------------------------------------------------------

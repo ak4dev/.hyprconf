@@ -8,7 +8,7 @@ Covers:
 - hyprlauncher.conf: config file exists and has required keys
 - switch_theme.py: update_wofi removed, launcher_select present,
   --pick flag present, --wofi absent, launcher_select uses hyprlauncher
-- hyprconf bin: theme pick subcommand invokes --pick
+- theme-switcher.desktop: the picker action invokes --pick
 - stow/wofi: package removed
 """
 
@@ -37,7 +37,6 @@ SWITCH_THEME = (
     / "theme-switcher"
     / "switch_theme.py"
 )
-HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 WOFI_STOW_DIR = REPO_ROOT / "stow" / "wofi"
 
 
@@ -282,37 +281,19 @@ def test_switch_theme_has_no_wofi_flag() -> None:
 
 
 # ---------------------------------------------------------------------------
-# hyprconf bin — theme pick
+# theme-switcher.desktop — picker action wiring
 # ---------------------------------------------------------------------------
 
 
-def test_hyprconf_bin_theme_pick_uses_pick_flag() -> None:
-    """hyprconf theme pick must invoke switch_theme.py --pick."""
-    text = HYPRCONF_BIN.read_text()
-    match = re.search(r"pick\)\s+.*?--(\w+)", text)
-    assert match, "pick) case not found in hyprconf bin"
-    flag = match.group(1)
-    assert flag == "pick", f"hyprconf theme pick should call switch_theme.py --pick, got --{flag}"
-
-
-def test_hyprconf_bin_theme_pick_help_mentions_hyprlauncher() -> None:
-    """hyprconf help text for 'theme pick' must reference hyprlauncher."""
-    text = HYPRCONF_BIN.read_text()
-    pick_help_lines = [l for l in text.splitlines() if "theme pick" in l]
-    assert pick_help_lines, "'theme pick' help line not found in hyprconf bin"
-    for line in pick_help_lines:
-        assert "hyprlauncher" in line.lower() or "launcher" in line.lower(), (
-            f"'theme pick' help must mention hyprlauncher, got: {line!r}"
-        )
-
-
-def test_hyprconf_bin_no_wofi_reference() -> None:
-    """hyprconf bin must not reference wofi anywhere (active code or help text)."""
-    text = HYPRCONF_BIN.read_text()
-    non_comment = "\n".join(l for l in text.splitlines() if not l.strip().startswith("#"))
-    assert "wofi" not in non_comment, (
-        "hyprconf bin must not reference wofi; hyprlauncher is the launcher"
-    )
+def test_desktop_picker_action_uses_pick_flag() -> None:
+    """The desktop entry's picker action must invoke switch_theme.py --pick."""
+    desktop = (
+        REPO_ROOT / "stow" / "hypr" / ".local" / "share" / "applications" / "theme-switcher.desktop"
+    ).read_text()
+    pick_lines = [l for l in desktop.splitlines() if "--pick" in l]
+    assert pick_lines, "desktop entry must expose a --pick action"
+    for line in pick_lines:
+        assert "switch_theme.py" in line
 
 
 # ---------------------------------------------------------------------------

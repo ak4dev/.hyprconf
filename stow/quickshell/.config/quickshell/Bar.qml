@@ -466,7 +466,7 @@ PanelWindow {
                     "connected-killswitch": Theme.cyan,
                     "disconnected": Theme.comment
                 })
-                onModuleClicked: Quickshell.execDetached([bar.home + "/.local/bin/hyprconf", "vpn", "toggle"])
+                onModuleClicked: Quickshell.execDetached([bar.home + "/.local/bin/hyprconf-vpn", "toggle"])
             }
 
             Item { // network — FIXED width so changing rates don't reflow the

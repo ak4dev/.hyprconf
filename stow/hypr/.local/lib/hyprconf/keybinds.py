@@ -21,7 +21,6 @@ from typing import NamedTuple
 from .file_edit import (
     SOURCE_RE,
     append_block,
-    delete_line,
     read_lines,
     resolve_source_paths,
     strip_comment,
@@ -153,14 +152,6 @@ def add_keybind(
         file = KEYBINDS_FILE
     line = _format_bind_line(kind, mods, key, dispatcher, args)
     return append_block(file, line)
-
-
-def delete_keybind(file_path: Path, line_idx: int) -> bool:
-    """Delete the keybind at *line_idx* in *file_path*.
-
-    Returns True on success.
-    """
-    return delete_line(file_path, line_idx)
 
 
 def update_keybind(

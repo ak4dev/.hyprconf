@@ -343,44 +343,6 @@ class TestSyncPath:
 
 
 # ---------------------------------------------------------------------------
-# 7a. hyprconf binary — dispatcher must forward $@ to cmd_sync
-# ---------------------------------------------------------------------------
-
-
-class TestDispatcherForwarding:
-    """Verify the main() dispatcher passes arguments to cmd_sync."""
-
-    def _hyprconf_text(self) -> str:
-        hyprconf_bin = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
-        return hyprconf_bin.read_text()
-
-    def test_cmd_sync_receives_args(self) -> None:
-        """main() dispatcher must call cmd_sync with '$@' so --force/--full reach setup.sh."""
-        text = self._hyprconf_text()
-        # Find the sync case in the dispatcher
-        sync_lines = [l.strip() for l in text.splitlines() if "sync)" in l and "cmd_sync" in l]
-        assert sync_lines, "No sync dispatcher line found in hyprconf binary"
-        assert any('"$@"' in l for l in sync_lines), (
-            "The sync dispatcher must pass '$@' to cmd_sync — without this, "
-            "--force and --full flags are silently dropped"
-        )
-
-    def test_cmd_sync_forwards_to_setup_sh(self) -> None:
-        """cmd_sync must forward its arguments to setup.sh --sync."""
-        text = self._hyprconf_text()
-        # Find cmd_sync function body
-        idx = text.index("cmd_sync()")
-        body = text[idx : idx + 200]
-        assert '"$@"' in body, "cmd_sync must pass '$@' to SETUP_SCRIPT --sync"
-
-    def test_help_text_includes_force_and_full(self) -> None:
-        """Help text must document both --force and --full flags."""
-        text = self._hyprconf_text()
-        assert "--force" in text, "Help text must document --force flag"
-        assert "--full" in text, "Help text must document --full flag"
-
-
-# ---------------------------------------------------------------------------
 # 7. sync_services wifi backend fix — sync-patchable networking
 # ---------------------------------------------------------------------------
 
@@ -391,7 +353,7 @@ class TestSyncServicesWifi:
         func = _extract_function("sync_services")
         assert "wifi.backend=iwd" in func, (
             "sync_services must write wifi.backend=iwd to the NM conf.d directory "
-            "so existing installs pick up the iwd backend fix via hyprconf sync"
+            "so existing installs pick up the iwd backend fix via setup.sh --sync"
         )
 
     def test_sync_services_enables_iwd(self) -> None:

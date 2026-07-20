@@ -39,7 +39,7 @@
     │   │   ├── pcMonitors.K             # Desktop alt preset (monitorv2 block syntax)
     │   │   ├── conf.d/
     │   │   │   ├── 00-hyprconf.conf        # Source guard (includes conf.d glob)
-    │   │   │   └── 99-hyprconf-local.conf  # Machine-local overrides (hyprconf set)
+    │   │   │   └── 99-hyprconf-local.conf  # Machine-local overrides (written by the TUI)
     │   │   └── scripts/
     │   │       ├── hyprconf-tui/main.py    # Textual TUI
     │   │       ├── switch_monitor.sh
@@ -48,7 +48,7 @@
     │   │           ├── switch_theme.py
     │   │           └── themes/             # Theme JSON files
     │   └── .local/
-    │       ├── bin/hyprconf               # CLI entry point → ~/.local/bin/
+    │       ├── bin/hyprconf               # TUI launcher → ~/.local/bin/
     │       ├── bin/hyprconf-vpn           # NetworkManager VPN control + kill-switch
     │       ├── bin/yubikey-fido2-setup    # FIDO2+PIN enrolment (sudo/TTY/DM/SSH/LUKS)
     │       ├── bin/hyprconf-secureboot    # Signed-UKI Secure Boot setup + verify
@@ -59,8 +59,6 @@
     │           ├── config.py              # Read/write 99-hyprconf-local.conf
     │           ├── paths.py               # XDG path constants (single source of truth)
     │           ├── hyprctl.py             # hyprctl IPC wrapper
-    │           ├── autodetect.py          # First-run config migration
-    │           ├── cli.py                 # Python CLI backend
     │           ├── file_edit.py           # Atomic file operations
     │           ├── block_conf.py          # Generic block-format config parser
     │           ├── keybinds.py            # Keybind read/write
@@ -87,7 +85,7 @@ hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python an
 tests/
 ├── conftest.py              # shared fixtures (isolated config dirs, mock hyprctl)
 ├── unit/                    # Tier 1 — pure Python, no Hyprland
-├── integration/             # Tier 2 — Python CLI layer with mock hyprctl
+├── integration/             # Tier 2 — installer/publish pipeline plumbing
 ├── tui/                     # Tier 3 — Textual Pilot (headless, no terminal needed)
 ├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in)
 └── install/                 # Tier 5 — full Arch install smoke test (opt-in)

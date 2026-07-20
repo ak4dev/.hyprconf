@@ -19,7 +19,7 @@ Arch packages, GPG-verified against the pacman keyring; the Qt6 stack comes
 from the system). To switch to the real package:
 
 ```sh
-sudo pacman -S quickshell     # or just run `hyprconf sync` and accept
+sudo pacman -S quickshell     # or just run `setup.sh --sync` and accept
 rm -rf ~/.local/opt/quickshell
 hyprctl reload
 ```
@@ -52,7 +52,7 @@ would run once per screen): cpu/mem/net/cpu-temp come from the long-lived
 startup), the GPU module from a long-lived `gpu_info.sh` stream (one
 `nvidia-smi --loop` through one awk, or an AMD sysfs loop), the battery
 module from a 1s poll that stops entirely on battery-less desktops
-(`"once": true`), and the VPN module from a 5s `hyprconf vpn status --json`
+(`"once": true`), and the VPN module from a 5s `hyprconf-vpn status --json`
 poll. All scripts are hermetically tested
 (`tests/unit/test_quickshell_scripts.py`) with `HYPRCONF_*`-overridable
 system paths; `ScriptModule` is the shared module chrome (padding,

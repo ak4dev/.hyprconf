@@ -183,23 +183,6 @@ def test_get_monitors_returns_empty_on_bad_json() -> None:
 
 
 # ---------------------------------------------------------------------------
-# set_monitor
-# ---------------------------------------------------------------------------
-
-
-def test_set_monitor_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
-    _mock_inactive(monkeypatch)
-    assert _hctl.set_monitor("HDMI-A-1,preferred,auto,1") is False
-
-
-def test_set_monitor_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    _mock_active(monkeypatch)
-    with mock.patch.object(_hctl, "_run", return_value="ok") as m:
-        assert _hctl.set_monitor("HDMI-A-1,preferred,auto,1") is True
-        m.assert_called_once_with(["hyprctl", "keyword", "monitor", "HDMI-A-1,preferred,auto,1"])
-
-
-# ---------------------------------------------------------------------------
 # reload
 # ---------------------------------------------------------------------------
 

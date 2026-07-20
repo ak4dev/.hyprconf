@@ -29,8 +29,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .block_conf import ConfigBlock, add_block, delete_block, read_blocks, update_block_field
-from .file_edit import append_block, delete_line, read_lines, strip_comment, update_line
+from .block_conf import ConfigBlock, add_block, read_blocks
+from .file_edit import append_block, read_lines, strip_comment
 from .paths import HYPRPAPER_FILE
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -177,38 +177,6 @@ def add_preload(wp_path: str, file: Path | None = None) -> bool:
     return append_block(file or HYPRPAPER_FILE, f"preload = {wp_path}")
 
 
-def delete_preload(file_path: Path, line_idx: int) -> bool:
-    """Delete the preload line at *line_idx*."""
-    return delete_line(file_path, line_idx)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Writers — wallpaper lines
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def set_wallpaper_line(
-    monitor: str,
-    wp_path: str,
-    file: Path | None = None,
-) -> bool:
-    """Set or create a ``wallpaper = monitor,path`` line.
-
-    If an entry for *monitor* already exists it is updated in-place;
-    otherwise a new line is appended.  Returns True on success.
-    """
-    f = file or HYPRPAPER_FILE
-    for entry in read_wallpaper_lines(f):
-        if entry.monitor == monitor:
-            return update_line(f, entry.line_idx, f"wallpaper = {monitor},{wp_path}")
-    return append_block(f, f"wallpaper = {monitor},{wp_path}")
-
-
-def delete_wallpaper_line(file_path: Path, line_idx: int) -> bool:
-    """Delete the wallpaper line at *line_idx*."""
-    return delete_line(file_path, line_idx)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 #  Writers — wallpaper blocks
 # ─────────────────────────────────────────────────────────────────────────────
@@ -225,37 +193,3 @@ def add_wallpaper_block(
     if fit_mode:
         fields["fit_mode"] = fit_mode
     return add_block(file or HYPRPAPER_FILE, "wallpaper", fields)
-
-
-def update_wallpaper_block_field(
-    path: Path,
-    start_line: int,
-    end_line: int,
-    key: str,
-    value: str,
-) -> bool:
-    """Update a field within a wallpaper block."""
-    return update_block_field(path, start_line, end_line, key, value)
-
-
-def delete_wallpaper_block(path: Path, start_line: int, end_line: int) -> bool:
-    """Delete the wallpaper block spanning [start_line, end_line]."""
-    return delete_block(path, start_line, end_line)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Writers — settings
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def set_setting(key: str, value: str, file: Path | None = None) -> bool:
-    """Set a top-level setting (splash, ipc) or variable.
-
-    Updates in-place if the setting exists, otherwise appends.
-    Returns True on success.
-    """
-    f = file or HYPRPAPER_FILE
-    for entry in read_settings(f):
-        if entry.key.lower() == key.lower():
-            return update_line(f, entry.line_idx, f"{key} = {value}")
-    return append_block(f, f"{key} = {value}")

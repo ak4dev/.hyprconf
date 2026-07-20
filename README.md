@@ -16,7 +16,7 @@
 
 # .hyprconf
 
-**hyprconf** is a Hyprland configuration suite for Arch Linux — combining a standalone CLI/TUI tool with the maintainer's fully-managed personal dotfiles. The tool is independently usable by any Hyprland user (AUR-compatible); the dotfiles are the daily-driven reference implementation built on top of it.
+**hyprconf** is a Hyprland configuration suite for Arch Linux — combining a standalone TUI with the maintainer's fully-managed personal dotfiles. The tool is independently usable by any Hyprland user (AUR-compatible); the dotfiles are the daily-driven reference implementation built on top of it.
 
 ---
 
@@ -24,31 +24,28 @@
 
 | Component | Description |
 |---|---|
-| **`hyprconf`** | AUR-compatible CLI + TUI for configuring Hyprland — get/set options, manage keybinds, rules, monitors, themes, lock/idle/wallpaper daemons, and more. Installable standalone. |
+| **`hyprconf`** | AUR-compatible TUI for configuring Hyprland — edit options, keybinds, rules, monitors, themes, lock/idle/wallpaper daemons, and more. Installable standalone. |
 | **Dotfiles** | The maintainer's Arch Linux + Hyprland configuration, managed via GNU Stow. Bootstrapped from a single command; demonstrates and depends on `hyprconf`. |
 
 ---
 
 ## Features
 
-- **`hyprconf` CLI** — unified control: `hyprconf theme random`, `hyprconf set general gaps_in 8`, `hyprconf keybind add`, `hyprconf monitor set bedroom`, `hyprconf configure` (IOS-style REPL), and more
-- **`hyprconf tui`** — full-screen Textual TUI with arrow-selectable pickers for enums, interactive sliders for numeric fields, and mode lists fetched from `hyprctl`; covers all Hyprland config sections (general, decoration, animations, input, gestures, group, misc, binds, cursor, render, opengl, xwayland, dwindle, master and their subsections), plus keybinds, window/workspace rules, monitors, hyprlock, hypridle, hyprpaper, and a built-in theme picker
+- **`hyprconf` TUI** — full-screen Textual TUI with arrow-selectable pickers for enums, interactive sliders for numeric fields, and mode lists fetched from `hyprctl`; covers all Hyprland config sections (general, decoration, animations, input, gestures, group, misc, binds, cursor, render, opengl, xwayland, dwindle, master and their subsections), plus keybinds, window/workspace rules, monitors, hyprlock, hypridle, hyprpaper, and a built-in theme picker
 - **One-command setup** — installs packages (official repos only — **never** the AUR), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
-- **`hyprconf sync`** — pull latest changes, re-stow, and re-apply services without reinstalling packages; `--force` to hard-reset a diverged branch, `--full` to restow all dotfiles
-- **`hyprconf repair`** — scan and fix stow tree corruption, broken symlinks, Python import issues, and monitor config mismatches
+- **`setup.sh --sync`** (alias `hyprsync`) — pull latest changes, re-stow, and re-apply services without reinstalling packages; `--force` to hard-reset a diverged branch, `--full` to restow all dotfiles
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
-- **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `hyprconf power-profile <mode>`
-- **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `hyprconf sync`
-- **Hardware auto-detection** — touchscreen devices get a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged) and are wired up for `wvkbd` (on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) — but because `wvkbd` is AUR-only it is **not** installed automatically; install it manually (`yay -S wvkbd`) to enable the OSK; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `hyprconf sync`
-- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `hyprconf hardware gpu mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`hyprconf hardware gpu vm`) using `dockurr/windows` with Looking Glass for near-native display; comprehensive VM anti-detection (SMBIOS, CPU flags, device elimination, disk identity) for anti-cheat evasion (EAC, VAC); installed via `hyprconf addon vfio`
+- **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `powerprofilesctl set <mode>`
+- **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `setup.sh --sync`
+- **Hardware auto-detection** — touchscreen devices get a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged) and are wired up for `wvkbd` (on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) — but because `wvkbd` is AUR-only it is **not** installed automatically; install it manually (`yay -S wvkbd`) to enable the OSK; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `setup.sh --sync`
+- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `gpu-passthrough.sh mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`gpu-passthrough.sh vm`) using `dockurr/windows` with Looking Glass for near-native display; comprehensive VM anti-detection (SMBIOS, CPU flags, device elimination, disk identity) for anti-cheat evasion (EAC, VAC); required packages are checked by `gpu-passthrough.sh setup` (official repos only)
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Quickshell bar** — QtQuick status bar (`stow/quickshell`), one per monitor: workspaces island, window title, clock with calendar popout, custom SNI tray, cpu/temp/mem/gpu/vpn/net/volume/battery modules, screencast indicator, volume OSD, rounded screen corners, and a macOS-style **Control Center** (click the network module or `Super+Shift+N`) with inline Wi-Fi connect (native NetworkManager D-Bus — passwords never touch a process list), Bluetooth devices, and audio output/input pickers. Colors repaint live on theme switch; popouts also toggle via `qs ipc` keybinds
-- **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, the quickshell bar (live, no restart), Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, LibreWolf, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `hyprconf theme generate <image>` extracts a palette from any wallpaper to create a new theme automatically
-- **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch. Add **LibreWolf** (privacy fork — RFP, no telemetry) via `hyprconf addon librewolf`; it's auto-themed by the same engine
-- **VPN & kill-switch** — `hyprconf vpn` manages any NetworkManager VPN profile (OpenVPN or WireGuard) provider-agnostically: `status`/`list`/`connect`/`disconnect`/`import`, plus a bar indicator (click to toggle). `hyprconf vpn killswitch on` enforces fail-closed VPN-only networking — delegating to ProtonVPN's maintained kill-switch when the `vpn` addon is installed, or a self-contained nftables egress guard otherwise. ProtonVPN's official CLI (NetShield, Secure Core) installs via `hyprconf addon vpn`
+- **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, the quickshell bar (live, no restart), Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, LibreWolf, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `switch_theme.py --generate <image>` extracts a palette from any wallpaper to create a new theme automatically
+- **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch. Add **LibreWolf** (privacy fork — RFP, no telemetry) manually (`yay -S librewolf-bin`); it's auto-themed by the same engine
+- **VPN & kill-switch** — `hyprconf-vpn` manages any NetworkManager VPN profile (OpenVPN or WireGuard) provider-agnostically: `status`/`list`/`connect`/`disconnect`/`import`, plus a bar indicator (click to toggle). `hyprconf-vpn killswitch on` enforces fail-closed VPN-only networking — delegating to ProtonVPN's maintained kill-switch when its official CLI is installed (manual AUR: `proton-vpn-cli`), or a self-contained nftables egress guard otherwise
 - **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
 - **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. hyprlock is actively kept password-only — it's repointed at `system-auth` so it can't inherit the key requirement from `login` and lock you out
-- **Utilities** — `hyprconf doctor` (system health check), `hyprconf clipboard` (history picker), `hyprconf screenshot` (region/window/full + annotation), `hyprconf gamemode` (toggle performance mode), `hyprconf power` (lock/logout/suspend/reboot/shutdown), `hyprconf power-profile` (query/switch power profiles; auto-switches on AC plug/unplug), `hyprconf nightlight` (blue light filter), `hyprconf autologin` (tty1 autologin toggle), `hyprconf colorpicker` (screen colour picker), `hyprconf record` (screen recording)
 
 ---
 
@@ -100,28 +97,27 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 
 > **WiFi:** if no wifi profiles were copied from the ISO (e.g. ethernet install), connect after first boot with `nmtui`.
 
-> **No AUR, ever:** setup installs **only** official-repo packages — it never installs from the AUR automatically (not even the `yay` helper or the touch-device on-screen keyboard). It also *offers to remove* any foreign/AUR packages already on the system (prompted; the `yay` helper is kept), and gives packages hyprconf itself has retired (e.g. `waybar`, replaced by the quickshell bar) the same prompted, never-automatic treatment on sync. AUR-only extras such as `bibata-cursor-theme` and `wvkbd` must be installed manually: `yay -S bibata-cursor-theme wvkbd`. AUR packages bundled with `hyprconf addon`s are installed only after an explicit warning and confirmation.
+> **No AUR, ever:** setup installs **only** official-repo packages — it never installs from the AUR automatically (not even the `yay` helper or the touch-device on-screen keyboard). It also *offers to remove* any foreign/AUR packages already on the system (prompted; the `yay` helper is kept), and gives packages hyprconf itself has retired (e.g. `waybar`, replaced by the quickshell bar) the same prompted, never-automatic treatment on sync. AUR-only extras such as `bibata-cursor-theme` and `wvkbd` must be installed manually: `yay -S bibata-cursor-theme wvkbd`.
 
 ### [3] hyprconf only *(any existing Hyprland system)*
 
-Installs just the `hyprconf` CLI/TUI binary into `~/.local/bin` and its library into `~/.local/lib` — no dotfiles, no config changes.
+Installs just the `hyprconf` TUI into `~/.local/bin` and its library into `~/.local/lib` — no dotfiles, no config changes.
 
-1. Sparse-clones the repo (CLI/library paths only)
-2. Copies `hyprconf` binary to `~/.local/bin/`
-3. Copies Python library to `~/.local/lib/hyprconf/`
-4. Ready to use: `hyprconf --help`
+1. Sparse-clones the repo (TUI/library paths only)
+2. Copies the `hyprconf` launcher to `~/.local/bin/`
+3. Copies the Python library to `~/.local/lib/hyprconf/`
+4. Ready to use: `hyprconf`
 
-### Sync / Repair
+### Sync
 
 ```bash
-hyprconf sync          # pull, re-apply services, reload Hyprland (always config-safe)
-hyprconf sync --force  # discard local divergence, hard-reset to remote branch
-hyprconf sync --full   # as above + full dotfile restow (resets configs to repo defaults)
-hyprconf repair        # fix stow tree, broken symlinks, Python imports, monitors.conf
-hyprsync               # backward-compatible alias for hyprconf sync
+setup.sh --sync          # pull, re-apply services, reload Hyprland (always config-safe)
+setup.sh --sync --force  # discard local divergence, hard-reset to remote branch
+setup.sh --sync --full   # as above + full dotfile restow (resets configs to repo defaults)
+hyprsync                 # shell alias for setup.sh --sync
 ```
 
-`hyprconf sync` is **always config-safe** — additive-only stow creates symlinks for new files but never replaces files you've modified. `--force` hard-resets a diverged branch; `--full` restows all dotfiles. `~/.config/hypr/conf.d/99-hyprconf-local.conf` (written by `hyprconf set` / TUI) is machine-local, never managed by stow or git, and survives all sync modes.
+`setup.sh --sync` is **always config-safe** — additive-only stow creates symlinks for new files but never replaces files you've modified. `--force` hard-resets a diverged branch; `--full` restows all dotfiles. `~/.config/hypr/conf.d/99-hyprconf-local.conf` (written by the TUI) is machine-local, never managed by stow or git, and survives all sync modes.
 
 ---
 
@@ -133,7 +129,7 @@ Key paths:
 
 | Path | Purpose |
 |---|---|
-| `stow/hypr/.local/bin/hyprconf` | CLI entry point |
+| `stow/hypr/.local/bin/hyprconf` | TUI launcher |
 | `stow/hypr/.config/hypr/scripts/` | Theme engine, TUI, monitor switching |
 | `stow/hypr/.local/lib/hyprconf/` | Python library (schema, config, keybinds, …) |
 | `stow/quickshell/.config/quickshell/` | Status bar (QML) + its polling scripts |
@@ -157,152 +153,37 @@ inspiration, not a supported product.
 
 ---
 
-## hyprconf CLI
+## hyprconf TUI
 
-The `hyprconf` script lives at `~/.local/bin/hyprconf` (stowed). It is the single entry point for all configuration tasks.
+`hyprconf` (stowed to `~/.local/bin`) launches a full-screen Textual TUI — the
+single configuration surface. It covers every Hyprland config section
+(general, decoration, animations, input, gestures, group, misc, binds, cursor,
+render, opengl, xwayland, dwindle, master and their subsections) with
+schema-driven pickers for enums and sliders for numerics, plus keybinds,
+window/workspace rules, monitors, hyprlock, hypridle, hyprpaper, hardware
+daemons, and a built-in theme picker.
 
-### Command Reference
+```bash
+hyprconf                    # launch the TUI
+hyprconf --section general  # jump straight to a section
+hyprconf --slim             # compact layout
+```
+
+Standalone companion tools keep their own entry points:
 
 ```
-# Themes
-hyprconf theme                   Interactive TUI picker
-hyprconf theme <name>            Apply a specific theme
-hyprconf theme random / next / prev / current / list
-hyprconf theme pick              Select via hyprlauncher
-hyprconf theme filter <str>      Filter themes in TUI
-hyprconf theme generate <image>  Generate theme from wallpaper colours
-
-# Hyprland options (persistent + live via hyprctl)
-hyprconf get [section] [key]
-hyprconf set <section> <key> <value>
-hyprconf set mainMod <key>        Change the main modifier key
-
-# Interactive Cisco IOS-style REPL
-hyprconf configure / conf         Enter configure mode
-#   general                      Enter section context
-#   gaps_in 8                    Set option
-#   no gaps_in                   Reset to default
-#   show / ? / exit
-
-# Keybinds
-hyprconf keybind list / add / delete / update
-hyprconf show keybind            Pretty table from config
-
-# Window & workspace rules
-hyprconf rule window  list / add / delete / update
-hyprconf rule workspace list / add / delete / update
-
-# Monitor presets
-hyprconf monitor list / <preset> / set <preset>
-hyprconf monitor config list / set <name> <res> <pos> <scale> [extras…] / delete <name>
-
-# Display
-hyprconf display toggle          Toggle eDP-1 on/off
-
-# Lock screen (hyprlock)
-hyprconf lock list / add / set / delete
-
-# Idle daemon (hypridle)
-hyprconf idle list / add / set / delete
-
-# Wallpaper daemon (hyprpaper)
-hyprconf paper list
-hyprconf paper set-wallpaper <monitor|-> <path>
-hyprconf paper add-preload <path>
-hyprconf paper delete-wallpaper <index>
-hyprconf paper delete-preload <index>
-hyprconf paper setting <key> <value>
-
-# Full Textual TUI
-hyprconf tui
-hyprconf tui --section general
-hyprconf tui --slim
-
-# Sync / repair
-hyprconf sync
-hyprconf sync --force            Discard local divergence, reset to remote
-hyprconf sync --full             Full dotfile restow (reset configs to defaults)
-hyprconf repair
-
-# Schema (for AI/tooling)
-hyprconf schema dump / validate / list-sections / keys <section>
-hyprconf autodetect              Detect + migrate existing config
-
-# Hardware
-hyprconf hardware status         Show detected hardware and daemon status
-hyprconf hardware osk [on|off|toggle]  Control on-screen keyboard (wvkbd)
-hyprconf hardware rotate [on|off]      Control auto-rotation (autorotate)
-hyprconf hardware gpu                  GPU passthrough status overview
-hyprconf hardware gpu detect           List GPUs with PCI addresses, IOMMU groups, drivers
-hyprconf hardware gpu setup            Interactive VFIO setup wizard
-hyprconf hardware gpu audit            Full system readiness check
-hyprconf hardware gpu mode             Show current GPU mode (vm/host/none)
-hyprconf hardware gpu mode vm [gpu]    Bind GPU to vfio-pci for VM passthrough (--force to override safety)
-hyprconf hardware gpu mode host [gpu]  Restore GPU to host driver
-hyprconf hardware gpu mode none [gpu]  Unbind GPU from all drivers
-hyprconf hardware gpu vm install       Interactive Windows VM setup wizard
-hyprconf hardware gpu vm launch        Bind GPU + start VM (--force to override safety checks)
-hyprconf hardware gpu vm connect       Connect via Looking Glass or RDP (--rdp, --stop-on-disconnect|-s)
-hyprconf hardware gpu vm stop          Stop the Windows VM container
-hyprconf hardware gpu vm status        Show VM config, GPU state, container status
-hyprconf hardware gpu vm remove        Remove VM container, image, and config (preserves ~/Windows/)
-hyprconf hardware gpu vm usb [list]    List USB devices available for passthrough
-hyprconf hardware gpu vm usb add       Interactively attach a USB device to the running VM
-hyprconf hardware gpu vm usb remove    Interactively detach a USB device from the VM
-hyprconf hardware gpu report           Detailed hardware report
-hyprconf hardware gpu diagnose         Detailed diagnostic dump
-
-# Security
-hyprconf yubikey status          Show keys, PAM coverage, and LUKS FIDO2 slots (read-only)
-hyprconf yubikey setup           Full FIDO2+PIN setup (sudo/TTY/DM/SSH/LUKS)
-hyprconf yubikey enroll          Enroll an additional / backup key (login + LUKS slot)
-hyprconf yubikey harden-luks     Remove the passphrase slot → key-only LUKS unlock (one-way)
-hyprconf secureboot status       Secure Boot / Setup Mode / UKI / sbctl verify (read-only)
-hyprconf secureboot setup        Signed UKI + sbctl keys/sign/verify/enroll + pacman hook
-hyprconf secureboot enroll       Enroll keys into firmware (requires Setup Mode)
-hyprconf secureboot sign         (Re)sign + verify the boot chain
-hyprconf secureboot verify       Run 'sbctl verify'
-hyprconf secureboot tpm-bind     Optional: bind LUKS unlock to TPM2 PCRs
-hyprconf secureboot harden       Key-only LUKS — remove the login-reused passphrase slot
-hyprconf secureboot ack-firmware-password  Record that a UEFI admin password has been set
-
-# VPN / Network privacy
-hyprconf vpn status [--json]     Show VPN connection + kill-switch state
-hyprconf vpn list                List configured VPN profiles
-hyprconf vpn connect [name]      Bring up a VPN (default: the only profile)
-hyprconf vpn disconnect [name]   Tear down the active (or named) VPN
-hyprconf vpn toggle              Connect if down, disconnect if up (bar click)
-hyprconf vpn import <file>       Import an OpenVPN .ovpn / WireGuard .conf
-hyprconf vpn killswitch on|off|status   Fail-closed VPN-only mode
-
-# Utilities
-hyprconf doctor                  System health check (packages, services, configs, symlinks)
-hyprconf clipboard [fzf|rofi|wipe]  Clipboard history picker (cliphist)
-hyprconf screenshot [region|window|full|edit]  Screen capture (hyprshot + swappy)
-hyprconf gamemode [on|off|toggle|status]  Toggle performance mode (no animations/blur/gaps)
-hyprconf power [lock|logout|suspend|reboot|shutdown]  Power menu
-hyprconf power-profile [status|performance|balanced|power-saver|auto]  Power profile control
-hyprconf nightlight [on|off|toggle|status]  Blue light filter (hyprsunset/wlsunset)
-hyprconf autologin [status|on|off|toggle]  Passwordless tty1 autologin (getty drop-in)
-hyprconf colorpicker [hex|rgb]   Pick colour from screen → clipboard (hyprpicker)
-hyprconf record [start|stop|toggle|status]  Screen recording (wf-recorder)
-
-# Addons
-hyprconf addon                   List available addons and their status
-hyprconf addon <name>            Install a named addon (e.g. dev, vfio, vpn, librewolf)
-
-# Developer
-hyprconf dev                     Show developer pipeline commands
-hyprconf dev test [--unit|--integration|--tui|--vm|--install|--all]
-hyprconf dev vm [start|stop|stop-all|build|status]
-hyprconf dev publish             Full pipeline: tests → stable promote
-
-hyprconf help
+switch_theme.py            Theme switcher (see below)
+switch_monitor.sh <preset> Hot-swap monitor presets
+hyprconf-vpn               NetworkManager VPN control + kill-switch
+hyprconf-secureboot        Secure Boot (signed UKI) setup + verify
+yubikey-fido2-setup        FIDO2+PIN login / LUKS enrolment
+gpu-passthrough.sh         GPU passthrough (VFIO) + Windows VM
+setup.sh --sync            Pull + re-stow + re-apply services
 ```
 
 ### Persistence
 
-All changes via `hyprconf set`, `hyprconf configure`, or the TUI are applied immediately via `hyprctl keyword` and written persistently to:
+All changes made in the TUI are applied immediately via `hyprctl keyword` and written persistently to:
 
 ```
 ~/.config/hypr/conf.d/99-hyprconf-local.conf
@@ -314,18 +195,22 @@ This file is sourced by Hyprland on every restart via the `conf.d/*.conf` glob.
 
 ## Theme Switcher
 
+Run via `python3 ~/.config/hypr/scripts/theme-switcher/switch_theme.py` (no
+argument = interactive picker; a theme name applies it directly).
+
 ### Theme Flags
 
-| Flag | Equivalent | Description |
-|---|---|---|
-| `--list` / `-l` | `theme list` | Print colour table |
-| `--current` / `-c` | `theme current` | Show active theme |
-| `--next` / `-n` | `theme next` | Next alphabetically |
-| `--prev` / `-p` | `theme prev` | Previous |
-| `--random` / `-r` | `theme random` | Random pick |
-| `--pick` / `-w` | `theme pick` | Hyperlauncher picker |
-| `--filter STR` / `-f` | `theme filter <str>` | Substring filter (matches name **or** `appearance` tag — use `light` / `dark`) |
-| `--no-reload` | | Skip `hyprctl reload` |
+| Flag | Description |
+|---|---|
+| `--list` / `-l` | Print colour table |
+| `--current` / `-c` | Show active theme |
+| `--next` / `-n` | Next alphabetically |
+| `--prev` / `-p` | Previous |
+| `--random` / `-r` | Random pick |
+| `--pick` / `-w` | Hyprlauncher picker |
+| `--generate IMAGE` / `-g` | Generate a theme from wallpaper colours |
+| `--filter STR` / `-f` | Substring filter (matches name **or** `appearance` tag — use `light` / `dark`) |
+| `--no-reload` | Skip `hyprctl reload` |
 
 ### Available Themes
 
@@ -408,14 +293,14 @@ The `btop` key accepts a system theme name (looked up in `/usr/share/btop/themes
 | Laptop / portable (all other types) | `laptopMonitors.conf` — eDP-1 preferred + external connectors use `preferred` + catch-all wildcard |
 | Unknown chassis (fallback) | No battery present → desktop; battery present → laptop |
 
-Hot-swap presets activate at runtime via keybind or `hyprconf monitor set <preset>`:
+Hot-swap presets activate at runtime via keybind or `switch_monitor.sh <preset>`:
 
 | Keybind | Preset |
 |---|---|
 | `Super + Shift + B` | `pcMonitors.bedroom` |
 | `Super + Shift + K` | `pcMonitors.kitchen` |
 
-`pcMonitors.K` is an alternate desktop preset using Hyprland's newer `monitorv2` block syntax (DP-1 4K@240Hz, DP-2 4K@75Hz rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `hyprconf monitor set K` → copies it to `monitors.conf` and reloads.
+`pcMonitors.K` is an alternate desktop preset using Hyprland's newer `monitorv2` block syntax (DP-1 4K@240Hz, DP-2 4K@75Hz rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `switch_monitor.sh K` → copies it to `monitors.conf` and reloads.
 
 ---
 
@@ -457,7 +342,7 @@ Touchpad workspace swiping is configured in `gestures.conf`:
 
 ## Hardware Auto-Detection
 
-Runs at every `setup.sh` invocation and `hyprconf sync`. Results are written to
+Runs at every `setup.sh` invocation (including `--sync`). Results are written to
 `~/.config/hypr/conf.d/60-hardware.conf` (machine-local, not stowed).
 
 ### Touchscreen
@@ -474,7 +359,7 @@ Uses **`wvkbd`** — a minimal wlroots on-screen keyboard. It is **AUR-only**, s
 | Install | Manual (AUR): `yay -S wvkbd` — degrades gracefully when absent |
 | Auto-show | Appears when a text input is focused (`text-input-v3` protocol) |
 | Manual toggle | `Super + Shift + O` |
-| Theme integration | `hyprconf theme` writes `~/.config/wvkbd/colors` and restarts the daemon |
+| Theme integration | the theme switcher writes `~/.config/wvkbd/colors` and restarts the daemon |
 
 #### Touch panel (runtime keyboard detection)
 
@@ -489,7 +374,7 @@ This means the panel appears correctly whether a keyboard was present at install
 
 - **Normal state** — small circular FAB (☰)
 - **Expanded** — compact pill with ⌨ OSK toggle and ⊞ launcher buttons
-- Colours sourced from `~/.config/touch-panel/colors` (written by `hyprconf theme`); reloaded live on `SIGUSR1`
+- Colours sourced from `~/.config/touch-panel/colors` (written by the theme switcher); reloaded live on `SIGUSR1`
 
 ### Accelerometer / Auto-Rotation
 
@@ -508,36 +393,36 @@ Hyprland transform to the built-in display (`eDP-*`):
 
 ### GPU Passthrough (VFIO)
 
-Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no libvirt). On single-GPU + iGPU systems, the NVIDIA driver is blacklisted at boot (`install nvidia /bin/false`) and GPU modes switch at runtime — no reboot required. On dual-NVIDIA systems, `hyprconf hardware gpu setup` creates two boot entries sharing the same kernel: a **Normal** entry (both GPUs on nvidia) and a **GPU Passthrough** entry (`vfio-pci.ids=VENDOR:DEVICE` in kernel cmdline so the passthrough GPU is claimed by vfio-pci at boot). Select the desired entry at the systemd-boot menu — no runtime nvidia unbind needed, which avoids the kernel deadlock caused by the shared nvidia module.
+Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no libvirt). On single-GPU + iGPU systems, the NVIDIA driver is blacklisted at boot (`install nvidia /bin/false`) and GPU modes switch at runtime — no reboot required. On dual-NVIDIA systems, `gpu-passthrough.sh setup` creates two boot entries sharing the same kernel: a **Normal** entry (both GPUs on nvidia) and a **GPU Passthrough** entry (`vfio-pci.ids=VENDOR:DEVICE` in kernel cmdline so the passthrough GPU is claimed by vfio-pci at boot). Select the desired entry at the systemd-boot menu — no runtime nvidia unbind needed, which avoids the kernel deadlock caused by the shared nvidia module.
 
-**Install:** `hyprconf addon vfio` (installs QEMU, OVMF, Docker, dmidecode, Looking Glass, and loads VFIO + kvmfr modules).
+**Install:** `gpu-passthrough.sh setup` checks the required official-repo packages (QEMU, OVMF, Docker, dmidecode, …) and prints the exact `pacman` command when any are missing. Looking Glass (`looking-glass` + `looking-glass-module-dkms`) is an optional manual AUR install.
 
-**Setup:** `hyprconf hardware gpu setup` — interactive wizard that detects CPU vendor, auto-applies IOMMU kernel params (systemd-boot, GRUB, or Limine), configures driver isolation (NVIDIA blacklist for single-GPU, or dual boot entries + mkinitcpio module ordering for multi-NVIDIA), and prompts you to choose which GPU to reserve for passthrough.
+**Setup:** `gpu-passthrough.sh setup` — interactive wizard that detects CPU vendor, auto-applies IOMMU kernel params (systemd-boot, GRUB, or Limine), configures driver isolation (NVIDIA blacklist for single-GPU, or dual boot entries + mkinitcpio module ordering for multi-NVIDIA), and prompts you to choose which GPU to reserve for passthrough.
 
 `[gpu]` accepts: PCI address (`01:00.0`), model name (`3070`, `5090`), or ordinal (`nvidia0`, `nvidia1`). When omitted, uses the GPU saved during `setup`.
 
 | Command | Action |
 |---|---|
-| `hyprconf hardware gpu` | Status overview — IOMMU, GPU modes, configured GPU |
-| `hyprconf hardware gpu detect` | List all GPUs with PCI addresses, IOMMU groups, audio devices, current drivers |
-| `hyprconf hardware gpu audit` | Full system readiness check (IOMMU, modules, packages, driver isolation, boot entries) |
-| `hyprconf hardware gpu mode` | Show current GPU mode (`vm`, `host`, or `none`) |
-| `hyprconf hardware gpu mode vm [--force] [gpu]` | Bind GPU + IOMMU group to vfio-pci (multi-NVIDIA: requires "GPU Passthrough" boot entry) |
-| `hyprconf hardware gpu mode host [gpu]` | Unbind from vfio-pci → reload native driver |
-| `hyprconf hardware gpu mode none [gpu]` | Unbind GPU from all drivers (idle state) |
-| `hyprconf hardware gpu vm install` | Interactive wizard — set RAM, CPU, disk, Windows version, credentials |
-| `hyprconf hardware gpu vm launch [--force]` | Start Docker container with GPU passthrough (VM persists until stopped) |
-| `hyprconf hardware gpu vm connect [--rdp] [-s]` | Connect to running VM via Looking Glass (falls back to RDP); `-s`/`--stop-on-disconnect` stops VM on RDP exit |
-| `hyprconf hardware gpu vm stop` | Stop the Windows VM container |
-| `hyprconf hardware gpu vm status` | Show VM config, GPU binding state, container status |
-| `hyprconf hardware gpu vm remove` | Remove container, image, and config (preserves `~/Windows/` shared folder) |
-| `hyprconf hardware gpu vm usb [list\|add\|remove]` | Hot-plug USB devices into/out of the running VM via QEMU monitor |
-| `hyprconf hardware gpu report` | Comprehensive hardware report (system, motherboard, GPUs, IOMMU groups, drivers) |
-| `hyprconf hardware gpu diagnose` | Detailed diagnostic dump (dmesg, IOMMU groups, modules, config) |
+| `gpu-passthrough.sh` | Status overview — IOMMU, GPU modes, configured GPU |
+| `gpu-passthrough.sh detect` | List all GPUs with PCI addresses, IOMMU groups, audio devices, current drivers |
+| `gpu-passthrough.sh audit` | Full system readiness check (IOMMU, modules, packages, driver isolation, boot entries) |
+| `gpu-passthrough.sh mode` | Show current GPU mode (`vm`, `host`, or `none`) |
+| `gpu-passthrough.sh mode vm [--force] [gpu]` | Bind GPU + IOMMU group to vfio-pci (multi-NVIDIA: requires "GPU Passthrough" boot entry) |
+| `gpu-passthrough.sh mode host [gpu]` | Unbind from vfio-pci → reload native driver |
+| `gpu-passthrough.sh mode none [gpu]` | Unbind GPU from all drivers (idle state) |
+| `gpu-passthrough.sh vm install` | Interactive wizard — set RAM, CPU, disk, Windows version, credentials |
+| `gpu-passthrough.sh vm launch [--force]` | Start Docker container with GPU passthrough (VM persists until stopped) |
+| `gpu-passthrough.sh vm connect [--rdp] [-s]` | Connect to running VM via Looking Glass (falls back to RDP); `-s`/`--stop-on-disconnect` stops VM on RDP exit |
+| `gpu-passthrough.sh vm stop` | Stop the Windows VM container |
+| `gpu-passthrough.sh vm status` | Show VM config, GPU binding state, container status |
+| `gpu-passthrough.sh vm remove` | Remove container, image, and config (preserves `~/Windows/` shared folder) |
+| `gpu-passthrough.sh vm usb [list\|add\|remove]` | Hot-plug USB devices into/out of the running VM via QEMU monitor |
+| `gpu-passthrough.sh report` | Comprehensive hardware report (system, motherboard, GPUs, IOMMU groups, drivers) |
+| `gpu-passthrough.sh diagnose` | Detailed diagnostic dump (dmesg, IOMMU groups, modules, config) |
 
-**Dual-NVIDIA boot entries:** `setup` creates `hyprconf-vm.conf` in `/boot/loader/entries/` (systemd-boot) or a GRUB custom menuentry. The VM entry duplicates the default entry and appends `vfio-pci.ids=<gpu>,<audio>`. mkinitcpio is configured with `vfio-pci` before `nvidia` in MODULES so vfio-pci loads early enough to claim the device. `hyprconf sync` keeps boot entries and initramfs config in sync. The normal entry is not modified — vfio-pci loads but claims nothing without `vfio-pci.ids` in the cmdline.
+**Dual-NVIDIA boot entries:** `setup` creates `hyprconf-vm.conf` in `/boot/loader/entries/` (systemd-boot) or a GRUB custom menuentry. The VM entry duplicates the default entry and appends `vfio-pci.ids=<gpu>,<audio>`. mkinitcpio is configured with `vfio-pci` before `nvidia` in MODULES so vfio-pci loads early enough to claim the device. `setup.sh --sync` keeps boot entries and initramfs config in sync. The normal entry is not modified — vfio-pci loads but claims nothing without `vfio-pci.ids` in the cmdline.
 
-**Windows VM:** Uses `dockurr/windows` Docker image (QEMU internally) with GPU forwarded via vfio-pci and [Looking Glass](https://looking-glass.io/) for near-native display latency. First run: `hyprconf hardware gpu vm install` to configure resources and IVSHMEM size. Then `hyprconf hardware gpu vm launch` to start the VM — it persists until explicitly stopped. `hyprconf hardware gpu vm connect` launches Looking Glass (falls back to RDP if `looking-glass-client` not installed). The GPU must have a physical display connected (second monitor, second cable, or HDMI/DP dummy plug). First boot: Windows installs on the GPU-connected display — install GPU drivers and the Looking Glass host app. Audio plays through HDMI from the passthrough GPU. Shared folder at `~/Windows/` is mounted as a network drive. **OEM auto-install:** Steam, Epic Games Launcher, Battle.net, Firefox, and the Looking Glass Host app are automatically installed during first boot via an OEM `install.bat` — no manual downloads needed. All Windows privacy settings are maximised: telemetry disabled, advertising ID off, Cortana off, DiagTrack service stopped, Copilot/Recall/widgets disabled, activity history off, location denied, app launch tracking off. The user account is created automatically (no OOBE prompt). All dependencies are installed by `hyprconf addon vfio`.
+**Windows VM:** Uses `dockurr/windows` Docker image (QEMU internally) with GPU forwarded via vfio-pci and [Looking Glass](https://looking-glass.io/) for near-native display latency. First run: `gpu-passthrough.sh vm install` to configure resources and IVSHMEM size. Then `gpu-passthrough.sh vm launch` to start the VM — it persists until explicitly stopped. `gpu-passthrough.sh vm connect` launches Looking Glass (falls back to RDP if `looking-glass-client` not installed). The GPU must have a physical display connected (second monitor, second cable, or HDMI/DP dummy plug). First boot: Windows installs on the GPU-connected display — install GPU drivers and the Looking Glass host app. Audio plays through HDMI from the passthrough GPU. Shared folder at `~/Windows/` is mounted as a network drive. **OEM auto-install:** Steam, Epic Games Launcher, Battle.net, Firefox, and the Looking Glass Host app are automatically installed during first boot via an OEM `install.bat` — no manual downloads needed. All Windows privacy settings are maximised: telemetry disabled, advertising ID off, Cortana off, DiagTrack service stopped, Copilot/Recall/widgets disabled, activity history off, location denied, app launch tracking off. The user account is created automatically (no OOBE prompt). All package dependencies are surfaced by `gpu-passthrough.sh setup`.
 
 **Anti-cheat evasion:** The VM uses a multi-layer anti-detection strategy mirroring [omarchy](https://github.com/basecamp/omarchy):
 
@@ -558,13 +443,13 @@ Mode-based GPU passthrough for multi-GPU desktops using direct sysfs binding (no
 
 This is sufficient for EAC (Fortnite, The Finals), VAC (CS2), and most anti-cheat systems. Riot Vanguard (VALORANT) and kernel-level anti-cheat (Javelin/BF6) use deeper detection and are not bypassed.
 
-**Workflow (dual-NVIDIA):** Reboot → select "GPU Passthrough" at boot menu → `hyprconf hardware gpu vm launch` → VM starts with GPU. `hyprconf hardware gpu vm connect` to launch Looking Glass. To return to full desktop: `hyprconf hardware gpu vm stop`, then `hyprconf hardware gpu mode host`, then reboot with the normal entry.
+**Workflow (dual-NVIDIA):** Reboot → select "GPU Passthrough" at boot menu → `gpu-passthrough.sh vm launch` → VM starts with GPU. `gpu-passthrough.sh vm connect` to launch Looking Glass. To return to full desktop: `gpu-passthrough.sh vm stop`, then `gpu-passthrough.sh mode host`, then reboot with the normal entry.
 
-**Workflow (single-GPU + iGPU):** `hyprconf hardware gpu mode vm` unbinds nvidia and binds to vfio-pci. `hyprconf hardware gpu vm launch` starts the Docker container. `hyprconf hardware gpu vm connect` launches Looking Glass (or RDP). VM persists until `hyprconf hardware gpu vm stop`. Return GPU to host: `hyprconf hardware gpu mode host`.
+**Workflow (single-GPU + iGPU):** `gpu-passthrough.sh mode vm` unbinds nvidia and binds to vfio-pci. `gpu-passthrough.sh vm launch` starts the Docker container. `gpu-passthrough.sh vm connect` launches Looking Glass (or RDP). VM persists until `gpu-passthrough.sh vm stop`. Return GPU to host: `gpu-passthrough.sh mode host`.
 
 **Prerequisites:** `sudo modprobe kvmfr static_size_mb=N` (32 for 1080p, 64 for 1440p, 128 for 4K). Add to `/etc/modules-load.d/` for persistence. GPU must have a display connected (second monitor or dummy plug).
 
-Config stored at `~/.config/hyprconf/gpu-passthrough.conf` (GPU) and `~/.config/hyprconf/gpu-vm.conf` (VM). Boot-time binding is synced automatically via `hyprconf sync` for multi-NVIDIA setups. Doctor checks IOMMU, VFIO modules, kvmfr, Docker service, and user groups when the `vfio` addon is installed.
+Config stored at `~/.config/hyprconf/gpu-passthrough.conf` (GPU) and `~/.config/hyprconf/gpu-vm.conf` (VM). Boot-time binding is synced automatically via `setup.sh --sync` for multi-NVIDIA setups. `gpu-passthrough.sh audit` checks IOMMU, VFIO modules, packages, driver isolation, and boot entries.
 
 ---
 
@@ -586,17 +471,13 @@ hyprlock shows a blurred desktop screenshot, live clock, and password input.
 ## YubiKey FIDO2 Login *(optional)*
 
 Hardware-backed FIDO2+PIN authentication for an Arch + Hyprland system, driven
-through the CLI:
+by the stowed `yubikey-fido2-setup` helper:
 
 ```bash
-hyprconf yubikey status    # keys, PAM coverage, LUKS FIDO2 slots (read-only)
-hyprconf yubikey setup     # full first-time setup (sudo/TTY/DM/SSH/LUKS)
-hyprconf yubikey enroll    # add an additional / backup key (login + LUKS slot)
+sudo yubikey-fido2-setup status    # keys, PAM coverage, LUKS FIDO2 slots (read-only)
+sudo yubikey-fido2-setup setup     # full first-time setup (sudo/TTY/DM/SSH/LUKS)
+sudo yubikey-fido2-setup enroll    # add an additional / backup key (login + LUKS slot)
 ```
-
-`hyprconf yubikey` escalates with `sudo` as needed and delegates to the stowed
-`yubikey-fido2-setup` helper (also runnable directly: `sudo yubikey-fido2-setup
-[setup|enroll|harden-luks|status]`).
 
 `setup` is fully interactive and idempotent — each step is opt-in, every modified
 file is backed up to a unique root-owned `mktemp -d` directory (path printed at the
@@ -639,9 +520,9 @@ be brute-forced offline without ever touching the key. `hyprconf-secureboot`
 (stowed to `~/.local/bin`) closes both with a **layered** design:
 
 ```bash
-sudo hyprconf secureboot status    # SB state, Setup Mode, UKI, sbctl verify (read-only)
-sudo hyprconf secureboot setup     # signed UKI + sbctl keys/sign/verify + pacman hook
-sudo hyprconf secureboot harden    # key-only LUKS (delegates to yubikey harden-luks)
+sudo hyprconf-secureboot status    # SB state, Setup Mode, UKI, sbctl verify (read-only)
+sudo hyprconf-secureboot setup     # signed UKI + sbctl keys/sign/verify + pacman hook
+sudo hyprconf-secureboot harden    # key-only LUKS (delegates to yubikey-fido2-setup harden-luks)
 ```
 
 `setup` installs **sbctl**, converts the boot chain to a **signed Unified Kernel
@@ -651,11 +532,11 @@ enroll over an unsigned chain so it can't brick the next boot. It detects whethe
 keep Microsoft keys (`--microsoft`, for discrete GPUs / option-ROM firmware) or
 enroll **own keys only** (`--own-keys-only`, strongest). It stays signed across
 `linux`/`systemd`/`sbctl` upgrades via `sbctl sign -s` + a verify-only pacman hook,
-and `hyprconf doctor` flags it if Secure Boot is later turned off.
+and `hyprconf-secureboot status` reports if Secure Boot is later turned off.
 
 You still finish two **manual** UEFI steps software can't do — set a **firmware admin
-password** (then `hyprconf secureboot ack-firmware-password`) and toggle **Secure
-Boot → Enabled**. Optional `hyprconf secureboot tpm-bind` adds TPM2 measured-boot
+password** (then `hyprconf-secureboot ack-firmware-password`) and toggle **Secure
+Boot → Enabled**. Optional `hyprconf-secureboot tpm-bind` adds TPM2 measured-boot
 PCR binding (FIDO2 stays the default decrypt factor). Full details and residual risks
 (DMA, cold-boot, rollback) are in [`docs/security-hardening.md`](docs/security-hardening.md).
 
@@ -691,7 +572,7 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 | Fonts | `ttf-jetbrains-mono-nerd`, `noto-fonts-emoji` |
 | Power management | `power-profiles-daemon` |
 | Firewall | `ufw` |
-| VPN / Network privacy | `networkmanager-openvpn`, `wireguard-tools` — core (drive any NM OpenVPN/WireGuard profile via `hyprconf vpn`); `proton-vpn-cli` via `hyprconf addon vpn`; `librewolf-bin` via `hyprconf addon librewolf` |
+| VPN / Network privacy | `networkmanager-openvpn`, `wireguard-tools` — core (drive any NM OpenVPN/WireGuard profile via `hyprconf-vpn`); optional manual AUR: `proton-vpn-cli`, `librewolf-bin` |
 | Security (optional) | `libfido2`, `pam-u2f`, `yubikey-manager` — for `yubikey-fido2-setup`; commented in `packages`, auto-installed by the script |
 | Testing | `python-pytest`, `python-pytest-asyncio`, `python-coverage` |
 | AUR (manual) | `bibata-cursor-theme`, `wvkbd` (touch OSK) — install manually, e.g. `yay -S bibata-cursor-theme wvkbd`. hyprconf never installs AUR packages automatically (not even `yay`); you must provide `yay` yourself if you want it. |
@@ -701,9 +582,9 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 
 ## Keybindings
 
-> **Note:** these bindings are the maintainer's defaults and ship with the dotfiles. Change them via `hyprconf keybind` or edit `keybinds.conf` directly.
+> **Note:** these bindings are the maintainer's defaults and ship with the dotfiles. Change them in the `hyprconf` TUI or edit `keybinds.conf` directly.
 
-`$mainMod` is **Super (Win)**. Change it persistently: `hyprconf set mainMod ALT`
+`$mainMod` is **Super (Win)**. Change it persistently in the `hyprconf` TUI (keybinds section) or in `keybinds.conf`.
 
 ### Applications
 
@@ -771,7 +652,7 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 - `~/.local/bin` prepended to `$PATH`
 - Oh My Zsh + `git` plugin, Powerlevel10k theme
 - `zsh-autosuggestions`, `zsh-syntax-highlighting`
-- `hyprsync` alias → `hyprconf sync` (backward-compat)
+- `hyprsync` alias → `setup.sh --sync`
 - `fastfetch` greeting on every shell
 
 `~/.zprofile` auto-starts Hyprland on TTY1 login (replaces `sddm`) via

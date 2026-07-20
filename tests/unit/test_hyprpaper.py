@@ -7,16 +7,11 @@ from pathlib import Path
 from hyprconf.hyprpaper import (
     add_preload,
     add_wallpaper_block,
-    delete_preload,
-    delete_wallpaper_line,
     read_all,
     read_preloads,
     read_settings,
     read_wallpaper_blocks,
     read_wallpaper_lines,
-    set_setting,
-    set_wallpaper_line,
-    update_wallpaper_block_field,
 )
 
 LINE_BASED_CONF = """\
@@ -198,64 +193,6 @@ def test_add_preload_preserves_existing(hypr_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# delete_preload
-# ---------------------------------------------------------------------------
-
-
-def test_delete_preload(hypr_dir: Path) -> None:
-    p = _paper_file(hypr_dir, "preload = ~/a.jpg\npreload = ~/b.jpg\n")
-    preloads = read_preloads(p)
-    first = preloads[0]
-    assert delete_preload(first.file_path, first.line_idx) is True
-    remaining = read_preloads(p)
-    assert len(remaining) == 1
-    assert remaining[0].path == "~/b.jpg"
-
-
-# ---------------------------------------------------------------------------
-# set_wallpaper_line
-# ---------------------------------------------------------------------------
-
-
-def test_set_wallpaper_line_appends(hypr_dir: Path) -> None:
-    p = _paper_file(hypr_dir, "")
-    assert set_wallpaper_line("HDMI-A-1", "~/wallpapers/gruvbox.jpg", file=p) is True
-    lines = read_wallpaper_lines(p)
-    assert len(lines) == 1
-    assert lines[0].monitor == "HDMI-A-1"
-
-
-def test_set_wallpaper_line_updates_existing(hypr_dir: Path) -> None:
-    p = _paper_file(hypr_dir, "wallpaper = HDMI-A-1,~/old.jpg\n")
-    set_wallpaper_line("HDMI-A-1", "~/new.jpg", file=p)
-    lines = read_wallpaper_lines(p)
-    assert len(lines) == 1
-    assert lines[0].path == "~/new.jpg"
-
-
-def test_set_wallpaper_line_preserves_other_monitors(hypr_dir: Path) -> None:
-    p = _paper_file(hypr_dir, "wallpaper = HDMI-A-1,~/a.jpg\nwallpaper = DP-1,~/b.jpg\n")
-    set_wallpaper_line("HDMI-A-1", "~/new.jpg", file=p)
-    lines = read_wallpaper_lines(p)
-    dp1 = next(l for l in lines if l.monitor == "DP-1")
-    assert dp1.path == "~/b.jpg"  # unchanged
-
-
-# ---------------------------------------------------------------------------
-# delete_wallpaper_line
-# ---------------------------------------------------------------------------
-
-
-def test_delete_wallpaper_line(hypr_dir: Path) -> None:
-    p = _paper_file(hypr_dir, "wallpaper = HDMI-A-1,~/a.jpg\nwallpaper = DP-1,~/b.jpg\n")
-    lines = read_wallpaper_lines(p)
-    first = lines[0]
-    assert delete_wallpaper_line(first.file_path, first.line_idx) is True
-    remaining = read_wallpaper_lines(p)
-    assert len(remaining) == 1
-
-
-# ---------------------------------------------------------------------------
 # add_wallpaper_block
 # ---------------------------------------------------------------------------
 
@@ -268,63 +205,3 @@ def test_add_wallpaper_block(hypr_dir: Path) -> None:
     assert blocks[0].fields["monitor"] == "HDMI-A-1"
     assert blocks[0].fields["path"] == "~/wallpapers/gruvbox.jpg"
     assert blocks[0].fields["fit_mode"] == "cover"
-
-
-# ---------------------------------------------------------------------------
-# set_setting
-# ---------------------------------------------------------------------------
-
-
-def test_set_setting_appends(hypr_dir: Path) -> None:
-    p = _paper_file(hypr_dir, "")
-    assert set_setting("splash", "true", file=p) is True
-    settings = read_settings(p)
-    splash = next(s for s in settings if s.key.lower() == "splash")
-    assert splash.value == "true"
-
-
-def test_set_setting_updates_existing(hypr_dir: Path) -> None:
-    p = _paper_file(hypr_dir, "splash = false\n")
-    set_setting("splash", "true", file=p)
-    settings = read_settings(p)
-    assert len([s for s in settings if s.key.lower() == "splash"]) == 1
-    splash = next(s for s in settings if s.key.lower() == "splash")
-    assert splash.value == "true"
-
-
-# ---------------------------------------------------------------------------
-# update_wallpaper_block_field (covers L228)
-# ---------------------------------------------------------------------------
-
-
-def test_update_wallpaper_block_field(hypr_dir: Path) -> None:
-    from hyprconf.hyprpaper import (
-        HYPRPAPER_FILE,
-        add_wallpaper_block,
-        read_wallpaper_blocks,
-    )
-
-    HYPRPAPER_FILE.write_text("")
-    add_wallpaper_block("eDP-1", "/tmp/wall.png", "cover", file=HYPRPAPER_FILE)
-    blocks = read_wallpaper_blocks(HYPRPAPER_FILE)
-    assert len(blocks) == 1
-    b = blocks[0]
-    ok = update_wallpaper_block_field(HYPRPAPER_FILE, b.start_line, b.end_line, "fit_mode", "fill")
-    assert ok is True
-    assert "fill" in HYPRPAPER_FILE.read_text()
-
-
-# ---------------------------------------------------------------------------
-# set_setting with $variable key (covers L250: key.startswith("$") branch)
-# ---------------------------------------------------------------------------
-
-
-def test_set_setting_updates_variable_key(hypr_dir: Path) -> None:
-    from hyprconf.hyprpaper import HYPRPAPER_FILE, read_settings, set_setting
-
-    HYPRPAPER_FILE.write_text("$WALLPAPER = /old/path\n")
-    result = set_setting("$WALLPAPER", "/new/path", file=HYPRPAPER_FILE)
-    assert result is True
-    settings = read_settings(HYPRPAPER_FILE)
-    entry = next(s for s in settings if s.key == "$WALLPAPER")
-    assert entry.value == "/new/path"

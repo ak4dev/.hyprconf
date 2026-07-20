@@ -7,13 +7,10 @@ from pathlib import Path
 from hyprconf.rules import (
     add_window_rule,
     add_workspace_rule,
-    delete_rule,
     read_window_rules,
     read_window_rules_with_location,
     read_workspace_rules,
     read_workspace_rules_with_location,
-    update_window_rule,
-    update_workspace_rule,
 )
 
 HYPRLAND_CONF = """\
@@ -199,75 +196,6 @@ def test_add_workspace_rule_no_options(hypr_dir: Path) -> None:
     add_workspace_rule("special:magic", "", file=p)
     text = p.read_text()
     assert "workspace = special:magic" in text
-
-
-# ---------------------------------------------------------------------------
-# delete_rule
-# ---------------------------------------------------------------------------
-
-
-def test_delete_window_rule(hypr_dir: Path) -> None:
-    p = _win_rules_file(hypr_dir, "windowrulev2 = float, class:X\nwindowrulev2 = tile, class:Y\n")
-    entries = read_window_rules_with_location(p)
-    first = entries[0]
-    assert delete_rule(first.file_path, first.line_idx) is True
-    remaining = read_window_rules_with_location(p)
-    assert len(remaining) == 1
-    assert "class:Y" in remaining[0].rule
-
-
-def test_delete_rule_invalid_idx(hypr_dir: Path) -> None:
-    p = _win_rules_file(hypr_dir, "windowrulev2 = float, class:X\n")
-    assert delete_rule(p, 999) is False
-
-
-# ---------------------------------------------------------------------------
-# update_window_rule
-# ---------------------------------------------------------------------------
-
-
-def test_update_window_rule(hypr_dir: Path) -> None:
-    p = _win_rules_file(hypr_dir, "windowrulev2 = float, class:X\n")
-    entries = read_window_rules_with_location(p)
-    e = entries[0]
-    assert update_window_rule(e.file_path, e.line_idx, "tile", ["class:X"]) is True
-    updated = read_window_rules_with_location(p)
-    assert "tile" in updated[0].rule
-
-
-# ---------------------------------------------------------------------------
-# update_workspace_rule
-# ---------------------------------------------------------------------------
-
-
-def test_update_workspace_rule(hypr_dir: Path) -> None:
-    p = _wksp_rules_file(hypr_dir, "workspace = 1, monitor:DP-1\n")
-    entries = read_workspace_rules_with_location(p)
-    e = entries[0]
-    assert update_workspace_rule(e.file_path, e.line_idx, "1", "monitor:HDMI-A-1") is True
-    updated = read_workspace_rules_with_location(p)
-    assert "monitor:HDMI-A-1" in updated[0].rule
-
-
-# ---------------------------------------------------------------------------
-# Round-trip
-# ---------------------------------------------------------------------------
-
-
-def test_window_rule_crud_round_trip(hypr_dir: Path) -> None:
-    p = _win_rules_file(hypr_dir)
-
-    add_window_rule("float", ["class:TestApp"], file=p)
-    entries = read_window_rules_with_location(p)
-    assert len(entries) == 1
-    e = entries[0]
-
-    update_window_rule(e.file_path, e.line_idx, "tile", ["class:TestApp"])
-    entries = read_window_rules_with_location(p)
-    assert "tile" in entries[0].rule
-
-    delete_rule(entries[0].file_path, entries[0].line_idx)
-    assert read_window_rules_with_location(p) == []
 
 
 # ---------------------------------------------------------------------------

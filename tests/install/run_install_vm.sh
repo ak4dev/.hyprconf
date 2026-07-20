@@ -113,7 +113,7 @@ _sync_vm_to_dev() {
 
     rm -f "${bundle}"
 
-    # Allow SSH through ufw so hyprconf sync (which enables ufw deny-incoming)
+    # Allow SSH through ufw so setup.sh --sync (which enables ufw deny-incoming)
     # does not lock out subsequent SSH connections from the test suite.
     ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \

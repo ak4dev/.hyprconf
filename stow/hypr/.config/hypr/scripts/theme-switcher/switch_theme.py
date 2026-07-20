@@ -29,9 +29,6 @@ REPO_ROOT = detect_repo_root(SCRIPT_DIR)
 THEMES_DIR = os.path.join(SCRIPT_DIR, "themes")
 HYPRPAPER_CONFIG_FILE = os.path.expanduser("~/.config/hypr/hyprpaper.conf")
 KITTY_CONFIG_FILE = os.path.expanduser("~/.config/kitty/kitty.conf")
-WOFI_STYLE_FILE = os.path.expanduser(
-    "~/.config/wofi/style.css"
-)  # legacy; kept for migration cleanup only
 CODE_CONFIG_CANDIDATES = [
     os.path.expanduser("~/.config/Code - OSS"),
     os.path.expanduser("~/.config/Code"),
@@ -65,7 +62,7 @@ FIREFOX_THEME_PAYLOAD_DIR = REPO_ROOT / "theme" / "firefox" / "extensions"
 FIREFOX_COMPACT_DARK_ID = "firefox-compact-dark@mozilla.org"
 FIREFOX_COMPACT_LIGHT_ID = "firefox-compact-light@mozilla.org"
 # LibreWolf — a Firefox fork, so the same profile/userChrome machinery applies.
-# It lives in its own profile root (installed via `hyprconf addon librewolf`).
+# It lives in its own profile root (installed manually: yay -S librewolf-bin).
 LIBREWOLF_PROFILES_INI = os.path.expanduser("~/.librewolf/profiles.ini")
 LIBREWOLF_PROFILES_INI_XDG = os.path.expanduser("~/.config/librewolf/profiles.ini")
 LIBREWOLF_BASE_PREFS_FILE = os.path.expanduser("~/.librewolf/user.js")
@@ -1260,8 +1257,8 @@ def update_firefox(theme: dict[str, Any]) -> None:
 
 def update_librewolf(theme: dict[str, Any]) -> None:
     """Theme LibreWolf when installed. Silent no-op otherwise (it's optional —
-    installed on demand via `hyprconf addon librewolf`), so it never adds noise
-    to a theme switch on systems without it."""
+    installed manually from the AUR), so it never adds noise to a theme switch
+    on systems without it."""
     profile_path = get_default_librewolf_profile()
     if not profile_path:
         return
@@ -2213,34 +2210,6 @@ def interactive_select(initial_filter: str = "") -> str | None:
 
     curses.wrapper(_menu)
     return selected[0]
-
-
-def wofi_select(initial_filter: str = "") -> str | None:
-    """Select a theme via wofi --dmenu (no terminal window required)."""
-    themes = get_all_themes()
-    if initial_filter:
-        themes = filter_themes(themes, initial_filter)
-    current = read_state()
-    display = []
-    for t in themes:
-        data = load_theme_json(t)
-        tag = "☀" if data.get("appearance") == "light" else "☾"
-        marker = "★" if t == current else " "
-        display.append(f"{marker} {tag} {t}")
-    try:
-        # When launched from wofi's drun, starting a second wofi immediately can race/fail.
-        time.sleep(0.15)
-        proc = subprocess.run(
-            ["wofi", "--dmenu", "--prompt", "Theme:", "--insensitive"],
-            input="\n".join(display),
-            capture_output=True,
-            text=True,
-        )
-        result = proc.stdout.strip().lstrip("★").strip().lstrip("☀☾").strip()
-        return result if result in themes else None
-    except FileNotFoundError:
-        print("wofi not found; falling back to interactive TUI.")
-        return interactive_select(initial_filter)
 
 
 # ---------------------------------------------------------------------------

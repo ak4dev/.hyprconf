@@ -17,8 +17,8 @@ hyprlock
 hypridle
 xdg-desktop-portal-hyprland
 
-# hyprsunset — blue-light filter used by `hyprconf nightlight`; falls back to
-# wlsunset if neither is installed. Optional; install with: pacman -S hyprsunset
+# hyprsunset — optional blue-light filter daemon (hyprctl hyprsunset ...).
+# Install with: pacman -S hyprsunset
 # hyprsunset
 
 # Audio (PipeWire stack + volume control)
@@ -71,7 +71,7 @@ gvfs
 # Python (theme switcher + hyprconf TUI)
 python
 python-textual
-# python-pillow  # optional: needed only for `hyprconf theme generate <image>`
+# python-pillow  # optional: needed only for switch_theme.py --generate <image>
 
 # Testing (Tiers 1–3 run without a Hyprland session; pytest-asyncio is for TUI tests)
 python-pytest
@@ -146,11 +146,11 @@ ufw
 
 # VPN / Network privacy
 # Core VPN support — NetworkManager manages OpenVPN (.ovpn) and WireGuard (.conf)
-# profiles; `hyprconf vpn` wraps nmcli around them. networkmanager-openvpn is the
+# profiles; `hyprconf-vpn` wraps nmcli around them. networkmanager-openvpn is the
 # plugin NM needs to run imported OpenVPN profiles (e.g. ProtonVPN .ovpn configs);
 # wireguard-tools provides wg/wg-quick so nmcli can import WireGuard profiles too.
 # For ProtonVPN's official client (NetShield + built-in kill-switch), additionally
-# run: hyprconf addon vpn
+# install its CLI manually (AUR): yay -S proton-vpn-cli
 networkmanager-openvpn
 wireguard-tools
 
@@ -164,21 +164,21 @@ wireguard-tools
 
 # Security: Secure Boot (signed UKI) — optional, UEFI only
 # Required by `hyprconf-secureboot` (stowed to ~/.local/bin). The helper
-# auto-installs sbctl via pacman when you run `hyprconf secureboot setup`, so it
+# auto-installs sbctl via pacman when you run `hyprconf-secureboot setup`, so it
 # stays commented here for users who don't use Secure Boot. Manual: sudo pacman -S sbctl
 # sbctl             # Secure Boot key manager (create-keys/sign/verify/enroll)
 
 # Optional: uncomment if using an Nvidia GPU (gpu_info.sh bar widget)
 # nvidia-utils
 # egl-wayland is required for Nvidia + Wayland; nvidia-open, nvidia-utils, and
-# egl-wayland are installed automatically by setup.sh / hyprconf sync when an
+# egl-wayland are installed automatically by setup.sh / setup.sh --sync when an
 # Nvidia GPU is detected.  Listed here for reference only.
 # nvidia-open
 # egl-wayland
 
-# GPU passthrough / VFIO (install via `hyprconf addon vfio`)
-# Addon installs: qemu-desktop edk2-ovmf docker docker-compose dmidecode
-#                 freerdp linux-headers dnsmasq iptables-nft
-#                 looking-glass looking-glass-module-dkms (AUR)
+# GPU passthrough / VFIO — `gpu-passthrough.sh setup` checks for these and
+# prints the pacman command when missing: qemu-desktop edk2-ovmf docker
+# docker-compose dmidecode freerdp linux-headers dnsmasq iptables-nft
+# (optional, AUR, manual: looking-glass looking-glass-module-dkms)
 # NOTE: any AUR package in an addon is installed only after an explicit warning
 #       and confirmation — hyprconf never installs AUR packages automatically.

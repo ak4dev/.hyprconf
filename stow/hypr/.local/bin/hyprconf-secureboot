@@ -383,11 +383,11 @@ enroll_keys() {
         info "Reboot into your UEFI firmware menu and either:"
         info "  • choose 'Erase all Secure Boot keys' / 'Clear PK', or"
         info "  • set Secure Boot mode to 'Setup' / 'Custom' and clear the keys,"
-        info "then boot back into Linux and run:  hyprconf secureboot enroll"
+        info "then boot back into Linux and run:  hyprconf-secureboot enroll"
         return 1
     fi
     # Never enroll over an unsigned boot chain — that bricks the next SB-on boot.
-    verify_quiet || die "Refusing to enroll: 'sbctl verify' is not clean. Run 'hyprconf secureboot sign' first."
+    verify_quiet || die "Refusing to enroll: 'sbctl verify' is not clean. Run 'hyprconf-secureboot sign' first."
 
     decide_key_policy
     local -a args=(enroll-keys)
@@ -412,7 +412,7 @@ enroll_keys() {
         fi
         info "Enrolling own keys only (no Microsoft keys)."
         warn "If the display goes black after enabling Secure Boot, re-enter Setup"
-        warn "Mode and re-run with: hyprconf secureboot enroll --microsoft"
+        warn "Mode and re-run with: hyprconf-secureboot enroll --microsoft"
     fi
     # Drop the efivarfs immutable flag so sbctl can write PK/KEK/db (it will not
     # do this itself — without it, enroll-keys aborts "File is immutable").
@@ -445,7 +445,7 @@ Target = boot/EFI/Linux/*.efi
 [Action]
 Description = Verifying Secure Boot signatures (hyprconf)...
 When = PostTransaction
-Exec = /bin/sh -c 'command -v sbctl >/dev/null 2>&1 && { sbctl sign-all >/dev/null 2>&1 || true; sbctl verify || echo "  !! hyprconf: Secure Boot chain has UNSIGNED binaries — run: sudo hyprconf secureboot sign"; } || true'
+Exec = /bin/sh -c 'command -v sbctl >/dev/null 2>&1 && { sbctl sign-all >/dev/null 2>&1 || true; sbctl verify || echo "  !! hyprconf: Secure Boot chain has UNSIGNED binaries — run: sudo hyprconf-secureboot sign"; } || true'
 NeedsTargets
 HOOK
     chmod 644 "$VERIFY_HOOK"
@@ -507,7 +507,7 @@ firmware_password_check() {
         *) warn "Cannot verify a firmware admin password from the OS (normal on most"
            warn "firmware). It is REQUIRED: without it Secure Boot is trivially bypassed."
            info "Set an Administrator/Supervisor password in your UEFI menu, lock the"
-           info "boot-device menu, then run: hyprconf secureboot ack-firmware-password" ;;
+           info "boot-device menu, then run: hyprconf-secureboot ack-firmware-password" ;;
     esac
 }
 
@@ -538,7 +538,7 @@ do_harden() {
     if [[ -x "$yk" ]]; then
         exec "$yk" harden-luks
     fi
-    die "Could not locate yubikey-fido2-setup. Run: sudo hyprconf yubikey harden-luks"
+    die "Could not locate yubikey-fido2-setup. Run: sudo yubikey-fido2-setup harden-luks"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -565,11 +565,11 @@ do_setup() {
         if ask_yn "Firmware is in Setup Mode — enroll your keys now?" y; then
             enroll_keys
         else
-            info "Skipped enrollment. Run 'hyprconf secureboot enroll' later in Setup Mode."
+            info "Skipped enrollment. Run 'hyprconf-secureboot enroll' later in Setup Mode."
         fi
     else
         warn "Firmware is not in Setup Mode — keys signed but not enrolled."
-        info "Enter Setup Mode in firmware, then run: hyprconf secureboot enroll"
+        info "Enter Setup Mode in firmware, then run: hyprconf-secureboot enroll"
     fi
 
     firmware_password_check
@@ -587,11 +587,11 @@ summary() {
     log "  ${W}3.${N} Set Secure Boot to ${W}Enabled${N} (keys are already enrolled if Setup Mode"
     log "     was active above; otherwise enter Setup Mode and run 'secureboot enroll')."
     log "  ${W}4.${N} Save & exit. Back in Linux, confirm:"
-    log "       ${C}hyprconf secureboot status${N}   → Secure Boot: enabled, sbctl: verified"
+    log "       ${C}hyprconf-secureboot status${N}   → Secure Boot: enabled, sbctl: verified"
     log ""
-    log "  ${W}Recommended decrypt factor:${N} ${C}hyprconf yubikey setup${N} (FIDO2 + PIN),"
-    log "  then ${C}hyprconf secureboot harden${N} to drop the weak passphrase slot."
-    log "  ${W}Optional:${N} ${C}hyprconf secureboot tpm-bind${N} for measured-boot gating."
+    log "  ${W}Recommended decrypt factor:${N} ${C}yubikey-fido2-setup setup${N} (FIDO2 + PIN),"
+    log "  then ${C}hyprconf-secureboot harden${N} to drop the weak passphrase slot."
+    log "  ${W}Optional:${N} ${C}hyprconf-secureboot tpm-bind${N} for measured-boot gating."
     log ""
     log "  Signed UKIs: ${esp}/EFI/Linux/   ·   Keys: /var/lib/sbctl"
     log "  Full log: $LOG"
@@ -621,7 +621,7 @@ do_sign() {
 do_verify() {
     require_uefi
     trap - ERR
-    have_sbctl || die "sbctl is not installed — run 'hyprconf secureboot setup' first."
+    have_sbctl || die "sbctl is not installed — run 'hyprconf-secureboot setup' first."
     sbctl verify
 }
 
@@ -644,12 +644,12 @@ do_status() {
 
     if have_sbctl; then
         if [[ $EUID -eq 0 ]]; then
-            if sbctl verify >/dev/null 2>&1; then ok "sbctl verify: clean"; else fail "sbctl verify: UNSIGNED binaries present — run 'hyprconf secureboot sign'"; fi
+            if sbctl verify >/dev/null 2>&1; then ok "sbctl verify: clean"; else fail "sbctl verify: UNSIGNED binaries present — run 'hyprconf-secureboot sign'"; fi
         else
-            info "sbctl present (run as root / 'hyprconf secureboot status' for verify detail)"
+            info "sbctl present (run as root / 'hyprconf-secureboot status' for verify detail)"
         fi
     else
-        warn "sbctl not installed — run 'hyprconf secureboot setup'"
+        warn "sbctl not installed — run 'hyprconf-secureboot setup'"
     fi
 
     case "$(firmware_password_state; echo $?)" in
@@ -668,7 +668,7 @@ do_status() {
             n_pass=$(systemd-cryptenroll "$dev" 2>/dev/null | awk 'tolower($2)=="password"{c++} END{print c+0}')
             info "LUKS $dev — FIDO2:$n_fido  TPM2:$n_tpm  passphrase:$n_pass"
             if (( n_fido > 0 && n_pass > 0 )); then
-                fail "YubiKey is bypassable: a passphrase slot coexists. Run 'hyprconf secureboot harden' (key-only LUKS)."
+                fail "YubiKey is bypassable: a passphrase slot coexists. Run 'hyprconf-secureboot harden' (key-only LUKS)."
             fi
         fi
     fi
@@ -682,7 +682,7 @@ usage_sb() {
   Secure Boot (signed UKI) — Arch Linux
 
   Usage: hyprconf-secureboot [status|setup|enroll|sign|verify|tpm-bind|harden|ack-firmware-password]
-         hyprconf secureboot  [status|setup|enroll|sign|verify|tpm-bind|harden]
+         hyprconf-secureboot [status|setup|enroll|sign|verify|tpm-bind|harden]
 
     status      Read-only report: SB state, Setup Mode, UKI, sbctl verify, factors
     setup       Full setup: sbctl, signed UKI, keys, sign, verify, hook, enroll

@@ -127,6 +127,17 @@ if ((${#orphans[@]})); then
     done
 fi
 
+# --- 2c. stop a stale supervised locker --------------------------------------
+# hyprlock runs as a user unit (Restart=on-failure): after its compositor
+# dies it keeps retrying against a dead display. With no live compositor
+# anywhere, stop it so the fresh session starts unlocked instead of being
+# locked by a stale retry the moment it comes up. With a compositor alive on
+# another VT, leave it — it may be that session's active lock.
+if [[ "$live_sigs" == " " ]]; then
+    systemctl --user stop hyprlock.service 2>/dev/null || true
+    systemctl --user reset-failed hyprlock.service 2>/dev/null || true
+fi
+
 # --- 3. wait for logind to tear down this TTY's previous session -------------
 # Bounded: a session can sit in "closing" indefinitely if something unkillable
 # lingers; after 10 s start anyway rather than blocking the login forever.

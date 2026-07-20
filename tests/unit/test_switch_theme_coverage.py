@@ -9,7 +9,7 @@ Covers (26 functions):
   update_hyprpaper,
   update_vscode, reload_hyprland, notify_theme_change,
   resolve_code_config_root, resolve_firefox_theme_id,
-  ensure_firefox_theme_payload, wofi_select,
+  ensure_firefox_theme_payload,
   _generate_btop_theme, update_btop
 
 The quickshell bar needs no update_* step here: Theme.qml watches the theme
@@ -695,41 +695,6 @@ def test_ensure_firefox_theme_payload_returns_none_when_no_extension(tmp_path):
 def test_ensure_firefox_theme_payload_returns_none_when_no_source_dir(tmp_path, monkeypatch):
     # FIREFOX_THEME_PAYLOAD_DIR does not exist → returns None silently
     result = st.ensure_firefox_theme_payload(tmp_path, {"extension": "some-ext@example.com"})
-    assert result is None
-
-
-# ---------------------------------------------------------------------------
-# wofi_select
-# ---------------------------------------------------------------------------
-
-
-def test_wofi_select_returns_selected_theme(tmp_path, monkeypatch):
-    # Set up minimal theme list
-    for name in ["aaa", "bbb"]:
-        (tmp_path / f"{name}.json").write_text("{}")
-    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
-    monkeypatch.setattr(st, "STATE_FILE", str(tmp_path / ".current-theme"))
-
-    def fake_run(cmd, **kw):
-        m = MagicMock()
-        m.stdout = "   bbb\n"
-        m.returncode = 0
-        return m
-
-    monkeypatch.setattr(st.subprocess, "run", fake_run)
-    monkeypatch.setattr(st.shutil, "which", lambda n: "/usr/bin/wofi" if n == "wofi" else None)
-
-    result = st.wofi_select()
-    assert result == "bbb"
-
-
-def test_wofi_select_returns_none_when_wofi_missing(monkeypatch, tmp_path):
-    monkeypatch.setattr(st, "THEMES_DIR", str(tmp_path))
-    monkeypatch.setattr(st, "STATE_FILE", str(tmp_path / ".current-theme"))
-    monkeypatch.setattr(st.shutil, "which", lambda n: None)
-    # interactive_select uses curses — prevent it from running in CI/non-tty
-    monkeypatch.setattr(st, "interactive_select", lambda *_: None)
-    result = st.wofi_select()
     assert result is None
 
 

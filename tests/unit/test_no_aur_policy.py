@@ -8,7 +8,7 @@ hyprconf installs ONLY official-repo packages automatically. It must never:
 - install any AUR package in an addon without an explicit warning + confirmation.
 
 It must also offer to remove foreign (AUR) packages already on the system, while
-keeping the yay helper so `hyprconf addon` can still build AUR packages on demand.
+keeping the yay helper so the user can still build AUR packages manually.
 
 Covers:
 - setup.sh has no automatic AUR install (no `yay -S`, no `makepkg`, no
@@ -28,7 +28,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 SETUP_SH = REPO_ROOT / "setup.sh"
-HYPRCONF = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 
 
 # ---------------------------------------------------------------------------
@@ -265,31 +264,3 @@ class TestRemoveAurBehaviour:
         bindir, rns_log = _make_fakes(tmp_path)
         _run_tty(bindir, rns_log, foreign="foopkg barpkg", answer="n\n")
         assert not rns_log.exists(), "declining must not remove anything"
-
-
-# ---------------------------------------------------------------------------
-# 4. hyprconf addon — AUR installs require an explicit warning + confirmation
-# ---------------------------------------------------------------------------
-
-
-class TestAddonAurConfirmation:
-    def _hyprconf_text(self) -> str:
-        return HYPRCONF.read_text()
-
-    def test_aur_install_has_no_noconfirm(self) -> None:
-        for line in self._hyprconf_text().splitlines():
-            stripped = line.strip()
-            if stripped.startswith("yay -S"):
-                assert "--noconfirm" not in stripped, (
-                    "addon AUR install must not use --noconfirm (require review/confirmation)"
-                )
-
-    def test_aur_block_warns(self) -> None:
-        txt = self._hyprconf_text()
-        assert "WARNING" in txt, "addon AUR install must display a warning"
-
-    def test_aur_block_prompts_for_confirmation(self) -> None:
-        txt = self._hyprconf_text()
-        assert "_aur_ans" in txt and "read -r _aur_ans" in txt, (
-            "addon AUR install must read an explicit confirmation before installing"
-        )

@@ -16,17 +16,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 SCRIPT = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "yubikey-fido2-setup"
-HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 PACKAGES = REPO_ROOT / "packages"
 README = REPO_ROOT / "README.md"
 
 
 def _text() -> str:
     return SCRIPT.read_text(encoding="utf-8")
-
-
-def _bin_text() -> str:
-    return HYPRCONF_BIN.read_text(encoding="utf-8")
 
 
 def _func_body(name: str) -> str:
@@ -334,46 +329,3 @@ def test_status_is_readonly_and_reports_slots() -> None:
     assert "u2f_keys" in body.lower() or "U2F_KEYS" in body
     for verb in ("sed -i", "cryptenroll", "pamu2fcfg"):
         assert verb not in body, f"status must not call {verb} (read-only)"
-
-
-# ---------------------------------------------------------------------------
-# hyprconf CLI integration: `hyprconf yubikey <sub>`
-# ---------------------------------------------------------------------------
-
-
-def test_cli_cmd_yubikey_exists() -> None:
-    assert "cmd_yubikey()" in _bin_text()
-
-
-def test_cli_dispatcher_entry() -> None:
-    # dispatcher entry routes the `yubikey` command (alias `yk`) to cmd_yubikey
-    lines = [
-        l.strip()
-        for l in _bin_text().splitlines()
-        if "cmd_yubikey " in l and l.lstrip().startswith("yubikey")
-    ]
-    assert lines, "yubikey must have a dispatcher entry in main()"
-
-
-def test_cli_help_lists_yubikey() -> None:
-    assert "hyprconf yubikey" in _bin_text()
-
-
-def test_cli_references_script_and_escalates() -> None:
-    txt = _bin_text()
-    assert 'YUBIKEY_SCRIPT="$HOME/.local/bin/yubikey-fido2-setup"' in txt
-    # the script edits system files / reads root-owned data → escalate via sudo
-    assert "sudo" in _func_body_bin("_yk_run")
-    # subcommands the CLI forwards
-    for sub in ("status", "setup", "enroll"):
-        assert sub in _func_body_bin("cmd_yubikey")
-
-
-def _func_body_bin(name: str) -> str:
-    result = subprocess.run(
-        ["awk", f"/^{name}\\(\\) \\{{/,/^}}$/", str(HYPRCONF_BIN)],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    return result.stdout

@@ -17,7 +17,7 @@ upholds these principles:
 1. **Instantly deployable.** A fresh install must produce a complete, working
    system unattended — FDE, bootloader, networking, desktop, theme, firewall,
    and hardening all applied with no follow-up. Every install-time fix must also
-   be reproducible by `hyprconf sync` on existing installs (see the sync-patch
+   be reproducible by `setup.sh --sync` on existing installs (see the sync-patch
    rules below); never strand users on a manual step.
 
 2. **Private by default.** The baseline is hardened without being asked: full-disk
@@ -28,23 +28,23 @@ upholds these principles:
 
 3. **Minimal core, bolt-on everything else.** The base install stays lean — only
    what a private desktop needs. Anything heavier or specialised (GPU passthrough,
-   dev tooling, a VPN provider's CLI, alternate browsers) is a `hyprconf addon`,
-   never forced into the base. Prefer official-repo packages; justify every
-   addition to the core `packages` list. If you're unsure whether something
-   belongs in the base, it's an addon.
+   dev tooling, a VPN provider's CLI, alternate browsers) is a documented manual
+   install, never forced into the base. Prefer official-repo packages; justify
+   every addition to the core `packages` list. If you're unsure whether something
+   belongs in the base, it stays out.
 
 4. **Feature parity with [Omarchy](https://omarchy.org), but leaner and more
-   private.** Match its base desktop feature set (unified CLI, theming, firewall,
-   sensible defaults) while staying more minimal and more private than it.
+   private.** Match its base desktop feature set (TUI configuration, theming,
+   firewall, sensible defaults) while staying more minimal and more private than it.
 
 5. **Modern privacy, no vendor lock-in.** Ship first-class network privacy:
-   provider-agnostic VPN management (`hyprconf vpn` drives any NetworkManager
+   provider-agnostic VPN management (`hyprconf-vpn` drives any NetworkManager
    OpenVPN/WireGuard profile), an opt-in fail-closed VPN-only kill-switch, and
    privacy-browser options (LibreWolf). Features are pluggable: never hard-wire a
-   single vendor (ProtonVPN is *an* option via an addon, not a dependency).
+   single vendor (ProtonVPN is *an* option installed manually, not a dependency).
 
-**Decision rule for any new feature:** does it keep the base minimal (or is it an
-addon)? does it preserve or improve privacy and ship fail-closed? is it
+**Decision rule for any new feature:** does it keep the base minimal? does it
+preserve or improve privacy and ship fail-closed? is it
 sync-patchable, documented in the README, and tested? does it avoid vendor
 lock-in? If any answer is "no", reshape the change until they're all "yes".
 
@@ -89,17 +89,17 @@ non-negotiables:
 
 5. **Hygiene & consistency.** `shellcheck` and `ruff` (pyflakes/bugbear) stay
    clean; no dead code; no committed build artifacts; install-time fixes stay
-   `hyprconf sync`-patchable; addons follow the five-function pattern.
+   `setup.sh --sync`-patchable.
 
 6. **Thin bash, logic in Python — don't grow the monoliths.** The bash `hyprconf`
-   is a dispatcher + system-orchestration layer; config-editing logic (the option
-   schema, get/set/configure, validation) lives in the tested Python library
-   (`stow/hypr/.local/lib/hyprconf/`, dispatched via `cli.py`). Add new config logic
-   there and have bash delegate (`python3 "$CLI_LIB/cli.py" <cmd>`) — never a new
+   is a thin TUI launcher; config-editing logic (the option schema, parsing,
+   file edits) lives in the tested Python library
+   (`stow/hypr/.local/lib/hyprconf/`), consumed by the TUI
+   (`hyprconf-tui/main.py`). Add new config logic to the library — never a new
    inline `python3 -c`/heredoc or a second copy of the schema (`schema.py` is the
-   single source of truth). The large files (`hyprconf`, `switch_theme.py`,
-   `gpu-passthrough.sh`) must not grow; when you touch one, extract a bounded,
-   tested module rather than adding to it.
+   single source of truth). The large files (`switch_theme.py`,
+   `gpu-passthrough.sh`, `main.py`) must not grow; when you touch one, extract a
+   bounded, tested module rather than adding to it.
 
 ## Repo rules
 

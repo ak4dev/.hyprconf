@@ -1347,7 +1347,7 @@ offer_yubikey_setup() {
   log_step "Launching YubiKey FIDO2 setup in chroot..."
   arch-chroot /mnt env SUDO_USER="${USERNAME}" HYPRCONF_CHROOT=1 HYPRCONF_INSTALLER=1 \
     bash "/home/${USERNAME}/.hyprconf/stow/hypr/.local/bin/yubikey-fido2-setup" setup \
-    || log_warn "YubiKey setup didn't finish — run 'hyprconf yubikey setup' after first boot to retry."
+    || log_warn "YubiKey setup didn't finish — run yubikey-fido2-setup after first boot to retry."
 
   rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup
 }
@@ -1378,7 +1378,7 @@ offer_secureboot_setup() {
   log_step "Launching Secure Boot setup in chroot..."
   arch-chroot /mnt env SUDO_USER="${USERNAME}" HYPRCONF_CHROOT=1 HYPRCONF_INSTALLER=1 \
     bash "/home/${USERNAME}/.hyprconf/stow/hypr/.local/bin/hyprconf-secureboot" setup \
-    || log_warn "Secure Boot setup didn't finish — run 'hyprconf secureboot setup' after first boot to retry."
+    || log_warn "Secure Boot setup didn't finish — run hyprconf-secureboot setup after first boot to retry."
 
   rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup
 }
@@ -1436,11 +1436,11 @@ arch_install() {
   printf '%s  · Log in as %s — Hyprland starts automatically on tty1.%s\n'         "$DM" "$USERNAME" "$RS"
   printf '%s  · The root account is locked — use "sudo" for admin (recover a broken sudo%s\n' "$DM" "$RS"
   printf '%s    via the Arch live USB + arch-chroot; rescue mode cannot log in to locked root).%s\n' "$DM" "$RS"
-  printf '%s  · Run "hyprconf yubikey setup" anytime to add FIDO2 login 2FA / LUKS unlock.%s\n' "$DM" "$RS"
-  printf '%s  · Once FIDO2 LUKS unlock is verified, "hyprconf yubikey harden-luks" removes%s\n' "$DM" "$RS"
+  printf '%s  · Run "yubikey-fido2-setup setup" anytime to add FIDO2 login 2FA / LUKS unlock.%s\n' "$DM" "$RS"
+  printf '%s  · Once FIDO2 LUKS unlock is verified, "yubikey-fido2-setup harden-luks" removes%s\n' "$DM" "$RS"
   printf '%s    the passphrase for key-only unlock (one-way — read the docs first).%s\n'        "$DM" "$RS"
-  printf '%s  · "hyprconf secureboot setup" signs the boot chain (UKI); then enable Secure%s\n' "$DM" "$RS"
-  printf '%s    Boot + set a firmware password in UEFI. "hyprconf secureboot status" checks it.%s\n\n' "$DM" "$RS"
+  printf '%s  · "hyprconf-secureboot setup" signs the boot chain (UKI); then enable Secure%s\n' "$DM" "$RS"
+  printf '%s    Boot + set a firmware password in UEFI. "hyprconf-secureboot status" checks it.%s\n\n' "$DM" "$RS"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1575,7 +1575,7 @@ binary_install() {
   # Python check (required for CLI backend and TUI)
   if ! command -v python3 &>/dev/null; then
     log_warn "python3 not found — CLI backend and TUI will not work."
-    log_warn "Install python3 to use 'hyprconf configure', 'hyprconf tui', etc."
+    log_warn "Install python3 to use the hyprconf TUI."
   else
     log_ok "python3 $(python3 --version 2>&1 | awk '{print $2}')"
     if ! python3 -c "import textual" &>/dev/null; then

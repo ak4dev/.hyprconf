@@ -1,10 +1,10 @@
 """
-Tests for hyprconf-vpn — the NetworkManager-backed VPN control helper
-(stowed to ~/.local/bin) and its wiring into the main `hyprconf` CLI.
+Tests for hyprconf-vpn — the standalone NetworkManager-backed VPN control
+helper (stowed to ~/.local/bin).
 
 Two layers:
   • Static analysis — script is valid bash, stowed (not export-ignored), and
-    wired into hyprconf's dispatcher + usage.
+    wired into the quickshell bar.
   • Behavioural — the script is executed against a fake `nmcli`/`protonvpn`/`nft`
     on PATH, so status parsing, profile resolution, import sniffing, and the
     kill-switch (both Proton-delegated and generic-nftables) are exercised
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import stat
 import subprocess
@@ -25,7 +24,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 SCRIPT = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf-vpn"
-HYPRCONF_BIN = REPO_ROOT / "stow" / "hypr" / ".local" / "bin" / "hyprconf"
 PACKAGES = REPO_ROOT / "packages"
 BAR_QML = REPO_ROOT / "stow" / "quickshell" / ".config" / "quickshell" / "Bar.qml"
 SERVICES_QML = REPO_ROOT / "stow" / "quickshell" / ".config" / "quickshell" / "Services.qml"
@@ -37,10 +35,6 @@ _REAL_NFT = shutil.which("nft")
 
 def _text() -> str:
     return SCRIPT.read_text(encoding="utf-8")
-
-
-def _bin_text() -> str:
-    return HYPRCONF_BIN.read_text(encoding="utf-8")
 
 
 # ===========================================================================
@@ -75,7 +69,7 @@ def test_json_output_has_no_color_escapes() -> None:
 
 
 # ===========================================================================
-# Static analysis: core-package + CLI wiring
+# Static analysis: core-package + bar wiring
 # ===========================================================================
 
 
@@ -91,79 +85,14 @@ def test_core_packages_include_vpn_plugin() -> None:
     assert "wireguard-tools" in active
 
 
-def test_cli_dispatches_vpn() -> None:
-    txt = _bin_text()
-    assert "vpn)              cmd_vpn" in txt or "vpn)" in txt
-    assert "cmd_vpn()" in txt
-    assert 'VPN_SCRIPT="$HOME/.local/bin/hyprconf-vpn"' in txt
-
-
-def test_cli_usage_lists_vpn() -> None:
-    txt = _bin_text()
-    assert "hyprconf vpn status" in txt
-    assert "hyprconf vpn killswitch" in txt
-
-
-def test_cli_vpn_handles_missing_helper() -> None:
-    # cmd_vpn must guard on the helper existing (mirrors cmd_yubikey).
-    assert 'if [[ ! -x "$VPN_SCRIPT" ]]' in _bin_text()
-
-
-# ===========================================================================
-# Static analysis: the `vpn` addon (ProtonVPN CLI)
-# ===========================================================================
-
-
-def test_vpn_addon_registered() -> None:
-    # Resilient to other addons being added/reordered — just require `vpn` in
-    # the _ADDON_NAMES array declaration.
-    txt = _bin_text()
-    m = re.search(r"_ADDON_NAMES=\(([^)]*)\)", txt)
-    assert m, "_ADDON_NAMES array not found"
-    assert "vpn" in m.group(1).split()
-
-
-def test_vpn_addon_installs_proton_cli() -> None:
-    txt = _bin_text()
-    assert 'vpn)  printf "proton-vpn-cli"' in txt
-
-
-def test_vpn_addon_is_installed_check() -> None:
-    txt = _bin_text()
-    assert "pacman -Qi proton-vpn-cli" in txt
-
-
-def test_vpn_addon_post_install_is_non_interactive() -> None:
-    # Must only *print* next steps — never auto-run `protonvpn signin` (which is
-    # interactive and would block a batch addon install).
-    txt = _bin_text()
-    assert "protonvpn signin" in txt
-    # Every line mentioning signin must be printed guidance, not an exec line.
-    for line in txt.splitlines():
-        if "protonvpn signin" in line:
-            assert "printf" in line, "signin must be printed guidance, not executed"
-
-
-# ===========================================================================
-# Static analysis: bar module + doctor integration
-# ===========================================================================
-
-
-def test_doctor_runs_vpn_check() -> None:
-    txt = _bin_text()
-    assert "_doctor_check_vpn()" in txt
-    assert "_doctor_check_vpn" in txt.split("cmd_doctor()", 1)[1]
-
-
 def test_bar_vpn_module_wired() -> None:
     """Services (the shared sampler singleton — one poll for all screens)
-    must poll `hyprconf vpn status --json` (argv form); the bar module
+    must poll `hyprconf-vpn status --json` (argv form); the bar module
     binds to it and toggles the VPN on click."""
     services = SERVICES_QML.read_text(encoding="utf-8")
-    assert '"vpn", "status", "--json"' in services
-    assert '/.local/bin/hyprconf"' in services
+    assert '/.local/bin/hyprconf-vpn", "status", "--json"' in services
     bar = BAR_QML.read_text(encoding="utf-8")
-    assert '"vpn", "toggle"' in bar
+    assert '/.local/bin/hyprconf-vpn", "toggle"' in bar
     assert "Services.vpnText" in bar
 
 

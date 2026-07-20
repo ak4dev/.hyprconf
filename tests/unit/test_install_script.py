@@ -246,14 +246,6 @@ class TestBinaryInstallScripts:
             "binary_install must ensure ~/.config/hypr/scripts/ exists"
         )
 
-    def test_no_sync_reference_in_tui_error(self) -> None:
-        """cmd_tui error message must NOT tell users to run 'hyprconf sync'."""
-        func = _extract_function("cmd_tui")
-        assert "hyprconf sync" not in func, (
-            "cmd_tui error message should not reference 'hyprconf sync' "
-            "since binary-install users have no dotfiles to sync"
-        )
-
 
 # ---------------------------------------------------------------------------
 # Network config copy and wifi guidance
