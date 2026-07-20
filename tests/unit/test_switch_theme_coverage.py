@@ -164,6 +164,20 @@ def test_write_state_overwrites_existing(tmp_path, monkeypatch):
     assert sf.read_text() == "dracula\n"
 
 
+def test_write_state_preserves_symlink(tmp_path, monkeypatch):
+    """.current-theme is stow-managed: write_state must update the symlink
+    *target*, not replace the link itself, or the next stow/sync conflicts."""
+    real = tmp_path / "repo-current-theme"
+    real.write_text("old-theme\n")
+    link = tmp_path / ".current-theme"
+    link.symlink_to(real)
+    monkeypatch.setattr(st, "STATE_FILE", str(link))
+    st.write_state("dracula")
+    assert link.is_symlink(), ".current-theme must remain a symlink after write_state"
+    assert link.resolve() == real
+    assert real.read_text() == "dracula\n"
+
+
 def test_get_adjacent_theme_next(tmp_path, monkeypatch):
     for name in ["aaa", "bbb", "ccc"]:
         (tmp_path / f"{name}.json").write_text("{}")

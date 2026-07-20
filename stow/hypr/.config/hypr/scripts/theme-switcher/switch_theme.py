@@ -441,8 +441,16 @@ def read_state() -> str | None:
 
 
 def write_state(theme_name: str) -> None:
-    """Persist the current theme name to the state file (atomically)."""
+    """Persist the current theme name to the state file (atomically).
+
+    Resolves a symlink first so ``os.replace`` updates the link *target*
+    rather than replacing the symlink itself — ``.current-theme`` is a
+    stow-managed path, and an unresolved replace would convert it to a
+    plain file, breaking the next `stow`/sync with a conflict.
+    """
     p = Path(STATE_FILE)
+    if p.is_symlink() or p.exists():
+        p = p.resolve()
     p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(p.parent), prefix=".theme-state-")
     try:
