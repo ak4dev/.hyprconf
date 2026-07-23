@@ -55,6 +55,13 @@ env = VAR_NAME,value
 > deprecated `hyprlang`, but the traditional `key = value` syntax shown here remains
 > fully supported (back-compat is maintained). This repo and `hyprconf` deliberately
 > use the stable `key = value` form.
+>
+> **0.56.0** (verified 2026-07-23 with `Hyprland --verify-config`): no breaking
+> changes. New options exposed in the TUI: `misc:session_lock_blur`,
+> `misc:initial_workspace_token_timeout`, `group:groupbar:disable_when_only`.
+> Monitors now default to `preferred`/`auto`/auto-scale when unspecified.
+> The touchpad tap options remain hyphenated (`tap-to-click`, `tap-and-drag`);
+> the wiki's underscore spellings track unreleased git.
 
 ---
 
@@ -481,9 +488,12 @@ windowrule = float on, match:class pavucontrol
 windowrule = float on, center on, size 820 440, match:class theme-switcher
 ```
 
-**Common effects:** `float on`, `tile on`, `fullscreen on`, `center on`, `size W H`, `move X Y`, `pin on`, `opacity A [I [F]]`, `no_blur on`, `rounding N`, `border_size N`, `workspace N`
+**Common effects:** `float on`, `tile on`, `fullscreen on`, `center on`, `size W H`, `move X Y`, `pin on`, `opacity A [I [F]]`, `no_blur on`, `rounding N`, `border_size N`, `workspace N`, `no_auto_hdr on` (0.56+)
 
 **Match props (`match:` prefix):** `match:class REGEX`, `match:title REGEX`, `match:float 0/1`, `match:fullscreen 0/1`, `match:workspace N`, `match:xwayland 0/1`
+
+> 0.56 adds a `stableid:ID` **window selector** for dispatchers
+> (`hyprctl dispatch focuswindow stableid:foo`) — it is not a `match:` field.
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
 

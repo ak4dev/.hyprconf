@@ -180,10 +180,13 @@ def test_removed_options_absent() -> None:
     assert "vfr" not in OPTION_SCHEMA["misc"]  # relocated to debug:vfr
 
 
-def test_touchpad_tap_options_renamed_to_underscore() -> None:
+def test_touchpad_tap_options_use_hyphens() -> None:
+    # Hyprland 0.56.0 accepts only the hyphenated names (`Hyprland
+    # --verify-config` rejects the underscore variants; the wiki's underscores
+    # track unreleased git). Re-check on the next compositor upgrade.
     tp = OPTION_SCHEMA["input.touchpad"]
-    assert "tap_to_click" in tp and "tap-to-click" not in tp
-    assert "tap_and_drag" in tp and "tap-and-drag" not in tp
+    assert "tap-to-click" in tp and "tap_to_click" not in tp
+    assert "tap-and-drag" in tp and "tap_and_drag" not in tp
 
 
 def test_vfr_relocated_to_debug() -> None:

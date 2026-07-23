@@ -228,8 +228,8 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "drag_lock": ("enum:0,1,2", "0", "Drag lock: 0=off, 1=timeout, 2=sticky"),
         "flip_x": ("bool", "false", "Invert touchpad horizontal movement"),
         "flip_y": ("bool", "false", "Invert touchpad vertical movement"),
-        "tap_to_click": ("bool", "true", "Tapping = click"),
-        "tap_and_drag": ("bool", "true", "Tap and drag enabled"),
+        "tap-to-click": ("bool", "true", "Tapping = click"),
+        "tap-and-drag": ("bool", "true", "Tap and drag enabled"),
         "tap_button_map": (
             "enum:lrm,lmr",
             "",
@@ -376,6 +376,11 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
     # ── group.groupbar ────────────────────────────────────────────────────────────
     "group.groupbar": {
         "enabled": ("bool", "true", "Enable groupbars"),
+        "disable_when_only": (
+            "bool",
+            "false",
+            "Disable groupbar when the group contains a single window (needs enabled=true)",
+        ),
         "font_size": ("int", "8", "Groupbar font size"),
         "gradients": ("bool", "false", "Enable groupbar gradients"),
         "height": ("int", "14", "Groupbar height (px)"),
@@ -525,6 +530,16 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
             "bool",
             "false",
             "If true, keep rendering workspaces below your lockscreen",
+        ),
+        "session_lock_blur": (
+            "bool",
+            "false",
+            "Blur the lockscreen background (requires session_lock_xray=true)",
+        ),
+        "initial_workspace_token_timeout": (
+            "int",
+            "10",
+            "Seconds a window has to open on its invoked workspace before the tracking token expires",
         ),
         "on_focus_under_fullscreen": (
             "int",
@@ -883,11 +898,6 @@ OPTION_SCHEMA: dict[str, dict[str, OptionMeta]] = {
         "enable_stdout_logs": ("bool", "false", "Enables logging to stdout"),
         "manual_crash": ("int", "0", "Set to 1 and then back to 0 to crash Hyprland"),
         "suppress_errors": ("bool", "false", "If true, do not display config file parsing errors"),
-        "watchdog_timeout": (
-            "int",
-            "5",
-            "Sets the timeout in seconds for watchdog to abort processing of a signal of the main thread",
-        ),
         "disable_scale_checks": ("bool", "false", "Disables verification of the scale factors"),
         "error_limit": ("int", "5", "Limits the number of displayed config file parsing errors"),
         "error_position": ("int", "0", "Sets the position of the error bar"),
