@@ -119,8 +119,13 @@ def _on_dev_with_clean_tree() -> bool:
     return status.stdout.strip() == ""
 
 
-def test_publish_dry_run_succeeds() -> None:
-    """scripts/publish --dry-run pipeline completes without errors or network.
+def test_publish_dry_run_succeeds(tmp_path: Path) -> None:
+    """scripts/publish --dry-run completes end-to-end, hermetically.
+
+    The pipeline runs against an isolated clone whose ``origin`` is the local
+    source repo, so its ``git fetch origin dev`` needs no network or remote auth
+    (a transient fetch failure against the real remote used to abort the run and
+    flake CI) and shares no ``.git`` with parallel xdist workers.
 
     Flags used:
       --dry-run       build archive locally, skip branch/tag pushes
@@ -130,6 +135,18 @@ def test_publish_dry_run_succeeds() -> None:
     if not _on_dev_with_clean_tree():
         pytest.skip("Not on dev branch with a clean working tree")
 
+    # Clone the (dev, clean) source repo to an isolated tree. `git clone <path>`
+    # points the clone's origin at the local REPO_ROOT, so the publish's
+    # `git fetch origin dev` resolves locally — no network, no shared .git.
+    clone = tmp_path / "repo"
+    subprocess.run(
+        ["git", "clone", "--quiet", str(REPO_ROOT), str(clone)],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
     result = subprocess.run(
         [
             "bash",
@@ -138,18 +155,18 @@ def test_publish_dry_run_succeeds() -> None:
             "--skip-tests",
             "--skip-tag",
         ],
-        cwd=REPO_ROOT,
+        cwd=clone,
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=120,
     )
     assert result.returncode == 0, (
         f"scripts/publish --dry-run failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     # The pipeline must emit the "Done" confirmation.
     assert "Done" in result.stdout, f"Expected 'Done' in publish output:\n{result.stdout}"
-    # A release archive must have been written to dist/.
-    dist_archives = list((REPO_ROOT / "dist").glob("hyprconf-*.tar.gz"))
+    # A release archive must have been written to the clone's dist/.
+    dist_archives = list((clone / "dist").glob("hyprconf-*.tar.gz"))
     assert dist_archives, "No hyprconf-*.tar.gz found in dist/ after --dry-run"
 
 
