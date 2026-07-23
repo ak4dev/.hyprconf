@@ -98,13 +98,19 @@ _sync_vm_to_dev() {
         -P "${SSH_PORT}" \
         "${bundle}" hyprtest@127.0.0.1:/tmp/hyprconf-install-vm-sync.bundle
 
+    # The VM autostarts a Hyprland session that writes generated configs (e.g.
+    # monitors.conf) THROUGH the stow symlinks back into ~/.hyprconf/stow/... —
+    # that races the cleanup below, so a plain `rm -rf ~/.hyprconf` intermittently
+    # failed with "Directory not empty" and aborted tier 5. Retry until the boot
+    # write-burst settles, then confirm removal before re-cloning.
     ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o ConnectTimeout=10 \
         -i "${SSH_KEY}" \
         -p "${SSH_PORT}" \
         hyprtest@127.0.0.1 \
-        "rm -rf ~/.hyprconf \
+        "for _ in 1 2 3 4 5 6 7 8; do rm -rf ~/.hyprconf && break; sleep 2; done \
+         && [ ! -e ~/.hyprconf ] \
          && git clone --quiet /tmp/hyprconf-install-vm-sync.bundle ~/.hyprconf \
          && git -C ~/.hyprconf remote set-url origin 'https://github.com/ak4dev/.hyprconf' \
          && rm -f /tmp/hyprconf-install-vm-sync.bundle \
