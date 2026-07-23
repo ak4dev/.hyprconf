@@ -116,12 +116,12 @@ Column {
                 color: tile.active ? Qt.rgba(1, 1, 1, 0.25) : Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.12)
                 BarText {
                     anchors.centerIn: parent; text: tile.icon; font.pixelSize: 16
-                    color: tile.active ? "#ffffff" : Theme.fg
+                    color: tile.active ? Theme.onAccent : Theme.fg
                 }
             }
             Column {
                 anchors.verticalCenter: parent.verticalCenter; spacing: 1
-                BarText { text: tile.label; font.pixelSize: 13; color: tile.active ? "#ffffff" : Theme.fg }
+                BarText { text: tile.label; font.pixelSize: 13; color: tile.active ? Theme.onAccent : Theme.fg }
                 BarText {
                     width: tile.width - 68; elide: Text.ElideRight; text: tile.sublabel
                     font.pixelSize: 11; color: tile.active ? Qt.rgba(1, 1, 1, 0.8) : Theme.comment
@@ -255,7 +255,7 @@ Column {
                             anchors.verticalCenter: parent.verticalCenter
                             color: joinM.containsMouse ? Theme.accent : Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.6)
                             BarText {
-                                anchors.centerIn: parent; text: "Join"; font.pixelSize: 12; color: "#ffffff"
+                                anchors.centerIn: parent; text: "Join"; font.pixelSize: 12; color: Theme.onAccent
                             }
                             MouseArea {
                                 id: joinM; anchors.fill: parent; hoverEnabled: true

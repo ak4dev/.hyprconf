@@ -71,6 +71,10 @@ Singleton {
     readonly property color purpleAlpha: Qt.rgba(purple.r, purple.g, purple.b, 0.22)
     readonly property color cyanAlpha: Qt.rgba(cyan.r, cyan.g, cyan.b, 0.20)
     readonly property color shadow: "#66000000"
+    // text on accent-filled surfaces: white on dark accents, near-black on
+    // light ones (hardcoded #ffffff was invisible on light themes)
+    readonly property color onAccent: (accent.r * 0.299 + accent.g * 0.587 + accent.b * 0.114) > 0.6
+        ? Qt.rgba(0, 0, 0, 0.85) : "#ffffff"
 
     readonly property string font: "JetBrainsMono Nerd Font"
     readonly property int fontSize: 14
