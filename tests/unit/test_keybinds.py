@@ -6,7 +6,6 @@ from pathlib import Path
 
 from hyprconf.keybinds import (
     add_keybind,
-    read_keybinds,
     read_keybinds_with_location,
     update_keybind,
 )
@@ -103,13 +102,6 @@ def test_ignores_comments(hypr_dir: Path) -> None:
     entries = read_keybinds_with_location(p)
     assert len(entries) == 1
     assert entries[0].args == "kitty"
-
-
-def test_read_keybinds_simple_tuples(hypr_dir: Path) -> None:
-    _kb_file(hypr_dir)
-    result = read_keybinds(hypr_dir / "keybinds.conf")
-    assert isinstance(result, list)
-    assert all(len(t) == 5 for t in result)
 
 
 # ---------------------------------------------------------------------------
@@ -258,11 +250,10 @@ def test_read_keybinds_malformed_lines(hypr_dir: Path) -> None:
         "bind $mainMod SHIFT Q killactive\n"
         "bind = $mainMod, R, exec, rofi\n"
     )
-    entries = read_keybinds(conf)
+    entries = read_keybinds_with_location(conf)
     assert len(entries) == 2
-    # tuples: (kind, mods, key, dispatcher, args)
-    assert entries[0][2] == "T"
-    assert entries[1][2] == "R"
+    assert entries[0].key == "T"
+    assert entries[1].key == "R"
 
 
 def test_read_keybinds_blank_and_comment_lines(hypr_dir: Path) -> None:
@@ -271,16 +262,9 @@ def test_read_keybinds_blank_and_comment_lines(hypr_dir: Path) -> None:
     conf.write_text(
         "\n\n# This is a comment\nbind = SUPER, X, exec, xterm\n   \n# Another comment\n"
     )
-    entries = read_keybinds(conf)
+    entries = read_keybinds_with_location(conf)
     assert len(entries) == 1
-    assert entries[0][2] == "X"
-
-
-def test_read_keybinds_nonexistent_file(tmp_path: Path) -> None:
-    """Reading from a file that doesn't exist returns empty list."""
-    missing = tmp_path / "nonexistent.conf"
-    entries = read_keybinds(missing)
-    assert entries == []
+    assert entries[0].key == "X"
 
 
 def test_read_keybinds_relative_source(tmp_path: Path) -> None:

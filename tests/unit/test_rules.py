@@ -7,9 +7,7 @@ from pathlib import Path
 from hyprconf.rules import (
     add_window_rule,
     add_workspace_rule,
-    read_window_rules,
     read_window_rules_with_location,
-    read_workspace_rules,
     read_workspace_rules_with_location,
 )
 
@@ -85,13 +83,6 @@ def test_ignores_comments(hypr_dir: Path) -> None:
     assert "class:Y" in entries[0].rule
 
 
-def test_read_window_rules_simple_list(hypr_dir: Path) -> None:
-    p = _hypr_conf(hypr_dir, HYPRLAND_CONF)
-    rules = read_window_rules(p)
-    assert isinstance(rules, list)
-    assert all(isinstance(r, str) for r in rules)
-
-
 # ---------------------------------------------------------------------------
 # read_workspace_rules_with_location
 # ---------------------------------------------------------------------------
@@ -108,13 +99,6 @@ def test_workspace_rule_text(hypr_dir: Path) -> None:
     entries = read_workspace_rules_with_location(p)
     rules = [e.rule for e in entries]
     assert any("monitor:HDMI-A-1" in r for r in rules)
-
-
-def test_read_workspace_rules_simple_list(hypr_dir: Path) -> None:
-    p = _hypr_conf(hypr_dir, HYPRLAND_CONF)
-    rules = read_workspace_rules(p)
-    assert isinstance(rules, list)
-    assert len(rules) == 2
 
 
 # ---------------------------------------------------------------------------

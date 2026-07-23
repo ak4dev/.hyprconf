@@ -184,16 +184,3 @@ def add_workspace_rule(workspace_id: str, options: str, file: Path | None = None
         else f"workspace = {workspace_id.strip()}"
     )
     return append_block(file, line)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Convenience: simple list (no location, for read-only display)
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def read_window_rules(root: Path | None = None) -> list[str]:
-    return [e.rule for e in read_window_rules_with_location(root)]
-
-
-def read_workspace_rules(root: Path | None = None) -> list[str]:
-    return [e.rule for e in read_workspace_rules_with_location(root)]

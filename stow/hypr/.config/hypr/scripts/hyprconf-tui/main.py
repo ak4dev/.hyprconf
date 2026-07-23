@@ -567,31 +567,11 @@ def list_themes() -> list[str]:
     return sorted(p.stem for p in THEME_DIR.glob("*.json"))
 
 
-def current_theme_name() -> str:
-    try:
-        return CURRENT_THEME_F.read_text().strip()
-    except Exception:
-        return ""
-
-
-def parse_keybinds() -> list[tuple[str, ...]]:
-    """Return (kind, mods, key, dispatcher, args) tuples — no location data."""
-    entries = _lib_keybinds_with_loc(KEYBINDS_CONF)
-    return [(e.kind, e.mods or "—", e.key, e.dispatcher, e.args) for e in entries]
-
-
 def _collect_rules(pattern: re.Pattern) -> list[str]:
     """Collect rule text lines matching pattern — kept for display compat."""
     if re.search(r"workspace", pattern.pattern, re.I):
         return [e.rule for e in _lib_wksp_rules(HYPRLAND_CONF)]
     return [e.rule for e in _lib_win_rules(HYPRLAND_CONF)]
-
-
-def _read_file_lines(path: Path) -> list[str]:
-    try:
-        return path.read_text().splitlines()
-    except OSError:
-        return [f"(cannot read {path})"]
 
 
 def _get_wallpapers() -> list[Path]:

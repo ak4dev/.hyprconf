@@ -170,19 +170,3 @@ def delete_lines(path: Path, start_idx: int, end_idx: int) -> bool:
         return True
     except OSError:
         return False
-
-
-def insert_lines(path: Path, line_idx: int, new_lines: list[str]) -> bool:
-    """Insert *new_lines* before position *line_idx* (0-based).
-
-    If *line_idx* >= len(lines), lines are appended.
-    Returns True on success.
-    """
-    lines = read_lines(path)
-    line_idx = min(line_idx, len(lines))
-    lines[line_idx:line_idx] = new_lines
-    try:
-        _write_lines(path, lines)
-        return True
-    except OSError:
-        return False

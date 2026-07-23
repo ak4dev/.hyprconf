@@ -163,15 +163,3 @@ def update_keybind(
     """
     line = _format_bind_line(kind, mods, key, dispatcher, args)
     return update_line(file_path, line_idx, line)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Convenience: simple list (no location, for read-only display)
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-def read_keybinds(path: Path | None = None) -> list[tuple[str, str, str, str, str]]:
-    """Return (kind, mods, key, dispatcher, args) tuples — no location data."""
-    return [
-        (e.kind, e.mods, e.key, e.dispatcher, e.args) for e in read_keybinds_with_location(path)
-    ]
