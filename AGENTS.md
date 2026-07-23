@@ -101,6 +101,16 @@ non-negotiables:
    `gpu-passthrough.sh`, `main.py`) must not grow; when you touch one, extract a
    bounded, tested module rather than adding to it.
 
+7. **GitHub CI must always be green.** Every push must leave all GitHub Actions
+   workflows passing — a red run on `dev` or `stable` is a release blocker, never
+   a follow-up. Before pushing, run the exact CI jobs locally: `make lint`,
+   `make shellcheck`, and tiers 1-3 (`pytest tests/unit tests/integration tests/tui`).
+   CI runs the unit/integration tier **as root** in an `archlinux:latest` container,
+   and root bypasses file-permission (DAC) checks — so a `[[ -r ]]`/`os.access`/
+   mode test that passes as your user can flip as root. Gate such logic on the euid
+   and reproduce it with `unshare -r python -m pytest …` before trusting a green
+   local run. Never promote `dev` → `stable` while any workflow is red.
+
 ## Repo rules
 
 - **Never commit PII.** No real names, emails, hostnames, IPs, MAC addresses, serial numbers, API keys/tokens, or absolute paths containing the user's home directory (e.g. `/home/<user>`) may appear in tracked files — configs, docs, scripts, or commit messages. Sanitize/genericize before committing, under all circumstances.

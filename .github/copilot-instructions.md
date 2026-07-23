@@ -63,6 +63,35 @@ When modifying any Quickshell feature (anything under `stow/quickshell/`), consu
 
 ---
 
+## Continuous Integration (must always be green)
+
+Every push (and PR) to any branch triggers `.github/workflows/test.yml`: three jobs
+in an `archlinux:latest` container — **Lint** (`make shellcheck` + `make lint`),
+**Unit + Integration** (tiers 1-2), and **TUI** (tier 3). All three must pass on
+**every** commit; a red run on `dev` or `stable` is a release blocker, not a
+follow-up, and `dev` must never be promoted to `stable` while any workflow is red.
+
+Reproduce CI locally before every push:
+
+```bash
+make lint && make shellcheck
+python -m pytest tests/unit/ tests/integration/ tests/tui/ -q
+```
+
+- **CI runs as root.** The container's default user is uid 0, and root bypasses
+  file-permission (DAC) checks. A test that asserts an operation *fails* on an
+  unreadable/unwritable path — or any `[[ -r ]]` / `os.access` / mode-bit check —
+  can pass as your user yet flip as root. Gate such logic on the euid
+  (`(( EUID == 0 ))` / `os.geteuid() == 0`) and reproduce it as root before
+  trusting a green local run: `unshare -r python -m pytest <file>` (add
+  `--map-root-user --map-users=$(grep ^$USER: /etc/subuid|cut -d: -f2),1,65535`
+  when a test must `chown` a fixture to a non-root uid).
+- The **VM** (tier 4) and **install** (tier 5) tiers are *not* in GitHub CI — they
+  need KVM and run only under `scripts/publish`. Green GitHub CI therefore proves
+  tiers 1-3 only; it does not exercise install/VM behaviour.
+
+---
+
 ## Commit Messages (Conventional Commits)
 
 This repo follows the [Conventional Commits](https://www.conventionalcommits.org/) standard:
