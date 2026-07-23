@@ -119,6 +119,13 @@ def _seed_per_user_authfile(home: Path) -> None:
     keys.parent.mkdir(parents=True, exist_ok=True)
     keys.write_text("andy:credential\n")
     keys.chmod(0o600)
+    # pam_u2f reads this as the session user, who owns it. When the suite runs
+    # as root (the CI container), fixtures are root-owned by default, and a
+    # root-owned 0600 file is correctly hazardous (only root could read it) —
+    # not the per-user locker this test means to model. Chown to a non-root uid
+    # so _authfile_readable_by_user sees a genuine owner-readable per-user file.
+    if os.geteuid() == 0:
+        os.chown(keys, 1000, -1)
 
 
 def test_pam_u2f_with_enrolled_per_user_authfile_is_left_alone(tmp_path: Path) -> None:

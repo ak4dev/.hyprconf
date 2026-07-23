@@ -1483,12 +1483,27 @@ _pam_u2f_authfile_of() {
 # If it is ever invoked as root, `-r` always succeeds, so fall back to the
 # world-readable bit — the only claim we can make without knowing the user.
 _authfile_readable_by_user() {
-    local file="$1" mode=""
+    local file="$1" mode="" owner=""
     [[ -e "$file" ]] || return 1
     if (( EUID == 0 )); then
+        # Running as root (install, or a root --sync), so [[ -r ]] would see
+        # every file and wrongly call every authfile readable. pam_u2f actually
+        # reads the authfile as the *session user*, so mimic that from the mode:
+        #   · a per-user authfile (~/.config/Yubico/u2f_keys) is owned by that
+        #     user — the owner-read bit (0400) is what decides it;
+        #   · a root/system authfile is reachable by the session user only via
+        #     the world-read bit (0004). The observed COSMIC lockout was exactly
+        #     a 0640 *root-owned* file: readable by root, unreadable by the user.
+        # Group bits are ignored — the session user's groups are unknown here, so
+        # we never assume group access (staying conservative keeps lockers safe).
+        owner=$(stat -c '%u' "$file" 2>/dev/null) || return 1
         mode=$(stat -c '%a' "$file" 2>/dev/null) || return 1
         [[ -n "$mode" ]] || return 1
-        (( (8#$mode & 4) != 0 ))
+        if [[ "$owner" != 0 ]]; then
+            (( (8#$mode & 8#400) != 0 ))
+        else
+            (( (8#$mode & 8#4) != 0 ))
+        fi
     else
         [[ -r "$file" ]]
     fi
