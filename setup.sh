@@ -1064,33 +1064,22 @@ setup_hardware_features() {
             log_ok "Nvidia sleep services already enabled."
         fi
 
-        # systemd >=256 cgroup-freezes user.slice across suspend so clients
-        # can't race the GPU teardown/restore window — without it, every
-        # resume kills Wayland clients (portal SEGVs, wl_display protocol
-        # errors, hyprlock's post-wake crash window). nvidia-utils ships
-        # 10-nvidia-no-freeze-session.conf forcing the freeze OFF (interaction
-        # risk with the VRAM save path); this 99- drop-in sorts later, so its
-        # Environment= wins and turns it back on. If suspend ever hangs on the
-        # way down, delete the drop-in and `systemctl daemon-reload` to revert
-        # to Nvidia's default.
+        # An earlier revision re-enabled systemd's user-session freeze across
+        # suspend (99-freeze-user-sessions.conf overriding nvidia-utils's
+        # 10-nvidia-no-freeze-session.conf) to stop clients racing the GPU
+        # restore. That was misdiagnosed: user.slice thaws inside
+        # systemd-suspend.service, BEFORE nvidia-resume.service restores VRAM,
+        # so the freeze never covered the failing window — while keeping the
+        # suspend-entry hang risk that made NVIDIA ship the disable in the
+        # first place. Remove the override wherever a previous sync wrote it.
         local freeze_dropin=/etc/systemd/system/systemd-suspend.service.d/99-freeze-user-sessions.conf
-        if ! grep -qs 'SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=true' "$freeze_dropin"; then
-            log_step "Re-enabling user-session freeze across suspend ($freeze_dropin)..."
-            sudo mkdir -p "$(dirname "$freeze_dropin")" \
-                && printf '%s\n' \
-                    '# hyprconf: freeze user sessions across suspend (overrides nvidia-utils'"'"'s' \
-                    '# 10-nvidia-no-freeze-session.conf; 99- sorts later so this wins). Frozen' \
-                    '# clients cannot race the GPU teardown/restore, which crashed Wayland' \
-                    '# clients on every resume. If suspend hangs entering sleep, delete this' \
-                    '# file and run: systemctl daemon-reload' \
-                    '[Service]' \
-                    'Environment="SYSTEMD_SLEEP_FREEZE_USER_SESSIONS=true"' \
-                    | sudo tee "$freeze_dropin" > /dev/null \
+        if [[ -e "$freeze_dropin" ]]; then
+            log_step "Removing retired user-session-freeze override ($freeze_dropin)..."
+            sudo rm -f "$freeze_dropin" \
+                && sudo rmdir --ignore-fail-on-non-empty "$(dirname "$freeze_dropin")" \
                 && { _in_chroot || sudo systemctl daemon-reload; } \
-                && log_ok "User-session freeze re-enabled for suspend." \
-                || log_warn "Could not write $freeze_dropin — user sessions stay unfrozen across suspend."
-        else
-            log_ok "User-session freeze already re-enabled."
+                && log_ok "Freeze override removed (NVIDIA default restored)." \
+                || log_warn "Could not remove $freeze_dropin — delete it manually, then: sudo systemctl daemon-reload"
         fi
 
         if $initramfs_dirty; then

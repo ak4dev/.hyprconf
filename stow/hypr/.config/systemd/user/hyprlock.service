@@ -33,10 +33,11 @@ ExecStartPre=-/usr/bin/cliphist wipe
 ExecStart=/usr/bin/hyprlock
 # Restarting this unit is lock-safe: hyprlock has no SIGTERM handler (verified
 # in v0.9.5 source) — only SIGUSR1 unlocks — and per ext-session-lock the
-# compositor keeps the session locked until a locker explicitly unlocks. The
-# wake path (hypridle after_sleep_cmd) relies on this: it restarts the unit so
-# every wake gets an instance that never crossed the suspend. Cap the stop so
-# a GPU-hung instance can't stall that handoff for the default 90s.
+# compositor keeps the session locked until a locker explicitly unlocks.
+# (The wake path deliberately does NOT restart this unit: cycling the locker
+# at the wake instant killed it mid-GPU-restore and its replacement went
+# black — 2026-07-23. Only a real crash triggers Restart= below.) Cap the
+# stop so a GPU-hung instance can't stall hyprland-stop for the default 90s.
 TimeoutStopSec=5
 # hyprlock exits 0 on successful unlock — no restart. Anything else (the
 # post-resume SIGSEGV/SIGABRT, a lost compositor connection) means the lock
