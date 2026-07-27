@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# hyprland-wake-restore — relight the displays after suspend, and verify they
+# actually came back.
+#
+# hypridle runs this as after_sleep_cmd (also templated by the TUI's hypridle
+# general-block defaults). A single `hyprctl dispatch dpms on` at the wake
+# instant is not enough on NVIDIA: aquamarine's post-resume CRTC restore can
+# fail wholesale (nvidia-open 610.43.03 + RTX 5090: every ATOMIC_ALLOW_MODESET
+# commit rejected with EINVAL — "crtc N failed restore" in hyprland.log —
+# especially when the monitors were dpms-off when the suspend started). The
+# session is then alive and locked but every output is black, and nothing ever
+# retries: the 2026-07-26 "crash at suspend" that was really a black wake plus
+# a manual tty2 rescue. Late modesets DO succeed once the GPU and DP links
+# settle (a full session restart at wake+64s lit outputs fine), so: fire the
+# immediate dpms-on exactly as before, then compare Hyprland's enabled outputs
+# against the kernel's connector state and, only while some output that should
+# be lit is dark, force a fresh full modeset with a dpms off→on cycle, backing
+# off until the hardware accepts it.
+#
+# Invariant (2026-07-23): the locker is supervised by systemd alone — never
+# restart hyprlock or any unit from the wake path. This script touches outputs
+# only. On a healthy wake the first verification passes and nothing is cycled,
+# so the visible behavior is identical to the old bare dpms-on.
+
+set -uo pipefail
+
+XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+log_file="$XDG_RUNTIME_DIR/hyprland-wake-restore.log"
+
+log() { printf '%s %s\n' "$(date '+%F %T')" "$*" >>"$log_file"; }
+
+# One instance at a time. A holder is either this wake's earlier spawn or a
+# pre-suspend loop that slept across S3 — both run the same recovery, so the
+# newcomer just leaves them to it.
+exec 9>"$XDG_RUNTIME_DIR/hyprland-wake-restore.lock"
+flock -n 9 || exit 0
+
+# The compositor can be mid-GPU-wedge; never let a stuck IPC call hang the
+# retry schedule.
+hctl() { timeout 5 hyprctl "$@" 2>/dev/null; }
+
+# Monitors Hyprland currently has enabled — profile-disabled ones are absent
+# from plain `monitors` output and must stay dark.
+enabled_monitors() { hctl monitors | awk '/^Monitor /{print $2}'; }
+
+# A monitor is lit when a DRM connector of the same name has an active
+# encoder: the kernel's view, immune to Hyprland believing dpms is on while
+# the modeset actually failed. A name with no matching connector counts as
+# lit, so a naming mismatch can never cycle forever.
+is_lit() {
+    local name=$1 f found=0
+    for f in /sys/class/drm/card*-"$name"/enabled; do
+        [[ -e "$f" ]] || continue
+        found=1
+        [[ "$(<"$f")" == "enabled" ]] && return 0
+    done
+    ((found == 0))
+}
+
+all_lit() {
+    local mons name
+    mons=$(enabled_monitors)
+    [[ -n "$mons" ]] || return 1 # IPC dead or zero outputs — not healthy
+    while IFS= read -r name; do
+        is_lit "$name" || { log "output $name: connector dark"; return 1; }
+    done <<<"$mons"
+    return 0
+}
+
+# Healthy-wake path, unchanged from the previous bare after_sleep_cmd.
+hctl dispatch dpms on >/dev/null
+
+if ! hctl monitors >/dev/null; then
+    log "no compositor IPC — nothing to restore"
+    exit 0
+fi
+
+for delay in 2 3 5 10 20 30; do
+    sleep "$delay"
+    if all_lit; then
+        log "outputs verified lit (${delay}s step)"
+        exit 0
+    fi
+    log "dark output(s) after wake — forcing fresh modeset (dpms off/on)"
+    hctl dispatch dpms off >/dev/null
+    sleep 1
+    hctl dispatch dpms on >/dev/null
+done
+
+sleep 2
+if all_lit; then
+    log "outputs recovered on final attempt"
+else
+    log "gave up: outputs still dark — check hyprland.log for aquamarine 'failed restore'"
+fi
+exit 0

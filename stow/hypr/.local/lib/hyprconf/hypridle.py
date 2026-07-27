@@ -24,8 +24,8 @@ BLOCK_TYPES: tuple[str, ...] = ("general", "listener")
 BLOCK_DEFAULTS: dict[str, dict[str, str]] = {
     "general": {
         "lock_cmd": "systemctl --user start hyprlock.service",
-        "before_sleep_cmd": "loginctl lock-session",
-        "after_sleep_cmd": "systemctl --user restart hyprlock.service; hyprctl dispatch dpms on",
+        "before_sleep_cmd": "loginctl lock-session && hyprctl dispatch dpms on",
+        "after_sleep_cmd": "hyprland-wake-restore",
         "ignore_dbus_inhibit": "false",
     },
     "listener": {
