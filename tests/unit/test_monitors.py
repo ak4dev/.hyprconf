@@ -106,7 +106,10 @@ def test_to_line_no_extras(hypr_dir: Path) -> None:
     p = _mon_file(hypr_dir, MONITORS_CONF)
     m = read_monitor_configs(p)[0]
     line = m.to_line()
-    assert line == 'hl.monitor({ output = "HDMI-A-1", mode = "3840x2160@120", position = "0x0", scale = 1.5 })'
+    assert (
+        line
+        == 'hl.monitor({ output = "HDMI-A-1", mode = "3840x2160@120", position = "0x0", scale = 1.5 })'
+    )
 
 
 def test_to_line_with_extras(hypr_dir: Path) -> None:

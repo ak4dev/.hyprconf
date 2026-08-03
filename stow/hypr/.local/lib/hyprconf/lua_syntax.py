@@ -101,7 +101,9 @@ def format_lua_literal(value: object, *, indent: int | None = None) -> str:
         if not value:
             return "{}"
         pad = "    " * (indent + 1)
-        parts = [f"{pad}{k} = {format_lua_literal(v, indent=indent + 1)}," for k, v in value.items()]
+        parts = [
+            f"{pad}{k} = {format_lua_literal(v, indent=indent + 1)}," for k, v in value.items()
+        ]
         return "{\n" + "\n".join(parts) + "\n" + "    " * indent + "}"
     if isinstance(value, (list, tuple)):
         return "{ " + ", ".join(format_lua_literal(v) for v in value) + " }"

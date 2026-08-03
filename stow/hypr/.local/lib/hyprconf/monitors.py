@@ -168,7 +168,9 @@ def _coerce_scale(value: str) -> object:
         return value
 
 
-def _fields_to_table(name: str, resolution: str, position: str, scale: str, extras: str) -> dict[str, object]:
+def _fields_to_table(
+    name: str, resolution: str, position: str, scale: str, extras: str
+) -> dict[str, object]:
     table: dict[str, object] = {"output": name}
     if resolution.strip().lower() == "disable":
         table["disabled"] = True
@@ -199,9 +201,11 @@ def upsert_monitor(
     if file is None:
         file = MONITORS_FILE
 
-    line = "hl.monitor(" + lua_syntax.format_lua_literal(
-        _fields_to_table(name, resolution, position, scale, extras)
-    ) + ")"
+    line = (
+        "hl.monitor("
+        + lua_syntax.format_lua_literal(_fields_to_table(name, resolution, position, scale, extras))
+        + ")"
+    )
 
     existing = read_monitor_configs(file)
     for mc in existing:

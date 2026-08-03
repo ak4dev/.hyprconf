@@ -73,7 +73,9 @@ def hypr_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
     monkeypatch.setattr(_config_mod, "OVERRIDES_FILE", hypr / "conf.d" / "local.lua")
     monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE", hypr / "hyprconf.local.conf")
-    monkeypatch.setattr(_config_mod, "_CONF_ERA_OVERRIDES_FILE", hypr / "conf.d" / "99-hyprconf-local.conf")
+    monkeypatch.setattr(
+        _config_mod, "_CONF_ERA_OVERRIDES_FILE", hypr / "conf.d" / "99-hyprconf-local.conf"
+    )
     monkeypatch.setattr(_keybinds_mod, "KEYBINDS_FILE", hypr / "keybinds.lua")
     monkeypatch.setattr(_monitors_mod, "MONITORS_FILE", hypr / "monitors.lua")
     monkeypatch.setattr(_rules_mod, "HYPRLAND_CONF", hypr / "hyprland.lua")

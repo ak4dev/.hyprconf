@@ -72,7 +72,9 @@ def test_save_pending_preserves_user_zone(hypr_dir: Path) -> None:
     import hyprconf.config as cfg
 
     cfg.OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    cfg.OVERRIDES_FILE.write_text('-- My custom config\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
+    cfg.OVERRIDES_FILE.write_text(
+        '-- My custom config\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n'
+    )
     save_pending({"general": {"gaps_in": "5"}})
     text = cfg.OVERRIDES_FILE.read_text()
     assert "-- My custom config" in text

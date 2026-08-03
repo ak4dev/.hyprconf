@@ -60,7 +60,9 @@ def test_valid_preset_writes_monitors_lua(tmp_path):
     _make_fake_hyprctl(tmp_path)
     cfg_src = tmp_path / "cfg_src"
     cfg_src.mkdir()
-    (cfg_src / "pcMonitors.bedroom.lua").write_text('hl.monitor({ output = "HDMI-A-1", mode = "preferred" })\n')
+    (cfg_src / "pcMonitors.bedroom.lua").write_text(
+        'hl.monitor({ output = "HDMI-A-1", mode = "preferred" })\n'
+    )
 
     res = _run_switch(tmp_path, "bedroom", cfg_src)
     assert res.returncode == 0, f"Script failed: {res.stderr}"

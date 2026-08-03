@@ -101,7 +101,9 @@ def test_missing_file(hypr_dir: Path) -> None:
 
 def test_ignores_comments(hypr_dir: Path) -> None:
     p = hypr_dir / "keybinds.lua"
-    p.write_text('-- hl.bind("SUPER + X", hl.dsp.exec_cmd("foo"))\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
+    p.write_text(
+        '-- hl.bind("SUPER + X", hl.dsp.exec_cmd("foo"))\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n'
+    )
     entries = read_keybinds_with_location(p)
     assert len(entries) == 1
     assert entries[0].args == "kitty"
@@ -135,7 +137,10 @@ def test_add_keybind_formats_correctly(hypr_dir: Path) -> None:
     p.write_text("")
     add_keybind("bindl", "", "XF86AudioPlay", "exec", "playerctl play-pause", file=p)
     text = p.read_text()
-    assert 'hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })' in text
+    assert (
+        'hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })'
+        in text
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +215,9 @@ def test_read_follows_require_include(hypr_dir: Path) -> None:
     sub = hypr_dir / "extra_keybinds.lua"
     sub.write_text('hl.bind("SUPER + E", hl.dsp.exec_cmd("nemo"))\n')
     main_kb = hypr_dir / "keybinds.lua"
-    main_kb.write_text('require("extra_keybinds")\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
+    main_kb.write_text(
+        'require("extra_keybinds")\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n'
+    )
     entries = read_keybinds_with_location(main_kb, follow_sources=True)
     dispatchers = {e.dispatcher for e in entries}
     assert "exec_cmd" in dispatchers

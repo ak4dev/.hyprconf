@@ -163,7 +163,10 @@ def read_keybinds_with_location(
                 mods, key = _parse_key_expr(call_args[0], local_vars)
                 dispatcher, args = _parse_dispatcher_expr(call_args[1], local_vars)
                 opts = (
-                    {k: lua_syntax.lua_literal_to_py(v) for k, v in lua_syntax.parse_flat_table(call_args[2]).items()}
+                    {
+                        k: lua_syntax.lua_literal_to_py(v)
+                        for k, v in lua_syntax.parse_flat_table(call_args[2]).items()
+                    }
                     if len(call_args) > 2
                     else {}
                 )
