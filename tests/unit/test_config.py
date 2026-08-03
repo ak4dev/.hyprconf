@@ -72,21 +72,21 @@ def test_save_pending_preserves_user_zone(hypr_dir: Path) -> None:
     import hyprconf.config as cfg
 
     cfg.OVERRIDES_FILE.parent.mkdir(parents=True, exist_ok=True)
-    cfg.OVERRIDES_FILE.write_text("# My custom config\nbind = SUPER, T, exec, kitty\n")
+    cfg.OVERRIDES_FILE.write_text('-- My custom config\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
     save_pending({"general": {"gaps_in": "5"}})
     text = cfg.OVERRIDES_FILE.read_text()
-    assert "# My custom config" in text
-    assert "bind = SUPER, T, exec, kitty" in text
-    assert "general:gaps_in = 5" in text
+    assert "-- My custom config" in text
+    assert 'hl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))' in text
+    assert "gaps_in = 5" in text
 
 
 def test_save_pending_sorted_keys(hypr_dir: Path) -> None:
     save_pending({"z_section": {"z_key": "1"}, "a_section": {"a_key": "2"}})
     import hyprconf.config as cfg
 
-    lines = cfg.OVERRIDES_FILE.read_text().splitlines()
-    managed_lines = [l for l in lines if "=" in l and not l.startswith("#")]
-    keys = [l.split("=")[0].strip() for l in managed_lines]
+    # The managed block is a single nested hl.config({...}) call; sections
+    # (top-level table keys) are written in sorted order.
+    keys = list(cfg._flatten_config_call(cfg.OVERRIDES_FILE.read_text()))
     assert keys == sorted(keys)
 
 
@@ -96,14 +96,19 @@ def test_save_pending_sorted_keys(hypr_dir: Path) -> None:
 
 
 def test_migrate_legacy_copies_file(hypr_dir: Path) -> None:
+    """A pre-Lua-migration overrides file (flat `section:key = value`, ``#``
+    marker) is converted to the current nested hl.config({...}) form."""
     import hyprconf.config as cfg
 
     legacy = cfg.LEGACY_OVERRIDES_FILE
     legacy.parent.mkdir(parents=True, exist_ok=True)
-    legacy.write_text(f"{MANAGED_MARKER}\ngeneral:gaps_in = 5\n")
+    legacy.write_text("# hyprconf-managed\ngeneral:gaps_in = 5\n")
     assert migrate_legacy() is True
     assert cfg.OVERRIDES_FILE.exists()
-    assert "general:gaps_in = 5" in cfg.OVERRIDES_FILE.read_text()
+    text = cfg.OVERRIDES_FILE.read_text()
+    assert MANAGED_MARKER in text
+    assert "gaps_in = 5" in text
+    assert read_persisted("general", "gaps_in") == "5"
 
 
 def test_migrate_legacy_no_op_if_new_exists(hypr_dir: Path) -> None:

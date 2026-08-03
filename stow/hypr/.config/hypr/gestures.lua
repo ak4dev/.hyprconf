@@ -1,0 +1,20 @@
+-- Touchpad/touch gestures (Lua). Sourced via `require("gestures")` from
+-- hyprland.lua.
+--
+-- 3-finger horizontal swipe → switch workspace. Since the 0.51 gesture rework
+-- the old gestures:workspace_swipe toggle is gone — without this the tuning
+-- below applies to nothing and swiping does nothing.
+hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
+
+hl.config({
+    gestures = {
+        workspace_swipe_invert = true,                  -- Matches macOS natural swipe direction (touchpad)
+        workspace_swipe_distance = 300,                  -- Distance for swipe gesture (adjust for sensitivity)
+        workspace_swipe_min_speed_to_force = 15,         -- Minimum speed to force a swipe
+        workspace_swipe_cancel_ratio = 0.5,              -- Prevents accidental swipes
+        workspace_swipe_create_new = true,               -- Create new workspaces on swipe
+        workspace_swipe_direction_lock = true,           -- Locks swipe direction after threshold
+        workspace_swipe_direction_lock_threshold = 10,   -- Distance before locking direction
+        workspace_swipe_forever = true,                  -- Allows swiping through all workspaces
+    },
+})

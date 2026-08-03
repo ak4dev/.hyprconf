@@ -405,7 +405,7 @@ def test_update_dunst_skips_when_no_config(tmp_path, monkeypatch, capsys):
 
 
 def test_update_hyprland_borders_writes_conf(tmp_path, monkeypatch):
-    conf = tmp_path / "theme-colors.conf"
+    conf = tmp_path / "theme-colors.lua"
     conf.write_text("")
     monkeypatch.setattr(st, "THEME_COLORS_CONF", str(conf))
     monkeypatch.setattr(st.subprocess, "run", lambda *a, **kw: MagicMock(returncode=0))
@@ -413,7 +413,7 @@ def test_update_hyprland_borders_writes_conf(tmp_path, monkeypatch):
     st.update_hyprland_borders(DARK_THEME)
 
     content = conf.read_text()
-    assert "col.active_border" in content
+    assert "active_border" in content
     assert "8be9fd" in content  # accent colour
 
 

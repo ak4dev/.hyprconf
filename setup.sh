@@ -242,19 +242,24 @@ create_directories() {
 
     mkdir -p "$HOME/.config/hypr/conf.d"
 
-    local hypr_local="$HOME/.config/hypr/conf.d/99-hyprconf-local.conf"
+    local hypr_local="$HOME/.config/hypr/conf.d/local.lua"
+    local legacy_local="$HOME/.config/hypr/conf.d/99-hyprconf-local.conf"
     # A broken symlink (pointing to a now-deleted stow file) is not a regular
     # file, so `! -f` would be true and the redirect below would follow the
     # symlink and recreate the file inside the stow tree.  Remove it first so
     # we always create a real machine-local file.
     [[ -L "$hypr_local" && ! -e "$hypr_local" ]] && rm "$hypr_local"
-    if [[ ! -f "$hypr_local" ]]; then
+    # Don't create a blank local.lua if a not-yet-migrated legacy
+    # 99-hyprconf-local.conf exists — hyprconf's Python migration converts its
+    # content to Lua the first time it runs, and would skip that conversion
+    # (silently losing the user's overrides) if it saw local.lua already exist.
+    if [[ ! -f "$hypr_local" && ! -f "$legacy_local" ]]; then
         cat >"$hypr_local" <<'EOF'
-# 99-hyprconf-local.conf — local Hyprland overrides
-# This file is intentionally machine-local and not managed by GNU Stow.
-#
-# Examples:
-#   $mainMod = ALT
+-- local.lua — local Hyprland overrides
+-- This file is intentionally machine-local and not managed by GNU Stow.
+--
+-- Examples:
+--   local mainMod = "ALT"
 EOF
     fi
 
@@ -262,37 +267,41 @@ EOF
 }
 
 
-# Ensure 99-hyprconf-local.conf is a real machine-local file, not a stow-managed
+# Ensure the local-overrides file (local.lua, or the pre-migration
+# 99-hyprconf-local.conf) is a real machine-local file, not a stow-managed
 # symlink.  Must run BEFORE clone_or_update_repo so user settings are preserved
 # even if git pull would delete the (now-untracked) stow copy of the file.
 migrate_user_conf() {
-    local stow_file="$STOW_DIR/hypr/.config/hypr/conf.d/99-hyprconf-local.conf"
-    local live_file="$HOME/.config/hypr/conf.d/99-hyprconf-local.conf"
+    local name
+    for name in local.lua 99-hyprconf-local.conf; do
+        local stow_file="$STOW_DIR/hypr/.config/hypr/conf.d/$name"
+        local live_file="$HOME/.config/hypr/conf.d/$name"
 
-    if [[ -L "$live_file" ]]; then
-        local target
-        target=$(realpath "$live_file" 2>/dev/null || true)
-        if [[ -n "$target" && "$target" == "$HYPRCONF_DIR"/* ]]; then
-            # Working stow-managed symlink — preserve content as a real file.
-            local content
-            content=$(cat "$live_file" 2>/dev/null || true)
-            rm "$live_file"
-            if [[ -n "$content" ]]; then
-                printf '%s\n' "$content" > "$live_file"
+        if [[ -L "$live_file" ]]; then
+            local target
+            target=$(realpath "$live_file" 2>/dev/null || true)
+            if [[ -n "$target" && "$target" == "$HYPRCONF_DIR"/* ]]; then
+                # Working stow-managed symlink — preserve content as a real file.
+                local content
+                content=$(cat "$live_file" 2>/dev/null || true)
+                rm "$live_file"
+                if [[ -n "$content" ]]; then
+                    printf '%s\n' "$content" > "$live_file"
+                fi
+                log_ok "Migrated $name to machine-local file."
+            elif [[ -z "$target" ]]; then
+                # Broken symlink — remove it; create_directories will recreate it fresh.
+                rm "$live_file"
+                log_ok "Removed stale $name symlink."
             fi
-            log_ok "Migrated 99-hyprconf-local.conf to machine-local file."
-        elif [[ -z "$target" ]]; then
-            # Broken symlink — remove it; create_directories will recreate it fresh.
-            rm "$live_file"
-            log_ok "Removed stale 99-hyprconf-local.conf symlink."
         fi
-    fi
 
-    # Remove the stow copy if it still exists (e.g. after an older install that
-    # tracked this file), so future stow runs do not try to manage it.
-    if [[ -f "$stow_file" ]]; then
-        rm "$stow_file"
-    fi
+        # Remove the stow copy if it still exists (e.g. after an older install
+        # that tracked this file), so future stow runs do not try to manage it.
+        if [[ -f "$stow_file" ]]; then
+            rm "$stow_file"
+        fi
+    done
 }
 
 _apply_repo_sparse_checkout() {
@@ -341,7 +350,7 @@ clone_or_update_repo() {
                     || log_die "Force reset to $upstream failed."
             else
                 # The theme switcher writes generated output THROUGH the stow
-                # symlinks into git-tracked files (theme-colors.conf,
+                # symlinks into git-tracked files (theme-colors.lua,
                 # kitty generated.conf, dunstrc, hyprlock.conf, btop.conf), so a
                 # themed machine has a chronically dirty working tree.  A plain
                 # `git pull --ff-only` then aborts ("local changes would be
@@ -807,7 +816,7 @@ _has_nvidia() {
 }
 
 
-# Symlink monitors.conf -> $hypr_conf_dir/$default_file, unless it's already a
+# Symlink monitors.lua -> $hypr_conf_dir/$default_file, unless it's already a
 # valid symlink to a $glob_prefix* file in $hypr_conf_dir (e.g. a preset chosen
 # via switch_monitor.sh or the TUI) — in which case the existing
 # choice is kept across setup/sync runs, mirroring reapply_current_theme's
@@ -816,7 +825,7 @@ _link_monitor_config() {
     local monitors_conf="$1" hypr_conf_dir="$2" glob_prefix="$3" default_file="$4" label="$5"
 
     if [[ -L "$monitors_conf" ]]; then
-        # Resolve the full symlink chain: switch_monitor.sh links monitors.conf
+        # Resolve the full symlink chain: switch_monitor.sh links monitors.lua
         # to the *deployed* ~/.config/hypr/pcMonitors.* path (itself a Stow
         # symlink back into $hypr_conf_dir), so a one-level readlink won't match
         # $hypr_conf_dir directly — only the fully-resolved path will.
@@ -836,13 +845,13 @@ _link_monitor_config() {
 detect_gpu_and_link_monitor_config() {
     log_step "Detecting device type for monitor config..."
 
-    local monitors_conf="$HOME/.config/hypr/monitors.conf"
+    local monitors_conf="$HOME/.config/hypr/monitors.lua"
     local hypr_conf_dir="$STOW_DIR/hypr/.config/hypr"
 
     if _is_desktop; then
-        _link_monitor_config "$monitors_conf" "$hypr_conf_dir" "pcMonitors" "pcMonitors.conf" "Desktop detected"
+        _link_monitor_config "$monitors_conf" "$hypr_conf_dir" "pcMonitors" "pcMonitors.lua" "Desktop detected"
     else
-        _link_monitor_config "$monitors_conf" "$hypr_conf_dir" "laptopMonitors" "laptopMonitors.conf" "Laptop/portable detected"
+        _link_monitor_config "$monitors_conf" "$hypr_conf_dir" "laptopMonitors" "laptopMonitors.lua" "Laptop/portable detected"
         log_step "Enabling power-profiles-daemon..."
         if _in_chroot; then
             sudo systemctl enable power-profiles-daemon
@@ -935,50 +944,67 @@ ACTION==\"change\", SUBSYSTEM==\"power_supply\", ATTR{type}==\"Mains\", RUN+=\"$
 # ---------------------------------------------------------------------------
 
 write_hardware_conf() {
-    local conf_file="$HOME/.config/hypr/conf.d/60-hardware.conf"
+    local conf_file="$HOME/.config/hypr/conf.d/hardware.lua"
     local has_touch=false has_accel=false has_nvidia=false
 
     _has_touchscreen   && has_touch=true
     _has_accelerometer && has_accel=true
     _has_nvidia        && has_nvidia=true
 
+    # Startup (exec-once-equivalent) commands are collected and emitted as one
+    # hl.on("hyprland.start", ...) block at the end, matching the pattern used
+    # throughout the other Lua config files.
+    local -a startup_cmds=()
+
     {
-        printf '# Generated by setup.sh — DO NOT EDIT MANUALLY\n'
-        printf '# Re-run setup.sh (or setup.sh --sync) to regenerate.\n'
+        printf -- '-- Generated by setup.sh — DO NOT EDIT MANUALLY\n'
+        printf -- '-- Re-run setup.sh (or setup.sh --sync) to regenerate.\n'
 
         if $has_nvidia; then
-            printf '\n# Nvidia GPU — required env vars for Wayland (wiki.hypr.land/Nvidia)\n'
-            printf 'env = LIBVA_DRIVER_NAME,nvidia\n'
-            printf 'env = __GLX_VENDOR_LIBRARY_NAME,nvidia\n'
+            printf -- '\n-- Nvidia GPU — required env vars for Wayland (wiki.hypr.land/Nvidia)\n'
+            printf 'hl.env("LIBVA_DRIVER_NAME", "nvidia")\n'
+            printf 'hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")\n'
         fi
 
         if $has_touch; then
-            printf '\n# On-screen keyboard (touchscreen detected)\n'
-            printf 'exec-once = wvkbd-launcher\n'
-            printf 'bind = $mainMod SHIFT, O, exec, wvkbd-toggle\n'
+            printf -- '\n-- On-screen keyboard (touchscreen detected)\n'
+            startup_cmds+=("wvkbd-launcher")
+            # $mainMod only exists inside keybinds.lua's own module scope —
+            # this bind lives in a separately require()d file, so the
+            # modifier is spelled out literally instead of referencing it.
+            printf 'hl.bind("SUPER + SHIFT + O", hl.dsp.exec_cmd("wvkbd-toggle"))\n'
             # Bind all touch input to eDP-1 so coordinates are always relative
             # to the built-in display, not the full compositor space.  Without
             # this, multi-monitor setups map touch across all monitors, causing
             # offset/flipped input.  transform=0 matches the default eDP-1
-            # orientation; override in 99-hyprconf-local.conf if needed.
-            printf '\ninput {\n'
-            printf '    touchdevice {\n'
-            printf '        output    = eDP-1\n'
-            printf '        transform = 0\n'
-            printf '    }\n'
-            printf '}\n'
+            # orientation; override in conf.d/local.lua if needed.
+            printf -- '\nhl.config({\n'
+            printf '    input = {\n'
+            printf '        touchdevice = {\n'
+            printf '            output = "eDP-1",\n'
+            printf '            transform = 0,\n'
+            printf '        },\n'
+            printf '    },\n'
+            printf '})\n'
             # touch-panel-launcher checks keyboard presence at session start and
             # starts touch-panel only if no physical keyboard is found.
             # touch-panel-watch monitors for keyboard removal during the session
             # and starts touch-panel when the last keyboard is unplugged.
-            printf '\n# Touch control panel (runtime keyboard detection)\n'
-            printf 'exec-once = touch-panel-launcher\n'
-            printf 'exec-once = touch-panel-watch\n'
+            startup_cmds+=("touch-panel-launcher" "touch-panel-watch")
         fi
 
         if $has_accel; then
-            printf '\n# Auto-rotation (accelerometer detected)\n'
-            printf 'exec-once = autorotate\n'
+            startup_cmds+=("autorotate")
+        fi
+
+        if [[ ${#startup_cmds[@]} -gt 0 ]]; then
+            printf -- '\n-- Auto-rotation / touch control panel (runtime keyboard detection)\n'
+            printf 'hl.on("hyprland.start", function()\n'
+            local cmd
+            for cmd in "${startup_cmds[@]}"; do
+                printf '    hl.exec_cmd("%s")\n' "$cmd"
+            done
+            printf 'end)\n'
         fi
     } > "$conf_file"
 
@@ -1687,14 +1713,14 @@ PY
         (( fixed++ )) || true
     fi
 
-    # ── 5. Verify monitors.conf ───────────────────────────────────────────
-    log_step "Verifying monitors.conf..."
-    if [[ ! -e "$HOME/.config/hypr/monitors.conf" ]]; then
-        log_warn "monitors.conf missing — recreating..."
+    # ── 5. Verify monitors.lua ───────────────────────────────────────────
+    log_step "Verifying monitors.lua..."
+    if [[ ! -e "$HOME/.config/hypr/monitors.lua" ]]; then
+        log_warn "monitors.lua missing — recreating..."
         detect_gpu_and_link_monitor_config
         (( fixed++ )) || true
     else
-        log_ok "monitors.conf OK → $(readlink -f "$HOME/.config/hypr/monitors.conf")"
+        log_ok "monitors.lua OK → $(readlink -f "$HOME/.config/hypr/monitors.lua")"
     fi
 
     reload_hyprland
@@ -1724,8 +1750,8 @@ main() {
         print_header "sync"
         log_step "Syncing configs..."
 
-        # Migrate 99-hyprconf-local.conf BEFORE git pull so user settings survive
-        # a pull that removes the now-untracked stow copy of the file.
+        # Migrate the local-overrides file BEFORE git pull so user settings
+        # survive a pull that removes the now-untracked stow copy of the file.
         migrate_user_conf
         clone_or_update_repo "$_sync_force"
         create_directories

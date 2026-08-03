@@ -678,7 +678,7 @@ def _adjust_adjacent_monitor_positions(
 
     Monitors using auto / auto-right / etc. are intentionally skipped: Hyprland
     will recompute their positions automatically.  Only monitors with explicit
-    numeric positions in monitors.conf need manual adjustment.
+    numeric positions in monitors.lua need manual adjustment.
     """
     delta_w = new_lw - old_lw
     delta_h = new_lh - old_lh
@@ -2375,7 +2375,7 @@ class HyprconfApp(App):
                     )
                     return
 
-                # Read persisted extras (bitdepth, cm, sdrbrightness, etc.) from monitors.conf
+                # Read persisted extras (bitdepth, cm, sdrbrightness, etc.) from monitors.lua
                 file_configs = _lib_monitor_configs()
                 file_mc = next((mc for mc in file_configs if mc.name == monitor_name), None)
                 file_extras = file_mc.extras if file_mc else ""
@@ -2390,7 +2390,7 @@ class HyprconfApp(App):
                         return
                     # Apply at runtime
                     ok_rt = _run(["hyprctl", "keyword", "monitor", keyword])
-                    # Parse keyword back into fields and persist to monitors.conf
+                    # Parse keyword back into fields and persist to monitors.lua
                     parts = [p.strip() for p in keyword.split(",")]
                     if len(parts) >= 4:
                         _lib_upsert_monitor(
@@ -2747,7 +2747,7 @@ class HyprconfApp(App):
                 return
             from hyprconf.block_conf import delete_block as _delete_block
 
-            ok = _delete_block(blk)
+            ok = _delete_block(blk.file_path, blk.start_line, blk.end_line)
             self.notify(
                 f"Block [{blk.block_type}] deleted" if ok else "Failed to delete block",
                 severity="information" if ok else "error",
@@ -2755,7 +2755,7 @@ class HyprconfApp(App):
             self._load_section(section)
 
         elif section == "monitors" and rk:
-            # Delete monitor from monitors.conf by name
+            # Delete monitor from monitors.lua by name
             mon_cfg = _lib_monitor_configs(MONITORS_FILE)
             mc = next((m for m in mon_cfg if m.name == rk), None)
             if mc:
@@ -2768,7 +2768,7 @@ class HyprconfApp(App):
                 )
                 self._refresh_monitors()
             else:
-                self.notify(f"Monitor {rk!r} not found in monitors.conf", severity="warning")
+                self.notify(f"Monitor {rk!r} not found in monitors.lua", severity="warning")
         else:
             self.notify("Nothing to delete here.", severity="warning")
 

@@ -265,6 +265,7 @@ detect_existing_install() {
   command -v hyprconf            &>/dev/null && return 0
   [[ -f "$HOME/.local/bin/hyprconf"         ]] && return 0
   [[ -d "$REPO_DIR/.git"                    ]] && return 0
+  [[ -f "$HOME/.config/hypr/hyprland.lua"   ]] && return 0
   [[ -f "$HOME/.config/hypr/hyprland.conf"  ]] && return 0
   return 1
 }

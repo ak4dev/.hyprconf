@@ -41,13 +41,16 @@ def hypr_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     hypr.mkdir(parents=True)
     (hypr / "conf.d").mkdir()
 
-    # Seed minimal stub files so parsers don't see a missing file as an error
-    (hypr / "keybinds.conf").write_text("$mainMod = SUPER\n")
-    (hypr / "monitors.conf").write_text("")
+    # Seed minimal stub files so parsers don't see a missing file as an error.
+    # hyprland's own compositor config (hyprland/keybinds/monitors) is Lua as
+    # of 0.55+; hypridle/hyprlock/hyprpaper are separate programs still on
+    # hyprlang `.conf`.
+    (hypr / "keybinds.lua").write_text('local mainMod = "SUPER"\n')
+    (hypr / "monitors.lua").write_text("")
     (hypr / "hyprlock.conf").write_text("")
     (hypr / "hypridle.conf").write_text("")
     (hypr / "hyprpaper.conf").write_text("")
-    (hypr / "hyprland.conf").write_text("")
+    (hypr / "hyprland.lua").write_text("")
 
     # Monkeypatch every module-level path constant that was resolved at
     # import time from XDG_CONFIG_HOME.
@@ -57,15 +60,25 @@ def hypr_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     import hyprconf.hyprpaper as _hyprpaper_mod
     import hyprconf.keybinds as _keybinds_mod
     import hyprconf.monitors as _monitors_mod
+    import hyprconf.paths as _paths_mod
     import hyprconf.rules as _rules_mod
 
-    monkeypatch.setattr(_config_mod, "OVERRIDES_FILE", hypr / "conf.d" / "99-hyprconf-local.conf")
+    # rules.py/keybinds.py resolve Lua `require(...)`/`try_require(...)`
+    # directives relative to HYPR_DIR (imported by value at module load), so
+    # it must be repointed at the fixture tree too, not just the individual
+    # file constants below.
+    monkeypatch.setattr(_paths_mod, "HYPR_DIR", hypr)
+    monkeypatch.setattr(_rules_mod, "HYPR_DIR", hypr)
+    monkeypatch.setattr(_keybinds_mod, "HYPR_DIR", hypr)
+
+    monkeypatch.setattr(_config_mod, "OVERRIDES_FILE", hypr / "conf.d" / "local.lua")
     monkeypatch.setattr(_config_mod, "LEGACY_OVERRIDES_FILE", hypr / "hyprconf.local.conf")
-    monkeypatch.setattr(_keybinds_mod, "KEYBINDS_FILE", hypr / "keybinds.conf")
-    monkeypatch.setattr(_monitors_mod, "MONITORS_FILE", hypr / "monitors.conf")
-    monkeypatch.setattr(_rules_mod, "HYPRLAND_CONF", hypr / "hyprland.conf")
-    monkeypatch.setattr(_rules_mod, "WINRULES_FILE", hypr / "conf.d" / "50-windowrules.conf")
-    monkeypatch.setattr(_rules_mod, "WKSPRULES_FILE", hypr / "conf.d" / "50-workspacerules.conf")
+    monkeypatch.setattr(_config_mod, "_CONF_ERA_OVERRIDES_FILE", hypr / "conf.d" / "99-hyprconf-local.conf")
+    monkeypatch.setattr(_keybinds_mod, "KEYBINDS_FILE", hypr / "keybinds.lua")
+    monkeypatch.setattr(_monitors_mod, "MONITORS_FILE", hypr / "monitors.lua")
+    monkeypatch.setattr(_rules_mod, "HYPRLAND_CONF", hypr / "hyprland.lua")
+    monkeypatch.setattr(_rules_mod, "WINRULES_FILE", hypr / "conf.d" / "windowrules.lua")
+    monkeypatch.setattr(_rules_mod, "WKSPRULES_FILE", hypr / "conf.d" / "workspacerules.lua")
     monkeypatch.setattr(_hyprlock_mod, "HYPRLOCK_FILE", hypr / "hyprlock.conf")
     monkeypatch.setattr(_hypridle_mod, "HYPRIDLE_FILE", hypr / "hypridle.conf")
     monkeypatch.setattr(_hyprpaper_mod, "HYPRPAPER_FILE", hypr / "hyprpaper.conf")

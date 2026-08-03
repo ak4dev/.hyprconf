@@ -26,113 +26,112 @@
 
 ## Config Basics
 
-```ini
-# Variable definition
-$name = value
+**Deprecation timeline:** Hyprland 0.55 introduced Lua (`hyprland.lua`) as a
+replacement for the original hyprlang `.conf` grammar shown in older versions
+of this doc. 0.56 (the version this repo currently targets) prints a
+deprecation notice on `.conf` configs; full removal is expected around 0.57.
+If `hyprland.lua` exists, Hyprland loads it *instead of* `hyprland.conf` — the
+two formats are not mixed. This repo, and `hyprconf`'s config engine, moved to
+Lua as part of that transition. `hypridle`, `hyprlock`, `hyprpaper`, and
+`hyprlauncher` are **separate programs** with their own config lifecycles and
+are *not* affected — they keep using hyprlang `.conf` (see their sections
+below).
 
-# Source another file
-source = ~/.config/hypr/keybinds.conf
+```lua
+-- Variable (a plain Lua local, since Lua files don't share `$var`-style globals)
+local name = "value"
 
-# Machine-local overrides (used by this repo for things like $mainMod)
-# Note: Hyprland errors if a glob matches nothing, so this repo uses a conf.d dir.
-source = ~/.config/hypr/conf.d/*.conf
+-- Include another file — dots in the module name become path separators, so
+-- a directory literally named with a dot (this repo's conf.d/) needs a
+-- package.path workaround; see hyprland.lua's own comment on this.
+require("keybinds")
 
-# Set an option
-general {
-    option = value
-}
+-- Machine-local overrides: each require is individually pcall-wrapped so a
+-- missing file is a no-op (no hyprlang-style "glob must match >=1 file"
+-- restriction to work around anymore).
+local function try_require(name) pcall(require, name) end
+try_require("local")
 
-# Environment variable
-env = VAR_NAME,value
+-- Set an option
+hl.config({
+    general = {
+        option = value,
+    },
+})
+
+-- Environment variable
+hl.env("VAR_NAME", "value")
 ```
 
-- Comments: `#`
-- Variables: `$varName = value` — use with `$varName`
-- All options are case-insensitive
+- Comments: `-- …` (Lua), not `#`
+- One `hl.*(...)` statement per line is this repo's own convention (not a Lua
+  requirement) — it keeps every keybind/rule/monitor entry addressable by
+  line number, which is how `hyprconf`'s TUI adds/deletes entries
 - Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/>
 
-> **Hyprland 0.55+ note:** 0.55 introduced an optional Lua configuration format and
-> deprecated `hyprlang`, but the traditional `key = value` syntax shown here remains
-> fully supported (back-compat is maintained). This repo and `hyprconf` deliberately
-> use the stable `key = value` form.
->
-> **0.56.0** (verified 2026-07-23 with `Hyprland --verify-config`): no breaking
-> changes. New options exposed in the TUI: `misc:session_lock_blur`,
-> `misc:initial_workspace_token_timeout`, `group:groupbar:disable_when_only`.
-> Monitors now default to `preferred`/`auto`/auto-scale when unspecified.
-> The touchpad tap options remain hyphenated (`tap-to-click`, `tap-and-drag`);
-> the wiki's underscore spellings track unreleased git.
+> **Ground truth used to write this doc:** the installed Hyprland package's
+> own Lua API type-stub (`/usr/share/hypr/stubs/hl.meta.lua`) and example
+> config (`/usr/share/hypr/hyprland.lua`) — more reliable than the wiki, whose
+> Lua pages are JS-rendered and were seen to omit content when fetched
+> programmatically. Re-check those two files against your installed version
+> before trusting an unfamiliar `hl.*` field name in the wild.
 
 ---
 
 ## Monitor Syntax
 
-### Classic (inline)
+### `hl.monitor({...})`
 
-```ini
-monitor = NAME, RESOLUTION@HZ, POSITION, SCALE[, EXTRAS...]
+```lua
+hl.monitor({ output = NAME, mode = "RESOLUTION@HZ", position = "POSITION", scale = SCALE })
 ```
 
-| Field | Examples |
-|---|---|
-| NAME | `HDMI-A-1`, `DP-1`, `eDP-1`, `` (match any) |
-| RESOLUTION | `3840x2160`, `1920x1200`, `preferred`, `highres`, `highrr` |
-| HZ | `@120`, `@60` (appended to resolution) |
-| POSITION | `0x0`, `auto`, `auto-right`, `auto-left`, `auto-up`, `auto-down` |
-| SCALE | `1`, `1.5`, `2`, `auto` |
-| EXTRAS | comma-separated `key, value` pairs (see below) |
-
-**Extra args:**
-
-| Key | Values | Notes |
+| Field | Type | Examples |
 |---|---|---|
-| `vrr` | `0` off · `1` always · `2` fullscreen | Adaptive sync (VRR / FreeSync / G-Sync) |
-| `bitdepth` | `8` · `10` | 10-bit requires HDR-capable output |
-| `cm` | `auto` · `srgb` · `dcip3` · `dp3` · `adobe` · `wide` · `edid` · `hdr` · `hdredid` | Colour management preset; `hdr`/`hdredid` are experimental |
-| `sdrbrightness` | float, default `1.0` | SDR brightness multiplier in HDR mode (typical 1.0–2.0) |
-| `sdrsaturation` | float, default `1.0` | SDR saturation multiplier in HDR mode |
-| `sdr_eotf` | `default` · `gamma22` · `srgb` | SDR transfer function (follows `render:cm_sdr_eotf`) |
-| `supports_hdr` | `-1` off · `0` auto · `1` on | Force HDR support (overrides EDID auto-detection) |
-| `sdr_min_luminance` | float, default `0.2` | SDR minimum luminance for SDR→HDR mapping |
-| `transform` | `0`–`7` | 0=normal, 1=90°, 2=180°, 3=270°, 4=flipped, 5–7=flipped+rotation |
-| `mirror` | monitor name | Mirror another output (no re-render; aspect ratio warning applies) |
+| `output` | string | `"HDMI-A-1"`, `"DP-1"`, `"eDP-1"`, `""` (catch-all — matches any unlisted connector) |
+| `mode` | string | `"3840x2160@120"`, `"1920x1200"`, `"preferred"`, `"highres"`, `"highrr"` |
+| `position` | string | `"0x0"`, `"auto"`, `"auto-right"`, `"auto-left"`, `"auto-up"`, `"auto-down"` |
+| `scale` | string \| number | `1`, `1.5`, `2`, `"auto"` |
+| `disabled` | boolean | `true` disables the output (replaces the old `mode = "disable"` positional form) |
 
-```ini
-# Examples from this repo
-monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5, vrr, 2, bitdepth, 10, cm, hdr, sdrbrightness, 1.3
-monitor = DP-3, 3840x2160, auto-right, 3, transform, 3
-monitor = DP-1, disable
-```
+**Extra fields** (same table, alongside the ones above):
 
-### monitorv2 (block syntax — Hyprland ≥ 0.47)
+| Key | Type | Values | Notes |
+|---|---|---|---|
+| `vrr` | integer | `0` off · `1` always · `2` fullscreen | Adaptive sync (VRR / FreeSync / G-Sync) |
+| `bitdepth` | integer | `8` · `10` | 10-bit requires HDR-capable output |
+| `cm` | string | `"auto"` · `"srgb"` · `"dcip3"` · `"dp3"` · `"adobe"` · `"wide"` · `"edid"` · `"hdr"` · `"hdredid"` | Colour management preset; `hdr`/`hdredid` are experimental |
+| `sdrbrightness` | number | default `1.0` | SDR brightness multiplier in HDR mode (typical 1.0–2.0) |
+| `sdrsaturation` | number | default `1.0` | SDR saturation multiplier in HDR mode |
+| `sdr_eotf` | string | `"default"` · `"gamma22"` · `"srgb"` | SDR transfer function (follows `render.cm_sdr_eotf`) |
+| `supports_hdr` | integer | `-1` off · `0` auto · `1` on | Force HDR support (overrides EDID auto-detection) |
+| `sdr_min_luminance` | number | default `0.2` | SDR minimum luminance for SDR→HDR mapping |
+| `transform` | integer | `0`–`7` | 0=normal, 1=90°, 2=180°, 3=270°, 4=flipped, 5–7=flipped+rotation |
+| `mirror` | string | monitor name | Mirror another output (no re-render; aspect ratio warning applies) |
 
-```ini
-monitorv2 {
-    output             = DP-1
-    mode               = 3840x2160@240
-    position           = auto-left
-    scale              = 2
-    transform          = 0
-    supports_wide_color = 1   # -1=force off, 0=auto, 1=force on
-    supports_hdr       = 1   # -1=force off, 0=auto, 1=force on
-    sdr_max_luminance  = 250  # SDR→HDR brightness (80–400 reasonable)
-}
+```lua
+-- Examples from this repo (pcMonitors.lua / pcMonitors.bedroom.lua)
+hl.monitor({ output = "HDMI-A-1", mode = "3840x2160@120", position = "0x0", scale = 1.5, vrr = 2, bitdepth = 10, cm = "hdr", sdrbrightness = 1.3 })
+hl.monitor({ output = "DP-3", mode = "3840x2160", position = "auto-right", scale = 3, transform = 3 })
+hl.monitor({ output = "DP-1", disabled = true })
 ```
 
 ### Workspace pinning
 
-```ini
-workspace = 1, monitor:HDMI-A-1
-workspace = 4, monitor:DP-1
+```lua
+hl.workspace_rule({ workspace = "1", monitor = "HDMI-A-1" })
+hl.workspace_rule({ workspace = "4", monitor = "DP-1" })
 ```
 
-### render block (per-config)
+### render (per-config)
 
-```ini
-render {
-    direct_scanout    = 1   # Reduces latency for fullscreen apps
-    cm_auto_hdr        = 1   # Automatically enable HDR for fullscreen apps in HDR-capable color spaces
-}
+```lua
+hl.config({
+    render = {
+        direct_scanout = 1,  -- Reduces latency for fullscreen apps
+        cm_auto_hdr = 1,     -- Automatically enable HDR for fullscreen apps in HDR-capable color spaces
+    },
+})
 ```
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Monitors/>
@@ -141,17 +140,17 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Monitors/>
 
 ## Environment Variables
 
-```ini
-env = XCURSOR_SIZE,24
-env = HYPRCURSOR_SIZE,24
-env = QT_QPA_PLATFORM,wayland
-env = QT_QPA_PLATFORMTHEME,qt6ct
-env = QT_STYLE_OVERRIDE,kvantum
-env = GTK_THEME,Adwaita-dark
-env = GTK_ICON_THEME,Papirus-Dark
-env = GTK_CURSOR_THEME,Bibata-Modern-Ice   # AUR: bibata-cursor-theme
-env = GTK_CURSOR_SIZE,24
-env = MOZ_ENABLE_WAYLAND,1
+```lua
+hl.env("XCURSOR_SIZE", "24")
+hl.env("HYPRCURSOR_SIZE", "24")
+hl.env("QT_QPA_PLATFORM", "wayland")
+hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
+hl.env("QT_STYLE_OVERRIDE", "kvantum")
+hl.env("GTK_THEME", "Adwaita-dark")
+hl.env("GTK_ICON_THEME", "Papirus-Dark")
+hl.env("GTK_CURSOR_THEME", "Bibata-Modern-Ice")   -- AUR: bibata-cursor-theme
+hl.env("GTK_CURSOR_SIZE", "24")
+hl.env("MOZ_ENABLE_WAYLAND", "1")
 ```
 
 Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Environment-variables/>
@@ -161,11 +160,11 @@ Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Environment-variable
 ## Nvidia GPU
 
 `setup.sh` (and `setup.sh --sync`) auto-detects an Nvidia GPU and writes these env vars
-into `~/.config/hypr/conf.d/60-hardware.conf`:
+into `~/.config/hypr/conf.d/hardware.lua`:
 
-```ini
-env = LIBVA_DRIVER_NAME,nvidia
-env = __GLX_VENDOR_LIBRARY_NAME,nvidia
+```lua
+hl.env("LIBVA_DRIVER_NAME", "nvidia")
+hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
 ```
 
 Required packages (auto-installed on detection): `nvidia-dkms`, `nvidia-utils`, `egl-wayland`.
@@ -178,8 +177,8 @@ MODULES=(... nvidia nvidia_modeset nvidia_uvm nvidia_drm ...)
 
 For VA-API hardware video acceleration, optionally install `libva-nvidia-driver` and add:
 
-```ini
-env = NVD_BACKEND,direct
+```lua
+hl.env("NVD_BACKEND", "direct")
 ```
 
 Wiki: <https://wiki.hypr.land/Nvidia/>
@@ -188,25 +187,37 @@ Wiki: <https://wiki.hypr.land/Nvidia/>
 
 ## Autostart
 
-```ini
-exec-once = program   # Runs once at Hyprland startup only
-exec       = program  # Runs at startup AND on every `hyprctl reload`
+```lua
+-- Fires once at Hyprland startup only — the Lua equivalent of `exec-once`.
+hl.on("hyprland.start", function()
+    hl.exec_cmd("program")
+end)
+
+-- A plain top-level hl.exec_cmd() call (not wrapped in hl.on) runs at startup
+-- AND on every `hyprctl reload`, since a Lua config file re-executes
+-- top-to-bottom on every reload — this is the equivalent of classic `exec =`.
+hl.exec_cmd("program")
 ```
 
-> **Use `exec` for anything that must survive `hyprsync`/`hyprctl reload`** (e.g. daemons, wallpaper, bar).
-> Use `exec-once` for one-shot init (polkit, kwallet).
+> **Use a top-level `hl.exec_cmd()` call for anything that must survive
+> `hyprctl reload`** (e.g. daemons, wallpaper, bar). Use `hl.on("hyprland.start", …)`
+> for one-shot init (polkit, kwallet).
 
-```ini
-exec      = pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf
-# Guarded launch: `hyprctl reload` re-runs exec lines, so daemons that must
-# NOT restart on reload (the quickshell bar) get a pgrep guard. Match every
-# name the daemon can run under — quickshell's comm is `qs` when launched
-# via the system package, so guarding only `quickshell` always misses.
-exec      = pgrep -x 'qs|quickshell' >/dev/null || ~/.config/quickshell/launch.sh
-exec-once = systemctl --user start hyprpolkitagent
-exec-once = hypridle
-exec      = wl-paste --type text --watch cliphist store
-exec      = wl-paste --type image --watch cliphist store
+```lua
+hl.exec_cmd("pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf")
+-- Guarded launch: a plain hl.exec_cmd() call re-runs on every reload, so
+-- daemons that must NOT restart on reload (the quickshell bar) get a pgrep
+-- guard. Match every name the daemon can run under — quickshell's comm is
+-- `qs` when launched via the system package, so guarding only `quickshell`
+-- always misses.
+hl.exec_cmd("pgrep -x 'qs|quickshell' >/dev/null || ~/.config/quickshell/launch.sh")
+
+hl.on("hyprland.start", function()
+    hl.exec_cmd("systemctl --user start hyprpolkitagent")
+    hl.exec_cmd("hypridle")
+    hl.exec_cmd("wl-paste --type text --watch cliphist store")
+    hl.exec_cmd("wl-paste --type image --watch cliphist store")
+end)
 ```
 
 ---
@@ -214,43 +225,45 @@ exec      = wl-paste --type image --watch cliphist store
 ## Keybind Types
 
 ```
-bind   KEY, action        # Normal keypress
-binde  KEY, action        # Repeats while held (good for resize)
-bindl  KEY, action        # Fires even when screen is locked
-bindm  KEY, action        # Mouse button bind
-bindel KEY, action        # Repeating + works locked (media/brightness keys)
+hl.bind(keys, dispatcher)                              -- Normal keypress
+hl.bind(keys, dispatcher, { repeating = true })         -- Repeats while held (good for resize)
+hl.bind(keys, dispatcher, { locked = true })            -- Fires even when screen is locked
+hl.bind(keys, dispatcher, { mouse = true })             -- Mouse button bind
+hl.bind(keys, dispatcher, { locked = true, repeating = true })  -- Repeating + works locked (media/brightness keys)
 ```
 
 ### Syntax
 
-```ini
-bind  = $mainMod,       T,     exec, kitty
-bind  = $mainMod SHIFT, Q,     exit
-binde = $mainMod SHIFT, right, resizeactive, 40 0
-bindm = $mainMod,       mouse:272, movewindow
-bindm = $mainMod,       mouse:273, resizewindow
-bindel = , XF86AudioRaiseVolume, exec, wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+
-bindl  = , XF86AudioNext, exec, playerctl next
+```lua
+local mainMod = "SUPER"
+
+hl.bind(mainMod .. " + T", hl.dsp.exec_cmd("kitty"))
+hl.bind(mainMod .. " + SHIFT + Q", hl.dsp.exit())
+hl.bind(mainMod .. " + SHIFT + right", hl.dsp.window.resize({ x = 40, y = 0 }), { repeating = true })
+hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(), { mouse = true })
+hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
+hl.bind("XF86AudioRaiseVolume", hl.dsp.exec_cmd("wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+"), { locked = true, repeating = true })
+hl.bind("XF86AudioNext", hl.dsp.exec_cmd("playerctl next"), { locked = true })
 ```
 
-### Common dispatchers
+### Common dispatchers (`hl.dsp.*`)
 
 | Dispatcher | Args | Effect |
 |---|---|---|
-| `exec` | command | Run a command |
-| `killactive` | — | Close focused window |
-| `exit` | — | Exit Hyprland |
-| `togglefloating` | — | Float/un-float window |
-| `fullscreen` | 0/1/2 | Fullscreen modes |
-| `movefocus` | l/r/u/d | Move keyboard focus |
-| `resizeactive` | dx dy | Resize active window |
-| `workspace` | N / e+1 / e-1 | Switch workspace |
-| `movetoworkspace` | N / special:name | Move window to workspace |
-| `togglespecialworkspace` | name | Show/hide scratchpad |
-| `dpms` | on/off/toggle | Display power management |
-| `pseudo` | — | Pseudotile toggle (dwindle) |
-| `togglesplit` | — | Toggle split direction |
-| `swapwindow` | l/r/u/d | Swap active window with neighbour |
+| `hl.dsp.exec_cmd(cmd)` | command string | Run a command |
+| `hl.dsp.window.close()` | — | Close focused window |
+| `hl.dsp.exit()` | — | Exit Hyprland |
+| `hl.dsp.window.float({action="toggle"})` | — | Float/un-float window |
+| `hl.dsp.window.fullscreen()` | — | Toggle fullscreen |
+| `hl.dsp.focus({direction=...})` | `"left"`/`"right"`/`"up"`/`"down"` | Move keyboard focus |
+| `hl.dsp.window.resize({x=,y=})` | dx, dy | Resize active window |
+| `hl.dsp.focus({workspace=...})` | N / `"e+1"` / `"e-1"` | Switch workspace |
+| `hl.dsp.window.move({workspace=...})` | N / `"special:name"` | Move window to workspace |
+| `hl.dsp.workspace.toggle_special(name)` | name | Show/hide scratchpad |
+| `hl.dsp.dpms(...)` | on/off/toggle | Display power management |
+| `hl.dsp.window.pseudo()` | — | Pseudotile toggle (dwindle) |
+| `hl.dsp.layout("togglesplit")` | — | Toggle split direction |
+| `hl.dsp.window.swap({direction=...})` | `"left"`/`"right"`/`"up"`/`"down"` | Swap active window with neighbour |
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Binds/>
 
@@ -260,60 +273,64 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Binds/>
 
 ### general
 
-```ini
-general {
-    gaps_in  = 3           # Gap between windows
-    gaps_out = 3           # Gap between windows and screen edge
-    border_size = 2
-    col.active_border   = rgba(33ccffee) rgba(00ff99ee) 45deg
-    col.inactive_border = rgba(595959aa)
-    resize_on_border = false
-    allow_tearing    = false
-    layout = dwindle       # dwindle | master | scrolling | monocle
-}
+```lua
+hl.config({
+    general = {
+        gaps_in = 3,           -- Gap between windows
+        gaps_out = 3,          -- Gap between windows and screen edge
+        border_size = 2,
+        col = {
+            active_border = { colors = { "rgba(33ccffee)", "rgba(00ff99ee)" }, angle = 45 },
+            inactive_border = "rgba(595959aa)",
+        },
+        resize_on_border = false,
+        allow_tearing = false,
+        layout = "dwindle",    -- dwindle | master | scrolling | monocle
+    },
+})
 ```
 
 ### decoration
 
-```ini
-decoration {
-    rounding       = 1
-    rounding_power = 3
-    active_opacity   = 1
-    inactive_opacity = 0.8
+```lua
+hl.config({
+    decoration = {
+        rounding = 1,
+        rounding_power = 3,
+        active_opacity = 1,
+        inactive_opacity = 0.8,
 
-    shadow {
-        enabled      = true
-        range        = 4
-        render_power = 3
-        color        = rgba(1a1a1aee)
-    }
+        shadow = {
+            enabled = true,
+            range = 4,
+            render_power = 3,
+            color = "rgba(1a1a1aee)",
+        },
 
-    blur {
-        enabled   = true
-        size      = 3
-        passes    = 4
-        vibrancy  = 0.1696
-    }
-}
+        blur = {
+            enabled = true,
+            size = 3,
+            passes = 4,
+            vibrancy = 0.1696,
+        },
+    },
+})
 ```
 
 ### animations
 
-```ini
-animations {
-    enabled = yes, please :)
+```lua
+hl.config({ animations = { enabled = true } })
 
-    bezier = NAME, X0, Y0, X1, Y1   # CSS cubic-bezier
+hl.curve("easeOutQuint", { type = "bezier", points = { {0.23, 1}, {0.32, 1} } })  -- CSS cubic-bezier
 
-    # animation = TYPE, ENABLED, SPEED, CURVE[, STYLE]
-    animation = windows,    1, 4.79, easeOutQuint
-    animation = windowsIn,  1, 4.1,  easeOutQuint, popin 87%
-    animation = workspaces, 1, 1.94, almostLinear, fade
-}
+-- hl.animation({ leaf = TYPE, enabled = ENABLED, speed = SPEED, bezier = CURVE[, style = STYLE] })
+hl.animation({ leaf = "windows",    enabled = true, speed = 4.79, bezier = "easeOutQuint" })
+hl.animation({ leaf = "windowsIn",  enabled = true, speed = 4.1,  bezier = "easeOutQuint", style = "popin 87%" })
+hl.animation({ leaf = "workspaces", enabled = true, speed = 1.94, bezier = "almostLinear", style = "fade" })
 ```
 
-**Animation types:** `global`, `windows`, `windowsIn`, `windowsOut`, `border`, `fade`, `fadeIn`, `fadeOut`, `layers`, `layersIn`, `layersOut`, `workspaces`, `workspacesIn`, `workspacesOut`
+**Animation leaves:** `global`, `windows`, `windowsIn`, `windowsOut`, `border`, `fade`, `fadeIn`, `fadeOut`, `layers`, `layersIn`, `layersOut`, `workspaces`, `workspacesIn`, `workspacesOut`
 
 **Styles:** `slide`, `popin [percent%]`, `fade`
 
@@ -321,28 +338,32 @@ Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Animations/>
 
 ### dwindle layout
 
-```ini
-dwindle {
-    preserve_split = true
-    smart_split    = false  # Cursor-position split direction (implies preserve_split)
-    force_split    = 0      # 0=follow mouse, 1=left/top, 2=right/bottom
-}
-# Note: pseudotiling is the `pseudo` dispatcher / `pseudo` window rule, not a dwindle option.
+```lua
+hl.config({
+    dwindle = {
+        preserve_split = true,
+        smart_split = false,  -- Cursor-position split direction (implies preserve_split)
+        force_split = 0,      -- 0=follow mouse, 1=left/top, 2=right/bottom
+    },
+})
+-- Note: pseudotiling is the hl.dsp.window.pseudo() dispatcher / a window rule, not a dwindle option.
 ```
 
 ### misc
 
-```ini
-misc {
-    force_default_wallpaper = 0
-    disable_hyprland_logo   = true
-    allow_session_lock_restore = true   # let a relaunched hyprlock re-lock after
-                                        # the previous locker crashed (pairs with
-                                        # hypridle's after_sleep_cmd re-lock)
-    # Related: lockdead_screen_delay (ms before the red "lockdead" screen),
-    # disable_watchdog_warning (silence the "not started via start-hyprland"
-    # warning — settable in the hyprconf TUI, misc section).
-}
+```lua
+hl.config({
+    misc = {
+        force_default_wallpaper = 0,
+        disable_hyprland_logo = true,
+        allow_session_lock_restore = true,  -- let a relaunched hyprlock re-lock after
+                                             -- the previous locker crashed (pairs with
+                                             -- hypridle's after_sleep_cmd re-lock)
+        -- Related: lockdead_screen_delay (ms before the red "lockdead" screen),
+        -- disable_watchdog_warning (silence the "not started via start-hyprland"
+        -- warning — settable in the hyprconf TUI, misc section).
+    },
+})
 ```
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/>
@@ -432,46 +453,48 @@ mkinitcpio -P   # modprobe.d is baked into the initramfs (modconf + early KMS)
 
 ## Input & Gestures
 
-```ini
-input {
-    kb_layout  = us
-    follow_mouse    = 1   # 0=disabled, 1=full, 2=loose, 3=fullOnRelease
-    sensitivity     = 0   # -1.0 to 1.0 (libinput accel)
-    natural_scroll  = true
+```lua
+hl.config({
+    input = {
+        kb_layout = "us",
+        follow_mouse = 1,      -- 0=disabled, 1=full, 2=loose, 3=fullOnRelease
+        sensitivity = 0,       -- -1.0 to 1.0 (libinput accel)
+        natural_scroll = true,
 
-    touchpad {
-        natural_scroll = true
-    }
-}
+        touchpad = {
+            natural_scroll = true,
+        },
+    },
+})
 
-# 0.55 removed the `workspace_swipe` master toggle and `*_fingers` options; the
-# swipe must be bound explicitly via the gesture system, or swiping does nothing:
-#
-#   gesture = FINGERS, DIRECTION[, mod: MODS][, scale: F], ACTION[, args]
-#   gesture = 3, horizontal, workspace          # this repo (gestures.conf)
-#   gesture = 4, down, mod: SUPER, special, scratchpad
-#
-# Directions: swipe/horizontal/vertical/left/right/up/down/pinch/pinchin/pinchout
-# Actions: workspace, move, resize, special, close, fullscreen, float,
-#          cursorZoom, scroll_move, unset
-# (The current wiki shows the Lua `hl.gesture({...})` form; the hyprlang
-#  `gesture =` keyword above is the 0.54 syntax, still supported.)
-# The tuning options below apply to the workspace swipe gesture.
-gestures {
-    workspace_swipe_invert             = true    # Natural (macOS-style)
-    workspace_swipe_distance           = 300
-    workspace_swipe_min_speed_to_force = 15
-    workspace_swipe_cancel_ratio       = 0.5
-    workspace_swipe_create_new         = true
-    workspace_swipe_direction_lock     = true
-    workspace_swipe_forever            = true
-}
+-- Since 0.51 there's no `workspace_swipe` master toggle; the swipe must be
+-- bound explicitly via the gesture system, or swiping does nothing:
+--
+--   hl.gesture({ fingers = N, direction = "...", action = "...", mods = "...", scale = F })
+--   hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })  -- this repo (gestures.lua)
+--   hl.gesture({ fingers = 4, direction = "down", mods = "SUPER", action = "special", workspace_name = "scratchpad" })
+--
+-- Directions: swipe/horizontal/vertical/left/right/up/down/pinch/pinchin/pinchout
+-- Actions: workspace, move, resize, special, close, fullscreen, float,
+--          cursorZoom, scroll_move, unset
+-- The tuning options below apply to the workspace swipe gesture.
+hl.config({
+    gestures = {
+        workspace_swipe_invert = true,     -- Natural (macOS-style)
+        workspace_swipe_distance = 300,
+        workspace_swipe_min_speed_to_force = 15,
+        workspace_swipe_cancel_ratio = 0.5,
+        workspace_swipe_create_new = true,
+        workspace_swipe_direction_lock = true,
+        workspace_swipe_forever = true,
+    },
+})
 
-# Per-device overrides
-device {
-    name        = epic-mouse-v1   # hyprctl devices to find name
-    sensitivity = -0.5
-}
+-- Per-device overrides
+hl.device({
+    name = "epic-mouse-v1",  -- hyprctl devices to find name
+    sensitivity = -0.5,
+})
 ```
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/#input>
@@ -480,20 +503,20 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/#input>
 
 ## Window Rules
 
-```ini
-# 0.55 grammar:  windowrule = EFFECT val[, EFFECT val…], match:PROP regex[, match:…]
-# Every clause carries a value — write `float on`, never a bare `float`.
-# (windowrulev2 and the old `RULE, class:^(…)$` form are rejected since 0.55.)
-windowrule = float on, match:class pavucontrol
-windowrule = float on, center on, size 820 440, match:class theme-switcher
+```lua
+-- hl.window_rule({ name = "...", match = { PROP = value, ... }, EFFECT = value, ... })
+-- One call per line is this repo's own convention (see Config Basics above) —
+-- it's what lets hyprconf's TUI add/delete individual rules by line number.
+hl.window_rule({ match = { class = "pavucontrol" }, float = true })
+hl.window_rule({ name = "theme-switcher-float", match = { class = "theme-switcher" }, float = true, center = true, size = "820 440" })
 ```
 
-**Common effects:** `float on`, `tile on`, `fullscreen on`, `center on`, `size W H`, `move X Y`, `pin on`, `opacity A [I [F]]`, `no_blur on`, `rounding N`, `border_size N`, `workspace N`, `no_auto_hdr on` (0.56+)
+**Common effects:** `float`, `tile`, `fullscreen`, `center`, `size = "W H"`, `move = "X Y"`, `pin`, `opacity`, `no_blur`, `rounding`, `border_size`, `workspace`, `no_auto_hdr` (0.56+) — booleans (`float = true`), numbers, or strings depending on the field.
 
-**Match props (`match:` prefix):** `match:class REGEX`, `match:title REGEX`, `match:float 0/1`, `match:fullscreen 0/1`, `match:workspace N`, `match:xwayland 0/1`
+**Match table fields:** `class`, `title`, `float`, `fullscreen`, `workspace`, `xwayland` — same prop vocabulary as before, just Lua table keys instead of `match:field value` comma-clauses.
 
 > 0.56 adds a `stableid:ID` **window selector** for dispatchers
-> (`hyprctl dispatch focuswindow stableid:foo`) — it is not a `match:` field.
+> (`hyprctl dispatch focuswindow stableid:foo`) — it is not a `match` table field.
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
 
@@ -501,11 +524,11 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
 
 ## Workspace Rules
 
-```ini
-workspace = N, monitor:NAME
-workspace = N, default:true
-workspace = N, gapsout:0, gapsin:0     # "Smart gaps"
-workspace = special:name               # Named scratchpad
+```lua
+hl.workspace_rule({ workspace = "1", monitor = "NAME" })
+hl.workspace_rule({ workspace = "1", default = true })
+hl.workspace_rule({ workspace = "1", gaps_out = 0, gaps_in = 0 })  -- "Smart gaps"
+hl.workspace_rule({ workspace = "special:name" })                  -- Named scratchpad
 ```
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/>
@@ -514,7 +537,7 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/>
 
 ## hyprlock
 
-Config: `~/.config/hypr/hyprlock.conf`
+Config: `~/.config/hypr/hyprlock.conf` — a **separate program**, still hyprlang `.conf` (not part of the 0.55+ Lua migration).
 Wiki: <https://wiki.hypr.land/Hypr-Ecosystem/hyprlock/>
 
 ```ini
@@ -581,7 +604,7 @@ input-field {
 
 ## hypridle
 
-Config: `~/.config/hypr/hypridle.conf`
+Config: `~/.config/hypr/hypridle.conf` — a **separate program**, still hyprlang `.conf` (not part of the 0.55+ Lua migration).
 Wiki: <https://wiki.hypr.land/Hypr-Ecosystem/hypridle/>
 
 ```ini
@@ -625,7 +648,7 @@ listener {
 - `before_sleep_cmd` fires on lid close / `systemctl suspend`;
   `after_sleep_cmd` fires on resume. Re-issuing `loginctl lock-session` there
   relaunches hyprlock if it died across the sleep (guarded no-op otherwise) —
-  pair it with `misc:allow_session_lock_restore = true` in `hyprland.conf`.
+  pair it with `misc.allow_session_lock_restore = true` in `hyprland.lua`.
 - `inhibit_sleep` modes: `0` off · `1` wait for `before_sleep_cmd` to launch ·
   `2` auto · `3` wait until a session-lock client reports locked (systemd caps
   the delay at `InhibitDelayMaxSec`, 5 s by default, so a broken locker cannot
@@ -636,7 +659,7 @@ listener {
 
 ## hyprpaper
 
-Config: `~/.config/hypr/hyprpaper.conf`
+Config: `~/.config/hypr/hyprpaper.conf` — a **separate program**, still hyprlang `.conf` (not part of the 0.55+ Lua migration).
 Wiki: <https://wiki.hypr.land/Hypr-Ecosystem/hyprpaper/>
 
 ```ini
@@ -657,25 +680,35 @@ hyprctl hyprpaper wallpaper "HDMI-A-1,/new/path.jpg"
 
 ## Color Format
 
-Hyprland uses `rgba(RRGGBBAA)` hex strings:
+Hyprland uses `rgba(RRGGBBAA)` hex strings — in the Lua compositor config
+these are plain **quoted Lua strings** (`HL.ConfigValueTypes` accepts a string
+everywhere a `color`/`gradient` value is expected; hyprlock/hypridle/hyprpaper
+keep the bare unquoted hyprlang form shown elsewhere in this doc):
 
-```ini
-rgba(33ccffee)   # R=33 G=cc B=ff A=ee (87% opacity)
-rgba(00000000)   # Fully transparent
-rgba(ffffffff)   # White, fully opaque
+```lua
+"rgba(33ccffee)"   -- R=33 G=cc B=ff A=ee (87% opacity)
+"rgba(00000000)"   -- Fully transparent
+"rgba(ffffffff)"   -- White, fully opaque
 ```
 
 Gradient borders:
-```ini
-col.active_border = rgba(33ccffee) rgba(00ff99ee) 45deg
+```lua
+col = { active_border = { colors = { "rgba(33ccffee)", "rgba(00ff99ee)" }, angle = 45 } }
+-- or, equivalently, a single string in the classic "color1 color2 ANGLEdeg" form:
+col = { active_border = "rgba(33ccffee) rgba(00ff99ee) 45deg" }
 ```
 
 ---
 
 ## Useful hyprctl Commands
 
+`hyprctl` is runtime IPC — it talks to a running compositor over a socket and
+is completely unaffected by the `.conf`→Lua config-file migration; every
+command below works the same regardless of which format produced the running
+config.
+
 ```bash
-# Apply config changes (re-runs exec, not exec-once)
+# Apply config changes (re-runs top-level hl.exec_cmd() calls, not hl.on("hyprland.start", ...))
 hyprctl reload
 
 # List all connected monitors
@@ -684,7 +717,7 @@ hyprctl monitors
 # List all open windows with class/title
 hyprctl clients
 
-# List input devices (to find device name for device{} block)
+# List input devices (to find device name for hl.device({...}))
 hyprctl devices
 
 # Set an option at runtime (no reload needed)
@@ -715,12 +748,16 @@ Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/>
 Hyprland config section (schema-driven pickers for enums, sliders for numerics),
 plus keybinds, window/workspace rules, monitors, hyprlock, hypridle, hyprpaper,
 hardware daemons, and the theme picker. Writes persist to
-`~/.config/hypr/conf.d/99-hyprconf-local.conf`.
+`~/.config/hypr/conf.d/local.lua`.
 
 The shared Python core (`~/.local/lib/hyprconf/`) is the single source of truth
 for all configuration state; the TUI imports from it — no business logic is
-duplicated. The option schema lives in `hyprconf/schema.py`.
+duplicated. The option schema lives in `hyprconf/schema.py`; the Lua-syntax
+primitives (comment stripping, value formatting, single-line call parsing)
+live in `hyprconf/lua_syntax.py`.
 
-Persistence key format: `section:subsection:key = value` (matching `hyprctl keyword` syntax).
+Persistence key format: internally still `section:subsection:key` (matching
+`hyprctl keyword` syntax), serialized on disk as a single nested
+`hl.config({...})` call rather than flat `key = value` lines.
 
 Wiki options reference: <https://wiki.hypr.land/Configuring/Basics/Variables/>

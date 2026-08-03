@@ -76,7 +76,7 @@ def _write_lines(path: Path, lines: list[str]) -> None:
 
     Resolves symlinks first so that ``os.replace`` updates the symlink
     *target* rather than replacing the symlink itself.  Without this,
-    stow-managed paths (e.g. ``monitors.conf → laptopMonitors.conf``) would
+    stow-managed paths (e.g. ``monitors.lua → laptopMonitors.lua``) would
     be converted to real files, which ``detect_gpu_and_link_monitor_config``
     then deletes on the next sync — silently discarding all edits.
     """

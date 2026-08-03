@@ -127,7 +127,14 @@ def test_sync_is_idempotent(vm: VMClient) -> None:
 
 @pytest.mark.vm
 def test_hyprland_config_has_no_errors(vm: VMClient) -> None:
-    """Hyprland --verify-config passes without errors on the installed config."""
+    """Hyprland --verify-config passes without errors on the installed config.
+
+    Hyprland auto-discovers hyprland.lua over hyprland.conf when both are
+    present (0.55+; see docs/hyprland-reference.md), so this exercises the
+    Lua config now shipped — no path is hardcoded here. If --verify-config's
+    output wording changes for a Lua entrypoint on the VM's installed
+    Hyprland version, update the assertion below to match.
+    """
     result = vm.run("Hyprland --verify-config 2>&1", check=False)
     assert result.returncode == 0, f"Hyprland config has errors:\n{result.stdout}"
     assert "config ok" in result.stdout.lower()

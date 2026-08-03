@@ -86,9 +86,9 @@ def test_hyprconf_binary_on_path(install_vm: VMClient) -> None:
 
 @pytest.mark.install
 def test_config_dir_exists(install_vm: VMClient) -> None:
-    """~/.config/hypr/ exists and contains hyprland.conf."""
+    """~/.config/hypr/ exists and contains hyprland.lua."""
     result = install_vm.run(
-        "test -f ~/.config/hypr/hyprland.conf && echo OK",
+        "test -f ~/.config/hypr/hyprland.lua && echo OK",
         check=False,
     )
     assert result.returncode == 0
@@ -99,9 +99,9 @@ def test_config_dir_exists(install_vm: VMClient) -> None:
 def test_stow_packages_deployed(install_vm: VMClient) -> None:
     """Key stow-managed files are present under ~/.config/hypr/."""
     required_files = [
-        "~/.config/hypr/hyprland.conf",
-        "~/.config/hypr/keybinds.conf",
-        "~/.config/hypr/monitors.conf",
+        "~/.config/hypr/hyprland.lua",
+        "~/.config/hypr/keybinds.lua",
+        "~/.config/hypr/monitors.lua",
         "~/.config/hypr/hyprlock.conf",
         "~/.config/hypr/hypridle.conf",
     ]

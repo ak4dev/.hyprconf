@@ -409,7 +409,7 @@ def _run_write_hardware_conf(
 ) -> str:
     """
     Run write_hardware_conf() (extracted from setup.sh) with stubbed helpers.
-    Returns the text of the generated 60-hardware.conf.
+    Returns the text of the generated conf.d/hardware.lua.
     """
     source = SETUP_SH.read_text()
 
@@ -436,7 +436,7 @@ write_hardware_conf
 """
     result = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
     assert result.returncode == 0, f"write_hardware_conf failed:\n{result.stderr}"
-    return (conf_dir / "60-hardware.conf").read_text()
+    return (conf_dir / "hardware.lua").read_text()
 
 
 def test_write_hardware_conf_no_touchdevice_block_without_touchscreen(tmp_path):
@@ -451,7 +451,7 @@ def test_write_hardware_conf_emits_touchdevice_block_with_touchscreen(tmp_path):
 
 def test_write_hardware_conf_touchdevice_output_is_edp1(tmp_path):
     conf = _run_write_hardware_conf(tmp_path, has_touch=True)
-    assert "output    = eDP-1" in conf
+    assert 'output = "eDP-1"' in conf
 
 
 def test_write_hardware_conf_touchdevice_transform_is_zero(tmp_path):
@@ -470,15 +470,15 @@ def test_write_hardware_conf_no_legacy_touch_output_key(tmp_path):
 
 
 def test_write_hardware_conf_emits_launcher_when_touch_detected(tmp_path):
-    """touch-panel-launcher must be in exec-once when touchscreen is present."""
+    """touch-panel-launcher must be in the startup block when touchscreen is present."""
     conf = _run_write_hardware_conf(tmp_path, has_touch=True)
-    assert "exec-once = touch-panel-launcher" in conf
+    assert 'hl.exec_cmd("touch-panel-launcher")' in conf
 
 
 def test_write_hardware_conf_emits_watch_when_touch_detected(tmp_path):
-    """touch-panel-watch must be in exec-once when touchscreen is present."""
+    """touch-panel-watch must be in the startup block when touchscreen is present."""
     conf = _run_write_hardware_conf(tmp_path, has_touch=True)
-    assert "exec-once = touch-panel-watch" in conf
+    assert 'hl.exec_cmd("touch-panel-watch")' in conf
 
 
 def test_write_hardware_conf_no_launcher_without_touchscreen(tmp_path):
@@ -494,12 +494,12 @@ def test_write_hardware_conf_no_watch_without_touchscreen(tmp_path):
 
 
 def test_write_hardware_conf_no_legacy_touch_panel_exec(tmp_path):
-    """The old 'exec-once = touch-panel' line must never be emitted."""
+    """The old bare 'exec-once = touch-panel' line must never be emitted."""
     conf = _run_write_hardware_conf(tmp_path, has_touch=True)
     # 'touch-panel-launcher' and 'touch-panel-watch' contain 'touch-panel' as a
-    # substring, so filter those out and ensure bare 'touch-panel' is absent.
+    # substring, so filter those out and ensure a bare 'touch-panel' call is absent.
     lines = [ln.strip() for ln in conf.splitlines()]
-    assert "exec-once = touch-panel" not in lines
+    assert 'hl.exec_cmd("touch-panel")' not in lines
 
 
 # ---------------------------------------------------------------------------
@@ -510,13 +510,13 @@ def test_write_hardware_conf_no_legacy_touch_panel_exec(tmp_path):
 def test_write_hardware_conf_emits_libva_driver_when_nvidia(tmp_path):
     """LIBVA_DRIVER_NAME=nvidia must be set when Nvidia GPU is detected."""
     conf = _run_write_hardware_conf(tmp_path, has_nvidia=True)
-    assert "env = LIBVA_DRIVER_NAME,nvidia" in conf
+    assert 'hl.env("LIBVA_DRIVER_NAME", "nvidia")' in conf
 
 
 def test_write_hardware_conf_emits_glx_vendor_when_nvidia(tmp_path):
     """__GLX_VENDOR_LIBRARY_NAME=nvidia must be set when Nvidia GPU is detected."""
     conf = _run_write_hardware_conf(tmp_path, has_nvidia=True)
-    assert "env = __GLX_VENDOR_LIBRARY_NAME,nvidia" in conf
+    assert 'hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")' in conf
 
 
 def test_write_hardware_conf_no_libva_driver_without_nvidia(tmp_path):
@@ -534,7 +534,7 @@ def test_write_hardware_conf_no_glx_vendor_without_nvidia(tmp_path):
 def test_write_hardware_conf_nvidia_with_touch(tmp_path):
     """Nvidia env vars and touchdevice block must both appear when both present."""
     conf = _run_write_hardware_conf(tmp_path, has_nvidia=True, has_touch=True)
-    assert "env = LIBVA_DRIVER_NAME,nvidia" in conf
+    assert 'hl.env("LIBVA_DRIVER_NAME", "nvidia")' in conf
     assert "touchdevice" in conf
 
 

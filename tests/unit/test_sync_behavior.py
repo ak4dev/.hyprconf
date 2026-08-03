@@ -124,6 +124,35 @@ class TestMigrateUserConf:
         assert live_file.exists(), "live file should exist after migration"
         assert "user-value = 42" in live_file.read_text(), "user settings must be preserved"
 
+    def test_migrate_working_symlink_local_lua(self, tmp_path: Path) -> None:
+        """migrate_user_conf also handles the current local.lua filename, not just the legacy one."""
+        stow_conf_d = tmp_path / "stow" / "hypr" / ".config" / "hypr" / "conf.d"
+        stow_conf_d.mkdir(parents=True)
+        stow_file = stow_conf_d / "local.lua"
+        stow_file.write_text('local mainMod = "SUPER"\n-- user-value = 42\n')
+
+        live_conf_d = tmp_path / ".config" / "hypr" / "conf.d"
+        live_conf_d.mkdir(parents=True)
+        live_file = live_conf_d / "local.lua"
+        live_file.symlink_to(stow_file)
+
+        fn_script = self._make_runner(tmp_path)
+        result = subprocess.run(
+            ["bash", fn_script],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "HOME": str(tmp_path),
+                "HYPRCONF_DIR": str(tmp_path),
+                "STOW_DIR": str(tmp_path / "stow"),
+            },
+        )
+        assert result.returncode == 0, result.stderr
+        assert not live_file.is_symlink(), "live file should be a real file after migration"
+        assert live_file.exists(), "live file should exist after migration"
+        assert "user-value = 42" in live_file.read_text(), "user settings must be preserved"
+
     def test_migrate_missing_file_is_noop(self, tmp_path: Path) -> None:
         """migrate_user_conf is a no-op when no file exists."""
         live_conf_d = tmp_path / ".config" / "hypr" / "conf.d"
@@ -405,17 +434,32 @@ class TestSyncServicesWifi:
 
 
 # ---------------------------------------------------------------------------
-# 6. 99-hyprconf-local.conf must NOT be tracked in stow package
+# 6. local.lua (and the pre-migration 99-hyprconf-local.conf) must NOT be
+#    tracked in the stow package
 # ---------------------------------------------------------------------------
 
 
 class TestUserConfNotStowed:
+    def test_local_lua_not_in_stow_package(self) -> None:
+        local_conf = CONF_D / "local.lua"
+        assert not local_conf.exists(), (
+            "local.lua must not exist in the stow package — "
+            "it is machine-local and must not be managed by stow or committed to git"
+        )
+
     def test_99_conf_not_in_stow_package(self) -> None:
         local_conf = CONF_D / "99-hyprconf-local.conf"
         assert not local_conf.exists(), (
             "99-hyprconf-local.conf must not exist in the stow package — "
             "it is machine-local and must not be managed by stow or committed to git"
         )
+
+    def test_gitignore_excludes_local_lua(self) -> None:
+        gitignore = CONF_D / ".gitignore"
+        assert gitignore.exists(), (
+            "conf.d/.gitignore must exist to prevent committing machine-local user configs"
+        )
+        assert "local.lua" in gitignore.read_text()
 
     def test_gitignore_excludes_99_conf(self) -> None:
         gitignore = CONF_D / ".gitignore"
@@ -425,11 +469,20 @@ class TestUserConfNotStowed:
         assert "99-hyprconf-local.conf" in gitignore.read_text()
 
     def test_create_directories_creates_user_conf_as_real_file(self) -> None:
-        """create_directories must create 99-hyprconf-local.conf as a real file."""
+        """create_directories must create local.lua as a real file."""
         src = _setup_text()
         # The function must create the file (cat > or similar)
         cd_idx = src.index("create_directories()")
         cd_body = src[cd_idx : cd_idx + 800]
+        assert "local.lua" in cd_body, "create_directories must handle local.lua"
+
+    def test_create_directories_still_recognises_legacy_name(self) -> None:
+        """create_directories must not blank-slate a not-yet-migrated legacy file."""
+        src = _setup_text()
+        cd_idx = src.index("create_directories()")
+        cd_body = src[cd_idx : cd_idx + 800]
         assert "99-hyprconf-local.conf" in cd_body, (
-            "create_directories must handle 99-hyprconf-local.conf"
+            "create_directories must still check for the legacy filename so it "
+            "doesn't create a blank local.lua that would make hyprconf's Python "
+            "migration skip converting the user's old overrides"
         )

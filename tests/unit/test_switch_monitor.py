@@ -1,10 +1,12 @@
 """Tests for stow/hypr/.config/hypr/scripts/switch_monitor.sh.
 
 Verifies:
-- Applying a valid preset copies the preset file to monitors.conf
+- Applying a valid preset symlinks monitors.lua to the preset file (preferring
+  a `pcMonitors.<name>.lua` preset, falling back to the pre-migration
+  extension-less `pcMonitors.<name>` for any custom preset not yet converted)
 - Missing preset exits non-zero with a useful error message
-- Missing monitors.conf argument exits non-zero
-- Atomic write: uses cp+mv (not rm+cp), so monitors.conf is never absent
+- Missing monitors.lua argument exits non-zero
+- Atomic write: uses cp+mv (not rm+cp), so monitors.lua is never absent
   during the switch (regression guard on source-level check + behaviour)
 """
 
@@ -53,8 +55,23 @@ def _run_switch(tmp: Path, preset: str, config_dir: Path) -> subprocess.Complete
 # ---------------------------------------------------------------------------
 
 
-def test_valid_preset_writes_monitors_conf(tmp_path):
-    """Applying a valid preset must write its content to monitors.conf."""
+def test_valid_preset_writes_monitors_lua(tmp_path):
+    """Applying a valid Lua preset must symlink its content to monitors.lua."""
+    _make_fake_hyprctl(tmp_path)
+    cfg_src = tmp_path / "cfg_src"
+    cfg_src.mkdir()
+    (cfg_src / "pcMonitors.bedroom.lua").write_text('hl.monitor({ output = "HDMI-A-1", mode = "preferred" })\n')
+
+    res = _run_switch(tmp_path, "bedroom", cfg_src)
+    assert res.returncode == 0, f"Script failed: {res.stderr}"
+
+    monitors_lua = tmp_path / "home" / ".config" / "hypr" / "monitors.lua"
+    assert monitors_lua.exists(), "monitors.lua not created"
+    assert "HDMI-A-1" in monitors_lua.read_text()
+
+
+def test_valid_preset_falls_back_to_legacy_extensionless_file(tmp_path):
+    """A preset with no .lua sibling (not yet migrated) is still found."""
     _make_fake_hyprctl(tmp_path)
     cfg_src = tmp_path / "cfg_src"
     cfg_src.mkdir()
@@ -63,9 +80,9 @@ def test_valid_preset_writes_monitors_conf(tmp_path):
     res = _run_switch(tmp_path, "bedroom", cfg_src)
     assert res.returncode == 0, f"Script failed: {res.stderr}"
 
-    monitors_conf = tmp_path / "home" / ".config" / "hypr" / "monitors.conf"
-    assert monitors_conf.exists(), "monitors.conf not created"
-    assert "HDMI-A-1" in monitors_conf.read_text()
+    monitors_lua = tmp_path / "home" / ".config" / "hypr" / "monitors.lua"
+    assert monitors_lua.exists(), "monitors.lua not created"
+    assert "HDMI-A-1" in monitors_lua.read_text()
 
 
 def test_preset_not_found_exits_nonzero(tmp_path):

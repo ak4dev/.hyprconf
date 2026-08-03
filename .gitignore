@@ -10,7 +10,7 @@ tests/unit/_fake_bins_*/
 *.backup.*
 
 # Generated monitor symlink target (created by setup.sh at runtime)
-stow/hypr/.config/hypr/monitors.conf
+stow/hypr/.config/hypr/monitors.lua
 
 # Editor
 .vscode/

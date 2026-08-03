@@ -2,7 +2,7 @@
 Structural tests for the Polkit authentication agent configuration.
 
 Ensures hyprpolkitagent (the official Hyprland-ecosystem polkit agent) is
-consistently referenced across packages, hyprland.conf, and README.
+consistently referenced across packages, hyprland.lua, and README.
 """
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 PACKAGES_FILE = REPO_ROOT / "packages"
-HYPRLAND_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "hyprland.conf"
+HYPRLAND_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "hyprland.lua"
 README = REPO_ROOT / "README.md"
 
 
@@ -30,7 +30,7 @@ def test_packages_does_not_contain_polkit_kde_agent() -> None:
 def test_hyprland_conf_starts_hyprpolkitagent() -> None:
     text = HYPRLAND_CONF.read_text()
     assert "systemctl --user start hyprpolkitagent" in text, (
-        "hyprland.conf must start hyprpolkitagent via systemctl --user"
+        "hyprland.lua must start hyprpolkitagent via systemctl --user"
     )
 
 

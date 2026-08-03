@@ -114,7 +114,7 @@ PanelWindow {
 - `mask: Region {}` makes a window purely visual — input passes through (OSD, corners).
   Omit `mask` for normal input.
 - `WlrLayershell.namespace` cannot change after the window connects; Hyprland
-  `layerrule = blur, quickshell:popouts` keys off it (see `hyprland.conf`).
+  `hl.layer_rule({ match = { namespace = "..." } })` keys off it (see `hyprland.lua`).
 - `keyboardFocus: OnDemand` is required for text fields in layer-shell windows
   (Control Center password box). Never use `Exclusive` outside a lock screen.
 - `margins { top: N; left: N }` offsets from the anchored edges.
@@ -357,7 +357,7 @@ IconImage { source: trayItem.icon; implicitSize: 16 }   // icon-theme aware Imag
 
 Theming flow: `~/.config/hypr/.current-theme` → `theme-switcher/themes/<name>.json`
 → `Theme.qml` FileViews (watched) → live repaint. Hyprland blurs the popout/OSD
-surfaces via `layerrule` entries in `hyprland.conf` matching the
+surfaces via `hl.layer_rule({...})` calls in `hyprland.lua` matching the
 `quickshell:*` namespaces.
 
 **When adding features not covered here, add a concise example of the new API to

@@ -28,18 +28,20 @@
 └── stow/                     # GNU Stow packages — symlinked into $HOME
     ├── hypr/
     │   ├── .config/hypr/
-    │   │   ├── hyprland.conf           # Animations, layout, env vars
-    │   │   ├── keybinds.conf           # All keybindings
-    │   │   ├── gestures.conf
-    │   │   ├── hyprpaper.conf
-    │   │   ├── hyprlock.conf
-    │   │   ├── hypridle.conf
-    │   │   ├── laptopMonitors.conf
-    │   │   ├── pcMonitors.conf / .bedroom / .kitchen
-    │   │   ├── pcMonitors.K             # Desktop alt preset (monitorv2 block syntax)
+    │   │   ├── hyprland.lua            # Animations, layout, env vars (Lua — Hyprland 0.55+;
+    │   │   │                           #   hyprlang .conf deprecated 0.56, removal ~0.57)
+    │   │   ├── keybinds.lua            # All keybindings
+    │   │   ├── gestures.lua
+    │   │   ├── hyprpaper.conf          # Separate program, still hyprlang .conf
+    │   │   ├── hyprlock.conf           # Separate program, still hyprlang .conf
+    │   │   ├── hypridle.conf           # Separate program, still hyprlang .conf
+    │   │   ├── laptopMonitors.lua
+    │   │   ├── pcMonitors.lua / .bedroom.lua / .kitchen.lua
+    │   │   ├── pcMonitors.K.lua         # Desktop alt preset
     │   │   ├── conf.d/
-    │   │   │   ├── 00-hyprconf.conf        # Source guard (includes conf.d glob)
-    │   │   │   └── 99-hyprconf-local.conf  # Machine-local overrides (written by the TUI)
+    │   │   │   └── local.lua               # Machine-local overrides (written by the TUI;
+    │   │   │                               #   individually require()d, so no source-guard
+    │   │   │                               #   placeholder file is needed anymore)
     │   │   └── scripts/
     │   │       ├── hyprconf-tui/main.py    # Textual TUI
     │   │       ├── switch_monitor.sh
@@ -56,14 +58,15 @@
     │       ├── bin/…                      # + idle-action, autorotate, touch-panel*, wvkbd-*
     │       └── lib/hyprconf/              # Shared Python library
     │           ├── schema.py              # OPTION_SCHEMA — all Hyprland keys + types + defaults
-    │           ├── config.py              # Read/write 99-hyprconf-local.conf
+    │           ├── config.py              # Read/write conf.d/local.lua
+    │           ├── lua_syntax.py          # Lua comment/value/single-line-call primitives
     │           ├── paths.py               # XDG path constants (single source of truth)
     │           ├── hyprctl.py             # hyprctl IPC wrapper
     │           ├── file_edit.py           # Atomic file operations
-    │           ├── block_conf.py          # Generic block-format config parser
-    │           ├── keybinds.py            # Keybind read/write
-    │           ├── rules.py               # Window/workspace rule read/write
-    │           ├── monitors.py            # Monitor config read/write
+    │           ├── block_conf.py          # Generic block-format config parser (hyprlock/hypridle/hyprpaper)
+    │           ├── keybinds.py            # Keybind read/write (Lua)
+    │           ├── rules.py               # Window/workspace rule read/write (Lua)
+    │           ├── monitors.py            # Monitor config read/write (Lua)
     │           ├── hyprlock.py            # hyprlock block read/write
     │           ├── hypridle.py            # hypridle block read/write
     │           ├── hyprpaper.py           # hyprpaper read/write

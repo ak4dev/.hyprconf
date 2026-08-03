@@ -17,7 +17,7 @@ from hyprconf.monitors import (
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_LAPTOP_CONF = _REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "laptopMonitors.conf"
+_LAPTOP_CONF = _REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "laptopMonitors.lua"
 
 MONITORS_CONF = """\
 monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5
@@ -106,7 +106,7 @@ def test_to_line_no_extras(hypr_dir: Path) -> None:
     p = _mon_file(hypr_dir, MONITORS_CONF)
     m = read_monitor_configs(p)[0]
     line = m.to_line()
-    assert line == "monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5"
+    assert line == 'hl.monitor({ output = "HDMI-A-1", mode = "3840x2160@120", position = "0x0", scale = 1.5 })'
 
 
 def test_to_line_with_extras(hypr_dir: Path) -> None:
@@ -150,7 +150,7 @@ def test_upsert_with_extras(hypr_dir: Path) -> None:
     p = _mon_file(hypr_dir, "")
     upsert_monitor("HDMI-A-1", "3840x2160@120", "0x0", "1.5", "vrr, 1, bitdepth, 10", file=p)
     text = p.read_text()
-    assert "vrr, 1, bitdepth, 10" in text
+    assert "vrr = 1, bitdepth = 10" in text
 
 
 def test_upsert_preserves_other_monitors(hypr_dir: Path) -> None:

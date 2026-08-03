@@ -60,8 +60,8 @@ class→color, hide-when-empty, critical blink, click).
 
 ## Popouts & extras
 
-Borderless frosted panels blurred by Hyprland (`layerrule` in
-`hyprland.conf`), each dismissed by clicking outside (`HyprlandFocusGrab`):
+Borderless frosted panels blurred by Hyprland (`hl.layer_rule({...})` in
+`hyprland.lua`), each dismissed by clicking outside (`HyprlandFocusGrab`):
 
 - **Control Center** (click the network module, or `Super+Shift+N`) —
   macOS-style unified panel:
@@ -107,11 +107,11 @@ format.
 
 `IpcHandler` target `popouts` exposes `toggle <calendar|volume|controlcenter>`
 (the name is validated against a fixed list and never executed). Bound in
-`keybinds.conf` through `launch.sh` (works with either runtime):
+`keybinds.lua` through `launch.sh` (works with either runtime):
 
 ```
-bind = $mainMod SHIFT, C, exec, ~/.config/quickshell/launch.sh ipc call popouts toggle calendar
-bind = $mainMod SHIFT, N, exec, ~/.config/quickshell/launch.sh ipc call popouts toggle controlcenter
+hl.bind(mainMod .. " + SHIFT + C", hl.dsp.exec_cmd("~/.config/quickshell/launch.sh ipc call popouts toggle calendar"))
+hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("~/.config/quickshell/launch.sh ipc call popouts toggle controlcenter"))
 ```
 
 ## Security notes
@@ -131,7 +131,7 @@ bind = $mainMod SHIFT, N, exec, ~/.config/quickshell/launch.sh ipc call popouts 
 - Quickshell only watches files it has already **loaded** — lazily-loaded
   components (popout contents) may not hot-reload until something watched
   (e.g. `shell.qml`) is touched or `qs` is restarted.
-- The `hyprland.conf` exec line is guarded by `pgrep -x 'qs|quickshell'`
+- The `hyprland.lua` exec line is guarded by `pgrep -x 'qs|quickshell'`
   (both names: the process comm is `qs` when the system package is
   installed) so `hyprctl reload` never restarts a running bar (a restart
   tears down the StatusNotifierWatcher and breaks the tray). If quickshell

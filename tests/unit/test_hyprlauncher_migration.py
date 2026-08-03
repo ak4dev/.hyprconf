@@ -24,8 +24,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 PACKAGES_FILE = REPO_ROOT / "packages"
-HYPRLAND_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "hyprland.conf"
-KEYBINDS_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "keybinds.conf"
+HYPRLAND_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "hyprland.lua"
+KEYBINDS_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "keybinds.lua"
 HYPRLAUNCHER_CONF = REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "hyprlauncher.conf"
 SWITCH_THEME = (
     REPO_ROOT
@@ -67,30 +67,32 @@ def test_packages_does_not_contain_wofi() -> None:
 
 
 # ---------------------------------------------------------------------------
-# hyprland.conf — $menu variable
+# keybinds.lua — `menu` local (relocated from hyprland.conf's old $menu var —
+# "MY PROGRAMS" moved into keybinds.lua since it's the only consumer and Lua
+# `require`d modules don't share locals across files)
 # ---------------------------------------------------------------------------
 
 
 def test_hyprland_conf_menu_uses_hyprlauncher() -> None:
-    """$menu in hyprland.conf must invoke hyprlauncher."""
-    text = HYPRLAND_CONF.read_text()
-    match = re.search(r"^\$menu\s*=\s*(.+)$", text, re.MULTILINE)
-    assert match, "$menu variable not found in hyprland.conf"
+    """The `menu` local in keybinds.lua must invoke hyprlauncher."""
+    text = KEYBINDS_CONF.read_text()
+    match = re.search(r'^local\s+menu\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    assert match, "local menu = ... not found in keybinds.lua"
     value = match.group(1).strip()
-    assert "hyprlauncher" in value, f"$menu must use hyprlauncher, got: {value!r}"
+    assert "hyprlauncher" in value, f"menu must use hyprlauncher, got: {value!r}"
 
 
 def test_hyprland_conf_menu_does_not_use_wofi() -> None:
-    """$menu in hyprland.conf must not invoke wofi."""
-    text = HYPRLAND_CONF.read_text()
-    match = re.search(r"^\$menu\s*=\s*(.+)$", text, re.MULTILINE)
-    assert match, "$menu variable not found in hyprland.conf"
+    """The `menu` local in keybinds.lua must not invoke wofi."""
+    text = KEYBINDS_CONF.read_text()
+    match = re.search(r'^local\s+menu\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    assert match, "local menu = ... not found in keybinds.lua"
     value = match.group(1).strip()
-    assert "wofi" not in value, f"$menu must not contain wofi, got: {value!r}"
+    assert "wofi" not in value, f"menu must not contain wofi, got: {value!r}"
 
 
 # ---------------------------------------------------------------------------
-# keybinds.conf — clipboard history
+# keybinds.lua — clipboard history
 # ---------------------------------------------------------------------------
 
 
@@ -98,7 +100,7 @@ def test_keybinds_clipboard_uses_hyprlauncher() -> None:
     """Clipboard history bind must pipe through hyprlauncher --dmenu."""
     text = KEYBINDS_CONF.read_text()
     clipboard_lines = [l for l in text.splitlines() if "cliphist" in l and "dmenu" in l.lower()]
-    assert clipboard_lines, "No cliphist dmenu bind found in keybinds.conf"
+    assert clipboard_lines, "No cliphist dmenu bind found in keybinds.lua"
     for line in clipboard_lines:
         assert "hyprlauncher" in line, (
             f"Clipboard bind must use hyprlauncher --dmenu, got: {line!r}"
@@ -110,7 +112,7 @@ def test_keybinds_clipboard_uses_dmenu_flag() -> None:
     """hyperlauncher must be called with --dmenu in the clipboard bind."""
     text = KEYBINDS_CONF.read_text()
     clipboard_lines = [l for l in text.splitlines() if "cliphist" in l and "hyprlauncher" in l]
-    assert clipboard_lines, "No cliphist + hyprlauncher bind found in keybinds.conf"
+    assert clipboard_lines, "No cliphist + hyprlauncher bind found in keybinds.lua"
     for line in clipboard_lines:
         assert "--dmenu" in line, (
             f"hyprlauncher must be called with --dmenu in clipboard bind, got: {line!r}"

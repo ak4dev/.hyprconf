@@ -17,7 +17,7 @@ log_ok()   { printf '%s  ✔ %s%s%s\n' "$GR" "$WH" "$1" "$RS"; }
 log_die()  { printf '%s  ✘ %s%s\n'   "$RD" "$1" "$RS" >&2; exit 1; }
 
 readonly CONFIG_DIR="$HOME/.config/hypr"
-readonly MONITORS_CONF="$CONFIG_DIR/monitors.conf"
+readonly MONITORS_CONF="$CONFIG_DIR/monitors.lua"
 
 if [[ -z "${1:-}" ]]; then
     printf '%s  Usage: %s <preset>%s\n'   "$AM" "$(basename "$0")" "$RS" >&2
@@ -30,12 +30,15 @@ if [[ ! "$1" =~ ^[A-Za-z0-9_-]+$ ]]; then
     log_die "Invalid preset name: '$1' (allowed: A-Z, a-z, 0-9, _, -)"
 fi
 
-SOURCE="$CONFIG_DIR/pcMonitors.$1"
-[[ -f "$SOURCE" ]] || log_die "Preset not found: pcMonitors.$1"
+# Prefer the Lua preset; fall back to the (pre-0.57-deprecation) hyprlang
+# variant for any custom preset a user made before this migration.
+SOURCE="$CONFIG_DIR/pcMonitors.$1.lua"
+[[ -f "$SOURCE" ]] || SOURCE="$CONFIG_DIR/pcMonitors.$1"
+[[ -f "$SOURCE" ]] || log_die "Preset not found: pcMonitors.$1(.lua)"
 
 log_step "Switching monitor config to: $1"
 
-# Symlink monitors.conf → preset file so the TUI writes go directly to the
+# Symlink monitors.lua → preset file so the TUI writes go directly to the
 # tracked preset (edits persist when the preset is re-selected later).
 ln -sf "$SOURCE" "$MONITORS_CONF"
 

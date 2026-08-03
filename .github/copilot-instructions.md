@@ -49,8 +49,8 @@ When modifying any Quickshell feature (anything under `stow/quickshell/`), consu
 **Any configuration change must include a README review as a non-optional step.** Before committing, grep `README.md` for content related to what you changed. If any section — feature bullet, table row, install step, code example, or any other reference — describes or implies the old behaviour, update it to match reality. This applies to every change, regardless of how small it seems. The trigger list below is illustrative, not exhaustive:
 
 - Adding, removing, or renaming packages in the `packages` file
-- Adding, changing, or removing keybindings in `keybinds.conf`
-- Adding or removing autostart entries in `hyprland.conf`
+- Adding, changing, or removing keybindings in `keybinds.lua`
+- Adding or removing autostart entries in `hyprland.lua`
 - Adding new stow packages or scripts under `stow/`
 - Adding new themes to `theme-switcher/themes/`
 - Changing any logic in `setup.sh` (detection, install steps, service management, etc.)
@@ -178,9 +178,10 @@ installs noted in `packages` and the docs. Never auto-install AUR packages.
 
 ## Keybindings
 
-- All keybindings live in `stow/hypr/.config/hypr/keybinds.conf`.
+- All keybindings live in `stow/hypr/.config/hypr/keybinds.lua` (Lua — Hyprland's
+  compositor config moved off hyprlang `.conf` in 0.55+; see `docs/hyprland-reference.md`).
 - Group new bindings with related existing ones and add a comment if the group is new.
-- `$mainMod` is `SUPER`. Do not redefine it.
+- `mainMod` is `SUPER`. Do not redefine it.
 - If a keybind launches a program not yet in `packages`, add it.
 
 ## Theme Switcher
@@ -212,7 +213,7 @@ installs noted in `packages` and the docs. Never auto-install AUR packages.
 - **All regular work is pushed to `dev` only.** Never push directly to `stable` or any other branch unless the user explicitly asks.
 - **Never push to any remote unless the user explicitly asks.** Commit locally, then wait for the user to say "push". Unsolicited pushes risk exposing unreviewed changes, PII, or broken code. The only exception is if the user's instruction unambiguously includes a push (e.g., "commit and push").
 - **Never run `scripts/publish` unless the user explicitly says to publish.** Publishing promotes `dev` to `stable` and creates a release tag — it is a deliberate, user-directed action, not a side-effect of regular development. When in doubt, commit locally and wait.
-- **Hardware detection and generated config changes must be sync-patchable.** Any change to hardware detection logic (touchscreen, keyboard, accelerometer, GPU) or to files generated at setup/sync time (e.g. `60-hardware.conf`) must land exclusively in code paths that `setup.sh --sync` already calls — specifically `setup_hardware_features()`, `write_hardware_conf()`, and `stow_all_packages()`. This guarantees existing installs are fully patched by running `setup.sh --sync` with no manual intervention. Never gate such logic behind install-only paths.
+- **Hardware detection and generated config changes must be sync-patchable.** Any change to hardware detection logic (touchscreen, keyboard, accelerometer, GPU) or to files generated at setup/sync time (e.g. `conf.d/hardware.lua`) must land exclusively in code paths that `setup.sh --sync` already calls — specifically `setup_hardware_features()`, `write_hardware_conf()`, and `stow_all_packages()`. This guarantees existing installs are fully patched by running `setup.sh --sync` with no manual intervention. Never gate such logic behind install-only paths.
 - **All install-time fixes must also be applied by `setup.sh --sync`.** Any bug fix or configuration that belongs in the install path (packages, services, system config files) must also be applied idempotently in the sync code path — `sync_services()`, `setup_hardware_features()`, `write_hardware_conf()`, or a dedicated helper called from the sync block in `main()`. A user on an older install must be able to pick up the fix by running `setup.sh --sync` with no manual steps. Never land a fix only in `install/install.sh` without a matching idempotent sync-time counterpart.
 
 ## Scripts
@@ -223,8 +224,8 @@ installs noted in `packages` and the docs. Never auto-install AUR packages.
 
 ## Monitor Configs
 
-- Monitor presets live in `stow/hypr/.config/hypr/` as `pcMonitors.<name>` files.
-- When adding a new preset, add a corresponding keybind in `keybinds.conf` and document it in `README.md`.
+- Monitor presets live in `stow/hypr/.config/hypr/` as `pcMonitors.<name>.lua` files.
+- When adding a new preset, add a corresponding keybind in `keybinds.lua` and document it in `README.md`.
 
 ---
 

@@ -1,4 +1,4 @@
-"""Tests for hyprconf.keybinds — keybind parser and writer."""
+"""Tests for hyprconf.keybinds — keybind parser and writer (Lua ``hl.bind`` form)."""
 
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ from hyprconf.keybinds import (
     update_keybind,
 )
 
-KEYBINDS_CONF = """\
-$mainMod = SUPER
-bind = $mainMod, T, exec, kitty
-bind = $mainMod SHIFT, Q, killactive,
-bindl = , XF86AudioPlay, exec, playerctl play-pause
-bindel = , XF86MonBrightnessUp, exec, brightnessctl set 5%+
-bindm = $mainMod, mouse:272, movewindow
+KEYBINDS_LUA = """\
+local mainMod = "SUPER"
+hl.bind(mainMod .. " + T", hl.dsp.exec_cmd("kitty"))
+hl.bind(mainMod .. " + SHIFT + Q", hl.dsp.window.close())
+hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
+hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd("brightnessctl set 5%+"), { locked = true, repeating = true })
+hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag(), { mouse = true })
 """
 
 
@@ -25,8 +25,8 @@ bindm = $mainMod, mouse:272, movewindow
 # ---------------------------------------------------------------------------
 
 
-def _kb_file(hypr_dir: Path, content: str = KEYBINDS_CONF) -> Path:
-    p = hypr_dir / "keybinds.conf"
+def _kb_file(hypr_dir: Path, content: str = KEYBINDS_LUA) -> Path:
+    p = hypr_dir / "keybinds.lua"
     p.write_text(content)
     return p
 
@@ -38,30 +38,33 @@ def _kb_file(hypr_dir: Path, content: str = KEYBINDS_CONF) -> Path:
 
 def test_reads_basic_bind(hypr_dir: Path) -> None:
     _kb_file(hypr_dir)
-    entries = read_keybinds_with_location(hypr_dir / "keybinds.conf")
+    entries = read_keybinds_with_location(hypr_dir / "keybinds.lua")
     kinds = {e.kind for e in entries}
     assert "bind" in kinds
 
 
 def test_reads_all_bind_kinds(hypr_dir: Path) -> None:
     _kb_file(hypr_dir)
-    entries = read_keybinds_with_location(hypr_dir / "keybinds.conf")
+    entries = read_keybinds_with_location(hypr_dir / "keybinds.lua")
     kinds = {e.kind for e in entries}
-    assert kinds == {"bind", "bindl", "bindel", "bindm"}
+    # {locked=true} -> "bindl"; {locked=true, repeating=true} -> "bindle"
+    # (canonical flag order, not the hyprlang-era "bindel" spelling — these
+    # are reconstructed display labels, not round-tripped literal text)
+    assert kinds == {"bind", "bindl", "bindle", "bindm"}
 
 
 def test_variable_expansion(hypr_dir: Path) -> None:
     _kb_file(hypr_dir)
-    entries = read_keybinds_with_location(hypr_dir / "keybinds.conf")
-    # $mainMod should be expanded to SUPER
+    entries = read_keybinds_with_location(hypr_dir / "keybinds.lua")
+    # local mainMod = "SUPER" should be resolved in the concatenated key expr
     mod_entries = [e for e in entries if "SUPER" in e.mods]
     assert len(mod_entries) >= 3
 
 
 def test_entry_fields(hypr_dir: Path) -> None:
     _kb_file(hypr_dir)
-    entries = read_keybinds_with_location(hypr_dir / "keybinds.conf")
-    kitty_entry = next(e for e in entries if e.dispatcher == "exec" and "kitty" in e.args)
+    entries = read_keybinds_with_location(hypr_dir / "keybinds.lua")
+    kitty_entry = next(e for e in entries if e.dispatcher == "exec_cmd" and "kitty" in e.args)
     assert kitty_entry.key == "T"
     assert kitty_entry.mods == "SUPER"
     assert kitty_entry.kind == "bind"
@@ -69,14 +72,14 @@ def test_entry_fields(hypr_dir: Path) -> None:
 
 def test_raw_line_preserved(hypr_dir: Path) -> None:
     _kb_file(hypr_dir)
-    entries = read_keybinds_with_location(hypr_dir / "keybinds.conf")
+    entries = read_keybinds_with_location(hypr_dir / "keybinds.lua")
     for e in entries:
-        assert "$mainMod" in e.raw_line or e.kind in ("bindl", "bindel", "bindm")
+        assert "mainMod" in e.raw_line or e.kind in ("bindl", "bindle", "bindm")
 
 
 def test_line_idx_correct(hypr_dir: Path) -> None:
     _kb_file(hypr_dir)
-    p = hypr_dir / "keybinds.conf"
+    p = hypr_dir / "keybinds.lua"
     entries = read_keybinds_with_location(p)
     for entry in entries:
         assert entry.file_path == p
@@ -86,19 +89,19 @@ def test_line_idx_correct(hypr_dir: Path) -> None:
 
 
 def test_empty_file(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
+    p = hypr_dir / "keybinds.lua"
     p.write_text("")
     assert read_keybinds_with_location(p) == []
 
 
 def test_missing_file(hypr_dir: Path) -> None:
-    p = hypr_dir / "nonexistent.conf"
+    p = hypr_dir / "nonexistent.lua"
     assert read_keybinds_with_location(p) == []
 
 
 def test_ignores_comments(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
-    p.write_text("# bind = SUPER, X, exec, foo\nbind = SUPER, T, exec, kitty\n")
+    p = hypr_dir / "keybinds.lua"
+    p.write_text('-- hl.bind("SUPER + X", hl.dsp.exec_cmd("foo"))\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
     entries = read_keybinds_with_location(p)
     assert len(entries) == 1
     assert entries[0].args == "kitty"
@@ -110,7 +113,7 @@ def test_ignores_comments(hypr_dir: Path) -> None:
 
 
 def test_add_keybind_appends(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
+    p = hypr_dir / "keybinds.lua"
     p.write_text("")
     assert add_keybind("bind", "SUPER", "F", "exec", "firefox", file=p) is True
     entries = read_keybinds_with_location(p)
@@ -120,19 +123,19 @@ def test_add_keybind_appends(hypr_dir: Path) -> None:
 
 
 def test_add_keybind_preserves_existing(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
-    p.write_text("bind = SUPER, T, exec, kitty\n")
+    p = hypr_dir / "keybinds.lua"
+    p.write_text('hl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
     add_keybind("bind", "SUPER", "F", "exec", "firefox", file=p)
     entries = read_keybinds_with_location(p)
     assert len(entries) == 2
 
 
 def test_add_keybind_formats_correctly(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
+    p = hypr_dir / "keybinds.lua"
     p.write_text("")
     add_keybind("bindl", "", "XF86AudioPlay", "exec", "playerctl play-pause", file=p)
     text = p.read_text()
-    assert "bindl = , XF86AudioPlay, exec, playerctl play-pause" in text
+    assert 'hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })' in text
 
 
 # ---------------------------------------------------------------------------
@@ -141,8 +144,8 @@ def test_add_keybind_formats_correctly(hypr_dir: Path) -> None:
 
 
 def test_update_keybind_changes_args(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
-    p.write_text("bind = SUPER, T, exec, kitty\n")
+    p = hypr_dir / "keybinds.lua"
+    p.write_text('hl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
     entries = read_keybinds_with_location(p)
     e = entries[0]
     assert (
@@ -153,8 +156,8 @@ def test_update_keybind_changes_args(hypr_dir: Path) -> None:
 
 
 def test_update_keybind_changes_kind(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
-    p.write_text("bind = SUPER, T, exec, kitty\n")
+    p = hypr_dir / "keybinds.lua"
+    p.write_text('hl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
     entries = read_keybinds_with_location(p)
     e = entries[0]
     update_keybind(e.file_path, e.line_idx, "binde", "SUPER", "T", "exec", "kitty")
@@ -163,13 +166,13 @@ def test_update_keybind_changes_kind(hypr_dir: Path) -> None:
 
 
 def test_update_keybind_invalid_idx(hypr_dir: Path) -> None:
-    p = hypr_dir / "keybinds.conf"
-    p.write_text("bind = SUPER, T, exec, kitty\n")
+    p = hypr_dir / "keybinds.lua"
+    p.write_text('hl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
     assert update_keybind(p, 999, "bind", "SUPER", "T", "exec", "kitty") is False
 
 
 # ---------------------------------------------------------------------------
-# Default path (covers L75 — KEYBINDS_FILE default in read_keybinds_with_location)
+# Default path (covers KEYBINDS_FILE default in read_keybinds_with_location)
 # ---------------------------------------------------------------------------
 
 
@@ -177,14 +180,14 @@ def test_read_keybinds_with_location_uses_default_path(hypr_dir: Path) -> None:
     """Calling without a file arg should use KEYBINDS_FILE."""
     from hyprconf.keybinds import KEYBINDS_FILE, read_keybinds_with_location
 
-    KEYBINDS_FILE.write_text("bind = SUPER, T, exec, kitty\n")
+    KEYBINDS_FILE.write_text('hl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
     entries = read_keybinds_with_location()  # no file arg → uses KEYBINDS_FILE
     assert len(entries) == 1
-    assert entries[0].dispatcher == "exec"
+    assert entries[0].dispatcher == "exec_cmd"
 
 
 # ---------------------------------------------------------------------------
-# add_keybind default path (covers L153)
+# add_keybind default path
 # ---------------------------------------------------------------------------
 
 
@@ -198,40 +201,37 @@ def test_add_keybind_uses_default_path(hypr_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Source file following (covers L95-103)
+# require()/try_require() following — the Lua analogue of hyprlang's
+# `source = …` (plain and glob) directive-following
 # ---------------------------------------------------------------------------
 
 
-def test_read_follows_source_include(hypr_dir: Path) -> None:
-    sub = hypr_dir / "extra_keybinds.conf"
-    sub.write_text("bind = SUPER, E, exec, nemo\n")
-    main_kb = hypr_dir / "keybinds.conf"
-    main_kb.write_text(f"source = {sub}\nbind = SUPER, T, exec, kitty\n")
+def test_read_follows_require_include(hypr_dir: Path) -> None:
+    sub = hypr_dir / "extra_keybinds.lua"
+    sub.write_text('hl.bind("SUPER + E", hl.dsp.exec_cmd("nemo"))\n')
+    main_kb = hypr_dir / "keybinds.lua"
+    main_kb.write_text('require("extra_keybinds")\nhl.bind("SUPER + T", hl.dsp.exec_cmd("kitty"))\n')
     entries = read_keybinds_with_location(main_kb, follow_sources=True)
     dispatchers = {e.dispatcher for e in entries}
-    assert "exec" in dispatchers
+    assert "exec_cmd" in dispatchers
     assert len(entries) == 2
 
 
-# ---------------------------------------------------------------------------
-# Source following with glob pattern (covers L99-100)
-# ---------------------------------------------------------------------------
+def test_read_follows_try_require_include(hypr_dir: Path) -> None:
+    """try_require(...) (used for optional conf.d modules) is followed the same way.
 
-
-def test_read_follows_glob_source(hypr_dir: Path) -> None:
-    """read_keybinds_with_location follows glob patterns in source= lines."""
-    from hyprconf.keybinds import read_keybinds_with_location
-
-    kb_dir = hypr_dir / "keys.d"
-    kb_dir.mkdir()
-    (kb_dir / "a.conf").write_text("bind = SUPER, A, exec, app1\n")
-    (kb_dir / "b.conf").write_text("bind = SUPER, B, exec, app2\n")
-    main_kb = hypr_dir / "keybinds.conf"
-    main_kb.write_text(f"source = {kb_dir}/*.conf\n")
+    conf.d modules are required by their bare name (e.g. "extra", not
+    "conf.d.extra") — see the resolve_require_paths docstring for why: Lua's
+    `require` converts every "." to a path separator, so a dotted name can't
+    address conf.d itself (a directory literally named with a dot).
+    """
+    (hypr_dir / "conf.d").mkdir(exist_ok=True)
+    sub = hypr_dir / "conf.d" / "extra.lua"
+    sub.write_text('hl.bind("SUPER + A", hl.dsp.exec_cmd("app1"))\n')
+    main_kb = hypr_dir / "keybinds.lua"
+    main_kb.write_text('try_require("extra")\n')
     entries = read_keybinds_with_location(main_kb, follow_sources=True)
-    dispatchers = {e.dispatcher for e in entries}
-    assert "exec" in dispatchers
-    assert len(entries) == 2
+    assert any(e.args == "app1" for e in entries)
 
 
 # ---------------------------------------------------------------------------
@@ -240,15 +240,15 @@ def test_read_follows_glob_source(hypr_dir: Path) -> None:
 
 
 def test_read_keybinds_malformed_lines(hypr_dir: Path) -> None:
-    """Lines with wrong field count or no = are skipped gracefully."""
-    conf = hypr_dir / "keybinds.conf"
+    """Lines that aren't a complete, well-formed hl.bind(...) call are skipped."""
+    conf = hypr_dir / "keybinds.lua"
     conf.write_text(
-        "$mainMod = SUPER\n"
-        "bind = $mainMod, T, exec, kitty\n"
+        'local mainMod = "SUPER"\n'
+        'hl.bind(mainMod .. " + T", hl.dsp.exec_cmd("kitty"))\n'
         "this is not a keybind line\n"
-        "bind = \n"
-        "bind $mainMod SHIFT Q killactive\n"
-        "bind = $mainMod, R, exec, rofi\n"
+        "hl.bind()\n"
+        'hl.bind(mainMod .. " + SHIFT + Q"\n'  # missing closing paren
+        'hl.bind(mainMod .. " + R", hl.dsp.exec_cmd("rofi"))\n'
     )
     entries = read_keybinds_with_location(conf)
     assert len(entries) == 2
@@ -258,22 +258,10 @@ def test_read_keybinds_malformed_lines(hypr_dir: Path) -> None:
 
 def test_read_keybinds_blank_and_comment_lines(hypr_dir: Path) -> None:
     """Blank lines and comments are ignored."""
-    conf = hypr_dir / "keybinds.conf"
+    conf = hypr_dir / "keybinds.lua"
     conf.write_text(
-        "\n\n# This is a comment\nbind = SUPER, X, exec, xterm\n   \n# Another comment\n"
+        '\n\n-- This is a comment\nhl.bind("SUPER + X", hl.dsp.exec_cmd("xterm"))\n   \n-- Another comment\n'
     )
     entries = read_keybinds_with_location(conf)
     assert len(entries) == 1
     assert entries[0].key == "X"
-
-
-def test_read_keybinds_relative_source(tmp_path: Path) -> None:
-    """A relative `source = ./foo.conf` resolves against the including file's dir."""
-    from hyprconf.keybinds import read_keybinds_with_location
-
-    sub = tmp_path / "extra.conf"
-    sub.write_text("bind = SUPER, X, exec, foo\n")
-    main = tmp_path / "hyprland.conf"
-    main.write_text("source = extra.conf\n")
-    entries = read_keybinds_with_location(main, follow_sources=True)
-    assert any(e.key == "X" and e.dispatcher == "exec" for e in entries)

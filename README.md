@@ -34,7 +34,7 @@
 - **`hyprconf` TUI** — full-screen Textual TUI with arrow-selectable pickers for enums, interactive sliders for numeric fields, and mode lists fetched from `hyprctl`; covers all Hyprland config sections (general, decoration, animations, input, gestures, group, misc, binds, cursor, render, opengl, xwayland, dwindle, master and their subsections), plus keybinds, window/workspace rules, monitors, hyprlock, hypridle, hyprpaper, and a built-in theme picker
 - **One-command setup** — installs packages (official repos only — **never** the AUR), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
 - **`setup.sh --sync`** (alias `hyprsync`) — pull latest changes, re-stow, and re-apply services without reinstalling packages; `--force` to hard-reset a diverged branch, `--full` to restow all dotfiles
-- **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.conf` or `laptopMonitors.conf` at setup
+- **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.lua` or `laptopMonitors.lua` at setup
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `powerprofilesctl set <mode>`
 - **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `setup.sh --sync`
 - **Hardware auto-detection** — touchscreen devices get a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged) and are wired up for `wvkbd` (on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) — but because `wvkbd` is AUR-only it is **not** installed automatically; install it manually (`yay -S wvkbd`) to enable the OSK; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `setup.sh --sync`
@@ -88,7 +88,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 6. VS Code theme extensions + Firefox extension payloads
 7. Firefox enterprise policies (`/etc/firefox/policies/policies.json`): telemetry disabled, uBlock Origin installed
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
-9. Hardware feature detection: touchscreen → writes `conf.d/60-hardware.conf` + installs `gtk-layer-shell` (the OSK `wvkbd` is AUR-only and is **not** installed automatically); accelerometer → installs + enables `iio-sensor-proxy`
+9. Hardware feature detection: touchscreen → writes `conf.d/hardware.lua` + installs `gtk-layer-shell` (the OSK `wvkbd` is AUR-only and is **not** installed automatically); accelerometer → installs + enables `iio-sensor-proxy`
 10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery
 11. Keychron / Lemokey HID permissions: installs udev rule (`70-keychron.rules`) for Keychron (`0x3434`) and Lemokey (`0x362d`) → `TAG+="uaccess"` so `launcher.keychron.com` (WebHID) can remap keys
 12. `ufw` deny-inbound / allow-outbound; enable + start
@@ -117,7 +117,7 @@ setup.sh --sync --full   # as above + full dotfile restow (resets configs to rep
 hyprsync                 # shell alias for setup.sh --sync
 ```
 
-`setup.sh --sync` is **always config-safe** — additive-only stow creates symlinks for new files but never replaces files you've modified. `--force` hard-resets a diverged branch; `--full` restows all dotfiles. `~/.config/hypr/conf.d/99-hyprconf-local.conf` (written by the TUI) is machine-local, never managed by stow or git, and survives all sync modes.
+`setup.sh --sync` is **always config-safe** — additive-only stow creates symlinks for new files but never replaces files you've modified. `--force` hard-resets a diverged branch; `--full` restows all dotfiles. `~/.config/hypr/conf.d/local.lua` (written by the TUI) is machine-local, never managed by stow or git, and survives all sync modes.
 
 ---
 
@@ -186,10 +186,11 @@ setup.sh --sync            Pull + re-stow + re-apply services
 All changes made in the TUI are applied immediately via `hyprctl keyword` and written persistently to:
 
 ```
-~/.config/hypr/conf.d/99-hyprconf-local.conf
+~/.config/hypr/conf.d/local.lua
 ```
 
-This file is sourced by Hyprland on every restart via the `conf.d/*.conf` glob.
+This file is `require()`d by `hyprland.lua` on every restart (individually
+`pcall`-wrapped so it's optional — see `hyprland.lua`'s `try_require`).
 
 ---
 
@@ -289,24 +290,24 @@ The `btop` key accepts a system theme name (looked up in `/usr/share/btop/themes
 
 | Device type detected | Config symlinked |
 |---|---|
-| Desktop (chassis type 3–7, 13, 24) | `pcMonitors.conf` — HDMI-A-1 4K@120Hz HDR + DP-1 4K@240Hz |
-| Laptop / portable (all other types) | `laptopMonitors.conf` — eDP-1 preferred + external connectors use `preferred` + catch-all wildcard |
+| Desktop (chassis type 3–7, 13, 24) | `pcMonitors.lua` — HDMI-A-1 4K@120Hz HDR + DP-1 4K@240Hz |
+| Laptop / portable (all other types) | `laptopMonitors.lua` — eDP-1 preferred + external connectors use `preferred` + catch-all wildcard |
 | Unknown chassis (fallback) | No battery present → desktop; battery present → laptop |
 
 Hot-swap presets activate at runtime via keybind or `switch_monitor.sh <preset>`:
 
 | Keybind | Preset |
 |---|---|
-| `Super + Shift + B` | `pcMonitors.bedroom` |
-| `Super + Shift + K` | `pcMonitors.kitchen` |
+| `Super + Shift + B` | `pcMonitors.bedroom.lua` |
+| `Super + Shift + K` | `pcMonitors.kitchen.lua` |
 
-`pcMonitors.K` is an alternate desktop preset using Hyprland's newer `monitorv2` block syntax (DP-1 4K@240Hz, DP-2 4K@75Hz rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `switch_monitor.sh K` → copies it to `monitors.conf` and reloads.
+`pcMonitors.K.lua` is an alternate desktop preset (DP-1 4K@240Hz, DP-2 4K@75Hz rotated, HDMI-A-1 4K@120Hz with HDR). Apply manually: `switch_monitor.sh K` → symlinks it onto `monitors.lua` and reloads.
 
 ---
 
 ## Gestures
 
-Touchpad workspace swiping is configured in `gestures.conf`:
+Touchpad workspace swiping is configured in `gestures.lua`:
 
 | Setting | Value | Effect |
 |---|---|---|
@@ -323,7 +324,7 @@ Touchpad workspace swiping is configured in `gestures.conf`:
 
 ## Autostart Services
 
-`hyprland.conf` starts these on session init:
+`hyprland.lua` starts these on session init:
 
 | Command | Purpose | Restart policy |
 |---|---|---|
@@ -343,7 +344,7 @@ Touchpad workspace swiping is configured in `gestures.conf`:
 ## Hardware Auto-Detection
 
 Runs at every `setup.sh` invocation (including `--sync`). Results are written to
-`~/.config/hypr/conf.d/60-hardware.conf` (machine-local, not stowed).
+`~/.config/hypr/conf.d/hardware.lua` (machine-local, not stowed).
 
 ### Touchscreen
 
@@ -352,7 +353,7 @@ Detection (checked in order):
 2. Same path → `ID_INPUT_TOUCH=1` — generic touch devices (e.g. ASUS ROG Ally, some AMD-based handhelds) that don't set `ID_INPUT_TOUCHSCREEN`
 3. Same path → `NAME="Wacom * Finger"` + `PHYS="i2c-*"` — Wacom I2C pen+touch digitizers (ThinkPad Yoga, Surface-style devices) whose driver bypasses the generic udev HID rules and never sets `ID_INPUT_TOUCHSCREEN=1`
 
-Uses **`wvkbd`** — a minimal wlroots on-screen keyboard. It is **AUR-only**, so `setup.sh` does **not** install it (hyprconf never installs AUR packages automatically). The launcher/toggle scripts and `conf.d/60-hardware.conf` are still wired up; install `wvkbd` yourself to enable the OSK: `yay -S wvkbd`.
+Uses **`wvkbd`** — a minimal wlroots on-screen keyboard. It is **AUR-only**, so `setup.sh` does **not** install it (hyprconf never installs AUR packages automatically). The launcher/toggle scripts and `conf.d/hardware.lua` are still wired up; install `wvkbd` yourself to enable the OSK: `yay -S wvkbd`.
 
 | Behaviour | Detail |
 |---|---|
@@ -363,7 +364,7 @@ Uses **`wvkbd`** — a minimal wlroots on-screen keyboard. It is **AUR-only**, s
 
 #### Touch panel (runtime keyboard detection)
 
-On any device with a touchscreen, `setup.sh` installs **`gtk-layer-shell`** and adds two entries to `conf.d/60-hardware.conf`:
+On any device with a touchscreen, `setup.sh` installs **`gtk-layer-shell`** and adds two entries to `conf.d/hardware.lua`:
 
 - **`touch-panel-launcher`** — runs at Hyprland session start; checks for a physical keyboard (`ID_INPUT_KEYBOARD=1` + non-empty `PHYS` in sysfs); starts `touch-panel` only if none is found.
 - **`touch-panel-watch`** — background daemon using `udevadm monitor`; watches for input device removals during the session; starts `touch-panel` when the last physical keyboard is unplugged.
@@ -591,9 +592,9 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 
 ## Keybindings
 
-> **Note:** these bindings are the maintainer's defaults and ship with the dotfiles. Change them in the `hyprconf` TUI or edit `keybinds.conf` directly.
+> **Note:** these bindings are the maintainer's defaults and ship with the dotfiles. Change them in the `hyprconf` TUI or edit `keybinds.lua` directly.
 
-`$mainMod` is **Super (Win)**. Change it persistently in the `hyprconf` TUI (keybinds section) or in `keybinds.conf`.
+`mainMod` is **Super (Win)**. Change it persistently in the `hyprconf` TUI (keybinds section) or in `keybinds.lua`.
 
 ### Applications
 

@@ -6,9 +6,14 @@ executes a bind whose target is missing as a silent no-op, so the breakage
 never surfaced. These tests map every ~/-anchored script/binary reference in
 the shipped hypr configs back to the stow tree and fail on danglers.
 
-Runtime-generated files (monitors.conf, theme-colors.conf, the conf.d/ local
+Runtime-generated files (monitors.lua, theme-colors.lua, the conf.d/ local
 override) and local wallpaper assets are deliberately out of scope: only
 prefixes whose content is repo-shipped are validated.
+
+Hyprland's own compositor config (hyprland/keybinds/gestures/monitors) is Lua
+as of 0.55+ (`--` comments); hypridle/hyprlock/hyprpaper/hyprlauncher/kitty/
+btop are separate programs still on hyprlang `.conf` (`#` comments) — both
+are scanned here.
 """
 
 from __future__ import annotations
@@ -30,18 +35,19 @@ PREFIX_MAP = {
 
 PATH_RE = re.compile(r"~/[\w./-]+")
 
-CONF_FILES = sorted(HYPR_CONF_DIR.rglob("*.conf"))
+CONF_FILES = sorted(HYPR_CONF_DIR.rglob("*.conf")) + sorted(HYPR_CONF_DIR.rglob("*.lua"))
 
 
 def test_conf_files_found() -> None:
-    assert CONF_FILES, f"no .conf files found under {HYPR_CONF_DIR}"
+    assert CONF_FILES, f"no .conf/.lua files found under {HYPR_CONF_DIR}"
 
 
 @pytest.mark.parametrize("conf", CONF_FILES, ids=lambda p: p.name)
 def test_referenced_repo_paths_ship_in_stow_tree(conf: Path) -> None:
+    comment = "--" if conf.suffix == ".lua" else "#"
     missing = []
     for line in conf.read_text(encoding="utf-8").splitlines():
-        code = line.split("#", 1)[0]  # hyprland configs comment with '#'
+        code = line.split(comment, 1)[0]
         for token in PATH_RE.findall(code):
             for prefix, stow_prefix in PREFIX_MAP.items():
                 if token.startswith(prefix):
