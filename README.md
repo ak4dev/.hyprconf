@@ -44,7 +44,7 @@
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, the quickshell bar (live, no restart), Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, LibreWolf, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `switch_theme.py --generate <image>` extracts a palette from any wallpaper to create a new theme automatically
 - **Privacy-hardened Firefox** — out-of-the-box enterprise `policies.json`: all telemetry disabled, vertical tabs enabled, uBlock Origin force-installed; comprehensive `user.js` privacy prefs applied on every theme switch. Add **LibreWolf** (privacy fork — RFP, no telemetry) manually (`yay -S librewolf-bin`); it's auto-themed by the same engine
 - **VPN & kill-switch** — `hyprconf-vpn` manages any NetworkManager VPN profile (OpenVPN or WireGuard) provider-agnostically: `status`/`list`/`connect`/`disconnect`/`import`, plus a bar indicator (click to toggle). `hyprconf-vpn killswitch on` enforces fail-closed VPN-only networking — delegating to ProtonVPN's maintained kill-switch when its official CLI is installed (manual AUR: `proton-vpn-cli`), or a self-contained nftables egress guard otherwise
-- **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS → suspend), clipboard wiped on lock
+- **Screen lock & idle** — hyprlock (blurred screenshot), hypridle (dim → lock → DPMS), clipboard wiped on lock; idle power action is AC-aware via `hyprconf-idle-action`: on battery the machine powers **off** after 60 min idle (LUKS key flushed from RAM, disk re-encrypted at rest), on AC it suspends after 3 h
 - **YubiKey FIDO2 login** *(optional)* — `yubikey-fido2-setup` interactively enrols a FIDO2+PIN key for `sudo`, TTY login, display manager, SSH, and LUKS unlock at boot (`systemd-cryptenroll`); every edited file is backed up and rolled back on failure. Screen lockers (hyprlock, and COSMIC's `cosmic-greeter`) are actively kept password-only — each is repointed at `system-auth` so it can't inherit the key requirement from `login` and lock you out
 
 ---
@@ -460,8 +460,9 @@ Config stored at `~/.config/hyprconf/gpu-passthrough.conf` (GPU) and `~/.config/
 |---|---|
 | 4 min | Dim display to 10% |
 | 45 min | Wipe clipboard + lock (hyprlock) |
+| 60 min | **Power off — on battery only** (`hyprconf-idle-action poweroff-if-battery`): flushes the LUKS key from RAM so the disk is encrypted at rest while in transit; no-op on AC |
 | 90 min | Displays off (DPMS) |
-| 3 hr | Suspend (`systemctl suspend`) |
+| 3 hr | AC-aware (`hyprconf-idle-action auto`): suspend on AC, power off on battery |
 
 Lock manually: `Super + L` or `Super + Shift + Escape`.
 

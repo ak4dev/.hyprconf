@@ -7,9 +7,10 @@ Terminal=false
 Type=Application
 Categories=Settings;DesktopSettings;
 Keywords=theme;color;scheme;switch;
+Actions=Pick;List;
 
-[Desktop Action Wofi]
-Name=Theme (wofi picker)
+[Desktop Action Pick]
+Name=Theme (launcher picker)
 Exec=bash -lc "python3 ~/.config/hypr/scripts/theme-switcher/switch_theme.py --pick"
 
 [Desktop Action List]

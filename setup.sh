@@ -1701,8 +1701,11 @@ repair_install() {
     configure_zprofile
     seed_hicolor_index
     log_step "Verifying Python module imports..."
+    # The library lives at ~/.local/lib/hyprconf — not on a bare interpreter's
+    # sys.path, so insert it exactly like the TUI launcher does.
     if python3 - <<'PY' 2>/dev/null
-import sys, pathlib
+import pathlib, sys
+sys.path.insert(0, str(pathlib.Path.home() / ".local" / "lib"))
 import hyprconf.schema, hyprconf.config, hyprconf.hyprctl
 PY
     then
@@ -1713,7 +1716,7 @@ PY
         (( fixed++ )) || true
     fi
 
-    # ── 5. Verify monitors.lua ───────────────────────────────────────────
+    # ── 4. Verify monitors.lua ───────────────────────────────────────────
     log_step "Verifying monitors.lua..."
     if [[ ! -e "$HOME/.config/hypr/monitors.lua" ]]; then
         log_warn "monitors.lua missing — recreating..."

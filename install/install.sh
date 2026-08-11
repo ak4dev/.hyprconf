@@ -14,7 +14,7 @@
 #    [2] Dotfiles only  (existing Arch installation)
 #        Clones the repo and hands off to setup.sh — original behaviour.
 #    [3] hyprconf only  (any existing Hyprland system)
-#        Installs the hyprconf CLI/TUI into ~/.local/bin and ~/.local/lib
+#        Installs the hyprconf TUI into ~/.local/bin and ~/.local/lib
 #        without touching any Hyprland config files.
 
 set -euo pipefail
@@ -1573,9 +1573,9 @@ binary_install() {
     printf '%s    export PATH="$HOME/.local/bin:$PATH"%s\n\n' "$AM" "$RS"
   fi
 
-  # Python check (required for CLI backend and TUI)
+  # Python check (required for the TUI)
   if ! command -v python3 &>/dev/null; then
-    log_warn "python3 not found — CLI backend and TUI will not work."
+    log_warn "python3 not found — the TUI will not work."
     log_warn "Install python3 to use the hyprconf TUI."
   else
     log_ok "python3 $(python3 --version 2>&1 | awk '{print $2}')"
@@ -1588,7 +1588,7 @@ binary_install() {
   fi
 
   printf '\n%s  hyprconf is ready.%s\n'             "$GR" "$RS"
-  printf '%s  Run:%s hyprconf help\n\n'              "$DM" "$RS"
+  printf '%s  Run:%s hyprconf\n\n'                   "$DM" "$RS"
 }
 
 # ════════════════════════════════════════════════════════════════════════════

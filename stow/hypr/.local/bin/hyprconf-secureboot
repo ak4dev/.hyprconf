@@ -682,7 +682,6 @@ usage_sb() {
   Secure Boot (signed UKI) — Arch Linux
 
   Usage: hyprconf-secureboot [status|setup|enroll|sign|verify|tpm-bind|harden|ack-firmware-password]
-         hyprconf-secureboot [status|setup|enroll|sign|verify|tpm-bind|harden]
 
     status      Read-only report: SB state, Setup Mode, UKI, sbctl verify, factors
     setup       Full setup: sbctl, signed UKI, keys, sign, verify, hook, enroll

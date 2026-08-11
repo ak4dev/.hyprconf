@@ -273,7 +273,7 @@ hl.config({
 -- Theme-specific border/color overrides — updated by switch_theme.py
 require("theme-colors")
 
--- Machine-local overrides (managed by hyprconf TUI/CLI — gitignored). Each is
+-- Machine-local overrides (managed by the hyprconf TUI — gitignored). Each is
 -- optional, so a missing file is silently skipped (Lua's `require` has no
 -- equivalent of hyprlang's "glob must match >=1 file" restriction).
 --

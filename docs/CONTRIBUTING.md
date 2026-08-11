@@ -14,6 +14,7 @@
 ├── docs/
 │   ├── CONTRIBUTING.md       # This file
 │   ├── hyprland-reference.md # Hyprland config syntax cheatsheet
+│   ├── quickshell-reference.md # Quickshell API cheatsheet (bar/QML)
 │   └── security-hardening.md # Threat model + hardening reference (sysctls, SB, LUKS)
 │
 ├── infra/

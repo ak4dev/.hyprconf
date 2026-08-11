@@ -567,13 +567,6 @@ def list_themes() -> list[str]:
     return sorted(p.stem for p in THEME_DIR.glob("*.json"))
 
 
-def _collect_rules(pattern: re.Pattern) -> list[str]:
-    """Collect rule text lines matching pattern — kept for display compat."""
-    if re.search(r"workspace", pattern.pattern, re.I):
-        return [e.rule for e in _lib_wksp_rules(HYPRLAND_CONF)]
-    return [e.rule for e in _lib_win_rules(HYPRLAND_CONF)]
-
-
 def _get_wallpapers() -> list[Path]:
     if not WALLPAPER_DIR.exists():
         return []
@@ -1872,9 +1865,9 @@ class HyprconfApp(App):
         elif section == "keybinds":
             self._fill_keybinds(table)
         elif section == "window_rules":
-            self._fill_rules(table, re.compile(r"^windowrule"), "Window rule")
+            self._fill_rules(table, "Window rule")
         elif section == "workspace_rules":
-            self._fill_rules(table, re.compile(r"^workspace\s*="), "Workspace rule")
+            self._fill_rules(table, "Workspace rule")
         elif section in ("hyprlock", "hypridle"):
             self._fill_blocks(table, section)
         elif section == "hyprpaper":
@@ -1961,7 +1954,7 @@ class HyprconfApp(App):
             table.add_row(*row)
             self._row_keys.append(f"__keybind__{e.file_path}::{e.line_idx}")
 
-    def _fill_rules(self, table: DataTable, pat: re.Pattern, label: str) -> None:
+    def _fill_rules(self, table: DataTable, label: str) -> None:
         table.add_column("#", width=5)
         table.add_column("RULE", width=110)
         is_workspace = "workspace" in label.lower()
@@ -2876,8 +2869,6 @@ class HyprconfApp(App):
         if self._pending:
             ok, n = save_pending(self._pending)
             if not ok:
-                import sys
-
                 print(
                     "hyprconf-tui: WARNING — auto-save on exit failed. "
                     "Pending changes were not written to disk.",

@@ -1086,7 +1086,6 @@ usage_yk() {
   YubiKey FIDO2+PIN setup — Arch Linux
 
   Usage: yubikey-fido2-setup [setup|enroll|harden-luks|status]
-         yubikey-fido2-setup [setup|enroll|harden-luks|status]
 
     setup        Full first-time setup: sudo, TTY login, display manager, SSH, LUKS
     enroll       Enroll an additional / backup key (login + optional LUKS keyslot)
