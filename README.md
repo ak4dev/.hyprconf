@@ -178,6 +178,7 @@ hyprconf-vpn               NetworkManager VPN control + kill-switch
 hyprconf-secureboot        Secure Boot (signed UKI) setup + verify
 yubikey-fido2-setup        FIDO2+PIN login / LUKS enrolment
 gpu-passthrough.sh         GPU passthrough (VFIO) + Windows VM
+hc <tool> [args...]        Short alias for the above (hc vm/gpu/secureboot/vpn/yubikey/theme/sync) — pure forwarding, see AGENTS.md
 setup.sh --sync            Pull + re-stow + re-apply services
 ```
 
