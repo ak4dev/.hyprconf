@@ -286,18 +286,19 @@ def _shipped() -> str:
     return SHIPPED_KEYBINDS.read_text(encoding="utf-8")
 
 
-def test_brightness_keys_cannot_reach_zero() -> None:
-    """`brightnessctl set 5%-` walks the backlight to 0 and leaves a black
-    panel the brightness-up key cannot always recover; -n floors it."""
-    for line in _shipped().splitlines():
-        if "XF86MonBrightness" in line:
-            assert "-n" in line, f"brightness bind has no floor: {line.strip()}"
-
-
-def test_brightness_keys_use_a_perceptual_curve() -> None:
-    for line in _shipped().splitlines():
-        if "XF86MonBrightness" in line:
-            assert "-e4" in line, f"brightness bind steps linearly: {line.strip()}"
+def test_brightness_keys_go_through_the_wrapper() -> None:
+    """A bare `brightnessctl set` walks the panel to 0, dims a keyboard LED on
+    machines with no backlight, and reports nothing. hyprconf-brightness owns
+    all three (see tests/unit/test_brightness.py); the binds must route to it."""
+    binds = [ln for ln in _shipped().splitlines() if "XF86MonBrightness" in ln]
+    assert binds, "no brightness keybinds are shipped"
+    for line in binds:
+        assert "hyprconf-brightness" in line, (
+            f"brightness bind bypasses the wrapper: {line.strip()}"
+        )
+        assert "brightnessctl" not in line, (
+            f"brightness bind calls brightnessctl directly: {line.strip()}"
+        )
 
 
 def test_region_screenshot_freezes_the_screen() -> None:

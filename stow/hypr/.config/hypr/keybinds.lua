@@ -74,12 +74,12 @@ hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO
 hl.bind("XF86AudioMute",        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     { locked = true, repeating = true })
 hl.bind("XF86AudioMicMute",     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   { locked = true, repeating = true })
 
--- Brightness controls. `-n2` floors the backlight at 2%: a plain `set 5%-`
--- walks all the way to 0 and leaves a black panel that the brightness-up key
--- cannot always bring back. `-e4` uses a perceptual (exponential) curve, so a
--- step at the dim end changes as much as a step at the bright end.
-hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%+"), { locked = true, repeating = true })
-hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%-"), { locked = true, repeating = true })
+-- Brightness controls. hyprconf-brightness wraps brightnessctl so the keys
+-- stay on the backlight (with no backlight device, a bare `brightnessctl set`
+-- dims the first LED it finds instead), never reach 0%, and report the new
+-- level to the quickshell OSD — the same feedback the volume keys get.
+hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd("hyprconf-brightness up"),   { locked = true, repeating = true })
+hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("hyprconf-brightness down"), { locked = true, repeating = true })
 
 -- Media controls (requires playerctl)
 hl.bind("XF86AudioNext",  hl.dsp.exec_cmd("playerctl next"),       { locked = true })

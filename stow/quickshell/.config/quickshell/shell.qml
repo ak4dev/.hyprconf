@@ -10,7 +10,7 @@ ShellRoot {
         delegate: Bar {}
     }
 
-    Osd {}
+    Osd { id: osd }
 
     Variants {
         model: Quickshell.screens
@@ -31,6 +31,17 @@ ShellRoot {
             if (!b)
                 return "no bar"
             return b.ipcToggle(name)
+        }
+    }
+
+    // `qs ipc call osd brightness 42` — hyprconf-brightness reports the level
+    // it just set, so the backlight keys get the feedback the volume keys get
+    // from pipewire. Clamped in Osd.showBrightness; nothing here is executed.
+    IpcHandler {
+        target: "osd"
+
+        function brightness(percent: int): string {
+            return osd.showBrightness(percent)
         }
     }
 }

@@ -4,14 +4,26 @@ import Quickshell.Wayland
 import Quickshell.Hyprland
 import Quickshell.Services.Pipewire
 
-// macOS-style volume OSD: frosted pill at the bottom of the focused
-// monitor, shown on volume/mute changes, auto-hides. Input-transparent.
+// macOS-style OSD: frosted pill at the bottom of the focused monitor,
+// auto-hides, input-transparent. Shows volume (pushed by pipewire) and
+// backlight level (pushed by hyprconf-brightness over IPC — sysfs backlight
+// files do not emit inotify events, so there is nothing to watch here).
 PanelWindow {
     id: osd
 
     readonly property var sink: Pipewire.defaultAudioSink
     readonly property real vol: sink?.audio?.volume ?? 0
     readonly property bool muted: sink?.audio?.muted ?? false
+
+    // "volume" | "brightness" — which reading the pill is currently showing.
+    property string mode: "volume"
+    property int brightnessPct: 0
+
+    readonly property real level: mode === "brightness"
+        ? brightnessPct / 100
+        : Math.min(1, vol)
+    // Muting is a volume state; a dimmed backlight is not "off".
+    readonly property bool dimmed: mode === "volume" && muted
 
     property bool show: false
     // Suppress the burst of change signals while pipewire syncs at startup.
@@ -53,8 +65,20 @@ PanelWindow {
     function ping() {
         if (!armed)
             return
+        mode = "volume"
         show = true
         hideTimer.restart()
+    }
+
+    // Called over IPC by hyprconf-brightness with the level it just set. The
+    // value is clamped and only ever drawn — never executed — and it skips the
+    // `armed` gate: a keypress is not the startup burst pipewire produces.
+    function showBrightness(percent) {
+        brightnessPct = Math.max(0, Math.min(100, Math.round(percent)))
+        mode = "brightness"
+        show = true
+        hideTimer.restart()
+        return "ok"
     }
 
     Connections {
@@ -74,9 +98,11 @@ PanelWindow {
 
             BarText {
                 anchors.verticalCenter: parent.verticalCenter
-                text: osd.muted ? "󰝟"
-                    : osd.vol <= 0.33 ? "󰕿" : osd.vol <= 0.66 ? "󰖀" : "󰕾"
-                color: osd.muted ? Theme.red : Theme.accent
+                text: osd.mode === "brightness"
+                    ? (osd.level <= 0.33 ? "󰃞" : osd.level <= 0.66 ? "󰃟" : "󰃠")
+                    : osd.dimmed ? "󰝟"
+                    : osd.level <= 0.33 ? "󰕿" : osd.level <= 0.66 ? "󰖀" : "󰕾"
+                color: osd.dimmed ? Theme.red : Theme.accent
             }
 
             Rectangle {
@@ -87,10 +113,10 @@ PanelWindow {
                 color: Qt.rgba(Theme.fg.r, Theme.fg.g, Theme.fg.b, 0.15)
 
                 Rectangle {
-                    width: parent.width * Math.min(1, osd.vol)
+                    width: parent.width * osd.level
                     height: parent.height
                     radius: parent.radius
-                    color: osd.muted ? Theme.comment : Theme.accent
+                    color: osd.dimmed ? Theme.comment : Theme.accent
 
                     Behavior on width {
                         NumberAnimation { duration: 80 }
@@ -101,7 +127,7 @@ PanelWindow {
             BarText {
                 anchors.verticalCenter: parent.verticalCenter
                 font.pixelSize: 12
-                text: Math.round(osd.vol * 100) + "%"
+                text: Math.round(osd.level * 100) + "%"
                 color: Theme.comment
             }
         }

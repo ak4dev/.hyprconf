@@ -348,7 +348,7 @@ IconImage { source: trayItem.icon; implicitSize: 16 }   // icon-theme aware Imag
 | `Theme.qml` | Singleton, FileView (watch + reload pattern) |
 | `PopoutWindow.qml` | PanelWindow, WlrLayershell.keyboardFocus, HyprlandFocusGrab, RectangularShadow |
 | `ControlCenter.qml` | Pipewire, Bluetooth, Networking (Wi-Fi list/connect), TextInput (PSK) |
-| `VolumePopout.qml` / `Osd.qml` | Pipewire, PwObjectTracker; OSD is `mask: Region {}` click-through |
+| `VolumePopout.qml` / `Osd.qml` | Pipewire, PwObjectTracker; OSD is `mask: Region {}` click-through. Volume is pushed by Pipewire, backlight by `hyprconf-brightness` over IPC — sysfs backlight files emit no inotify events, so there is nothing a `FileView` could watch |
 | `TrayMenuPopout.qml` | QsMenuOpener, QsMenuButtonType, IconImage |
 | `ScreenCorners.qml` | PanelWindow + empty Region mask, Canvas |
 | `Services.qml` | Singleton owning EVERY bar data source (stats.sh stream, gpu_info.sh stream, battery/vpn polls) — Bar{} is per-monitor via Variants, so per-Bar Processes run once per screen; new data sources go HERE, never in Bar.qml |
