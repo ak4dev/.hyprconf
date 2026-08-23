@@ -74,9 +74,12 @@ hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("wpctl set-volume @DEFAULT_AUDIO
 hl.bind("XF86AudioMute",        hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"),     { locked = true, repeating = true })
 hl.bind("XF86AudioMicMute",     hl.dsp.exec_cmd("wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"),   { locked = true, repeating = true })
 
--- Brightness controls
-hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd("brightnessctl set 5%+"), { locked = true, repeating = true })
-hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl set 5%-"), { locked = true, repeating = true })
+-- Brightness controls. `-n2` floors the backlight at 2%: a plain `set 5%-`
+-- walks all the way to 0 and leaves a black panel that the brightness-up key
+-- cannot always bring back. `-e4` uses a perceptual (exponential) curve, so a
+-- step at the dim end changes as much as a step at the bright end.
+hl.bind("XF86MonBrightnessUp",   hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%+"), { locked = true, repeating = true })
+hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("brightnessctl -e4 -n2 set 5%-"), { locked = true, repeating = true })
 
 -- Media controls (requires playerctl)
 hl.bind("XF86AudioNext",  hl.dsp.exec_cmd("playerctl next"),       { locked = true })
@@ -89,8 +92,11 @@ hl.bind("XF86AudioPrev",  hl.dsp.exec_cmd("playerctl previous"),   { locked = tr
 hl.bind(mainMod .. " + SHIFT + C", hl.dsp.exec_cmd("~/.config/quickshell/launch.sh ipc call popouts toggle calendar"))
 hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("~/.config/quickshell/launch.sh ipc call popouts toggle controlcenter"))
 
--- Screenshots
-hl.bind(mainMod .. " + SHIFT + 4", hl.dsp.exec_cmd("hyprshot -m region"))
+-- Screenshots. `--freeze` grabs the screen the moment the selection starts, so
+-- what gets captured is what was on screen when the key was pressed — without
+-- it, anything that redraws while the region is dragged (a video, a clock, a
+-- notification arriving) lands in the shot instead.
+hl.bind(mainMod .. " + SHIFT + 4", hl.dsp.exec_cmd("hyprshot -m region --freeze"))
 
 -- Screen lock — routed through hypridle's guarded lock_cmd (single lock path;
 -- it wipes cliphist and refuses to start a second hyprlock instance)

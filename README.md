@@ -675,11 +675,11 @@ PCR binding (FIDO2 stays the default decrypt factor). Full details and residual 
 |---|---|
 | `XF86AudioRaiseVolume / LowerVolume` | Volume ±5% |
 | `XF86AudioMute / MicMute` | Toggle mute / mic mute |
-| `XF86MonBrightnessUp / Down` | Brightness ±5% |
+| `XF86MonBrightnessUp / Down` | Brightness ±5% (perceptual curve, floored at 2% so the panel never goes black) |
 | `XF86AudioPlay / Pause / Next / Prev` | Media playback |
 | `Super + L` | Lock screen |
 | `Super + Shift + Escape` | Lock screen (alt) |
-| `Super + Shift + 4` | Screenshot region |
+| `Super + Shift + 4` | Screenshot region (screen frozen during selection) |
 | `Super + Shift + V` | Clipboard history (cliphist + hyprlauncher) |
 | `Super + Shift + C` | Bar: toggle calendar popout |
 | `Super + Shift + N` | Bar: toggle Control Center (Wi-Fi / Bluetooth / audio) |

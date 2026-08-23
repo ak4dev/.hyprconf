@@ -272,3 +272,38 @@ def test_read_keybinds_blank_and_comment_lines(hypr_dir: Path) -> None:
     entries = read_keybinds_with_location(conf)
     assert len(entries) == 1
     assert entries[0].key == "X"
+
+
+# ---------------------------------------------------------------------------
+# The shipped keybinds themselves — flags whose absence is invisible until the
+# moment it hurts (a black panel, a smeared screenshot).
+# ---------------------------------------------------------------------------
+
+SHIPPED_KEYBINDS = Path(__file__).resolve().parents[2] / "stow/hypr/.config/hypr/keybinds.lua"
+
+
+def _shipped() -> str:
+    return SHIPPED_KEYBINDS.read_text(encoding="utf-8")
+
+
+def test_brightness_keys_cannot_reach_zero() -> None:
+    """`brightnessctl set 5%-` walks the backlight to 0 and leaves a black
+    panel the brightness-up key cannot always recover; -n floors it."""
+    for line in _shipped().splitlines():
+        if "XF86MonBrightness" in line:
+            assert "-n" in line, f"brightness bind has no floor: {line.strip()}"
+
+
+def test_brightness_keys_use_a_perceptual_curve() -> None:
+    for line in _shipped().splitlines():
+        if "XF86MonBrightness" in line:
+            assert "-e4" in line, f"brightness bind steps linearly: {line.strip()}"
+
+
+def test_region_screenshot_freezes_the_screen() -> None:
+    """Without it the capture is whatever redrew while the region was dragged,
+    not what was on screen when the key was pressed."""
+    shots = [ln for ln in _shipped().splitlines() if "hyprshot" in ln]
+    assert shots, "no screenshot keybind is shipped"
+    for line in shots:
+        assert "--freeze" in line or " -z" in line, f"screenshot does not freeze: {line.strip()}"
