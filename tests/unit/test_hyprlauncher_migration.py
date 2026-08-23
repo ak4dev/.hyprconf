@@ -251,16 +251,40 @@ def test_switch_theme_launcher_select_uses_hyprlauncher() -> None:
     assert "wofi" not in body, "launcher_select must not reference wofi"
 
 
-def test_switch_theme_no_wofi_in_apply_theme() -> None:
-    """apply_theme() must not call update_wofi()."""
+def _apply_theme_body(text: str) -> str:
+    """The body of the function that actually applies a theme.
+
+    apply_theme() is a thin wrapper: it takes the theme-switch lock (so two
+    switches cannot interleave over the same config files) and delegates to
+    _apply_theme_locked(), where the per-app update_* calls live.
+    """
+    match = re.search(
+        r"def _apply_theme_locked\(.*?\n(.*?)^(?:def |\Z)",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    assert match, "_apply_theme_locked() not found in switch_theme.py"
+    return match.group(1)
+
+
+def test_apply_theme_runs_under_the_switch_lock() -> None:
+    """The wrapper must keep delegating under the lock — dropping it would let
+    two switches interleave and leave a session wearing halves of two themes."""
     text = SWITCH_THEME.read_text()
-    apply_match = re.search(
+    match = re.search(
         r"def apply_theme\(.*?\n(.*?)^(?:def |\Z)",
         text,
         re.DOTALL | re.MULTILINE,
     )
-    assert apply_match, "apply_theme() not found in switch_theme.py"
-    body = apply_match.group(1)
+    assert match, "apply_theme() not found in switch_theme.py"
+    body = match.group(1)
+    assert "switch_lock()" in body, "apply_theme() must take the switch lock"
+    assert "_apply_theme_locked(" in body, "apply_theme() must delegate the actual apply"
+
+
+def test_switch_theme_no_wofi_in_apply_theme() -> None:
+    """apply_theme() must not call update_wofi()."""
+    body = _apply_theme_body(SWITCH_THEME.read_text())
     assert "update_wofi" not in body, (
         "apply_theme() must not call update_wofi(); it has been removed"
     )
@@ -454,15 +478,9 @@ def test_switch_theme_has_update_hyprtoolkit() -> None:
 
 
 def test_update_hyprtoolkit_called_in_apply_theme() -> None:
-    """apply_theme() must call update_hyprtoolkit()."""
-    text = SWITCH_THEME_HYPRTOOLKIT.read_text()
-    match = re.search(
-        r"def apply_theme\(.*?\n(.*?)^(?:def |\Z)",
-        text,
-        re.DOTALL | re.MULTILINE,
-    )
-    assert match, "apply_theme() not found"
-    assert "update_hyprtoolkit" in match.group(1), "apply_theme() must call update_hyprtoolkit()"
+    """Applying a theme must call update_hyprtoolkit()."""
+    body = _apply_theme_body(SWITCH_THEME_HYPRTOOLKIT.read_text())
+    assert "update_hyprtoolkit" in body, "the theme apply must call update_hyprtoolkit()"
 
 
 def test_update_hyprtoolkit_writes_correct_keys(st, tmp_path) -> None:

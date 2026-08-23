@@ -14,6 +14,23 @@ import time
 from pathlib import Path
 from typing import Any
 
+# Live-session concerns (signalling running apps, serializing switches) live in
+# the tested library rather than here. Guarded: a theme switch during install
+# can run before ~/.local/lib is stowed, and a missing library must not stop
+# the theme from being written.
+sys.path.insert(0, str(Path.home() / ".local" / "lib"))
+try:
+    from hyprconf.live_theme import reload_themed_apps, switch_lock  # noqa: E402
+except ImportError:  # pragma: no cover - only before the library is stowed
+    from contextlib import nullcontext
+
+    def reload_themed_apps() -> dict:
+        return {}
+
+    def switch_lock():
+        return nullcontext(False)
+
+
 # === Configuration ===
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -1980,6 +1997,11 @@ def update_btop(theme: dict[str, str], theme_name: str = "") -> None:
 
 def apply_theme(theme_name: str, reload: bool = True) -> None:
     """Apply the selected theme to all relevant config files."""
+    with switch_lock():
+        _apply_theme_locked(theme_name, reload=reload)
+
+
+def _apply_theme_locked(theme_name: str, reload: bool = True) -> None:
     print(f"Switching to theme: {theme_name}")
     theme = load_theme(theme_name)
 
@@ -2048,6 +2070,10 @@ def apply_theme(theme_name: str, reload: bool = True) -> None:
     if shutil.which("touch-panel"):
         update_touch_panel(theme)
     update_btop(theme, theme_name)
+    # Apps already on screen re-read their config on a signal; without this the
+    # session wears the new theme only in windows opened after the switch.
+    for app, count in reload_themed_apps().items():
+        print(f"Reloaded {count} running {app} instance(s).")
     if reload:
         reload_hyprland()
     write_state(theme_name)
