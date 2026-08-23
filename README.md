@@ -35,7 +35,7 @@
 - **One-command setup** — installs packages (official repos only — **never** the AUR), configures ZSH, stows all configs, and launches Hyprland; full Arch ISO install supported
 - **`setup.sh --sync`** (alias `hyprsync`) — pull latest changes, re-stow, and re-apply services without reinstalling packages; `--force` to hard-reset a diverged branch, `--full` to restow all dotfiles
 - **Chassis-aware monitor config** — detects desktop vs laptop via DMI chassis type (`/sys/class/dmi/id/chassis_type`), falling back to battery absence; auto-selects `pcMonitors.lua` or `laptopMonitors.lua` at setup
-- **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `powerprofilesctl set <mode>`
+- **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug, and the session applies the right profile at login (power-profiles-daemon starts each boot on its own default, and udev only fires on *changes*). Defaults to `performance` on AC and `power-saver` on battery, falling back to what the machine actually offers — many laptops expose no `performance`. `hyprconf-power-monitor set <profile>` applies a profile **and remembers it for the current power state**, so choosing `balanced` on battery survives the next unplug instead of being overridden; `hyprconf-power-monitor status` shows the current profile, AC state, available profiles and both remembered choices. Machines with no battery are never switched automatically
 - **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `setup.sh --sync`
 - **Hardware auto-detection** — touchscreen devices get a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged) and are wired up for `wvkbd` (on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) — but because `wvkbd` is AUR-only it is **not** installed automatically; install it manually (`yay -S wvkbd`) to enable the OSK; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `setup.sh --sync`
 - **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `gpu-passthrough.sh mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`gpu-passthrough.sh vm`) using `dockurr/windows` with Looking Glass for near-native display; comprehensive VM anti-detection (SMBIOS, CPU flags, device elimination, disk identity) for anti-cheat evasion (EAC, VAC); required packages are checked by `gpu-passthrough.sh setup` (official repos only); `gpu-passthrough.sh vm arch` launches a second GPU-passthrough VM — a real Arch+Hyprland desktop, Packer-built via a genuine unattended hyprconf install, reached over SSH + VNC (`wayvnc`) instead of Looking Glass — mutually exclusive with the Windows VM on single-GPU systems
@@ -89,7 +89,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 7. Firefox enterprise policies (`/etc/firefox/policies/policies.json`): telemetry disabled, uBlock Origin installed
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
 9. Hardware feature detection: touchscreen → writes `conf.d/hardware.lua` + installs `gtk-layer-shell` (the OSK `wvkbd` is AUR-only and is **not** installed automatically); accelerometer → installs + enables `iio-sensor-proxy`
-10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery
+10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery, unless a profile was remembered with `hyprconf-power-monitor set`
 11. Keychron / Lemokey HID permissions: installs udev rule (`70-keychron.rules`) for Keychron (`0x3434`) and Lemokey (`0x362d`) → `TAG+="uaccess"` so `launcher.keychron.com` (WebHID) can remap keys
 12. `ufw` deny-inbound / allow-outbound; enable + start
 13. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend
@@ -175,11 +175,12 @@ Standalone companion tools keep their own entry points:
 switch_theme.py            Theme switcher (see below)
 switch_monitor.sh <preset> Hot-swap monitor presets
 hyprconf-vpn               NetworkManager VPN control + kill-switch
+hyprconf-power-monitor     Power profile: auto | set <profile> | status
 hyprconf-secureboot        Secure Boot (signed UKI) setup + verify
 yubikey-fido2-setup        FIDO2+PIN login / LUKS enrolment
 gpu-passthrough.sh         GPU passthrough (VFIO) + Windows VM + Arch VM
 setup.sh --sync            Pull + re-stow + re-apply services
-hc <tool> [args...]        Short alias for the above (hc vm/gpu/secureboot/vpn/yubikey/theme/sync) — pure forwarding, see AGENTS.md
+hc <tool> [args...]        Short alias for the above (hc vm/gpu/secureboot/vpn/power/yubikey/theme/sync) — pure forwarding, see AGENTS.md
 ```
 
 ### Persistence
@@ -342,6 +343,7 @@ during that first parse.
 | `systemctl --user start hyprpolkitagent` | Polkit agent (privilege elevation dialogs) | Once |
 | `xsettingsd` | GTK/X11 settings bridge (cursor, icon theme) | Once |
 | `hypridle` | Idle/lock daemon | Once |
+| `hyprconf-power-monitor auto` | Match the power profile to AC/battery at login | Once (udev handles later changes) |
 | `wl-paste … cliphist store` ×2 | Clipboard history (text + image) | Once |
 | `nm-applet --indicator` | NetworkManager tray icon | Once |
 | `blueman-applet` | Bluetooth tray icon | Once |

@@ -49,7 +49,12 @@ class TestHcForwarding:
         )
         _make_executable(home_dir / ".hyprconf" / "setup.sh", _stub("setup.sh"))
 
-        for name in ("hyprconf-secureboot", "hyprconf-vpn", "yubikey-fido2-setup"):
+        for name in (
+            "hyprconf-secureboot",
+            "hyprconf-vpn",
+            "hyprconf-power-monitor",
+            "yubikey-fido2-setup",
+        ):
             _make_executable(bin_dir / name, _stub(name))
 
         return bin_dir, home_dir
@@ -77,6 +82,12 @@ class TestHcForwarding:
         r = _run(["vpn", "status"], bin_dir, home_dir)
         assert r.returncode == 0, f"stderr: {r.stderr}"
         assert r.stdout.strip() == "CALLED:hyprconf-vpn:status"
+
+    def test_power_forwards(self, tmp_path):
+        bin_dir, home_dir = self._setup(tmp_path)
+        r = _run(["power", "set", "balanced"], bin_dir, home_dir)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert r.stdout.strip() == "CALLED:hyprconf-power-monitor:set balanced"
 
     def test_yubikey_forwards(self, tmp_path):
         bin_dir, home_dir = self._setup(tmp_path)

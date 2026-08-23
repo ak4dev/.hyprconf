@@ -101,6 +101,10 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("systemctl --user start hyprpolkitagent")
     hl.exec_cmd("xsettingsd")
     hl.exec_cmd("hypridle")
+    -- power-profiles-daemon starts every boot on its own default, and the udev
+    -- rule only fires when the AC state *changes* — so a laptop booted on
+    -- battery would sit on the AC profile until it was next unplugged.
+    hl.exec_cmd("hyprconf-power-monitor auto")
     hl.exec_cmd("wl-paste --type text --watch cliphist store")
     hl.exec_cmd("wl-paste --type image --watch cliphist store")
     hl.exec_cmd("nm-applet --indicator")
