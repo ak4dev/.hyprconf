@@ -66,6 +66,8 @@ def _run_monitor(
     extra_mains: list[int] | None = None,
     remembered: dict[str, str] | None = None,
     current_profile: str = "balanced",
+    as_udev: bool = False,
+    session_conf_override: str | None = None,
 ) -> tuple[int, str, str, list[str]]:
     """Run hyprconf-power-monitor with faked sysfs and powerprofilesctl.
 
@@ -127,7 +129,19 @@ fi
         # everything else the script needs; the fake logger is best-effort.
         env["PATH"] = str(fake_dir)
     env["_HYPRCONF_PS_ROOT"] = str(sysfs)
-    env["_HYPRCONF_STATE_DIR"] = str(state_dir)
+    if as_udev:
+        # udev's RUN+= program runs as root with a minimal environment: no HOME,
+        # so the state directory can only come from the file setup.sh records.
+        env.pop("HOME", None)
+        env.pop("XDG_STATE_HOME", None)
+        if session_conf_override is not None:
+            env["_HYPRCONF_SESSION_CONF"] = session_conf_override
+        else:
+            session_conf = tmp / "power-monitor.conf"
+            session_conf.write_text(f"state_dir={state_dir}\n")
+            env["_HYPRCONF_SESSION_CONF"] = str(session_conf)
+    else:
+        env["_HYPRCONF_STATE_DIR"] = str(state_dir)
 
     result = subprocess.run(
         [shutil.which("bash") or "bash", str(POWER_MONITOR)] + (args or []),
@@ -457,3 +471,51 @@ class TestSessionStart:
     def test_hyprland_applies_the_profile_at_session_start(self) -> None:
         hyprland_lua = REPO_ROOT / "stow/hypr/.config/hypr/hyprland.lua"
         assert 'hl.exec_cmd("hyprconf-power-monitor auto")' in hyprland_lua.read_text()
+
+
+class TestUdevInvocation:
+    """The plug/unplug path — the one that actually fires in daily use.
+
+    udev executes RUN+= as root with no HOME, so a state directory derived from
+    $HOME resolves to "/.local/state" there and every remembered profile is
+    invisible. setup.sh records the real location in a root-owned file next to
+    the root-owned copy udev runs.
+    """
+
+    def test_remembered_profile_is_honored_without_a_home(self, tmp_path: Path) -> None:
+        rc, _, _, calls = _run_monitor(
+            tmp_path,
+            ac_online=0,
+            remembered={"battery": "balanced"},
+            current_profile="power-saver",
+            as_udev=True,
+        )
+        assert rc == 0
+        assert "set balanced" in calls, "udev-triggered switch ignored the remembered profile"
+
+    def test_defaults_still_apply_without_a_recorded_location(self, tmp_path: Path) -> None:
+        """An install that predates the recorded location, or a failed write:
+        automatic switching must keep working on the defaults."""
+        tmp_path.mkdir(parents=True, exist_ok=True)
+        missing = tmp_path / "absent.conf"
+        rc, _, _, calls = _run_monitor(
+            tmp_path,
+            ac_online=0,
+            current_profile="performance",
+            as_udev=True,
+            session_conf_override=str(missing),
+        )
+        assert rc == 0
+        assert "set power-saver" in calls
+
+
+class TestSetupRecordsTheStateLocation:
+    def test_setup_installs_a_root_owned_pointer_file(self) -> None:
+        body = _setup_text()[_setup_text().index("setup_power_monitor()") :][:4000]
+        assert "power-monitor.conf" in body
+        assert "state_dir=%s" in body
+        assert "install -Dm644 -o root -g root" in body
+
+    def test_pointer_file_lives_beside_the_root_owned_copy(self) -> None:
+        body = _setup_text()[_setup_text().index("setup_power_monitor()") :][:4000]
+        assert "/usr/local/lib/hyprconf/power-monitor.conf" in body

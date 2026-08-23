@@ -21,7 +21,37 @@ readonly LOG_TAG="hyprconf-power"
 
 # System paths, env-overridable so tests can point at a fake tree.
 : "${_HYPRCONF_PS_ROOT:=/sys/class/power_supply}"
-: "${_HYPRCONF_STATE_DIR:=${XDG_STATE_HOME:-$HOME/.local/state}/hyprconf}"
+: "${_HYPRCONF_SESSION_CONF:=/usr/local/lib/hyprconf/power-monitor.conf}"
+
+# Where the per-state remembered profiles live.
+#
+# udev executes its RUN+= program as root with a minimal environment — no HOME
+# — and that is the path that matters most here, since plug/unplug is what
+# triggers a switch. Deriving the directory from $HOME would resolve to
+# "/.local/state" there and silently ignore everything the user chose. setup.sh
+# therefore records the real location in a root-owned file beside the
+# root-owned copy udev runs, and that file is consulted whenever $HOME is
+# unusable. Whatever comes back is only ever used to read a profile *name*,
+# which is then checked against powerprofilesctl's own list before it is
+# applied — a writable state file cannot make root do anything the user could
+# not already do with powerprofilesctl.
+_state_dir() {
+    if [[ -n "${_HYPRCONF_STATE_DIR:-}" ]]; then
+        printf '%s\n' "$_HYPRCONF_STATE_DIR"
+        return
+    fi
+
+    if [[ -z "${HOME:-}" || ! -d "${HOME:-}" ]] && [[ -r "$_HYPRCONF_SESSION_CONF" ]]; then
+        local recorded
+        recorded="$(sed -n 's/^state_dir=//p' "$_HYPRCONF_SESSION_CONF" | head -n1)"
+        if [[ -n "$recorded" ]]; then
+            printf '%s\n' "$recorded"
+            return
+        fi
+    fi
+
+    printf '%s/hyprconf\n' "${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}"
+}
 
 _log() { logger -t "$LOG_TAG" "$*" 2>/dev/null || true; }
 
@@ -102,7 +132,7 @@ _default_for_state() {
     esac
 }
 
-_state_file() { printf '%s/power-profile.%s\n' "$_HYPRCONF_STATE_DIR" "$1"; }
+_state_file() { printf '%s/power-profile.%s\n' "$(_state_dir)" "$1"; }
 
 # A remembered profile the daemon no longer offers is ignored rather than
 # applied — firmware and driver changes can retire one between boots.
@@ -117,7 +147,7 @@ _remembered_for_state() {
 }
 
 _remember_for_state() {
-    mkdir -p "$_HYPRCONF_STATE_DIR" 2>/dev/null || return 0
+    mkdir -p "$(_state_dir)" 2>/dev/null || return 0
     printf '%s\n' "$2" > "$(_state_file "$1")" 2>/dev/null || true
 }
 

@@ -89,7 +89,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 7. Firefox enterprise policies (`/etc/firefox/policies/policies.json`): telemetry disabled, uBlock Origin installed
 8. Chassis-type-aware monitor config symlink (DMI → desktop vs laptop)
 9. Hardware feature detection: touchscreen → writes `conf.d/hardware.lua` + installs `gtk-layer-shell` (the OSK `wvkbd` is AUR-only and is **not** installed automatically); accelerometer → installs + enables `iio-sensor-proxy`
-10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery, unless a profile was remembered with `hyprconf-power-monitor set`
+10. Automatic power profile switching on battery devices: installs udev rule (`99-hyprconf-power.rules`) → `performance` on AC, `power-saver` on battery, unless a profile was remembered with `hyprconf-power-monitor set`. The rule executes a root-owned copy of the script (`/usr/local/lib/hyprconf/`) — udev's `RUN+=` runs as root, so it must never point at a writable `$HOME` path — alongside a root-owned `power-monitor.conf` recording where the remembered profiles live, since udev provides no `$HOME` to find them from
 11. Keychron / Lemokey HID permissions: installs udev rule (`70-keychron.rules`) for Keychron (`0x3434`) and Lemokey (`0x362d`) → `TAG+="uaccess"` so `launcher.keychron.com` (WebHID) can remap keys
 12. `ufw` deny-inbound / allow-outbound; enable + start
 13. Disable `sddm`; enable `NetworkManager`, `iwd`, `bluetooth`, `power-profiles-daemon`; configure NM to use iwd as wifi backend

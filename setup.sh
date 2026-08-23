@@ -883,6 +883,7 @@ setup_power_monitor() {
     local src_script="$STOW_DIR/hypr/.local/bin/hyprconf-power-monitor"
     local user_script="$HOME/.local/bin/hyprconf-power-monitor"
     local system_script="/usr/local/lib/hyprconf/hyprconf-power-monitor"
+    local system_conf="/usr/local/lib/hyprconf/power-monitor.conf"
     local udev_rule="/etc/udev/rules.d/99-hyprconf-power.rules"
 
     [[ -e "$src_script" ]] || src_script="$user_script"
@@ -897,6 +898,19 @@ setup_power_monitor() {
     else
         log_warn "Could not install root-owned power monitor — skipping power rule."
         return 0
+    fi
+
+    # udev runs that copy as root with no HOME, so it cannot find the profiles
+    # the user asked to be remembered ("hyprconf-power-monitor set") from $HOME
+    # alone. Record where they live, in a root-owned file the rule's program
+    # reads. Only a directory name — the profile read from it is still checked
+    # against powerprofilesctl's own list before being applied.
+    local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/hyprconf"
+    if printf 'state_dir=%s\n' "$state_dir" |
+        sudo install -Dm644 -o root -g root /dev/stdin "$system_conf" 2>/dev/null; then
+        log_ok "Power monitor state location recorded: $system_conf"
+    else
+        log_warn "Could not record power monitor state location — remembered profiles will not apply on AC changes."
     fi
 
     log_step "Installing udev rule for automatic power profile switching..."
