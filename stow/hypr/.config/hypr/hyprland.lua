@@ -40,14 +40,38 @@ hl.env("MOZ_ENABLE_WAYLAND", "1")
 ---- AUTOSTART ----
 -------------------
 
--- Re-run every reload (plain top-level calls — a Lua config file re-executes
--- top-to-bottom on every `hyprctl reload`, matching classic `exec = …`
--- semantics). Both guards below are idempotent so a theme-switch reload does
--- not restart these.
-hl.exec_cmd(
-    "pgrep -x hyprpaper >/dev/null && pgrep -x hyprpaper | xargs -r kill; "
-        .. "hyprpaper --config ~/.config/hypr/hyprpaper.conf"
-)
+-- The wallpaper daemon and the bar are Wayland clients, and a Lua config's
+-- top-level code runs *while the config is being parsed* — which on the very
+-- first parse is before Hyprland has created its Wayland socket. A client
+-- spawned there inherits an empty WAYLAND_DISPLAY, fails to connect and dies
+-- immediately, leaving a bare desktop until a manual `hyprctl reload`.
+-- (Classic hyprlang `exec =` never hit this: Hyprland queued those commands
+-- and ran them after startup.) So each command is issued from two places:
+--
+--   * hl.on("hyprland.start", …) below — the launch that actually brings the
+--     desktop up, once the compositor is running;
+--   * the top-level calls here — re-run on every later parse, i.e. on every
+--     `hyprctl reload`, which is how a theme switch gets hyprpaper to re-read
+--     hyprpaper.conf and repaint with the new wallpaper.
+--
+-- WHEN_COMPOSITOR_UP makes the top-level calls no-ops during that first parse,
+-- leaving exactly one launch at startup. Hyprland exports WAYLAND_DISPLAY
+-- empty to its children until the socket exists — including when Hyprland
+-- itself runs nested inside another compositor — so this is an exact test for
+-- "is there a compositor to connect to yet", not a heuristic. (`Hyprland
+-- --verify-config` also runs top-level calls for real: from a TTY the guard
+-- makes it a no-op; run from inside a session it inherits that session's
+-- WAYLAND_DISPLAY and simply restarts its hyprpaper.) Spelled `test -n` rather
+-- than `[ -n … ]` on purpose: Hyprland parses a command that *starts* with
+-- `[` as an exec rule list (`exec = [workspace 2 silent] foo`), so a leading
+-- bracket would be eaten as rules instead of reaching the shell.
+local WHEN_COMPOSITOR_UP = 'test -n "$WAYLAND_DISPLAY" || exit 0; '
+
+-- Wallpaper daemon: killed and relaunched on reload so a theme switch picks up
+-- the rewritten hyprpaper.conf.
+local WALLPAPER = "pgrep -x hyprpaper >/dev/null && pgrep -x hyprpaper | xargs -r kill; "
+    .. "hyprpaper --config ~/.config/hypr/hyprpaper.conf"
+
 -- Quickshell bar. The leading waybar kill is a migration shim: it stops a
 -- stray waybar left running by a pre-quickshell install picking up this
 -- config via `setup.sh --sync` (no-op once waybar is gone).
@@ -59,12 +83,19 @@ hl.exec_cmd(
 -- symlink to quickshell) when the system package is present, so the running
 -- process's comm is `qs`, not `quickshell`. Matching only `quickshell` made
 -- the guard always miss, spawning a new instance on every reload.
-hl.exec_cmd("pgrep -x waybar | xargs -r kill; pgrep -x 'qs|quickshell' >/dev/null || ~/.config/quickshell/launch.sh")
+local BAR = "pgrep -x waybar | xargs -r kill; "
+    .. "pgrep -x 'qs|quickshell' >/dev/null || ~/.config/quickshell/launch.sh"
 
--- Fire once at startup only — the Lua equivalent of `exec-once =` (plain
+hl.exec_cmd(WHEN_COMPOSITOR_UP .. WALLPAPER)
+hl.exec_cmd(WHEN_COMPOSITOR_UP .. BAR)
+
+-- Fire once at startup only — the Lua equivalent of `exec-once =` (the
 -- top-level hl.exec_cmd() calls above re-run on every reload instead, the
--- equivalent of classic `exec =`).
+-- equivalent of classic `exec =`). A reload re-registers this handler but
+-- never re-fires it.
 hl.on("hyprland.start", function()
+    hl.exec_cmd(WALLPAPER)
+    hl.exec_cmd(BAR)
     hl.exec_cmd("/usr/lib/pam_kwallet_init")
     hl.exec_cmd("kwalletd6")
     hl.exec_cmd("systemctl --user start hyprpolkitagent")

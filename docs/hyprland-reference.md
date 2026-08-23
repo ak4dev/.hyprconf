@@ -188,37 +188,69 @@ Wiki: <https://wiki.hypr.land/Nvidia/>
 ## Autostart
 
 ```lua
--- Fires once at Hyprland startup only — the Lua equivalent of `exec-once`.
+-- Fires once, after the compositor is up — the Lua equivalent of `exec-once`.
+-- This is where anything that talks to the compositor belongs.
 hl.on("hyprland.start", function()
     hl.exec_cmd("program")
 end)
 
--- A plain top-level hl.exec_cmd() call (not wrapped in hl.on) runs at startup
--- AND on every `hyprctl reload`, since a Lua config file re-executes
--- top-to-bottom on every reload — this is the equivalent of classic `exec =`.
+-- A plain top-level hl.exec_cmd() call runs while the config is being PARSED,
+-- and re-runs on every `hyprctl reload` (a Lua config re-executes top-to-bottom
+-- each time). It is NOT the equivalent of classic `exec =`: hyprlang's `exec`
+-- was queued by Hyprland and dispatched after startup, a top-level Lua call is
+-- not.
 hl.exec_cmd("program")
 ```
 
-> **Use a top-level `hl.exec_cmd()` call for anything that must survive
-> `hyprctl reload`** (e.g. daemons, wallpaper, bar). Use `hl.on("hyprland.start", …)`
-> for one-shot init (polkit, kwallet).
+> ⚠️ **Never launch a Wayland client from top-level code alone.** On the *first*
+> parse Hyprland has not created its Wayland socket yet: children inherit an
+> empty `WAYLAND_DISPLAY` (Hyprland clears it, even when nested inside another
+> compositor) and die on startup. A wallpaper/bar started that way never appears
+> until a manual `hyprctl reload`.
+
+> **Pattern for a daemon that must both start at login and re-run on reload:**
+> launch it from `hl.on("hyprland.start", …)`, and add a top-level call guarded
+> on a live socket so it no-ops during the first parse.
 
 ```lua
-hl.exec_cmd("pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf")
--- Guarded launch: a plain hl.exec_cmd() call re-runs on every reload, so
--- daemons that must NOT restart on reload (the quickshell bar) get a pgrep
--- guard. Match every name the daemon can run under — quickshell's comm is
--- `qs` when launched via the system package, so guarding only `quickshell`
--- always misses.
-hl.exec_cmd("pgrep -x 'qs|quickshell' >/dev/null || ~/.config/quickshell/launch.sh")
+-- `test -n`, not `[ -n … ]`: Hyprland parses a command that STARTS with `[` as
+-- an exec rule list (`exec = [workspace 2 silent] foo`), so a leading bracket
+-- never reaches the shell.
+local WHEN_COMPOSITOR_UP = 'test -n "$WAYLAND_DISPLAY" || exit 0; '
+local WALLPAPER = "pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf"
+-- Guarded launch: a top-level call re-runs on every reload, so daemons that must
+-- NOT restart on reload (the quickshell bar) get a pgrep guard. Match every name
+-- the daemon can run under — quickshell's comm is `qs` when launched via the
+-- system package, so guarding only `quickshell` always misses.
+local BAR = "pgrep -x 'qs|quickshell' >/dev/null || ~/.config/quickshell/launch.sh"
+
+hl.exec_cmd(WHEN_COMPOSITOR_UP .. WALLPAPER)  -- reloads only
+hl.exec_cmd(WHEN_COMPOSITOR_UP .. BAR)        -- reloads only
 
 hl.on("hyprland.start", function()
+    hl.exec_cmd(WALLPAPER)                     -- first launch
+    hl.exec_cmd(BAR)                           -- first launch
     hl.exec_cmd("systemctl --user start hyprpolkitagent")
     hl.exec_cmd("hypridle")
     hl.exec_cmd("wl-paste --type text --watch cliphist store")
     hl.exec_cmd("wl-paste --type image --watch cliphist store")
 end)
 ```
+
+### Events (`hl.on`)
+
+Event names live in `/usr/share/hypr/stubs/hl.meta.lua` (`HL.EventName`), the
+generated stub for the installed build — check there before inventing one.
+Verified behaviour on 0.56.2:
+
+| Event | When it fires |
+|---|---|
+| `hyprland.start` | Once, after the compositor is up. A reload re-registers the handler but never re-fires it. |
+| `config.reloaded` | On **every** parse — including the first, *before* `hyprland.start`, so it is just as early as top-level code. |
+| `hyprland.shutdown` | On exit. |
+
+Each parse gets a fresh Lua state: subscriptions from the previous parse are
+dropped, so handlers never accumulate across reloads.
 
 ---
 

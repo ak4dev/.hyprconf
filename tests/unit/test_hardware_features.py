@@ -481,6 +481,25 @@ def test_write_hardware_conf_emits_watch_when_touch_detected(tmp_path):
     assert 'hl.exec_cmd("touch-panel-watch")' in conf
 
 
+def test_write_hardware_conf_startup_cmds_run_after_compositor_start(tmp_path):
+    """Generated startup commands must sit inside hl.on("hyprland.start", …).
+
+    A top-level hl.exec_cmd() runs while the config is being parsed — before
+    Hyprland has a Wayland socket — so anything spawned there dies instantly
+    (see tests/unit/test_autostart.py).
+    """
+    conf = _run_write_hardware_conf(tmp_path, has_touch=True, has_accel=True)
+    lines = [ln.rstrip() for ln in conf.splitlines()]
+    start = next((i for i, ln in enumerate(lines) if ln.startswith('hl.on("hyprland.start"')), None)
+    assert start is not None, "generated startup commands are not wrapped in an hl.on block"
+    end = next(i for i in range(start, len(lines)) if lines[i] == "end)")
+    block = lines[start : end + 1]
+    for cmd in ("wvkbd-launcher", "touch-panel-launcher", "touch-panel-watch", "autorotate"):
+        assert any(f'hl.exec_cmd("{cmd}")' in ln for ln in block), (
+            f"{cmd} is launched outside the hyprland.start block"
+        )
+
+
 def test_write_hardware_conf_no_launcher_without_touchscreen(tmp_path):
     """touch-panel-launcher must NOT appear when there is no touchscreen."""
     conf = _run_write_hardware_conf(tmp_path, has_touch=False)

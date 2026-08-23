@@ -324,11 +324,17 @@ Touchpad workspace swiping is configured in `gestures.lua`:
 
 ## Autostart Services
 
-`hyprland.lua` starts these on session init:
+`hyprland.lua` starts these from `hl.on("hyprland.start", …)`, i.e. once the
+compositor is up. Nothing is launched while the config is being *parsed*: on the
+first parse Hyprland has not created its Wayland socket yet, so a client spawned
+there dies immediately (a bare desktop until `hyprctl reload`). The wallpaper and
+bar are additionally re-issued by top-level `hl.exec_cmd()` calls, which re-run on
+every `hyprctl reload` — guarded on a non-empty `WAYLAND_DISPLAY` so they no-op
+during that first parse.
 
 | Command | Purpose | Restart policy |
 |---|---|---|
-| `pkill hyprpaper; hyprpaper --config ~/.config/hypr/hyprpaper.conf` | Wallpaper daemon | Restarted on every `exec` (config reload safe) |
+| `pgrep -x hyprpaper … \| xargs -r kill; hyprpaper --config ~/.config/hypr/hyprpaper.conf` | Wallpaper daemon | Launched at startup, then killed and relaunched on every `hyprctl reload` so a theme switch repaints with the new wallpaper |
 | `pgrep -x 'qs\|quickshell' >/dev/null \|\| ~/.config/quickshell/launch.sh` | Status bar (quickshell) | Launched once; survives `hyprctl reload` (hot-reloads its own QML). The guard matches both process names — the system package runs as `qs`. A stray waybar from pre-quickshell installs is killed first |
 | `/usr/lib/pam_kwallet_init` | KDE Wallet PAM init | Once |
 | `kwalletd6` | KDE Wallet daemon (SSH/GPG key storage) | Once |
