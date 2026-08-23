@@ -14,7 +14,18 @@ set -euo pipefail
 #   mode none — unbind from all drivers (power saving)
 #
 # No libvirt dependency — all binding via direct sysfs writes.
+#
+# Two VM guests share this passthrough plumbing, under `vm` (Windows,
+# Docker + dockurr/windows + Looking Glass) and `vm arch` (Arch Linux, a
+# plain qemu-system-x86_64 process + SSH/VNC — functions prefixed
+# _gpu_vm_arch_ to keep them distinguishable from the Windows-only
+# _gpu_vm_* functions). GPU passthrough is one exclusive physical resource:
+# only one of the two can hold the vfio-pci-bound GPU at a time, so each
+# `launch` checks for the other and refuses cleanly instead of fighting
+# over the same device.
 
+_GPU_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly _GPU_SCRIPT_DIR
 readonly _GPU_CONF_DIR="${HOME}/.config/hyprconf"
 readonly _GPU_CONF="${_GPU_CONF_DIR}/gpu-passthrough.conf"
 readonly _GPU_LOG="/tmp/hyprconf-gpu-passthrough.log"
@@ -2277,6 +2288,26 @@ readonly _GPU_VM_OEM_DIR="${HOME}/.local/share/hyprconf/windows-vm-oem"
 readonly _GPU_VM_USB_CONF="${_GPU_CONF_DIR}/gpu-vm-usb.conf"
 readonly _GPU_VM_QEMU_MON_PORT="7100"
 _GPU_VM_KVMFR_DEV="/dev/kvmfr0"
+# PID file written while the `vm arch` QEMU process holds the passthrough
+# GPU — checked here so the Windows VM refuses to launch (and vice versa)
+# instead of both fighting over the same vfio-pci device.
+# Not readonly (unlike the other VM path constants) so tests can override it.
+: "${_GPU_ARCHVM_PID_FILE:=${HOME}/.local/share/hyprconf/arch-vm/arch-vm.pid}"
+
+# ── Arch VM Management ──────────────────────────────────────────────────────────
+
+readonly _GPU_ARCHVM_CONF="${_GPU_CONF_DIR}/arch-vm.conf"
+readonly _GPU_ARCHVM_DIR="${HOME}/.local/share/hyprconf/arch-vm"
+readonly _GPU_ARCHVM_IMAGE="${_GPU_ARCHVM_DIR}/arch-hyprconf.qcow2"
+readonly _GPU_ARCHVM_OVMF_VARS="${_GPU_ARCHVM_DIR}/OVMF_VARS.4m.fd"
+: "${_GPU_ARCHVM_OVMF_CODE:=/usr/share/edk2/x64/OVMF_CODE.4m.fd}"
+: "${_GPU_ARCHVM_OVMF_VARS_SRC:=/usr/share/edk2/x64/OVMF_VARS.4m.fd}"
+readonly _GPU_ARCHVM_SSH_KEY="${HOME}/.ssh/hyprconf_arch_vm_key"
+readonly _GPU_ARCHVM_BUILD_SCRIPT="${_GPU_SCRIPT_DIR}/vm/build-arch-vm-image.sh"
+# Official-repo packages `vm arch install`/`build` need on the host (checked
+# here, never auto-installed — printed as a pacman command for the user).
+# qemu-desktop and edk2-ovmf overlap _GPU_VFIO_PACKAGES; harmless to re-check.
+readonly _GPU_ARCHVM_PACKAGES="packer qemu-desktop edk2-ovmf"
 
 _gpu_vm_freerdp_bin() {
     # FreeRDP v3 renamed the binary to xfreerdp3
@@ -2757,6 +2788,19 @@ endlocal
 OEMEOF
 }
 
+_gpu_vfio_qemu_args() {
+    # Output " -device vfio-pci,host=<addr>" for each device in the
+    # passthrough GPU's IOMMU group, skipping PCI bridges (class 0604).
+    # Guest-agnostic — shared by the Windows compose generator and the
+    # `vm arch` raw-QEMU launcher.
+    local dev_pci dev_class
+    for dev_pci in ${GPU_IOMMU_DEVICES:-$GPU_PCI_ADDR}; do
+        dev_class=$(_gpu_get_pci_class "$dev_pci" 2>/dev/null) || continue
+        [[ "$dev_class" == "0604" ]] && continue
+        printf ' -device vfio-pci,host=%s' "$dev_pci"
+    done
+}
+
 _gpu_vm_generate_compose() {
     # Generate docker-compose.yml with GPU passthrough, Looking Glass,
     # and comprehensive anti-detection (SMBIOS, CPU, disk, devices).
@@ -2797,12 +2841,7 @@ _gpu_vm_generate_compose() {
     fi
 
     # GPU passthrough: vfio-pci devices (skip PCI bridges)
-    local dev_pci dev_class
-    for dev_pci in ${GPU_IOMMU_DEVICES:-$GPU_PCI_ADDR}; do
-        dev_class=$(_gpu_get_pci_class "$dev_pci" 2>/dev/null) || continue
-        [[ "$dev_class" == "0604" ]] && continue
-        qemu_args+=" -device vfio-pci,host=${dev_pci}"
-    done
+    qemu_args+="$(_gpu_vfio_qemu_args)"
 
     # Audio: removed entirely — Dockurr's QEMU lacks all audio backends
     # (SPICE, PulseAudio, ALSA). HDMI audio from the passthrough GPU
@@ -3023,6 +3062,21 @@ _gpu_vm_launch() {
     if ! _gpu_vm_load_config; then
         printf "Windows VM not configured. Run: gpu-passthrough.sh vm install\n" >&2
         return 1
+    fi
+
+    # Mutual exclusion: `vm arch` may already hold the passthrough GPU. Only
+    # one VM can own the vfio-pci binding at a time.
+    if [[ -f "$_GPU_ARCHVM_PID_FILE" ]]; then
+        local _archvm_pid
+        _archvm_pid=$(cat "$_GPU_ARCHVM_PID_FILE" 2>/dev/null || true)
+        # /proc existence (not kill -0) — the Arch VM's QEMU process may run
+        # under sudo, and an unprivileged kill -0 on a root-owned PID would
+        # report EPERM (falsely read as "not running") even while it's alive.
+        if [[ -n "$_archvm_pid" && -d "/proc/${_archvm_pid}" ]]; then
+            printf "✘ The Arch VM is running and holds the passthrough GPU.\n" >&2
+            printf "  Stop it first: gpu-passthrough.sh vm arch stop\n" >&2
+            return 1
+        fi
     fi
 
     # Ensure GPU is bound to vfio-pci
@@ -3249,6 +3303,425 @@ _gpu_vm_remove() {
     printf "  Shared folder ~/Windows/ was preserved.\n"
 }
 
+# ── Arch VM Config ─────────────────────────────────────────────────────────────
+
+_gpu_vm_arch_load_config() {
+    if [[ -f "$_GPU_ARCHVM_CONF" ]]; then
+        # shellcheck source=/dev/null
+        source "$_GPU_ARCHVM_CONF"
+        return 0
+    fi
+    return 1
+}
+
+_gpu_vm_arch_save_config() {
+    mkdir -p "$_GPU_CONF_DIR"
+    # File contains VM_PASSWORD — must be readable only by owner.
+    ( umask 077
+      cat > "$_GPU_ARCHVM_CONF" <<EOF
+# Generated by gpu-passthrough.sh vm arch install — $(date '+%Y-%m-%d %H:%M:%S')
+VM_RAM="${VM_RAM}"
+VM_CPU="${VM_CPU}"
+VM_DISK="${VM_DISK}"
+VM_USERNAME="${VM_USERNAME}"
+VM_PASSWORD="${VM_PASSWORD}"
+VM_HOSTNAME="${VM_HOSTNAME}"
+VM_TIMEZONE="${VM_TIMEZONE}"
+VM_SSH_PORT="${VM_SSH_PORT}"
+VM_VNC_PORT="${VM_VNC_PORT}"
+EOF
+    )
+    chmod 600 "$_GPU_ARCHVM_CONF" 2>/dev/null || true
+}
+
+_gpu_vm_arch_check_host_packages() {
+    local _pkg _missing=""
+    for _pkg in $_GPU_ARCHVM_PACKAGES; do
+        pacman -Qi "$_pkg" &>/dev/null || _missing="$_missing $_pkg"
+    done
+    if [[ -n "$_missing" ]]; then
+        printf "Missing packages:%s\n" "$_missing" >&2
+        printf "Install with:\n  sudo pacman -S --needed%s\n" "$_missing" >&2
+        return 1
+    fi
+    return 0
+}
+
+# ── Arch VM Install / build ───────────────────────────────────────────────────
+
+_gpu_vm_arch_install() {
+    # Interactive setup wizard: collect config, then build the image.
+    if ! _gpu_load_config; then
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n" >&2
+        return 1
+    fi
+    _gpu_vm_arch_check_host_packages || return 1
+
+    local total_ram_gb total_cores
+    total_ram_gb=$(awk '/MemTotal/ {printf "%d", $2/1024/1024}' /proc/meminfo)
+    total_cores=$(nproc)
+    printf "\nSystem resources:\n"
+    printf "  RAM: %sGB | CPU cores: %s\n\n" "$total_ram_gb" "$total_cores"
+
+    local ram_default="8G"
+    printf "RAM to allocate (e.g. 8G) [%s]: " "$ram_default"
+    read -r VM_RAM
+    VM_RAM="${VM_RAM:-$ram_default}"
+    # A bare number means megabytes to QEMU's -m — almost never what's meant
+    # when this prompt's own example/default is a "G" value. Coerce it.
+    [[ "$VM_RAM" =~ ^[0-9]+$ ]] && VM_RAM="${VM_RAM}G"
+
+    local cpu_default="4"
+    (( cpu_default > total_cores )) && cpu_default="$total_cores"
+    printf "CPU cores to allocate [%s]: " "$cpu_default"
+    read -r VM_CPU
+    VM_CPU="${VM_CPU:-$cpu_default}"
+
+    local disk_default="64G"
+    printf "Disk size (e.g. 64G) [%s]: " "$disk_default"
+    read -r VM_DISK
+    VM_DISK="${VM_DISK:-$disk_default}"
+    [[ "$VM_DISK" =~ ^[0-9]+$ ]] && VM_DISK="${VM_DISK}G"
+
+    local user_default="user"
+    printf "Arch username [%s]: " "$user_default"
+    read -r VM_USERNAME
+    VM_USERNAME="${VM_USERNAME:-$user_default}"
+
+    local pass_default="changeme"
+    printf "Arch password [%s]: " "$pass_default"
+    read -r -s VM_PASSWORD
+    VM_PASSWORD="${VM_PASSWORD:-$pass_default}"
+    printf "\n"
+
+    local hostname_default="hyprconf-arch-vm"
+    printf "Hostname [%s]: " "$hostname_default"
+    read -r VM_HOSTNAME
+    VM_HOSTNAME="${VM_HOSTNAME:-$hostname_default}"
+
+    local tz_default
+    tz_default=$(timedatectl show -p Timezone --value 2>/dev/null || echo "UTC")
+    printf "Timezone [%s]: " "$tz_default"
+    read -r VM_TIMEZONE
+    VM_TIMEZONE="${VM_TIMEZONE:-$tz_default}"
+
+    local ssh_port_default="2244"
+    printf "SSH port (host side) [%s]: " "$ssh_port_default"
+    read -r VM_SSH_PORT
+    VM_SSH_PORT="${VM_SSH_PORT:-$ssh_port_default}"
+
+    local vnc_port_default="5901"
+    printf "VNC port (host side) [%s]: " "$vnc_port_default"
+    read -r VM_VNC_PORT
+    VM_VNC_PORT="${VM_VNC_PORT:-$vnc_port_default}"
+
+    printf "\n── Arch VM Configuration ──\n"
+    printf "  GPU:      %s (%s)\n" "${GPU_NAME}" "${GPU_PCI_ADDR}"
+    printf "  RAM:      %s\n" "$VM_RAM"
+    printf "  CPU:      %s cores\n" "$VM_CPU"
+    printf "  Disk:     %s\n" "$VM_DISK"
+    printf "  Username: %s\n" "$VM_USERNAME"
+    printf "  Hostname: %s\n" "$VM_HOSTNAME"
+    printf "  Timezone: %s\n" "$VM_TIMEZONE"
+    printf "  SSH:      127.0.0.1:%s\n" "$VM_SSH_PORT"
+    printf "  VNC:      127.0.0.1:%s\n" "$VM_VNC_PORT"
+    printf "  Image:    %s\n\n" "$_GPU_ARCHVM_IMAGE"
+
+    printf "Proceed and build the image now? This runs a real Arch install\n"
+    printf "inside Packer/QEMU and takes several minutes. [Y/n]: "
+    read -r confirm
+    if [[ "${confirm:-y}" =~ ^[Nn] ]]; then
+        printf "Cancelled.\n"
+        return 1
+    fi
+
+    _gpu_vm_arch_save_config
+    _gpu_vm_arch_build
+}
+
+_gpu_vm_arch_build() {
+    # (Re)build the qcow2 image from existing config via Packer.
+    if ! _gpu_vm_arch_load_config; then
+        printf "Arch VM not configured. Run: gpu-passthrough.sh vm arch install\n" >&2
+        return 1
+    fi
+    _gpu_vm_arch_check_host_packages || return 1
+
+    printf "→ Building Arch VM image (this takes several minutes)...\n"
+    if ! VM_USERNAME="$VM_USERNAME" VM_PASSWORD="$VM_PASSWORD" \
+         VM_HOSTNAME="$VM_HOSTNAME" VM_TIMEZONE="$VM_TIMEZONE" VM_DISK="$VM_DISK" \
+         bash "$_GPU_ARCHVM_BUILD_SCRIPT"; then
+        printf "✘ Image build failed.\n" >&2
+        return 1
+    fi
+
+    printf "\n✔ Arch VM image built.\n"
+    printf "  Launch: gpu-passthrough.sh vm arch launch\n"
+}
+
+# ── Arch VM Lifecycle ─────────────────────────────────────────────────────────
+
+_gpu_vm_arch_is_running() {
+    [[ -f "$_GPU_ARCHVM_PID_FILE" ]] || return 1
+    local pid
+    pid=$(cat "$_GPU_ARCHVM_PID_FILE" 2>/dev/null || true)
+    [[ -n "$pid" && -d "/proc/${pid}" ]]
+}
+
+_gpu_vm_arch_launch() {
+    # Bind GPU to vfio-pci (if needed), start a plain QEMU process.
+    # VM runs persistently until explicitly stopped with `vm arch stop`.
+    local force=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force|-f) force="force" ;;
+        esac
+        shift
+    done
+
+    if ! _gpu_load_config; then
+        printf "GPU passthrough not configured. Run: gpu-passthrough.sh setup\n" >&2
+        return 1
+    fi
+    if ! _gpu_vm_arch_load_config; then
+        printf "Arch VM not configured. Run: gpu-passthrough.sh vm arch install\n" >&2
+        return 1
+    fi
+    if [[ ! -f "$_GPU_ARCHVM_IMAGE" ]]; then
+        printf "Arch VM image not built. Run: gpu-passthrough.sh vm arch build\n" >&2
+        return 1
+    fi
+
+    # Mutual exclusion: the Windows VM may already hold the passthrough GPU.
+    local _win_status
+    _win_status=$(docker inspect --format='{{.State.Status}}' "$_GPU_VM_CONTAINER" 2>/dev/null || echo "")
+    if [[ "$_win_status" == "running" ]]; then
+        printf "✘ The Windows VM is running and holds the passthrough GPU.\n" >&2
+        printf "  Stop it first: gpu-passthrough.sh vm stop\n" >&2
+        return 1
+    fi
+
+    if _gpu_vm_arch_is_running; then
+        printf "Arch VM is already running.\n"
+        printf "  Connect: gpu-passthrough.sh vm arch connect\n"
+        printf "  Stop:    gpu-passthrough.sh vm arch stop\n"
+        return 0
+    fi
+
+    printf "→ Binding GPU to vfio-pci...\n"
+    _gpu_mode_vm "$force" || return 1
+
+    mkdir -p "$_GPU_ARCHVM_DIR"
+    if [[ ! -f "$_GPU_ARCHVM_OVMF_VARS" ]]; then
+        cp "$_GPU_ARCHVM_OVMF_VARS_SRC" "$_GPU_ARCHVM_OVMF_VARS"
+    fi
+
+    # A bare number (no M/G/T suffix) from an older/hand-edited config would
+    # otherwise be interpreted by QEMU's -m as megabytes — defensively coerce
+    # to gigabytes here regardless of what the install wizard already wrote.
+    local vm_ram="$VM_RAM"
+    [[ "$vm_ram" =~ ^[0-9]+$ ]] && vm_ram="${vm_ram}G"
+
+    _gpu_ensure_sudo || return 1
+
+    local -a qemu_cmd=(
+        qemu-system-x86_64
+        -enable-kvm
+        -machine q35
+        -m "$vm_ram"
+        -smp "$VM_CPU"
+        -cpu host
+        -drive "if=pflash,format=raw,readonly=on,file=$_GPU_ARCHVM_OVMF_CODE"
+        -drive "if=pflash,format=raw,file=$_GPU_ARCHVM_OVMF_VARS"
+        -drive "file=$_GPU_ARCHVM_IMAGE,format=qcow2,if=virtio"
+        # No emulated display: the passed-through GPU is the only display
+        # device, exactly like the Windows VM's DISPLAY=none — BIOS,
+        # bootloader, TTY, and Hyprland all render on the physical port.
+        -vga none -display none -monitor none -serial none
+        # Suspend/hibernate breaks GPU passthrough — same as the Windows VM.
+        -global ICH9-LPC.disable_s3=1
+        -global ICH9-LPC.disable_s4=1
+        -net "nic,model=virtio"
+        # Forwards are pinned to 127.0.0.1: QEMU binds a hostfwd with no host
+        # address on ALL interfaces, which would put the guest's sshd (stock
+        # config, and passwordless sudo inside the image) and its VNC server
+        # on the LAN. Reach them from this host — or tunnel in over SSH.
+        -net "user,hostfwd=tcp:127.0.0.1:${VM_SSH_PORT}-:22,hostfwd=tcp:127.0.0.1:${VM_VNC_PORT}-:5900"
+    )
+
+    # _gpu_vfio_qemu_args prints space-separated "-device vfio-pci,host=..."
+    # tokens with no embedded spaces — safe to split into array elements.
+    local vfio_args
+    vfio_args=$(_gpu_vfio_qemu_args)
+    # shellcheck disable=SC2206
+    qemu_cmd+=( $vfio_args )
+    qemu_cmd+=( -daemonize -pidfile "$_GPU_ARCHVM_PID_FILE" )
+
+    printf "→ Starting Arch VM...\n"
+    # VFIO pins the guest's RAM in host memory for DMA — the default
+    # per-user memlock ulimit (commonly 8MB) falls far short of any real
+    # VM's RAM and fails with "Cannot allocate memory". Root's limit is not
+    # capped the same way, so run under sudo and raise it explicitly rather
+    # than requiring a relogin after a permanent limits.conf change (the
+    # Windows VM sidesteps this the same way, via Docker's own
+    # `ulimits: memlock: soft: -1 hard: -1`).
+    if ! sudo bash -c 'ulimit -l unlimited 2>/dev/null || ulimit -l "$(ulimit -H -l)"; exec "$@"' -- "${qemu_cmd[@]}"; then
+        printf "✘ Failed to start VM.\n" >&2
+        return 1
+    fi
+
+    printf "✔ Arch VM starting.\n"
+    printf "  GPU display should be visible on the monitor connected to the passthrough GPU.\n"
+    printf "  SSH:     ssh -p %s -i %s %s@127.0.0.1\n" "$VM_SSH_PORT" "$_GPU_ARCHVM_SSH_KEY" "$VM_USERNAME"
+    printf "  Connect: gpu-passthrough.sh vm arch connect\n"
+    printf "  Stop:    gpu-passthrough.sh vm arch stop\n"
+}
+
+_gpu_vm_arch_vnc_viewer_bin() {
+    # Print the name of the first available VNC viewer, preference order
+    # vncviewer (TigerVNC) > remmina > gvncviewer. Never auto-installed —
+    # mirrors _gpu_vm_freerdp_bin's detect-don't-install pattern.
+    if command -v vncviewer &>/dev/null; then
+        printf 'vncviewer'
+    elif command -v remmina &>/dev/null; then
+        printf 'remmina'
+    elif command -v gvncviewer &>/dev/null; then
+        printf 'gvncviewer'
+    else
+        return 1
+    fi
+}
+
+_gpu_vm_arch_connect() {
+    if ! _gpu_vm_arch_load_config; then
+        printf "Arch VM not configured. Run: gpu-passthrough.sh vm arch install\n" >&2
+        return 1
+    fi
+    if ! _gpu_vm_arch_is_running; then
+        printf "Arch VM is not running. Start with: gpu-passthrough.sh vm arch launch\n" >&2
+        return 1
+    fi
+
+    printf "SSH:  ssh -p %s -i %s %s@127.0.0.1\n" "$VM_SSH_PORT" "$_GPU_ARCHVM_SSH_KEY" "$VM_USERNAME"
+
+    local vnc_bin
+    vnc_bin=$(_gpu_vm_arch_vnc_viewer_bin 2>/dev/null || echo "")
+
+    if [[ -n "$vnc_bin" ]]; then
+        printf "→ Launching %s...\n" "$vnc_bin"
+        case "$vnc_bin" in
+            remmina) remmina -c "vnc://127.0.0.1:${VM_VNC_PORT}" & ;;
+            *)       "$vnc_bin" "127.0.0.1::${VM_VNC_PORT}" & ;;
+        esac
+    else
+        printf "VNC:  127.0.0.1::%s (no VNC viewer found — install one, e.g. tigervnc)\n" "$VM_VNC_PORT"
+    fi
+}
+
+_gpu_vm_arch_stop() {
+    if ! _gpu_vm_arch_is_running; then
+        printf "Arch VM is not running.\n"
+        return 0
+    fi
+    if ! _gpu_vm_arch_load_config; then
+        printf "Arch VM not configured.\n" >&2
+        return 1
+    fi
+
+    printf "→ Stopping Arch VM...\n"
+    if timeout 3 bash -c "echo > /dev/tcp/127.0.0.1/${VM_SSH_PORT}" 2>/dev/null; then
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 -o BatchMode=yes \
+            -i "$_GPU_ARCHVM_SSH_KEY" -p "$VM_SSH_PORT" \
+            "${VM_USERNAME}@127.0.0.1" "sudo systemctl poweroff" 2>/dev/null || true
+    fi
+
+    local pid wait_count=0
+    pid=$(cat "$_GPU_ARCHVM_PID_FILE" 2>/dev/null || true)
+    while [[ -n "$pid" && -d "/proc/${pid}" ]]; do
+        sleep 2
+        wait_count=$((wait_count + 1))
+        if (( wait_count > 30 )); then
+            # The process runs under sudo (see _gpu_vm_arch_launch) — an
+            # unprivileged kill would fail silently with EPERM.
+            printf "  Force-killing VM (PID %s)...\n" "$pid"
+            sudo kill "$pid" 2>/dev/null || true
+            sleep 2
+            sudo kill -9 "$pid" 2>/dev/null || true
+            break
+        fi
+    done
+
+    rm -f "$_GPU_ARCHVM_PID_FILE"
+
+    printf "✔ Arch VM stopped.\n"
+    printf "  Restore GPU: gpu-passthrough.sh mode host\n"
+}
+
+_gpu_vm_arch_remove() {
+    printf "This will stop the Arch VM and delete its image and configuration.\n"
+    printf "Proceed? [y/N]: "
+    read -r confirm
+    if [[ ! "${confirm:-n}" =~ ^[Yy] ]]; then
+        printf "Cancelled.\n"
+        return 1
+    fi
+
+    if _gpu_vm_arch_is_running; then
+        _gpu_vm_arch_stop
+    fi
+
+    rm -f "$_GPU_ARCHVM_CONF"
+    rm -rf "$_GPU_ARCHVM_DIR"
+
+    printf "✔ Arch VM removed.\n"
+    printf "  SSH key preserved at %s\n" "$_GPU_ARCHVM_SSH_KEY"
+}
+
+_gpu_vm_arch_status() {
+    if ! _gpu_load_config; then
+        printf "GPU passthrough not configured.\n"
+        return 0
+    fi
+
+    local gpu_driver
+    gpu_driver=$(_gpu_get_pci_driver "$GPU_PCI_ADDR" 2>/dev/null || echo "unknown")
+
+    printf "── Arch VM Status ──\n"
+    printf "  GPU:    %s (%s)\n" "${GPU_NAME:-unknown}" "${GPU_PCI_ADDR:-unknown}"
+    printf "  Driver: %s\n" "$gpu_driver"
+
+    if _gpu_vm_arch_load_config; then
+        printf "  VM:     %s RAM, %s cores, %s disk\n" "${VM_RAM}" "${VM_CPU}" "${VM_DISK}"
+    else
+        printf "  VM:     not configured (run: gpu-passthrough.sh vm arch install)\n"
+        return 0
+    fi
+
+    if [[ ! -f "$_GPU_ARCHVM_IMAGE" ]]; then
+        printf "  Image:  not built (run: gpu-passthrough.sh vm arch build)\n"
+        return 0
+    fi
+
+    if _gpu_vm_arch_is_running; then
+        printf "  Status: ● running\n"
+        printf "  SSH:    127.0.0.1:%s\n" "$VM_SSH_PORT"
+        printf "  VNC:    127.0.0.1:%s\n" "$VM_VNC_PORT"
+    else
+        printf "  Status: ○ stopped\n"
+    fi
+
+    local _win_status
+    _win_status=$(docker inspect --format='{{.State.Status}}' "$_GPU_VM_CONTAINER" 2>/dev/null || echo "")
+    # An `if`, not `[[ … ]] && printf`: as the function's last statement the
+    # and-list's false branch becomes the function's exit status, so a stopped
+    # Windows VM — the normal case — made `vm arch status` exit 1 and abort
+    # its caller under `set -e`.
+    if [[ "$_win_status" == "running" ]]; then
+        printf "  Note:   Windows VM currently holds the passthrough GPU.\n"
+    fi
+}
+
 # ── Standalone entry point ────────────────────────────────────────────────────
 
 _gpu_usage() {
@@ -3268,6 +3741,8 @@ Usage: gpu-passthrough.sh <command>
   vm [status]                Windows VM container status
   vm install|launch|connect|stop|remove
   vm usb [add|remove]        USB hotplug into the running VM
+  vm arch [status]           Arch Linux VM status (mutually exclusive w/ vm above)
+  vm arch install|build|launch|connect|stop|remove
 EOF
 }
 
@@ -3375,7 +3850,21 @@ _gpu_main() {
                         *) _gpu_die "Unknown usb subcommand: ${usb_sub}\nUsage: gpu-passthrough.sh vm usb [list|add|remove]" ;;
                     esac
                     ;;
-                *) _gpu_die "Unknown vm command: ${vm_sub}\nUsage: gpu-passthrough.sh vm [status|install|launch|connect|stop|remove|usb]" ;;
+                arch)
+                    local arch_sub="${1:-status}"
+                    shift || true
+                    case "$arch_sub" in
+                        status)  _gpu_vm_arch_status ;;
+                        install) _gpu_vm_arch_install ;;
+                        build)   _gpu_vm_arch_build ;;
+                        launch)  _gpu_vm_arch_launch "$@" ;;
+                        connect) _gpu_vm_arch_connect ;;
+                        stop)    _gpu_vm_arch_stop ;;
+                        remove)  _gpu_vm_arch_remove ;;
+                        *) _gpu_die "Unknown vm arch command: ${arch_sub}\nUsage: gpu-passthrough.sh vm arch [status|install|build|launch|connect|stop|remove]" ;;
+                    esac
+                    ;;
+                *) _gpu_die "Unknown vm command: ${vm_sub}\nUsage: gpu-passthrough.sh vm [status|install|launch|connect|stop|remove|usb|arch]" ;;
             esac
             ;;
         help|-h|--help) _gpu_usage ;;

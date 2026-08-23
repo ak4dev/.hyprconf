@@ -4319,6 +4319,76 @@ class TestGpuVmGenerateCompose:
         assert "not configured" in r.stderr
 
 
+class TestGpuVfioQemuArgs:
+    """Tests for _gpu_vfio_qemu_args — extracted out of
+    _gpu_vm_generate_compose so it's shared by the Windows compose generator
+    and the `vm arch` raw QEMU launch."""
+
+    def test_emits_device_arg_per_iommu_device(self, tmp_path):
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0 01:00.1"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_load_config
+            _gpu_get_pci_class() {{ echo "0300"; }}
+            _gpu_vfio_qemu_args
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "-device vfio-pci,host=01:00.0" in r.stdout
+        assert "-device vfio-pci,host=01:00.1" in r.stdout
+
+    def test_skips_pci_bridges(self, tmp_path):
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        bin_dir = tmp_path / "bin"
+        _make_fake_bins(bin_dir)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="00:01.0 01:00.0"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_load_config
+            _gpu_get_pci_class() {{
+                [[ "$1" == "00:01.0" ]] && echo "0604" || echo "0300"
+            }}
+            _gpu_vfio_qemu_args
+        """)
+
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "vfio-pci,host=01:00.0" in r.stdout
+        assert "vfio-pci,host=00:01.0" not in r.stdout
+
+
 class TestGpuVmConfig:
     """Tests for _gpu_vm_save_config and _gpu_vm_load_config."""
 
@@ -5387,6 +5457,74 @@ class TestGpuVmLaunchForce:
         assert "FORCE_OK" in r.stdout, f"stdout: {r.stdout}\nstderr: {r.stderr}"
 
 
+class TestGpuVmLaunchArchVmExclusion:
+    """_gpu_vm_launch refuses to run while `vm arch`'s PID file shows a
+    live process — GPU passthrough is an exclusive resource shared by both
+    VM launchers."""
+
+    def _base_env(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        (conf_dir / "gpu-vm.conf").write_text(
+            'VM_RAM="8G"\nVM_CPU="4"\nVM_DISK="64G"\n'
+            'VM_USERNAME="user"\nVM_PASSWORD="admin"\nVM_VERSION="11"\n'
+        )
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        return env, home_dir
+
+    def test_refuses_when_archvm_pid_alive(self, tmp_path):
+        env, home_dir = self._base_env(tmp_path)
+
+        pid_file = tmp_path / "arch-vm.pid"
+        # Our own test process's PID is guaranteed to exist in /proc for the
+        # duration of this test.
+        pid_file.write_text(str(os.getpid()))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_ARCHVM_PID_FILE="{pid_file}"
+            _gpu_mode_vm() {{ echo "SHOULD_NOT_REACH"; }}
+            _gpu_vm_launch
+        """)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode != 0
+        assert "holds the passthrough GPU" in r.stderr
+        assert "SHOULD_NOT_REACH" not in r.stdout
+
+    def test_proceeds_when_archvm_pidfile_stale(self, tmp_path):
+        env, home_dir = self._base_env(tmp_path)
+
+        pid_file = tmp_path / "arch-vm.pid"
+        # A PID that (almost certainly) doesn't exist — stale/leftover file.
+        pid_file.write_text("999999999")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _GPU_ARCHVM_PID_FILE="{pid_file}"
+            _gpu_get_pci_driver() {{ echo "vfio-pci"; }}
+            _gpu_vm_generate_compose() {{ return 0; }}
+            _gpu_vm_launch
+        """)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert "holds the passthrough GPU" not in r.stderr
+
+
 class TestGpuVmIsRunning:
     """Tests for _gpu_vm_is_running."""
 
@@ -5538,3 +5676,542 @@ EOF
         r = self._run_hyprconf(["vm", "foobar"], bin_dir, home_dir)
         assert r.returncode != 0
         assert "usb" in r.stderr
+
+
+# ---------------------------------------------------------------------------
+# Arch VM (`vm arch`) — a second GPU-passthrough VM guest sharing this
+# script's GPU/IOMMU primitives, launched via a plain qemu-system-x86_64
+# (no Docker) and reached over SSH + VNC instead of Looking Glass/RDP.
+# ---------------------------------------------------------------------------
+
+
+def _write_archvm_config(conf_dir: Path, **overrides: str) -> None:
+    values = {
+        "VM_RAM": "8G",
+        "VM_CPU": "4",
+        "VM_DISK": "64G",
+        "VM_USERNAME": "user",
+        "VM_PASSWORD": "changeme",
+        "VM_HOSTNAME": "hyprconf-arch-vm",
+        "VM_TIMEZONE": "UTC",
+        "VM_SSH_PORT": "2244",
+        "VM_VNC_PORT": "5901",
+    }
+    values.update(overrides)
+    conf_dir.mkdir(parents=True, exist_ok=True)
+    (conf_dir / "arch-vm.conf").write_text(
+        "\n".join(f'{k}="{v}"' for k, v in values.items()) + "\n"
+    )
+
+
+class TestGpuVmArchConfig:
+    """Tests for _gpu_vm_arch_save_config / _gpu_vm_arch_load_config."""
+
+    def test_round_trip(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            VM_RAM="16G" VM_CPU="8" VM_DISK="128G"
+            VM_USERNAME="dev" VM_PASSWORD="s3cret"
+            VM_HOSTNAME="myarchvm" VM_TIMEZONE="America/New_York"
+            VM_SSH_PORT="2299" VM_VNC_PORT="5999"
+            _gpu_vm_arch_save_config
+            unset VM_RAM VM_CPU VM_DISK VM_USERNAME VM_PASSWORD VM_HOSTNAME VM_TIMEZONE VM_SSH_PORT VM_VNC_PORT
+            _gpu_vm_arch_load_config
+            printf 'RAM=%s CPU=%s DISK=%s USER=%s HOST=%s TZ=%s SSH=%s VNC=%s\\n' \\
+                "$VM_RAM" "$VM_CPU" "$VM_DISK" "$VM_USERNAME" "$VM_HOSTNAME" "$VM_TIMEZONE" "$VM_SSH_PORT" "$VM_VNC_PORT"
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert (
+            "RAM=16G CPU=8 DISK=128G USER=dev HOST=myarchvm TZ=America/New_York SSH=2299 VNC=5999"
+            in r.stdout
+        )
+
+    def test_config_file_is_owner_only(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            VM_RAM="8G" VM_CPU="4" VM_DISK="64G" VM_USERNAME="u" VM_PASSWORD="p"
+            VM_HOSTNAME="h" VM_TIMEZONE="UTC" VM_SSH_PORT="2244" VM_VNC_PORT="5901"
+            _gpu_vm_arch_save_config
+            stat -c '%a' "$_GPU_ARCHVM_CONF"
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert r.stdout.strip() == "600"
+
+    def test_load_fails_when_absent(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            if _gpu_vm_arch_load_config; then echo "LOADED"; else echo "NOT_LOADED"; fi
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "NOT_LOADED" in r.stdout
+
+
+class TestGpuVmArchCheckHostPackages:
+    """Tests for _gpu_vm_arch_check_host_packages."""
+
+    def test_all_present(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, pacman_installed=("packer", "qemu-desktop", "edk2-ovmf"))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_arch_check_host_packages && echo "ALL_PRESENT"
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "ALL_PRESENT" in r.stdout
+
+    def test_missing_prints_pacman_command(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir, pacman_installed=("qemu-desktop", "edk2-ovmf"))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_arch_check_host_packages
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode != 0
+        assert "packer" in r.stderr
+        assert "sudo pacman -S --needed" in r.stderr
+
+
+class TestGpuVmArchIsRunning:
+    """Tests for _gpu_vm_arch_is_running."""
+
+    def test_running_when_pid_alive(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        pid_file = tmp_path / "arch-vm.pid"
+        pid_file.write_text(str(os.getpid()))
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            export _GPU_ARCHVM_PID_FILE="{pid_file}"
+            source "{SCRIPT}"
+            if _gpu_vm_arch_is_running; then echo "RUNNING"; else echo "NOT_RUNNING"; fi
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "RUNNING" in r.stdout
+
+    def test_not_running_when_pidfile_stale(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        pid_file = tmp_path / "arch-vm.pid"
+        pid_file.write_text("999999999")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            export _GPU_ARCHVM_PID_FILE="{pid_file}"
+            source "{SCRIPT}"
+            if _gpu_vm_arch_is_running; then echo "RUNNING"; else echo "NOT_RUNNING"; fi
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "NOT_RUNNING" in r.stdout
+
+    def test_not_running_when_no_pidfile(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            export _GPU_ARCHVM_PID_FILE="{tmp_path}/does-not-exist.pid"
+            source "{SCRIPT}"
+            if _gpu_vm_arch_is_running; then echo "RUNNING"; else echo "NOT_RUNNING"; fi
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "NOT_RUNNING" in r.stdout
+
+
+class TestGpuVmArchLaunchMutualExclusion:
+    """_gpu_vm_arch_launch refuses to run while the Windows VM holds the GPU."""
+
+    def test_refuses_when_windows_vm_running(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        _make_executable(
+            bin_dir / "docker",
+            textwrap.dedent("""\
+            #!/usr/bin/env bash
+            if [[ "$1" == "inspect" ]]; then
+                echo "running"
+                exit 0
+            fi
+        """),
+        )
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        _write_archvm_config(conf_dir)
+
+        archvm_dir = home_dir / ".local" / "share" / "hyprconf" / "arch-vm"
+        archvm_dir.mkdir(parents=True)
+        (archvm_dir / "arch-hyprconf.qcow2").write_text("fake image")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_mode_vm() {{ echo "SHOULD_NOT_REACH"; }}
+            _gpu_vm_arch_launch
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode != 0
+        assert "holds the passthrough GPU" in r.stderr
+        assert "Windows VM" in r.stderr
+        assert "SHOULD_NOT_REACH" not in r.stdout
+
+    def test_fails_cleanly_without_image(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        _write_archvm_config(conf_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_arch_launch
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode != 0
+        assert "not built" in r.stderr
+
+
+class TestGpuVmArchConnect:
+    """Tests for _gpu_vm_arch_connect's VNC-viewer detection and SSH hint."""
+
+    def _configured_env(self, bin_dir, home_dir):
+        _make_fake_bins(bin_dir)
+        conf_dir = home_dir / ".config" / "hyprconf"
+        _write_archvm_config(conf_dir, VM_SSH_PORT="2244", VM_VNC_PORT="5901", VM_USERNAME="dev")
+
+    def test_prints_ssh_and_launches_vncviewer_when_present(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        self._configured_env(bin_dir, home_dir)
+        _make_executable(bin_dir / "vncviewer", "#!/usr/bin/env bash\nexit 0\n")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_arch_is_running() {{ return 0; }}
+            _gpu_vm_arch_connect
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "ssh -p 2244" in r.stdout
+        assert "dev@127.0.0.1" in r.stdout
+        assert "Launching vncviewer" in r.stdout
+
+    def test_falls_back_to_instructions_when_no_viewer(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        self._configured_env(bin_dir, home_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_arch_is_running() {{ return 0; }}
+            # Force "no viewer available" regardless of what's actually
+            # installed on the machine running this test.
+            _gpu_vm_arch_vnc_viewer_bin() {{ return 1; }}
+            _gpu_vm_arch_connect
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "127.0.0.1::5901" in r.stdout
+        assert "no VNC viewer found" in r.stdout
+
+    def test_refuses_when_not_running(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        self._configured_env(bin_dir, home_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_vm_arch_is_running() {{ return 1; }}
+            _gpu_vm_arch_connect
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode != 0
+        assert "not running" in r.stderr
+
+
+class TestGpuVmArchStatus:
+    """Tests for _gpu_vm_arch_status."""
+
+    def test_not_configured(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_driver() {{ echo "vfio-pci"; }}
+            _gpu_vm_arch_status
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "not configured" in r.stdout
+
+    def test_configured_but_not_built(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        _write_archvm_config(conf_dir)
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_driver() {{ echo "vfio-pci"; }}
+            _gpu_vm_arch_status
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "not built" in r.stdout
+
+    def test_configured_and_built_exits_zero(self, tmp_path):
+        """A stopped Windows VM must not make `vm arch status` exit non-zero.
+
+        Regression: the function ended in `[[ "$_win_status" == "running" ]] &&
+        printf …`, whose false branch became the function's exit status — so
+        the normal case returned 1 and aborted any `set -e` caller.
+        """
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+        conf_dir = home_dir / ".config" / "hyprconf"
+        conf_dir.mkdir(parents=True)
+        (conf_dir / "gpu-passthrough.conf").write_text(
+            'GPU_PCI_ADDR="01:00.0"\nGPU_NAME="RTX 3070"\n'
+            'GPU_VENDOR_DEVICE="10de:2484"\nGPU_DRIVER_ORIGINAL="nvidia"\n'
+            'GPU_IOMMU_GROUP="1"\nGPU_IOMMU_DEVICES="01:00.0"\n'
+        )
+        _write_archvm_config(conf_dir)
+        archvm_dir = home_dir / ".local" / "share" / "hyprconf" / "arch-vm"
+        archvm_dir.mkdir(parents=True)
+        (archvm_dir / "arch-hyprconf.qcow2").write_text("fake image")
+
+        cmd = textwrap.dedent(f"""\
+            set -euo pipefail
+            export HOME="{home_dir}"
+            source "{SCRIPT}"
+            _gpu_get_pci_driver() {{ echo "vfio-pci"; }}
+            docker() {{ return 1; }}
+            _gpu_vm_arch_status
+            echo "CALLER_CONTINUED"
+        """)
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        r = subprocess.run(["bash", "-c", cmd], capture_output=True, text=True, env=env, timeout=10)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "Status: ○ stopped" in r.stdout
+        assert "CALLER_CONTINUED" in r.stdout
+
+
+class TestGpuVmArchLaunchPortBinding:
+    """The guest's forwarded ports must never be published to the network.
+
+    QEMU binds a `hostfwd` with no host address on 0.0.0.0, and the guest is
+    built with HYPRCONF_CI=1 — stock sshd config plus a permanent
+    `NOPASSWD: ALL` sudoers drop-in — so an unpinned forward would hand the
+    whole LAN a root shell on the VM.
+    """
+
+    def _launch_fn(self) -> str:
+        text = SCRIPT.read_text()
+        start = text.index("_gpu_vm_arch_launch() {")
+        end = text.index("\n}\n", start)
+        return text[start:end]
+
+    def test_ssh_and_vnc_forwards_are_pinned_to_loopback(self):
+        fn = self._launch_fn()
+        assert "hostfwd=tcp:127.0.0.1:${VM_SSH_PORT}-:22" in fn
+        assert "hostfwd=tcp:127.0.0.1:${VM_VNC_PORT}-:5900" in fn
+
+    def test_no_forward_binds_every_interface(self):
+        fn = self._launch_fn()
+        assert "hostfwd=tcp::" not in fn, (
+            "a hostfwd without a host address binds 0.0.0.0 — pin it to 127.0.0.1"
+        )
+
+
+class TestGpuVmArchCliDispatch:
+    """Tests for `gpu-passthrough.sh vm arch <command>` dispatch."""
+
+    def _run_hyprconf(self, args, bin_dir, home_dir):
+        env = os.environ.copy()
+        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["HOME"] = str(home_dir)
+        env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
+        return subprocess.run(
+            ["bash", str(SCRIPT)] + args,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
+        )
+
+    def test_unknown_vm_arch_subcommand_exits_nonzero(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        r = self._run_hyprconf(["vm", "arch", "bogus-command"], bin_dir, home_dir)
+        assert r.returncode != 0
+        assert "Unknown vm arch command" in r.stderr
+
+    def test_top_level_help_lists_vm_arch(self, tmp_path):
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        r = self._run_hyprconf(["help"], bin_dir, home_dir)
+        assert r.returncode == 0, f"stderr: {r.stderr}"
+        assert "vm arch" in r.stdout
+
+    def test_vm_unknown_shows_arch_in_usage(self, tmp_path):
+        """'vm foobar' error message includes arch in usage."""
+        bin_dir = tmp_path / "bin"
+        home_dir = tmp_path / "home"
+        home_dir.mkdir()
+        _make_fake_bins(bin_dir)
+
+        r = self._run_hyprconf(["vm", "foobar"], bin_dir, home_dir)
+        assert r.returncode != 0
+        assert "arch" in r.stderr

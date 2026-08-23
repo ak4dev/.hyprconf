@@ -64,6 +64,9 @@ COPY_NETCONF=1
 #   HYPRCONF_CI_PART_MODE=full         # full | unallocated
 #   HYPRCONF_CI_SSH_PUBKEY=            # optional — inject authorized_keys before unmount
 #   HYPRCONF_CI_REPO_TGZ=             # optional — path to repo tar.gz; skips git clone
+#   HYPRCONF_CI_VM_GUEST=             # optional — provisions wayvnc+sshd and a
+#                                       guest marker for gpu-passthrough.sh's
+#                                       `vm arch` image build
 HYPRCONF_CI="${HYPRCONF_CI:-0}"
 
 # ── Palette ───────────────────────────────────────────────────────────────────
@@ -1324,6 +1327,78 @@ run_setup_in_chroot() {
   rm -f /mnt/etc/sudoers.d/zz-hyprconf-setup
   (( _setup_rc == 0 )) || log_die "setup.sh failed in chroot (exit ${_setup_rc}) — temporary NOPASSWD sudo removed."
   log_ok "Dotfiles configured."
+
+  if [[ "${HYPRCONF_CI:-0}" == "1" && "${HYPRCONF_CI_VM_GUEST:-}" == "1" ]]; then
+    provision_vm_guest
+  fi
+}
+
+# Provisions this image as a `gpu-passthrough.sh vm arch` guest: wayvnc (VNC over the real
+# GPU-accelerated Hyprland session, gated behind a wait-for-Wayland-socket
+# wrapper since the systemd user manager can reach default.target before the
+# compositor's socket exists), sshd, and a marker file. Entirely self-
+# contained in the built image — never touches the stowed dotfiles, so it has
+# zero effect on a real bare-metal install.
+provision_vm_guest() {
+  log_step "Provisioning VM guest (wayvnc + sshd)..."
+
+  arch-chroot /mnt pacman -Sy --noconfirm --needed wayvnc openssh \
+    || log_die "VM guest provisioning: failed to install wayvnc/openssh."
+  arch-chroot /mnt systemctl enable sshd
+  touch /mnt/etc/hyprconf-vm-guest
+
+  cat > /mnt/usr/local/bin/hyprconf-vm-wayvnc-wait << 'WAITSCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+shopt -s nullglob
+# The systemd --user instance can reach default.target before Hyprland's
+# compositor socket exists on the guest's autologin TTY — poll for it.
+# (The `if` guard matters under set -e: a bare `[[ ... ]] && exec` as a loop-
+# body statement would abort the whole script on the first non-matching
+# socket instead of continuing to poll.)
+for _ in $(seq 1 60); do
+  for sock in "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/wayland-*; do
+    if [[ -S "$sock" ]]; then
+      # wayvnc connects via libwayland, which reads WAYLAND_DISPLAY and
+      # silently falls back to wayland-0 when it is unset — and the systemd
+      # --user manager never inherits it from the compositor's TTY session.
+      # Hand it the socket just found instead of guessing.
+      export WAYLAND_DISPLAY="${sock##*/}"
+      # Listen on every guest interface: wayvnc's default is 127.0.0.1, which
+      # QEMU's user-mode forward (host → guest 10.0.2.15:5900) cannot reach.
+      # Nothing outside the host can route here — `vm arch launch` binds the
+      # host side of both forwards to 127.0.0.1.
+      exec wayvnc 0.0.0.0
+    fi
+  done
+  sleep 1
+done
+echo "hyprconf-vm-guest: no Wayland socket found after 60s" >&2
+exit 1
+WAITSCRIPT
+  chmod 755 /mnt/usr/local/bin/hyprconf-vm-wayvnc-wait
+
+  mkdir -p /mnt/etc/systemd/user
+  cat > /mnt/etc/systemd/user/hyprconf-vm-wayvnc.service << 'UNIT'
+[Unit]
+Description=wayvnc (hyprconf Arch VM guest — remote desktop for the passthrough GPU session)
+ConditionPathExists=/etc/hyprconf-vm-guest
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hyprconf-vm-wayvnc-wait
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+UNIT
+
+  # --global enables for all users without needing an active user session —
+  # required here since no user has ever logged in yet in this chroot.
+  arch-chroot /mnt systemctl --global enable hyprconf-vm-wayvnc.service
+
+  log_ok "VM guest provisioned."
 }
 
 offer_yubikey_setup() {

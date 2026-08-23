@@ -38,7 +38,7 @@
 - **Automatic power profile switching** — on battery devices, a udev rule triggers `hyprconf-power-monitor` on AC plug/unplug: sets `performance` when plugged in, `power-saver` on battery; manually override anytime with `powerprofilesctl set <mode>`
 - **Keychron / Lemokey HID access** — installs a udev rule (`70-keychron.rules`) granting the active session user read/write access to the `hidraw` device for Keychron keyboards (vendor ID `0x3434`) and Lemokey keyboards (vendor ID `0x362d`); enables in-browser key remapping at [launcher.keychron.com](https://launcher.keychron.com) (WebHID) with no extra privileges; applied automatically on every `setup.sh --sync`
 - **Hardware auto-detection** — touchscreen devices get a floating `touch-panel` overlay (started at session start if no keyboard is detected; also started at runtime when a keyboard is unplugged) and are wired up for `wvkbd` (on-screen keyboard, auto-shows on text focus; toggle: `Super+Shift+O`) — but because `wvkbd` is AUR-only it is **not** installed automatically; install it manually (`yay -S wvkbd`) to enable the OSK; accelerometer/gyroscope devices get `iio-sensor-proxy` + `autorotate` (maps orientation → Hyprland transform); all re-evaluated on every `setup.sh --sync`
-- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `gpu-passthrough.sh mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`gpu-passthrough.sh vm`) using `dockurr/windows` with Looking Glass for near-native display; comprehensive VM anti-detection (SMBIOS, CPU flags, device elimination, disk identity) for anti-cheat evasion (EAC, VAC); required packages are checked by `gpu-passthrough.sh setup` (official repos only)
+- **GPU passthrough (VFIO)** — mode-based multi-GPU passthrough using direct sysfs binding (no libvirt): `gpu-passthrough.sh mode vm` binds the GPU + entire IOMMU group to vfio-pci; `mode host` restores the host driver; setup wizard auto-applies IOMMU kernel params and driver isolation (NVIDIA blacklist for single-GPU, dual boot entries with `vfio-pci.ids` for multi-NVIDIA — select "GPU Passthrough" at the boot menu); includes a Docker-based Windows VM launcher (`gpu-passthrough.sh vm`) using `dockurr/windows` with Looking Glass for near-native display; comprehensive VM anti-detection (SMBIOS, CPU flags, device elimination, disk identity) for anti-cheat evasion (EAC, VAC); required packages are checked by `gpu-passthrough.sh setup` (official repos only); `gpu-passthrough.sh vm arch` launches a second GPU-passthrough VM — a real Arch+Hyprland desktop, Packer-built via a genuine unattended hyprconf install, reached over SSH + VNC (`wayvnc`) instead of Looking Glass — mutually exclusive with the Windows VM on single-GPU systems
 - **Hot-swappable monitor presets** — switch between bedroom/kitchen layouts at runtime via keybind
 - **Quickshell bar** — QtQuick status bar (`stow/quickshell`), one per monitor: workspaces island, window title, clock with calendar popout, custom SNI tray, cpu/temp/mem/gpu/vpn/net/volume/battery modules, screencast indicator, volume OSD, rounded screen corners, and a macOS-style **Control Center** (click the network module or `Super+Shift+N`) with inline Wi-Fi connect (native NetworkManager D-Bus — passwords never touch a process list), Bluetooth devices, and audio output/input pickers. Colors repaint live on theme switch; popouts also toggle via `qs ipc` keybinds
 - **Full-desktop theme switcher** — 68 themes applied simultaneously to Hyprland borders, the quickshell bar (live, no restart), Kitty, Dunst, hyprlock, VS Code / Code OSS, Firefox, LibreWolf, GTK3/4, Qt/KDE apps, Dolphin, wvkbd, touch-panel, btop, and wallpaper; `switch_theme.py --generate <image>` extracts a palette from any wallpaper to create a new theme automatically
@@ -177,9 +177,9 @@ switch_monitor.sh <preset> Hot-swap monitor presets
 hyprconf-vpn               NetworkManager VPN control + kill-switch
 hyprconf-secureboot        Secure Boot (signed UKI) setup + verify
 yubikey-fido2-setup        FIDO2+PIN login / LUKS enrolment
-gpu-passthrough.sh         GPU passthrough (VFIO) + Windows VM
-hc <tool> [args...]        Short alias for the above (hc vm/gpu/secureboot/vpn/yubikey/theme/sync) — pure forwarding, see AGENTS.md
+gpu-passthrough.sh         GPU passthrough (VFIO) + Windows VM + Arch VM
 setup.sh --sync            Pull + re-stow + re-apply services
+hc <tool> [args...]        Short alias for the above (hc vm/gpu/secureboot/vpn/yubikey/theme/sync) — pure forwarding, see AGENTS.md
 ```
 
 ### Persistence
@@ -458,6 +458,32 @@ This is sufficient for EAC (Fortnite, The Finals), VAC (CS2), and most anti-chea
 **Prerequisites:** `sudo modprobe kvmfr static_size_mb=N` (32 for 1080p, 64 for 1440p, 128 for 4K). Add to `/etc/modules-load.d/` for persistence. GPU must have a display connected (second monitor or dummy plug).
 
 Config stored at `~/.config/hyprconf/gpu-passthrough.conf` (GPU) and `~/.config/hyprconf/gpu-vm.conf` (VM). Boot-time binding is synced automatically via `setup.sh --sync` for multi-NVIDIA setups. `gpu-passthrough.sh audit` checks IOMMU, VFIO modules, packages, driver isolation, and boot entries.
+
+### Arch Linux VM (GPU Passthrough)
+
+A second GPU-passthrough VM alongside the Windows VM above, under the same `gpu-passthrough.sh vm` command family — a real Arch+Hyprland desktop with the same physical-GPU display quality, reached over plain SSH + VNC instead of Looking Glass/RDP. Launched via a plain `qemu-system-x86_64` process (no Docker).
+
+**GPU passthrough is exclusive:** on a single-GPU system, only one VM — this one or the Windows VM — can hold the vfio-pci-bound GPU at a time. `gpu-passthrough.sh vm arch launch` refuses if the Windows VM container is running, and `gpu-passthrough.sh vm launch` refuses if this VM is running; stop the other one first. A system with a second discrete GPU can run both simultaneously.
+
+**Image:** built ahead of time via Packer (`vm/arch-vm.pkr.hcl`) — a real, unattended hyprconf install using `install/install.sh`'s existing `HYPRCONF_CI=1` path (the same mechanism this repo's own CI uses to build its test VM image, here pointed at a real `git clone --branch stable` instead of a worktree tar). The image is also provisioned as a VM guest: `wayvnc` + `sshd` installed, and a `hyprconf-vm-wayvnc` user service that starts `wayvnc` once Hyprland's Wayland socket exists — giving VNC access to the real, GPU-accelerated compositor session, not an emulated display.
+
+**Install:** `gpu-passthrough.sh vm arch install` checks for `packer` (plus `qemu-desktop`/`edk2-ovmf`, shared with the Windows VM's requirements) and prints the `pacman` command when missing, then runs an interactive wizard (RAM, CPU, disk, username/password, hostname, timezone, SSH/VNC ports) before building the image — a real Arch install inside Packer/QEMU, taking several minutes.
+
+| Command | Action |
+|---|---|
+| `gpu-passthrough.sh vm arch status` | VM config, GPU binding state, running state, and which VM currently holds the GPU |
+| `gpu-passthrough.sh vm arch install` | Interactive wizard — set resources and credentials, then build the image |
+| `gpu-passthrough.sh vm arch build` | (Re)build the image from existing config without re-running the wizard |
+| `gpu-passthrough.sh vm arch launch [--force]` | Bind GPU, start the VM (persists until stopped) |
+| `gpu-passthrough.sh vm arch connect` | Print the SSH command; launch a local VNC viewer if one is found (`vncviewer`, `remmina`, `gvncviewer`) |
+| `gpu-passthrough.sh vm arch stop` | Gracefully power off the VM and release the GPU |
+| `gpu-passthrough.sh vm arch remove` | Stop, then delete the image and configuration (SSH key preserved) |
+
+**Workflow:** `gpu-passthrough.sh vm arch install` (one-time, several minutes) → `gpu-passthrough.sh vm arch launch` → GPU display comes up on the monitor connected to the passthrough GPU (second monitor, second cable, or HDMI/DP dummy plug — same requirement as the Windows VM) → `gpu-passthrough.sh vm arch connect` for SSH + VNC. Return the GPU to the host: `gpu-passthrough.sh vm arch stop`, then `gpu-passthrough.sh mode host`.
+
+Config stored at `~/.config/hyprconf/arch-vm.conf`; image and firmware state under `~/.local/share/hyprconf/arch-vm/`; dedicated SSH key at `~/.ssh/hyprconf_arch_vm_key`.
+
+**Access is host-local.** Both forwarded ports are bound to `127.0.0.1` on the host — the guest is built through the unattended `HYPRCONF_CI=1` path (stock `sshd` config plus a passwordless-sudo drop-in), so it is never published to the network. Reach it from this machine, or tunnel in (`ssh -L`).
 
 ---
 

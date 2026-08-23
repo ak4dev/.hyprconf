@@ -399,3 +399,110 @@ class TestNoSecretsInChrootScript:
             "luksAddKey must target the keyfile through /mnt and read the existing "
             "passphrase from stdin (trailing '-')"
         )
+
+
+# ---------------------------------------------------------------------------
+# `gpu-passthrough.sh vm arch` guest provisioning (HYPRCONF_CI_VM_GUEST) —
+# provision_vm_guest writes to hardcoded /mnt paths (matching the rest of
+# install.sh's chroot convention), so it cannot be safely *executed* against
+# a real /mnt in a unit test — these tests verify gating, call-site
+# placement, and content instead. Live end-to-end coverage (wayvnc/sshd
+# actually present in a booted guest) lives with `vm arch`'s own manual
+# verification checklist, not in the hermetic unit tier.
+# ---------------------------------------------------------------------------
+
+
+def _wayvnc_wait_body() -> str:
+    """The hyprconf-vm-wayvnc-wait script, as embedded in install.sh."""
+    text = _text()
+    start = text.index("<< 'WAITSCRIPT'") + len("<< 'WAITSCRIPT'\n")
+    return text[start : text.index("\nWAITSCRIPT\n", start)]
+
+
+class TestVmGuestProvisioning:
+    def test_env_var_documented(self) -> None:
+        text = _text()
+        assert "HYPRCONF_CI_VM_GUEST" in text
+
+    def test_gated_behind_ci_and_vm_guest_flags(self) -> None:
+        """provision_vm_guest only runs when both HYPRCONF_CI and
+        HYPRCONF_CI_VM_GUEST are '1' — never on a real bare-metal install."""
+        fn = _extract_function("run_setup_in_chroot")
+        assert 'HYPRCONF_CI:-0}" == "1" && "${HYPRCONF_CI_VM_GUEST:-}" == "1"' in fn
+        assert "provision_vm_guest" in fn
+
+    def test_called_after_setup_succeeds(self) -> None:
+        """The guest-provisioning call comes after setup.sh's own success
+        check, not before — it must never run on a failed base install."""
+        fn = _extract_function("run_setup_in_chroot")
+        setup_ok_pos = fn.index("Dotfiles configured")
+        guest_call_pos = fn.index("provision_vm_guest")
+        assert setup_ok_pos < guest_call_pos
+
+    def test_installs_wayvnc_and_openssh_from_official_repos(self) -> None:
+        fn = _extract_function("provision_vm_guest")
+        assert "pacman -Sy --noconfirm --needed wayvnc openssh" in fn
+
+    def test_enables_sshd_and_drops_marker(self) -> None:
+        fn = _extract_function("provision_vm_guest")
+        assert "systemctl enable sshd" in fn
+        assert "/mnt/etc/hyprconf-vm-guest" in fn
+
+    def test_wayvnc_wait_script_is_valid_bash_and_waits_for_wayland_socket(self) -> None:
+        text = _text()
+        start = text.index("<< 'WAITSCRIPT'") + len("<< 'WAITSCRIPT'\n")
+        end = text.index("\nWAITSCRIPT\n", start)
+        body = text[start:end]
+
+        result = subprocess.run(
+            ["bash", "-n", "-c", body],
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, f"wayvnc-wait script has a syntax error:\n{result.stderr}"
+        assert "wayland-*" in body
+        assert "exec wayvnc" in body
+        # The socket-existence check must be an `if`, not a bare
+        # `[[ ... ]] &&` loop-body statement relying on && short-circuit
+        # exemption from set -e — easy to get subtly wrong when editing.
+        assert "if [[ -S " in body
+
+    def test_wayvnc_wait_script_hands_over_the_socket_it_found(self) -> None:
+        """libwayland reads WAYLAND_DISPLAY and falls back to wayland-0 when
+        unset — and a systemd --user unit never inherits it from the
+        compositor's TTY session, so the wrapper must export the socket it
+        just polled for."""
+        body = _wayvnc_wait_body()
+        assert "export WAYLAND_DISPLAY=" in body
+
+    def test_wayvnc_listens_where_the_host_forward_can_reach_it(self) -> None:
+        """wayvnc defaults to 127.0.0.1; QEMU's user-mode forward arrives on
+        the guest's NAT address, so a loopback-only listener refuses every
+        connection. The host side of the forward is pinned to 127.0.0.1 by
+        `vm arch launch`, so nothing off-host can reach this."""
+        body = _wayvnc_wait_body()
+        assert "exec wayvnc 0.0.0.0" in body
+
+    def test_wayvnc_unit_is_conditioned_on_marker_and_wanted_by_default_target(self) -> None:
+        text = _text()
+        start = text.index("<< 'UNIT'") + len("<< 'UNIT'\n")
+        end = text.index("\nUNIT\n", start)
+        unit = text[start:end]
+
+        assert "ConditionPathExists=/etc/hyprconf-vm-guest" in unit
+        assert "ExecStart=/usr/local/bin/hyprconf-vm-wayvnc-wait" in unit
+        assert "WantedBy=default.target" in unit
+
+    def test_enabled_globally_not_per_user(self) -> None:
+        """systemctl --global enable — no user has ever logged into this
+        chroot, so a per-user 'systemctl --user enable' would have nothing
+        to attach to."""
+        fn = _extract_function("provision_vm_guest")
+        assert "systemctl --global enable hyprconf-vm-wayvnc.service" in fn
+
+    def test_never_touches_stowed_dotfiles(self) -> None:
+        """Guest provisioning must be fully self-contained in /mnt's system
+        paths — it must never write into the stowed ~/.config/hypr tree,
+        which would leak into every real user's dotfiles."""
+        fn = _extract_function("provision_vm_guest")
+        assert ".config/hypr" not in fn

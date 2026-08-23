@@ -182,3 +182,9 @@ wireguard-tools
 # (optional, AUR, manual: looking-glass looking-glass-module-dkms)
 # NOTE: any AUR package in an addon is installed only after an explicit warning
 #       and confirmation — hyprconf never installs AUR packages automatically.
+
+# Arch Linux VM (`gpu-passthrough.sh vm arch`, sibling to the Windows VM
+# above) — `vm arch install`/`build` checks for these and prints the pacman
+# command when missing: packer qemu-desktop edk2-ovmf
+# (wayvnc + openssh are installed inside the built guest image, not on the
+# host — see gpu-passthrough.sh / install/install.sh's HYPRCONF_CI_VM_GUEST path)
