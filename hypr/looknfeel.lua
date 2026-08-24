@@ -90,3 +90,21 @@ hl.config({
     force_default_wallpaper = 0,
   },
 })
+
+-- Window rules --------------------------------------------------------------
+--
+-- Steam tiles like everything else. Omarchy floats every window of class
+-- "steam" (/usr/share/omarchy/default/hypr/apps/steam.lua: `o.window("steam",
+-- { float = true, idle_inhibit = "fullscreen" })` plus a centred 1100x700 for
+-- the main window). This file is required AFTER default.hypr.omarchy, and
+-- Hyprland applies window rules in order, so a later `tile = true` wins —
+-- the same way Omarchy's own apps/browser.lua un-floats Chromium windows.
+-- Shipped unconditionally: a rule for an app that is not installed costs
+-- nothing, and Steam installed later is tiled from its first window.
+--
+-- The Friends List keeps floating: Omarchy sizes it as a 460x800 panel
+-- (same file), which only makes sense floating, and a tiled friends list is
+-- a column of nothing. Omarchy's idle_inhibit and opacity rules for Steam
+-- games (steam_app_*) are untouched.
+o.window("steam", { tile = true })
+o.window({ class = "steam", title = "Friends List" }, { float = true })

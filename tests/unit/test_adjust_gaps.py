@@ -183,8 +183,23 @@ def test_increase_with_int_field_fallback(tmp_path: Path) -> None:
     assert calls == [_expected(10, 17)]
 
 
+def test_reads_custom_when_css_is_empty(tmp_path: Path) -> None:
+    """An empty "css" string counts as absent, so a populated "custom" still wins."""
+    proc, calls = _run(
+        tmp_path,
+        "+",
+        json_in=json.dumps({"option": "general:gaps_in", "int": 0, "css": "", "custom": "5 5 5 5"}),
+        json_out=json.dumps(
+            {"option": "general:gaps_out", "int": 0, "css": "", "custom": "9 9 9 9"}
+        ),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert calls == [_expected(7, 11)]
+
+
 def test_increase_with_broken_hyprctl_output_defaults_to_zero(tmp_path: Path) -> None:
-    """Non-JSON getoption output must not crash: the `|| echo 0` fallback wins."""
+    """Non-JSON getoption output (the plain-text format) must not crash: jq
+    fails to parse it and the `|| echo 0` fallback wins."""
     proc, calls = _run(
         tmp_path,
         "+",
@@ -193,6 +208,22 @@ def test_increase_with_broken_hyprctl_output_defaults_to_zero(tmp_path: Path) ->
     )
     assert proc.returncode == 0, f"Script crashed on broken hyprctl output.\nstderr: {proc.stderr}"
     assert calls == [_expected(2, 2)]
+
+
+def test_increase_with_empty_hyprctl_output_defaults_to_zero(tmp_path: Path) -> None:
+    """No output at all (hyprctl cannot reach the compositor) reads as 0."""
+    proc, calls = _run(tmp_path, "+", json_in="", json_out="")
+    assert proc.returncode == 0, proc.stderr
+    assert calls == [_expected(2, 2)]
+
+
+def test_no_inline_python() -> None:
+    """The JSON is parsed with jq, the tool Omarchy uses for `hyprctl getoption -j`."""
+    code = "\n".join(
+        ln for ln in SCRIPT.read_text().splitlines() if not ln.lstrip().startswith("#")
+    )
+    assert "python" not in code
+    assert "jq " in code
 
 
 # ---------------------------------------------------------------------------

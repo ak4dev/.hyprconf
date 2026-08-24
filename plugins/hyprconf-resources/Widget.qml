@@ -168,9 +168,11 @@ BarWidget {
     anchors.verticalCenter: parent.verticalCenter
     columns: root.vertical ? 1 : 3
     rowSpacing: 0
-    // 30 % of Omarchy's small spacing token: the fixed-width columns already
-    // carry their own slack, so the gap between them is kept to a hairline.
-    columnSpacing: Style.spacing.sm * 0.3
+    // 15 % of Omarchy's small spacing token — a hairline. The fixed-width
+    // columns carry their own slack (a column is as wide as its widest value,
+    // so "0B/s" sits in the room "999.9MB/s" needs); that slack, not this
+    // gap, is what keeps the line from shifting.
+    columnSpacing: Style.spacing.sm * 0.15
     flow: Grid.LeftToRight
 
     // ── line 1: CPU temp/util · RAM · upload ──────────────────────────────

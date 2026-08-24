@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# hyprconf-firefox-theme — Omarchy's active theme into Firefox / LibreWolf.
+#
+#   hyprconf-firefox-theme            apply now (what the theme-set hook runs
+#                                     after every `omarchy theme set`)
+#   hyprconf-firefox-theme --status   what was written where, and whether
+#                                     Firefox has restarted since — it reads
+#                                     userChrome.css and user.js only at start
+#
+# The logic is lib/hyprconf/firefox_theme.py; this is the launcher install.sh
+# puts on PATH. @HYPRCONF_DIR@ is substituted with the checkout path at
+# install time (stage_bin), the way the hooks resolve it.
+set -euo pipefail
+
+readonly HYPRCONF_DIR="@HYPRCONF_DIR@"
+export PYTHONPATH="$HYPRCONF_DIR/lib${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m hyprconf.firefox_theme "$@"

@@ -80,15 +80,23 @@ same commit**:
    static reflection, not a mirror.
 
 3. **Tests stay hermetic.** Both suites must pass in a minimal `archlinux:latest`
-   container as root — no running Hyprland or Omarchy shell, no host tools, no
-   real `$HOME`, no ambient state, never mutating the container. Make every
+   container as root — no running Hyprland or Omarchy shell, no host tool that
+   touches the desktop, no real `$HOME`, no ambient state, never mutating the
+   container. Make every
    system path env-overridable (`: "${_VAR:=/default}"`, never `readonly`) and
-   point it at a `tmp_path`; stub every external command (`omarchy-*`,
-   `hyprctl`, `git`, `jq`) via a fake-bins `PATH`.
+   point it at a `tmp_path`. Every command that could touch the desktop or
+   the system — `omarchy-*`, `hyprctl`, `sudo`, `chsh`, `fc-list`,
+   `systemd-cryptenroll`, `limine-update` … — is **always** a fake bin first
+   on `PATH` (the suite once put a notification on the owner's desktop).
+   Pure tools are real when present and the test skips otherwise: `jq`,
+   `luac`, `cp`, `python3`, `shellcheck`, and `git` for `init`/`add`/
+   `commit`/`checkout` inside a throwaway clone (`clone` and `pull` stay
+   stubbed — never the network, never the real repository).
 
 4. **Restraint invariants never regress.** Never `chsh`; never rewrite
-   Omarchy's `kitty.conf` beyond the one `include`; never reach
-   `omarchy-default-terminal`'s floating-terminal branch; never `pacman -Syu` /
+   Omarchy's `kitty.conf` beyond the one `include`; never point
+   `omarchy-default-terminal` at a terminal that is not installed (it checks
+   nothing — `stage_terminal` asserts kitty first); never `pacman -Syu` /
    `pacman -R`; never switch the active theme; never overwrite a seeded preset;
    never re-assert a set-once choice; never write outside `$HOME` except the
    Firefox policy. `tests/unit/test_omarchy_install.py` asserts these.
@@ -122,7 +130,7 @@ same commit**:
   1. **Read the installed source.** `/usr/share/omarchy/` is authoritative for the version this machine runs (`omarchy version`, `/usr/share/omarchy/version`): `default/hypr/*.lua` for the Hyprland defaults the overlay layers onto, `config/` for the templates a fresh `$HOME` is seeded from, `bin/` for what a command actually does (`cat "$(which omarchy-theme-set)"`) including its guards and its exit codes, `shell/` for the Quickshell plugin contract. Read it freely; **never edit it** — the omarchy package owns it and an update overwrites it.
   2. **Enumerate from the machine, never from memory.** `omarchy commands --json` lists every route with its group, args, aliases and `requires_sudo`. Use it to confirm a command exists and takes the arguments you think it does, and prefer the documented `omarchy <group> <action>` form over the underlying `omarchy-*` binary. Where the overlay needs a list of Omarchy's commands, themes, plugins, fonts or presets, **derive it at runtime from those commands** rather than hard-coding a snapshot — a generated list tracks Omarchy, a literal one rots.
   3. **Re-verify against the published manual** at <https://omarchy.org/manual/> whenever a change touches user-facing behaviour or a documented seam — Monitors, Keyboard/Mouse/Trackpad, Themes, Hotkeys, Shell Plugins, Toggles/Idle/Screensaver, Omarchy CLI, Dotfiles and Common tweaks are the chapters the overlay overlaps.
-  4. **Record what you checked.** Name the Omarchy version the change was verified against in the commit message, and cite the specific file or command that justifies each claim about Omarchy's behaviour, the way the existing comments do (`omarchy-default-terminal` exec'ing a GUI window, `omarchy-theme-set`'s symlink test, the ALPM AbortOnFail hook, `omarchy-refresh-config`'s `cp -f` through a symlink). A claim about Omarchy with no traceable source is not verified.
+  4. **Record what you checked.** Name the Omarchy version the change was verified against in the commit message, and cite the specific file or command that justifies each claim about Omarchy's behaviour, the way the existing comments do (`omarchy-default-terminal` checking nothing before it writes `~/.config/xdg-terminals.list`; `omarchy-theme-update` skipping a symlinked theme dir — its `[[ ! -L ]]` guards `git pull` — while `omarchy-theme-set`'s `-d` test and `cp -r` follow the link, which is why a symlinked user theme works; the ALPM AbortOnFail hook; `omarchy-refresh-config`'s `cp -f` through a symlink). A claim about Omarchy with no traceable source is not verified.
 
   This binds documentation and review as much as code: a "fix" premised on stale knowledge of Omarchy is a regression even when the diff looks right.
 

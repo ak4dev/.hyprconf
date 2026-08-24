@@ -1,11 +1,5 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "hyprconf"
-# Single source of truth: the version is read from the package (bumped by scripts/publish).
-dynamic = ["version"]
 description = "hyprconf — an overlay for Omarchy: hotkeys, look, monitor presets, bar widgets, theme bridges"
 # 3.12 is the real floor: CI tests 3.12 and Arch ships ≥3.13.
 requires-python = ">=3.12"
@@ -14,15 +8,7 @@ requires-python = ">=3.12"
 test = [
     "pytest>=8",
     "pytest-xdist>=3",
-    "coverage[toml]",
-    "pytest-cov",
 ]
-
-[tool.setuptools.package-dir]
-"" = "lib"
-
-[tool.setuptools.dynamic]
-version = { attr = "hyprconf.__version__" }
 
 [tool.pytest.ini_options]
 pythonpath = ["lib"]
@@ -47,7 +33,3 @@ ignore = ["E501"]
 # Tests legitimately bootstrap sys.path before importing (E402) and use short
 # loop/lambda vars like `l` (E741); neither warrants churn in test code.
 "tests/**" = ["E402", "E741"]
-
-[tool.mypy]
-python_version = "3.12"
-ignore_missing_imports = true

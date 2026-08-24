@@ -2,18 +2,10 @@
 __pycache__/
 *.py[cod]
 
-# Test artefacts (fake binary dirs created by unit tests)
-tests/unit/_fake_bins_*/
-
-# Backup files
-*.bak
-*.backup.*
-
 # Editor
 .vscode/
 *.swp
 *.swo
 
-# Release artefacts
-dist/
+# `coverage run` output (config in pyproject.toml)
 .coverage

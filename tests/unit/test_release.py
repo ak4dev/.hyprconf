@@ -2,7 +2,7 @@
 Unit tests for the omarchy → stable release model.
 
 Validates the static invariants that the release pipeline depends on:
-  - .gitattributes export-ignores every dev-only path and never the install payload
+  - every install payload root is present in the checkout (stable is cloned as-is)
   - hyprconf.__version__ (lib/hyprconf/__init__.py) is a valid semver string
   - scripts/publish gates on the omarchy working branch and promotes to stable
 """
@@ -18,23 +18,8 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 PUBLISH = REPO_ROOT / "scripts" / "publish"
 VERSION_FILE = REPO_ROOT / "lib" / "hyprconf" / "__init__.py"
 
-# Paths that must be excluded from the release archive via export-ignore.
-EXPORT_IGNORE_PATHS = [
-    "tests/",
-    "scripts/",
-    ".github/",
-    "web/",
-    "docs/",
-    "AGENTS.md",
-    "Makefile",
-    ".editorconfig",
-    "pyproject.toml",
-    "**/__pycache__/",
-    "*.pyc",
-]
-
-# The overlay's install payload — everything install.sh needs from the archive.
-# None of these may ever carry export-ignore.
+# The overlay's install payload — everything install.sh needs from the stable
+# checkout users clone.
 INSTALL_PAYLOAD = [
     "install.sh",
     "hypr/",
@@ -52,40 +37,9 @@ INSTALL_PAYLOAD = [
 ]
 
 
-def _export_ignore_patterns() -> list[str]:
-    """Return the pattern half of every ``<pattern> export-ignore`` line."""
-    text = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
-    patterns: list[str] = []
-    for raw in text.splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        pattern, *attrs = line.split()
-        if "export-ignore" in attrs:
-            patterns.append(pattern)
-    return patterns
-
-
 # ---------------------------------------------------------------------------
-# .gitattributes
+# Install payload
 # ---------------------------------------------------------------------------
-
-
-def test_gitattributes_has_all_export_ignore_entries() -> None:
-    """Every dev-only path carries export-ignore in .gitattributes."""
-    patterns = _export_ignore_patterns()
-    for path in EXPORT_IGNORE_PATHS:
-        assert path in patterns, f"Missing 'export-ignore' rule for {path!r} in .gitattributes"
-
-
-@pytest.mark.parametrize("payload", INSTALL_PAYLOAD)
-def test_gitattributes_never_export_ignores_install_payload(payload: str) -> None:
-    """The install payload must NOT be export-ignored — install.sh needs it."""
-    name = payload.rstrip("/")
-    for pattern in _export_ignore_patterns():
-        assert pattern.rstrip("/").lstrip("/") != name, (
-            f".gitattributes export-ignores install payload {payload!r} via {pattern!r}"
-        )
 
 
 @pytest.mark.parametrize("payload", INSTALL_PAYLOAD)
@@ -184,13 +138,14 @@ def test_publish_script_keeps_lint_gates() -> None:
     assert "make shellcheck 2>&1" in text
 
 
-def test_publish_script_builds_archive_with_worktree_attributes() -> None:
-    """scripts/publish uses --worktree-attributes so export-ignore rules apply."""
+def test_publish_script_builds_no_archive() -> None:
+    """The promoted stable branch IS the release: no git-archive tarball, no dist/."""
     text = PUBLISH.read_text(encoding="utf-8")
-    assert "--worktree-attributes" in text, (
-        "scripts/publish must pass --worktree-attributes to git archive"
+    for needle in ("git archive", "DIST_DIR", "export-ignore"):
+        assert needle not in text, f"scripts/publish still references {needle!r}"
+    assert not (REPO_ROOT / ".gitattributes").exists(), (
+        ".gitattributes only existed to export-ignore the deleted release archive"
     )
-    assert '--prefix=".hyprconf/"' in text, "release archive must be rooted at .hyprconf/"
 
 
 def test_publish_script_has_dry_run_flag() -> None:

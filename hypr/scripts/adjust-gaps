@@ -23,13 +23,14 @@ _get_gap() {
     # Hyprland 0.56 names that field "css"; older builds called it "custom".
     # Read both, or the step is computed from 0 every single press — the keys
     # still appear to work (0 -> 2 -> 0) while quietly discarding the real gap.
+    # jq is how Omarchy itself reads `hyprctl getoption -j`
+    # (/usr/share/omarchy/bin/omarchy-capture-screenshot:42), so it is always
+    # installed. Non-JSON or empty output makes jq fail, and the gap reads as 0.
     hyprctl getoption "$1" -j 2>/dev/null \
-        | python3 -c "
-import json, sys
-d = json.load(sys.stdin)
-sides = d.get('css') or d.get('custom') or ''
-print(int(sides.split()[0]) if sides else d.get('int', 0))
-" 2>/dev/null || echo "0"
+        | jq -r '. as $d
+            | ([$d.css, $d.custom] | map(select(type == "string" and . != "")) | first) as $sides
+            | if $sides then ($sides | split(" ")[0] | tonumber) else ($d.int // 0) end' \
+            2>/dev/null || echo "0"
 }
 
 gaps_in=$(  _get_gap general:gaps_in  )

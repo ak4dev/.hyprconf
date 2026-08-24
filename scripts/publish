@@ -14,16 +14,18 @@ set -euo pipefail
 #   --skip-tests    Skip the lint gates and test suite (only for nested test-harness
 #                   calls — they must still pass before any real publish)
 #   --skip-tag      Skip annotated release-tag creation
-#   --dry-run       Build the release archive locally but do not push branches/tags
+#   --dry-run       Run every gate and resolve the tag, but push no branches/tags
 #
 # What this script does:
 #   1. Verifies the omarchy working branch with a clean, up-to-date working tree
 #   2. Runs the CI lint gates (ruff + shellcheck)
 #   3. Runs the unit + integration suites via pytest
 #   4. Bumps the patch/minor/major version in lib/hyprconf/__init__.py and commits it
-#   5. Builds a filtered release archive from HEAD via git archive + export-ignore
-#   6. Creates an annotated version tag from hyprconf.__version__
-#   7. Promotes the working-branch HEAD to origin/stable and pushes the tag
+#   5. Creates an annotated version tag from hyprconf.__version__
+#   6. Promotes the working-branch HEAD to origin/stable and pushes the tag
+#
+# Nothing is packaged: users `git clone -b stable` and install.sh runs from
+# that checkout, so the promoted branch IS the release.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
@@ -32,10 +34,9 @@ cd "$REPO_ROOT"
 # "stable" (the branch install.sh clones). The former development branch is retired.
 WORK_BRANCH="omarchy"
 STABLE_BRANCH="stable"
-# Single source of truth for the version (pyproject reads it dynamically too).
+# Single source of truth for the version.
 VERSION_FILE_REL="lib/hyprconf/__init__.py"
 VERSION_FILE="$REPO_ROOT/$VERSION_FILE_REL"
-DIST_DIR="$REPO_ROOT/dist"
 
 SKIP_TAG=false
 SKIP_BUMP=false
@@ -113,16 +114,6 @@ print(new_version)
 PY
 }
 
-_build_release_archive() {
-  local release_tag="$1"
-  local archive_path="$DIST_DIR/hyprconf-${release_tag}.tar.gz"
-
-  mkdir -p "$DIST_DIR"
-  git archive --worktree-attributes --format=tar.gz \
-    --prefix=".hyprconf/" HEAD > "$archive_path"
-  printf '%s\n' "$archive_path"
-}
-
 _tag_points_at_head() {
   local tag="$1"
   [[ "$(git rev-list -n1 "$tag")" == "$(git rev-parse HEAD)" ]]
@@ -197,11 +188,6 @@ fi
 [[ -n "$version" ]] || die "Resolved empty version from $VERSION_FILE."
 info "Release tag: ${release_tag}"
 
-step "Building release archive"
-archive_path="$(_build_release_archive "$release_tag")"
-archive_size="$(du -sh "$archive_path" | cut -f1)"
-ok "Release archive ready → ${archive_path#"$REPO_ROOT"/} (${archive_size})"
-
 if [[ "$SKIP_TAG" == false ]]; then
   if git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null; then
     if _tag_points_at_head "$release_tag"; then
@@ -249,4 +235,4 @@ if [[ "$SKIP_TAG" == false ]]; then
   ok "Tag pushed → ${release_tag}"
 fi
 
-ok "Done — ${WORK_BRANCH} promoted to ${STABLE_BRANCH}, archive built"
+ok "Done — ${WORK_BRANCH} promoted to ${STABLE_BRANCH}"

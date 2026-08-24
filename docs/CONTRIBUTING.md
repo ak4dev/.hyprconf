@@ -27,18 +27,20 @@ bind every change.
 │       ├── switch_monitor.sh   # Symlink a preset over monitors.lua, reload, rehome workspaces
 │       └── adjust-gaps         # SUPER+SHIFT+= / - via hyprctl eval
 │
-├── bin/                        # Tools installed by install.sh (→ ~/.local/bin), e.g.
+├── bin/                        # Tools installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted)
 │   ├── hyprconf-stats          #   cpu/mem/net/temp JSON stream for the bar widget
-│   └── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop or AMD sysfs)
+│   ├── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop or AMD sysfs)
+│   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (enroll/disable/remove/status)
+│   └── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)
 │
-├── lib/hyprconf/               # Python package (→ ~/.local/lib/hyprconf)
+├── lib/hyprconf/               # Python package, used in place via PYTHONPATH (theme-set hook, hyprconf-firefox-theme)
 │   ├── firefox_theme.py        # Firefox/LibreWolf chrome from Omarchy's theme (theme-set hook)
 │   └── __init__.py             # __version__ (bumped by scripts/publish)
 │
 ├── plugins/hyprconf-resources/ # Omarchy bar-widget plugin (manifest.json + Widget.qml)
 ├── plugins/hyprconf-workspaces/ # Omarchy bar-widget plugin replacing omarchy.workspaces (clonedFrom)
 ├── plugins/hyprconf-active-window/ # Omarchy bar-widget plugin replacing omarchy.active-window (two-line title)
-├── themes/hyprconf/            # Omarchy user theme (colors.toml + backgrounds/)
+├── themes/dracula/             # Omarchy user theme (colors.toml + backgrounds/)
 ├── wallpapers/                 # Extra backgrounds, filed per Omarchy theme
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
 ├── kitty/hyprconf.conf         # kitty include
@@ -65,14 +67,14 @@ and re-run `bash install.sh`.
 
 ## Testing
 
-Two suites, both hermetic — no Hyprland or Omarchy shell, no host tools, no real
-`$HOME`. They run in an `archlinux:latest` container in CI, as root.
+Two suites, both hermetic — no Hyprland or Omarchy shell, no host tool that
+touches the desktop, no real `$HOME`. They run in an `archlinux:latest` container in CI, as root.
 
 ```
 tests/
 ├── conftest.py              # puts lib/ on sys.path
 ├── unit/                    # install.sh, shipped scripts and bin/ tools, firefox_theme, guards
-└── integration/             # publish pipeline plumbing (git archive, publish --dry-run)
+└── integration/             # scripts/publish --help and --dry-run in a throwaway clone
 ```
 
 ### Running tests
@@ -83,30 +85,36 @@ make test-unit
 make test-integration
 make test-seq            # both suites sequentially (clearer output)
 
-# Coverage (what CI reports)
-pytest tests/unit/ tests/integration/ --cov=lib/hyprconf --cov-report=term-missing
+# Coverage (optional, local only — needs python-pytest-cov; config in pyproject.toml)
+pytest tests/unit/ tests/integration/ --cov=hyprconf --cov-report=term-missing
 
 # Lint gates
 make lint                # ruff check + ruff format --check
 make shellcheck          # every bash script, severity=warning
 make fmt                 # ruff format + safe fixes
-make typecheck           # mypy lib/hyprconf (informational)
 make clean
 ```
 
-Python deps for the suite: `python-pytest`, `python-pytest-xdist`,
-`python-pytest-cov` (all official repos; `pyproject.toml`'s `test` extra lists
-the same set for a venv).
+Python deps for the suite: `python-pytest`, `python-pytest-xdist` (official
+repos; `pyproject.toml`'s `test` extra lists the same set for a venv). `jq`,
+`shellcheck`, `luac` and `git` are used real by the tests that need them and
+skipped when absent — CI installs `jq` and `shellcheck` so nothing skips there.
 
 ### Writing hermetic tests
 
 - Every system path a script reads is env-overridable (`_HYPRCONF_*` in
   `install.sh`, `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders) — point it
   at `tmp_path`. Never make such a variable `readonly`.
-- Stub every external command with a fake bin on `PATH` (`omarchy-*`, `hyprctl`,
-  `git`, `jq`, `fc-list`, `sudo`). `tests/unit/test_omarchy_install.py` shows the
-  pattern: fake `omarchy-*` binaries that record their calls, a throwaway `HOME`,
-  and assertions about what the installer must *not* do.
+- Every command that could touch the desktop or the system — `omarchy-*`,
+  `hyprctl`, `sudo`, `chsh`, `fc-list`, `systemd-cryptenroll`, `limine-update`,
+  `git clone`/`pull` … — is **always** a fake bin first on `PATH`; a test must
+  never reach a real binary that changes the desktop (the suite once put a
+  notification on the owner's desktop). Pure tools are real when present and
+  the test skips otherwise: `jq`, `luac`, `cp`, `python3`, `shellcheck`, and
+  `git` `init`/`add`/`commit`/`checkout` inside a throwaway clone under
+  `tmp_path`. `tests/unit/test_omarchy_install.py` shows the pattern: fake
+  `omarchy-*` binaries that record their calls, a throwaway `HOME`, and
+  assertions about what the installer must *not* do.
 - CI runs as root, which bypasses DAC checks — reproduce permission-sensitive
   tests with `unshare -r python -m pytest <file>`.
 - `tests/unit/test_no_pii.py` scans every tracked file for the login name, home
@@ -117,7 +125,7 @@ the same set for a venv).
 
 `.github/workflows/test.yml` runs two jobs on every push and PR, both inside
 `archlinux:latest`: **Lint** (`make shellcheck` + `make lint`) and **Unit +
-Integration** (with coverage). Both must be green before a publish.
+Integration** (`make test`). Both must be green before a publish.
 
 ---
 
@@ -138,10 +146,9 @@ bash scripts/publish            # from a clean, pushed `omarchy` checkout
 2. Lint gates: `make lint` + `make shellcheck`
 3. Test suites: `make test`
 4. Bumps the version in `lib/hyprconf/__init__.py` and commits it (after the suite is green)
-5. Builds a filtered release archive with `git archive` + `.gitattributes` `export-ignore`
-   (excludes `tests/`, `scripts/`, `.github/`, `web/`, `docs/`, `AGENTS.md`, `Makefile`,
-   `.editorconfig`, `pyproject.toml`, `__pycache__/`, `*.pyc`)
-6. Creates the annotated tag `v<version>` and promotes `HEAD` to `origin/stable`
+5. Creates the annotated tag `v<version>` and promotes `HEAD` to `origin/stable`
+
+Nothing is packaged: users `git clone -b stable`, so the promoted branch is the release.
 
 | Flag | Effect |
 |------|--------|
@@ -149,10 +156,10 @@ bash scripts/publish            # from a clean, pushed `omarchy` checkout
 | `--skip-bump` | Skip the version bump (version must be pre-bumped manually) |
 | `--skip-tests` | Skip the lint gates and test suites (nested harness calls only — the suite must still have passed) |
 | `--skip-tag` | Skip annotated release-tag creation |
-| `--dry-run` | Build the release archive locally but do not push branches/tags |
+| `--dry-run` | Run every gate and resolve the tag, but push nothing (the version bump is reverted) |
 
 `tests/integration/test_publish_pipeline.py` and `tests/unit/test_release.py`
-pin the archive contents, the semver string and the branch constants.
+pin the install payload roots, the semver string and the branch constants.
 
 ## Updating the website
 

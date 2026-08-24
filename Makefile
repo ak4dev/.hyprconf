@@ -1,4 +1,4 @@
-.PHONY: help test test-unit test-integration test-seq shellcheck lint typecheck fmt clean
+.PHONY: help test test-unit test-integration test-seq shellcheck lint fmt clean
 
 export PYTHONDONTWRITEBYTECODE := 1
 
@@ -36,10 +36,7 @@ fmt: ## Auto-format all Python with ruff (format + safe lint fixes)
 	ruff format $(PYSRC)
 	ruff check --fix $(PYSRC)
 
-typecheck: ## Run mypy on the Python library (informational — not yet a CI gate)
-	mypy lib/hyprconf/
-
 clean: ## Remove build artefacts and caches
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
-	rm -rf .pytest_cache .ruff_cache .mypy_cache .coverage
+	rm -rf .pytest_cache .ruff_cache .coverage

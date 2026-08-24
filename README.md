@@ -27,13 +27,13 @@ own tools and documented seams:
 | Layer | What you get |
 |---|---|
 | Hotkeys | hyprconf's keymap in `~/.config/hypr/bindings.lua`, with descriptions so it shows in Omarchy's `SUPER+K` menu |
-| Look'n'feel + input | Tighter gaps, hairline rounding, blur/shadow, fade workspace animation, natural scroll, 3-finger swipe |
+| Look'n'feel + input | Tighter gaps, hairline rounding, blur/shadow, fade workspace animation, natural scroll, 3-finger swipe; Steam tiles like every other window |
 | Monitor presets | `bedroom` / `kitchen` / `K` / `pc` / `laptop`, hot-swapped with a hotkey (`switch_monitor.sh`) |
 | Bar widgets | A clock that ticks seconds, active-only workspaces on two lines with a Pac-Man on the focused one, the focused window's title, a CPU/temp/mem/GPU/net readout — all as Omarchy shell plugins |
 | Terminal + shell | kitty as the default terminal, running zsh + Oh My Zsh + Powerlevel10k *inside* the terminal; the login shell stays bash |
 | Greeting | hyprconf's `fastfetch` layout |
 | Theme reach | Every `omarchy theme set` also lands in Firefox and Code - OSS, which Omarchy's own fan-out misses |
-| Privacy | A system Firefox policy: telemetry off, tracking protection on, uBlock Origin force-installed |
+| Privacy | A system Firefox policy: telemetry off, tracking protection on, uBlock Origin force-installed — plus hyprconf's UI defaults (vertical tabs, the revamped sidebar, client-side decorations, compact mode available, Pocket off) |
 | YubiKey | `hyprconf-yubikey`: unlock the LUKS root at boot with a FIDO2 key (Omarchy's own `omarchy-setup-security-fido2` covers sudo/polkit) |
 
 hyprconf used to be a standalone Arch + Hyprland installer, a dotfiles suite and a configuration TUI; that era is gone, and this repository is now only the overlay. Configuration is edited by hand in `hypr/*.lua`, per Omarchy's own model.
@@ -66,17 +66,18 @@ bash install.sh
 | Stage | Changes | Mechanism |
 |---|---|---|
 | packages | Installs the `packages` list (official repos only) | `omarchy-pkg-add` — idempotent, never bare `pacman -Syu` (Omarchy's ALPM hook blocks it) |
-| firefox | `/etc/firefox/policies/policies.json` from `infra/firefox/policies.json` | `sudo install`; skipped when there is no terminal for the password prompt. The overlay's one write outside `$HOME` |
+| firefox | `/etc/firefox/policies/policies.json` from `infra/firefox/policies.json` (privacy locks + UI defaults, see the Privacy row) | `sudo install`; skipped when there is no terminal for the password prompt. The overlay's one write outside `$HOME` |
 | terminal | kitty becomes the default terminal; `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity, `shell <zsh>`) plus one `include hyprconf.conf` line appended to `kitty.conf` | `omarchy-default-terminal kitty`; Omarchy's `kitty.conf` stays authoritative (theme include, `listen_on`, font lines) |
-| theme | `~/.config/omarchy/themes/hyprconf` → `themes/hyprconf` (Dracula palette + wallpaper) | Symlinked user theme, **installed, never activated** — pick it with `omarchy theme set hyprconf` or `SUPER+SHIFT+CTRL+SPACE` |
+| theme | `~/.config/omarchy/themes/dracula` → `themes/dracula` (hyprconf's Dracula palette + wallpaper) | Symlinked user theme, **installed, never activated** — pick it with `omarchy theme set dracula` or `SUPER+SHIFT+CTRL+SPACE`. It used to be named `hyprconf`: the old link is removed, and only if `hyprconf` was the *active* theme is it re-selected as `dracula` (same palette) |
 | defaults | Browser `firefox`, editor `code` — **set once** | `omarchy-default-browser` / `omarchy-default-editor`; marker `~/.local/state/hyprconf/defaults-applied` |
 | backgrounds | `wallpapers/gruvbox.jpg` → `~/.config/omarchy/backgrounds/gruvbox/` | Copied when absent (Omarchy's picker only scans the active theme's dirs) |
 | font | System monospace → GeistMono Nerd Font — **set once** | `omarchy-font-set`; marker `~/.local/state/hyprconf/font-applied` |
+| idle | Screensaver after **15 min** (`idle.screensaver = 900` in `~/.config/omarchy/shell.json`; Omarchy's default is 150 s; the lock timeout is left alone) — **set once** | Omarchy 4.0.0-1 has no command for these keys, so `jq` edits the file the way `omarchy-shell-config`'s `commit` does (seeded from Omarchy's shipped defaults when you have no `shell.json` yet), then `omarchy-shell shell reloadConfig`; marker `idle-applied` |
 | hotkeys | `~/.config/hypr/bindings.lua` → `hypr/bindings.lua`; `switch_monitor.sh` + `adjust-gaps` → `~/.config/hypr/scripts/` | Symlink (stock file backed up to `bindings.lua.stock`) |
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups) |
 | monitors | Seeds the five presets into `~/.config/hypr/`; saves Omarchy's `monitors.lua` to `monitors.lua.stock` once | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. The active `monitors.lua` is untouched until a hotkey is pressed |
 | fastfetch | `~/.config/fastfetch/config.jsonc` → `fastfetch/config.jsonc` | Symlink |
-| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey` | Copied |
+| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey`, `hyprconf-firefox-theme` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path |
 | sweep_tui | Removes what earlier overlay versions installed for the retired TUI: the `hyprconf` launcher, the `~/.local/lib/hyprconf` and `~/.config/hypr/scripts/hyprconf-tui` symlinks, `hyprconf.desktop`, and the managed block at the tail of `~/.config/hypr/hyprland.lua` | `conf.d/*.lua` files the TUI wrote are left in place with a note — nothing loads them any more |
 | bar_plugin | `hyprconf.resources` widget in the bar's right section | `plugins/hyprconf-resources/` synced into `~/.config/omarchy/plugins/` on every run; enabled **once** |
 | clock | `hyprconf.clock`: a copy of `omarchy.clock` patched to tick seconds, format `hh:mm:ss AP` — **set once** | Same copy mechanics as `omarchy plugin clone` (project namespace instead of `<username>.`); `omarchy-bar set`; the bar's `centerAnchor` follows only if it still pointed at `omarchy.clock`. Any leftover `<username>.clock` copy from an earlier overlay version is retired first (`omarchy-plugin-disable` + `-remove`) — that is what showed two clocks after an upgrade |
@@ -85,13 +86,13 @@ bash install.sh
 | shell | Oh My Zsh + Powerlevel10k cloned into `~/.oh-my-zsh`; `~/.p10k.zsh` → `zsh/.p10k.zsh`; managed block in `~/.zshrc` | Plain `git clone`, no `chsh` |
 | hooks | `~/.config/omarchy/hooks/post-update.d/10-hyprconf` and `theme-set.d/10-hyprconf` | The first re-runs `install.sh --no-update --no-packages` after every `omarchy-update`; the second extends every `omarchy theme set` to Firefox and Code - OSS (below) |
 | theme_apps | Firefox `userChrome.css`/`user.js` and Code - OSS settings match the **active** theme right away | Runs the theme-set hook once for `~/.local/state/omarchy/current/theme.name`; a no-op with no active theme |
-| *(end)* | `hyprctl reload`; with `--sync`, `omarchy-update` | |
+| *(end)* | One `omarchy-restart-shell` when a bar-widget copy was (re)synced or re-seated this run (never more than one, whatever the number of widgets); `hyprctl reload`; with `--sync`, `omarchy-update` | The shell restart is skipped when nothing changed and tolerated failing (no shell on a TTY) |
 
 ### What it deliberately leaves alone
 
 - The **login shell** — no `chsh`. zsh runs inside kitty only; `~/.zshrc` sources Omarchy's own `envs`/`aliases`, so its updates flow through.
 - The body of `~/.config/kitty/kitty.conf`, `~/.bashrc`, `/usr/share/omarchy`, and everything under `/etc` except the Firefox policy (and, only when you run it, what `hyprconf-yubikey enroll` changes — see below).
-- The **active theme**, the **active `monitors.lua`**, and every set-once choice (font, default apps, clock, widget enables) after the first run — change them with Omarchy's own commands and hyprconf will not take them back.
+- The **active theme** (the one exception: a machine whose active theme was the old `hyprconf` name is re-selected as `dracula`), the **active `monitors.lua`**, and every set-once choice (font, default apps, idle, clock, widget enables) after the first run — change them with Omarchy's own commands and hyprconf will not take them back.
 - Omarchy's keyboard layout logic in `input.lua`, and its volume / brightness / media keys, `SUPER+K` (keybindings menu), `SUPER+3`/`4`.
 
 ## Sync
@@ -103,7 +104,7 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 
 - **After `omarchy-update`** the post-update hook re-applies the overlay automatically (Omarchy migrations replace `bindings.lua` when it hash-matches stock and strip the kitty `include`).
 - **`omarchy refresh config hypr/<file>` / `omarchy refresh hyprland` write *through* the symlinks** into the checkout (`cp -f` follows links — observed on Omarchy 4.0.0). `install.sh` detects a `hypr/*.lua` that is byte-identical to Omarchy's stock template and restores it with `git checkout`; a monitor preset reset to the stock `monitors.lua` template is reported, with the pointer to Omarchy's own `monitors.lua.bak.<epoch>` backup of your edits.
-- **Upgrading from an earlier overlay version:** run `bash ~/.hyprconf/install.sh` **directly** the first time — the old `hyprsync` alias points at the removed `omarchy/install.sh`, and an old installer that pulls mid-run keeps executing its own stale stages. The run sweeps the retired TUI up, retires the `<username>.clock` / `<username>.workspaces` copies the first versions made with `omarchy plugin clone` (by the shell's list *and* by the manifests on disk), and heals a bar that shows two clocks: when the stock `omarchy.clock` and `hyprconf.clock` are both in the layout, ours is taken off and re-enabled so it takes the stock slot, then its format and the centre anchor are re-applied. The same check covers the workspaces and window-title copies.
+- **Upgrading from an earlier overlay version:** run `bash ~/.hyprconf/install.sh` **directly** the first time — the old `hyprsync` alias points at the removed `omarchy/install.sh`, and an old installer that pulls mid-run keeps executing its own stale stages. The run sweeps the retired TUI up, retires the `<username>.clock` / `<username>.workspaces` copies the first versions made with `omarchy plugin clone` (by the shell's list *and* by the manifests on disk), and heals a bar that shows two clocks: when the stock `omarchy.clock` and `hyprconf.clock` are both in the layout, ours is taken off and re-enabled so it takes the stock slot — moved there with `omarchy bar move` when the re-enable lands it elsewhere — then its format and the centre anchor are re-applied. The same check covers the workspaces and window-title copies.
 - **Edit workflow:** the files in `~/.hyprconf/hypr/` *are* the live files — edit them there, then `bash install.sh` (or `hyprsync`) after a pull or a refresh.
 
 ## Repository layout
@@ -113,17 +114,17 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 | `install.sh` | The overlay installer — idempotent stages, the only entry point |
 | `packages` | Official-repo packages added via `omarchy-pkg-add` |
 | `hypr/` | `bindings.lua`, `input.lua`, `looknfeel.lua` (symlinked over Omarchy's override points); `pcMonitors.*.lua` / `laptopMonitors.lua` presets; `scripts/switch_monitor.sh`, `scripts/adjust-gaps` |
-| `bin/` | `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey` (LUKS FIDO2 unlock) |
+| `bin/` | `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey` (LUKS FIDO2 unlock), `hyprconf-firefox-theme` (apply / `--status`) |
 | `lib/hyprconf/` | `__init__.py` (the version) and `firefox_theme.py` (the Firefox half of the theme-set hook) |
 | `plugins/hyprconf-resources/` | Omarchy bar-widget plugin (QML): resource readout |
 | `plugins/hyprconf-workspaces/` | Omarchy bar-widget plugin (QML): workspaces, replaces `omarchy.workspaces` |
 | `plugins/hyprconf-active-window/` | Omarchy bar-widget plugin (QML): two-line window title, replaces `omarchy.active-window` |
-| `themes/hyprconf/` | Omarchy user theme (`colors.toml` + background) |
+| `themes/dracula/` | Omarchy user theme (`colors.toml` + background) |
 | `wallpapers/` | Extra backgrounds, filed under the Omarchy theme each belongs to |
 | `zsh/`, `kitty/`, `fastfetch/` | `zshrc.block` + `.p10k.zsh`; `hyprconf.conf` kitty include; `config.jsonc` |
 | `hooks/post-update.d/`, `hooks/theme-set.d/` | Omarchy hooks (re-apply after updates; theme reach into Firefox and Code - OSS) |
-| `infra/firefox/policies.json` | System Firefox privacy policy |
-| `tests/` | Unit + integration — hermetic (fake `omarchy-*`/`hyprctl` binaries, temp `$HOME`), run in an `archlinux:latest` container in CI |
+| `infra/firefox/policies.json` | System Firefox policy: privacy locks + UI defaults |
+| `tests/` | Unit + integration — hermetic (fake `omarchy-*`/`hyprctl`/`sudo` binaries first on `PATH`, temp `$HOME`), run in an `archlinux:latest` container in CI |
 | `docs/`, `AGENTS.md`, `.github/` | Contributor docs, agent rules, CI |
 | `scripts/publish` | Promotes `omarchy` → `stable` |
 | `web/`, `assets/` | Static landing page (S3, managed manually); banner + screenshot |
@@ -154,7 +155,7 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 | `hyprconf.resources` | Two aligned lines fed by `hyprconf-stats` and `hyprconf-gpu-info` (long-lived JSON streams): top **CPU temp / util · RAM · ↑ upload**, bottom **GPU temp / util · VRAM · ↓ download**. Columns are fixed-width (sized from their widest value) with a hairline gap between them, so nothing shifts as the numbers change. On a multi-GPU box the **active** card is shown — the one with the most VRAM in use (ties: utilization, then index), re-evaluated every sample. Click opens `btop` via `omarchy-launch-or-focus-tui` | `omarchy plugin disable hyprconf.resources` |
 | `hyprconf.active-window` | The focused window's title after the workspaces, the way hyprconf's bar drew it — a copy of Omarchy's `omarchy.active-window` that lays the same character budget (`maxWidth`, 280 px of body text by default) out on **two caption-size lines**, so it takes about half the width; hover for the full title, click focuses, middle-click closes; budget via `omarchy bar set hyprconf.active-window maxWidth 400` | `omarchy plugin disable hyprconf.active-window` |
 
-The clock copy is set once, and every widget is *enabled* once — disabling any of them sticks. The two plugins the overlay ships (`plugins/hyprconf-*`) are re-synced on every run, so a `git pull` updates them. `omarchy bar set hyprconf.clock format 'HH:mm'` reformats the clock.
+The clock copy is set once, and every widget is *enabled* once — disabling any of them sticks. The three plugins the overlay ships (`plugins/hyprconf-resources`, `plugins/hyprconf-workspaces`, `plugins/hyprconf-active-window`) are re-synced on every run, so a `git pull` updates them; the clock is the one copy of a stock plugin `install.sh` makes. `omarchy bar set hyprconf.clock format 'HH:mm'` reformats the clock.
 
 ## Keybindings
 
@@ -207,7 +208,22 @@ The clock copy is set once, and every widget is *enabled* once — disabling any
 | `SUPER+SHIFT+BACKSPACE` | Toggle laptop display (`omarchy-hyprland-monitor-internal toggle`) |
 | `SUPER+SHIFT+B` / `SUPER+SHIFT+K` | Monitor preset bedroom / kitchen |
 
-**Left to Omarchy on purpose:** volume, brightness and media keys (Omarchy's drive its OSD and media service), `SUPER+K`, `SUPER+SPACE`, `SUPER+3`/`4`. **Displaced Omarchy defaults** (each still reachable by command): `SUPER+T` floating toggle, `SUPER+F` fullscreen, `SUPER+C`/`SUPER+V` universal copy/paste, `SUPER+SHIFT+SPACE` "Toggle top bar" (`omarchy toggle bar`), `SUPER+L` layout toggle (`omarchy-hyprland-workspace-layout-toggle`), `SUPER+SHIFT+BACKSPACE` gaps toggle (`omarchy hyprland window gaps toggle`).
+**Left to Omarchy on purpose:** volume, brightness and media keys (Omarchy's drive its OSD and media service), `SUPER+K`, `SUPER+SPACE`, `SUPER+3`/`4`. **Displaced Omarchy defaults** (Omarchy 4.0.0-1, `/usr/share/omarchy/default/hypr/bindings/*.lua`; each still reachable by command or by another Omarchy key):
+
+| Key | Omarchy's binding | Still available as |
+|---|---|---|
+| `SUPER+T` | Toggle window floating | hyprconf's `SUPER+V` |
+| `SUPER+F` | Full screen | hyprconf's `SUPER+SHIFT+F` |
+| `SUPER+C` / `SUPER+V` | Universal copy / paste | `CTRL+C` / `CTRL+V` in the app |
+| `SUPER+SHIFT+F` | File manager (`omarchy-launch-nautilus`) | hyprconf's `SUPER+E`; Omarchy's `SUPER+ALT+SHIFT+F` (cwd) |
+| `SUPER+SHIFT+B` | Browser (`omarchy-launch-browser`) | hyprconf's `SUPER+F`; Omarchy's `SUPER+SHIFT+RETURN` |
+| `SUPER+SHIFT+← → ↑ ↓` | Swap window | hyprconf's `SUPER+SHIFT+A / D / W / S` |
+| `SUPER+SHIFT+-` / `SUPER+SHIFT+=` | Shrink window up / expand window down (keycode binds `code:20`/`code:21`) | Omarchy's `SUPER+SHIFT+ALT+-`/`=` (a little) and `SUPER+CTRL+SHIFT+-`/`=` (a lot) |
+| `SUPER+SHIFT+4` | Move window to workspace 4 (`SUPER+SHIFT+code:13`) | hyprconf's `SUPER+SHIFT+F2` |
+| `SUPER+SHIFT+SPACE` | Toggle top bar | `omarchy toggle bar` |
+| `SUPER+L` | Toggle workspace layout | `omarchy-hyprland-workspace-layout-toggle`; lock stays on Omarchy's `SUPER+CTRL+L` too |
+| `SUPER+SHIFT+BACKSPACE` | Toggle window gaps | `omarchy-hyprland-window-gaps-toggle` |
+| `SUPER+SHIFT+A` / `D` / `W` / `S` / `M` | ChatGPT / Docker / Omawrite / Google Maps / Music — only while Omarchy's preinstalled-app bindings are on (`o.preinstalled_bindings_enabled()`: until `~/.local/state/omarchy/preinstalls-removed` exists) | `omarchy-launch-webapp`, `omarchy-launch-tui lazydocker`, `omawrite`, `omarchy-launch-spotify` |
 
 ## Look'n'feel and input deltas
 
@@ -223,6 +239,7 @@ Only what differs from `/usr/share/omarchy/default/hypr/`:
 | | animations | `windows` easeOutQuint 4.79; `workspaces`/`In`/`Out` fade | workspaces animation off |
 | | `dwindle.force_split` / `precise_mouse_move` / `smart_split` | 0 / true / true | 2 / – / – |
 | | `misc.force_default_wallpaper` | 0 | – |
+| | window rules: class `steam` | **tiled** (`o.window("steam", { tile = true })`; the Friends List stays floating) | every Steam window floats (`default/hypr/apps/steam.lua`) |
 | `input.lua` | `input.natural_scroll` + `touchpad.natural_scroll` | true | false |
 | | `hl.gesture` 3-finger horizontal → workspace, plus swipe tuning | on | – |
 
@@ -252,9 +269,11 @@ Omarchy's `omarchy theme set` fans the theme out to kitty, btop, VS Code (Micros
 | App | How | Notes |
 |---|---|---|
 | Code - OSS (`code`) | Omarchy's own `set_theme` from `omarchy-theme-set-vscode`, re-run with Code - OSS's paths | Live. A theme whose extension is not on Open VSX falls back to Omarchy's generated **Omarchy** theme. `omarchy toggle skip-vscode-theme-changes` turns it off, as for Omarchy's own editors |
-| Firefox / LibreWolf | `lib/hyprconf/firefox_theme.py` writes `chrome/userChrome.css` (Firefox's `--lwt-*`/`--toolbar-*` theme variables **and** direct rules for the toolbox, tabs, URL bar and sidebar, from Omarchy's rendered `colors.toml`) and merges five prefs into `user.js` in the default profile (`[Install…] Default` wins, then `Default=1`): stylesheet loading, **`extensions.activeThemeID` = Firefox's built-in Dark or Light theme** (the `--lwt-*` overrides only apply under a lightweight theme — under the default *System theme* they do nothing, which is why a fresh profile stayed unthemed), `ui.systemUsesDarkTheme`, light/dark chrome+content | **Takes effect on the next Firefox start** — Firefox reads `userChrome.css` and `user.js` only at startup, so whenever the files change you get an Omarchy notification saying so. Nothing else in `user.js` is touched |
+| Firefox / LibreWolf | `lib/hyprconf/firefox_theme.py` writes `chrome/userChrome.css` (Firefox's `--lwt-*`/`--toolbar-*` theme variables **and** direct rules for the toolbox, tabs, URL bar and sidebar, from Omarchy's rendered `colors.toml`) and merges **three** prefs into `user.js` in the default profile (`[Install…] Default` wins, then `Default=1`): `toolkit.legacyUserProfileCustomizations.stylesheets` (stylesheet loading), **`extensions.activeThemeID` = Firefox's built-in Dark or Light theme** (the `--lwt-*` overrides only apply under a lightweight theme — under the default *System theme* they do nothing, which is why a fresh profile stayed unthemed) and `ui.systemUsesDarkTheme` | **Takes effect on the next Firefox start** — Firefox reads `userChrome.css` and `user.js` only at startup, so whenever the files change you get an Omarchy notification saying so. Nothing else in `user.js` is touched |
 
-Undo: delete `~/.config/omarchy/hooks/theme-set.d/10-hyprconf`, the profile's `chrome/userChrome.css`, and the four `user_pref` lines it added; run `omarchy theme set` again for VS Code.
+**Not seeing it?** Firefox reads both files only when it starts — closing the last window is not enough while a Firefox process is still running. `hyprconf-firefox-theme --status` prints the profile it wrote to and whether Firefox has restarted since (it checks `prefs.js`, which Firefox rewrites from its live state). `hyprconf-firefox-theme` with no argument re-applies now.
+
+Undo: delete `~/.config/omarchy/hooks/theme-set.d/10-hyprconf`, the profile's `chrome/userChrome.css`, and the three `user_pref` lines it added (`toolkit.legacyUserProfileCustomizations.stylesheets`, `extensions.activeThemeID`, `ui.systemUsesDarkTheme`), then restart Firefox — `hyprconf-firefox-theme --status` shows which profile they are in; run `omarchy theme set` again for VS Code.
 
 ## YubiKey: LUKS unlock at boot (`hyprconf-yubikey`)
 
@@ -267,15 +286,16 @@ hyprconf-yubikey sudo              # = omarchy-setup-security-fido2 (sudo + polk
 hyprconf-yubikey disable           # back to passphrase-only boot; the LUKS slot stays
 hyprconf-yubikey remove            # wipe the FIDO2 slot, then disable
 # flags for enroll/disable/remove: --device /dev/X  --yes  --no-snapshot
+# enroll only: --allow-non-latin-layout (see `hyprconf-yubikey help`)
 ```
 
 `enroll` installs `libfido2` (`omarchy-pkg-add`), waits for a key (`fido2-token -L`), picks the LUKS2 device (refuses LUKS1), offers an `omarchy snapshot create` first, enrols the key with `systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes`, and then makes the initramfs able to use it. Omarchy boots through the classic busybox `encrypt` hook (`/etc/mkinitcpio.conf.d/omarchy_hooks.conf`, `cryptdevice=PARTUUID=…` on the Limine cmdline), and FIDO2 unlock needs systemd's `sd-encrypt`, so the tool:
 
-- writes its **own** drop-in `/etc/mkinitcpio.conf.d/zz-hyprconf-fido2.conf`, sourced after Omarchy's, that rewrites the hook set (`udev`→`systemd`, `encrypt`→`sd-encrypt`, `keymap`/`consolefont`→`sd-vconsole`, `btrfs-overlayfs`→`sd-btrfs-overlayfs`, `resume` dropped — systemd resumes on its own) — Omarchy can rewrite its drop-in on an update without undoing this;
+- writes its **own** drop-in `/etc/mkinitcpio.conf.d/zz-hyprconf-fido2.conf`, sourced after Omarchy's, that rewrites the hook set (`udev`→`systemd`, `encrypt`→`sd-encrypt`, `keymap`→`sd-vconsole`, `btrfs-overlayfs`→`sd-btrfs-overlayfs` when installed; `consolefont` and `resume` dropped — `sd-vconsole` covers the font and systemd resumes on its own) — Omarchy can rewrite its drop-in on an update without undoing this;
 - **adds** `rd.luks.name=<UUID>=root rd.luks.options=<UUID>=fido2-device=auto` to `KERNEL_CMDLINE[default]` in `/etc/default/limine` while **keeping** `cryptdevice=`, so the box still boots if the hook set ever reverts (each hook ignores the other's parameters); the file is backed up as `limine.bak.<epoch>` first;
 - runs `limine-update`, which rebuilds every initramfs/UKI (`limine-mkinitcpio`) and the Limine entries.
 
-At boot: plug the key in, enter its PIN, touch it; with no key present systemd waits `token-timeout` (30 s) and falls back to the passphrase. Your passphrase stays as a fallback — no passphrase slot is ever touched. Limine's read-only **snapshot** boot entries keep their writable overlay through `sd-btrfs-overlayfs` (limine-mkinitcpio-hook ≥ 1.37 ships it; an older hook package without it loses the overlay under systemd init — normal boots are unaffected either way). `disable` reverts the drop-in and the cmdline additions; `remove` also wipes the FIDO2 slot.
+At boot: plug the key in, enter its PIN, touch it; with no key present systemd waits `token-timeout` (30 s) and falls back to the passphrase. `enroll` refuses a `/etc/vconsole.conf` whose first `XKBLAYOUT` is non-Latin (the systemd initramfs always bundles it, so a Latin passphrase could become untypeable) unless `--allow-non-latin-layout` is given. Your passphrase stays as a fallback — no passphrase slot is ever touched. Limine's read-only **snapshot** boot entries keep their writable overlay through `sd-btrfs-overlayfs` (limine-mkinitcpio-hook ≥ 1.37 ships it; an older hook package without it loses the overlay under systemd init — normal boots are unaffected either way). `disable` reverts the drop-in and the cmdline additions; `remove` also wipes the FIDO2 slot.
 
 ## Reverting to stock
 
@@ -298,7 +318,7 @@ Then delete the managed block from `~/.zshrc`, and `~/.hyprconf`.
 ## Testing & development
 
 ```bash
-make test        # unit + integration (hermetic — no Hyprland, no host tools, no desktop side effects)
+make test        # unit + integration (hermetic — no Hyprland session, temp $HOME, every desktop-touching command stubbed)
 make lint        # ruff check + format check
 make shellcheck  # every bash script, severity=warning
 ```
