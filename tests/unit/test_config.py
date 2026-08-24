@@ -154,3 +154,48 @@ def test_save_pending_returns_false_on_oserror(hypr_dir: Path) -> None:
         ok, n = save_pending({"general": {"gaps_in": "5"}})
     assert ok is False
     assert n == 0
+
+
+# ---------------------------------------------------------------------------
+# Dotted keys — `col.active_border` nests like a section in the Lua API
+# (`general = { col = { active_border = … } }`, per Omarchy's
+# default/hypr/looknfeel.lua); `col.active_border = …` inside a table
+# constructor is a Lua syntax error that would take the whole config down.
+# ---------------------------------------------------------------------------
+
+
+def test_dotted_key_is_nested_and_round_trips(hypr_dir: Path) -> None:
+    import hyprconf.config as cfg
+
+    ok, _ = save_pending({"general": {"col.active_border": "0xffffffff 45deg", "gaps_in": "4"}})
+    assert ok is True
+    text = cfg.OVERRIDES_FILE.read_text()
+    assert "col.active_border" not in text
+    assert "col = {" in text
+    assert 'active_border = "0xffffffff 45deg"' in text
+    assert read_persisted("general", "col.active_border") == "0xffffffff 45deg"
+    assert read_persisted("general", "gaps_in") == "4"
+
+
+def test_dotted_key_merges_with_the_persisted_value(hypr_dir: Path) -> None:
+    """A second save of the same dotted option replaces the first — the
+    merge must see one spelling of the key, not a nested-table copy beside a
+    dotted copy."""
+    import hyprconf.config as cfg
+
+    save_pending({"general": {"col.active_border": "0xff111111"}})
+    save_pending({"general": {"col.active_border": "0xff222222"}})
+    text = cfg.OVERRIDES_FILE.read_text()
+    assert text.count("active_border") == 1
+    assert read_persisted("general", "col.active_border") == "0xff222222"
+
+
+def test_legacy_flat_dotted_key_migrates_nested(hypr_dir: Path) -> None:
+    import hyprconf.config as cfg
+
+    cfg.LEGACY_OVERRIDES_FILE.write_text(
+        "# hyprconf-managed\ngeneral:col.active_border = 0xffaabbcc\n"
+    )
+    assert migrate_legacy() is True
+    assert "col = {" in cfg.OVERRIDES_FILE.read_text()
+    assert read_persisted("general", "col.active_border") == "0xffaabbcc"

@@ -9,7 +9,7 @@ from unittest import mock
 
 import pytest
 
-LIB_DIR = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "lib"
+LIB_DIR = Path(__file__).parent.parent.parent / "lib"
 if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
@@ -149,16 +149,126 @@ def test_set_option_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_set_option_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live changes go through `hyprctl eval 'hl.config({ … })'` — on the
+    0.56 Lua parser the keyword subcommand is a silent no-op that exits 0."""
     _mock_active(monkeypatch)
     with mock.patch.object(_hctl, "_run", return_value="ok") as m:
         assert _hctl.set_option("general", "gaps_in", "5") is True
-        m.assert_called_once_with(["hyprctl", "keyword", "general:gaps_in", "5"])
+        m.assert_called_once_with(["hyprctl", "eval", "hl.config({ general = { gaps_in = 5 } })"])
 
 
 def test_set_option_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     _mock_active(monkeypatch)
     with mock.patch.object(_hctl, "_run", return_value=None):
         assert _hctl.set_option("general", "gaps_in", "5") is False
+
+
+def test_set_option_error_reply_is_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_active(monkeypatch)
+    err = "error: [string]:1: unknown config key 'general.no_such_option_xyz'"
+    with mock.patch.object(_hctl, "_run", return_value=err):
+        assert _hctl.set_option("general", "no_such_option_xyz", "5") is False
+
+
+def test_config_call_nests_dotted_sections_and_types_bools() -> None:
+    assert (
+        _hctl.config_call("decoration.blur", "enabled", "true")
+        == "hl.config({ decoration = { blur = { enabled = true } } })"
+    )
+    assert (
+        _hctl.config_call("decoration.blur", "enabled", "0")
+        == "hl.config({ decoration = { blur = { enabled = false } } })"
+    )
+
+
+def test_config_call_quotes_strings_and_keeps_numbers_bare() -> None:
+    assert _hctl.config_call("general", "layout", "master") == (
+        'hl.config({ general = { layout = "master" } })'
+    )
+    assert _hctl.config_call("input", "sensitivity", "0.5") == (
+        "hl.config({ input = { sensitivity = 0.5 } })"
+    )
+    # Colours/gradients are strings to the Lua API (HL.ConfigValueTypes), and
+    # a dotted key nests like a section: `col.active_border` is
+    # `col = { active_border = … }` (Omarchy's default/hypr/looknfeel.lua).
+    assert _hctl.config_call("general", "col.active_border", "0xffffffff 45deg") == (
+        'hl.config({ general = { col = { active_border = "0xffffffff 45deg" } } })'
+    )
+
+
+# ---------------------------------------------------------------------------
+# eval_lua
+# ---------------------------------------------------------------------------
+
+
+def test_eval_lua_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_inactive(monkeypatch)
+    with mock.patch.object(_hctl, "_run") as m:
+        assert _hctl.eval_lua("hl.config({})") is False
+        m.assert_not_called()
+
+
+def test_eval_lua_passes_the_chunk_verbatim(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_active(monkeypatch)
+    with mock.patch.object(_hctl, "_run", return_value="ok") as m:
+        assert _hctl.eval_lua("hl.config({ general = { gaps_in = 3 } })") is True
+        m.assert_called_once_with(["hyprctl", "eval", "hl.config({ general = { gaps_in = 3 } })"])
+
+
+def test_eval_lua_nonzero_exit_or_error_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_active(monkeypatch)
+    with mock.patch.object(_hctl, "_run", return_value=None):
+        assert _hctl.eval_lua("garbage(") is False
+    with mock.patch.object(_hctl, "_run", return_value="error: syntax error near ')'"):
+        assert _hctl.eval_lua("garbage(") is False
+
+
+# ---------------------------------------------------------------------------
+# apply_monitor / disable_monitor — hl.monitor({ … }) via eval
+# ---------------------------------------------------------------------------
+
+
+def test_apply_monitor_evals_hl_monitor_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_active(monkeypatch)
+    with mock.patch.object(_hctl, "_run", return_value="ok") as m:
+        assert _hctl.apply_monitor("DP-1", "1920x1080@60", "0x0", "1.0", "vrr, 1") is True
+        m.assert_called_once_with(
+            [
+                "hyprctl",
+                "eval",
+                'hl.monitor({ output = "DP-1", mode = "1920x1080@60", position = "0x0", '
+                "scale = 1.0, vrr = 1 })",
+            ]
+        )
+
+
+def test_apply_monitor_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_inactive(monkeypatch)
+    with mock.patch.object(_hctl, "_run") as m:
+        assert _hctl.apply_monitor("DP-1", "preferred", "auto", "1") is False
+        m.assert_not_called()
+
+
+def test_disable_monitor_evals_disabled_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    _mock_active(monkeypatch)
+    with mock.patch.object(_hctl, "_run", return_value="ok") as m:
+        assert _hctl.disable_monitor("eDP-1") is True
+        m.assert_called_once_with(
+            ["hyprctl", "eval", 'hl.monitor({ output = "eDP-1", disabled = true })']
+        )
+
+
+def test_nothing_shipped_calls_hyprctl_keyword() -> None:
+    """The keyword subcommand is a silent no-op on Hyprland 0.56's Lua parser
+    ("keyword can't work with non-legacy parsers. Use eval.", exit 0), so no
+    shipped code may build such an argv."""
+    root = Path(__file__).resolve().parents[2]
+    shipped = [*(root / "lib" / "hyprconf").glob("*.py"), root / "tui" / "main.py"]
+    for f in shipped:
+        for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            assert not ('"hyprctl"' in line and '"keyword"' in line), (
+                f"{f.relative_to(root)}:{n} builds a hyprctl keyword call"
+            )
 
 
 # ---------------------------------------------------------------------------

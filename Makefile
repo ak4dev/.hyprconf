@@ -1,12 +1,10 @@
-.PHONY: help test test-unit test-integration test-tui test-seq test-vm test-install \
-        build-vm-image shellcheck lint typecheck fmt clean
+.PHONY: help test test-unit test-integration test-tui test-seq shellcheck lint typecheck fmt clean
 
 export PYTHONDONTWRITEBYTECODE := 1
 
-# All shipped + test Python: the library, the two standalone scripts, and tests.
-PYSRC := stow/hypr/.local/lib/hyprconf/ \
-         stow/hypr/.config/hypr/scripts/theme-switcher/switch_theme.py \
-         stow/hypr/.config/hypr/scripts/hyprconf-tui/main.py \
+# All shipped + test Python: the library, the TUI, and tests.
+PYSRC := lib/hyprconf/ \
+         tui/main.py \
          tests/
 
 help: ## Show available targets
@@ -28,17 +26,6 @@ test-tui: ## Run TUI tests in parallel
 test-seq: ## Run all tests sequentially (clearer output)
 	pytest tests/unit/ tests/integration/ tests/tui/ -q
 
-test-vm: ## Requires running VM (bash tests/vm/run_vm.sh first)
-	bash tests/vm/run_vm.sh --wait
-	pytest tests/vm/ --run-vm -v
-
-test-install: ## Requires packer-built image and running VM (bash tests/vm/run_vm.sh first)
-	bash tests/vm/run_vm.sh --wait
-	pytest tests/install/ --run-install -v
-
-build-vm-image: ## Build the QEMU/KVM VM image via Packer
-	bash tests/install/build_image.sh
-
 shellcheck: ## Run shellcheck on all bash scripts (severity=warning)
 	@git ls-files -z | while IFS= read -r -d '' f; do \
 	    [ -f "$$f" ] && head -n1 "$$f" | grep -q bash && printf '%s\0' "$$f"; \
@@ -54,7 +41,7 @@ fmt: ## Auto-format all Python with ruff (format + safe lint fixes)
 	ruff check --fix $(PYSRC)
 
 typecheck: ## Run mypy on the Python library (informational — not yet a CI gate)
-	mypy stow/hypr/.local/lib/hyprconf/
+	mypy lib/hyprconf/
 
 clean: ## Remove build artefacts and caches
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

@@ -1,52 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# scripts/publish — test → promote dev to stable
+# scripts/publish — lint + test → promote the omarchy working branch to stable
 #
 # Usage:
 #   bash scripts/publish [options]
 #
 # Options:
-#   --patch         Bump the patch version (default: 2.0.6 → 2.0.7)
-#   --minor         Bump the minor version (2.0.6 → 2.1.0)
-#   --major         Bump the major version (2.0.6 → 3.0.0)
+#   --patch         Bump the patch version (default: 3.1.15 → 3.1.16)
+#   --minor         Bump the minor version (3.1.15 → 3.2.0)
+#   --major         Bump the major version (3.1.15 → 4.0.0)
 #   --skip-bump     Skip automatic version bump (version must be pre-bumped manually)
-#   --skip-tests    Skip the test suite (only for nested test-harness calls — tests
-#                   must still pass before any real publish)
+#   --skip-tests    Skip the lint gates and test suite (only for nested test-harness
+#                   calls — they must still pass before any real publish)
 #   --skip-tag      Skip annotated release-tag creation
 #   --dry-run       Build the release archive locally but do not push branches/tags
 #
 # What this script does:
-#   1. Verifies dev branch with clean working tree
-#   2. Bumps the patch/minor/major version in __init__.py and commits it
-#   3. Starts the test VM if not already running, stops it when done
-#   4. Runs all 5 test tiers (unit / integration / tui / vm / install)
+#   1. Verifies the omarchy working branch with a clean, up-to-date working tree
+#   2. Runs the CI lint gates (ruff + shellcheck)
+#   3. Runs tiers 1-3 via pytest (unit / integration / tui)
+#   4. Bumps the patch/minor/major version in lib/hyprconf/__init__.py and commits it
 #   5. Builds a filtered release archive from HEAD via git archive + export-ignore
-#   6. Promotes dev HEAD to origin/stable
-#   7. Creates / pushes an annotated version tag from hyprconf.__version__
+#   6. Creates an annotated version tag from hyprconf.__version__
+#   7. Promotes the working-branch HEAD to origin/stable and pushes the tag
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-VM_RUN_SCRIPT="$REPO_ROOT/tests/vm/run_vm.sh"
-VM_PID_FILE="/tmp/hyprconf-vm.pid"
-
-INSTALL_VM_RUN_SCRIPT="$REPO_ROOT/tests/install/run_install_vm.sh"
-INSTALL_VM_PID_FILE="/tmp/hyprconf-install-vm.pid"
-INSTALL_IMAGE="$REPO_ROOT/tests/vm/arch-hyprconf.qcow2"
-INSTALL_META="$REPO_ROOT/tests/vm/arch-hyprconf.meta"
-
+# The overlay is developed on "omarchy" and released by promoting that HEAD to
+# "stable" (the branch install.sh clones). The former development branch is retired.
+WORK_BRANCH="omarchy"
 STABLE_BRANCH="stable"
-VERSION_FILE="$REPO_ROOT/stow/hypr/.local/lib/hyprconf/__init__.py"
+# Single source of truth for the version (pyproject reads it dynamically too).
+VERSION_FILE_REL="lib/hyprconf/__init__.py"
+VERSION_FILE="$REPO_ROOT/$VERSION_FILE_REL"
 DIST_DIR="$REPO_ROOT/dist"
-
-_vm_is_running() {
-  [[ -f "$VM_PID_FILE" ]] && kill -0 "$(cat "$VM_PID_FILE")" 2>/dev/null
-}
-
-_install_vm_is_running() {
-  [[ -f "$INSTALL_VM_PID_FILE" ]] && kill -0 "$(cat "$INSTALL_VM_PID_FILE")" 2>/dev/null
-}
 
 SKIP_TAG=false
 SKIP_BUMP=false
@@ -83,48 +72,33 @@ info() { printf '%s  ─ %s%s\n'        "$DM" "$1" "$RS"; }
 warn() { printf '%s  ! %s%s\n'        "$AM" "$1" "$RS"; }
 die()  { printf '%s  ✘ FATAL: %s%s\n' "$GL" "$1" "$RS" >&2; exit 1; }
 
-VM_STARTED_BY_US=false
-INSTALL_VM_STARTED_BY_US=false
-
-_on_exit() {
-  if [[ "$INSTALL_VM_STARTED_BY_US" == true ]]; then
-    printf '\n%s  ▸ Stopping install test VM%s\n' "$AM" "$RS"
-    bash "$INSTALL_VM_RUN_SCRIPT" --stop 2>&1 || true
-    ok "Install VM stopped"
-  fi
-
-  if [[ "$VM_STARTED_BY_US" == true ]]; then
-    printf '\n%s  ▸ Stopping test VM%s\n' "$AM" "$RS"
-    bash "$VM_RUN_SCRIPT" --stop 2>&1 || true
-    ok "VM stopped"
-  fi
-}
-trap _on_exit EXIT
-
 _read_version() {
-  python3 - <<'PY'
-from pathlib import Path
+  python3 - "$VERSION_FILE_REL" <<'PY'
 import re
+import sys
+from pathlib import Path
 
-text = Path("stow/hypr/.local/lib/hyprconf/__init__.py").read_text(encoding="utf-8")
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
 match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
 if not match:
-    raise SystemExit("Could not determine hyprconf version from __init__.py")
+    raise SystemExit(f"Could not determine hyprconf version from {path}")
 print(match.group(1))
 PY
 }
 
 _bump_version() {
-  python3 - "$1" <<'PY'
-import sys, re
+  python3 - "$VERSION_FILE_REL" "$1" <<'PY'
+import re
+import sys
 from pathlib import Path
 
-bump = sys.argv[1]
-path = Path("stow/hypr/.local/lib/hyprconf/__init__.py")
+path = Path(sys.argv[1])
+bump = sys.argv[2]
 text = path.read_text(encoding="utf-8")
 m = re.search(r'__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"', text)
 if not m:
-    raise SystemExit("Could not parse semver from __init__.py")
+    raise SystemExit(f"Could not parse semver from {path}")
 major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
 if bump == "major":
     major += 1; minor = 0; patch = 0
@@ -157,23 +131,25 @@ _tag_points_at_head() {
 step "Pre-flight checks"
 
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
-[[ "$current_branch" == "dev" ]] || die "Must be on dev branch (currently on '$current_branch')."
+[[ "$current_branch" == "$WORK_BRANCH" ]] \
+  || die "Must be on the ${WORK_BRANCH} branch (currently on '$current_branch')."
 
-[[ -z "$(git status --porcelain)" ]] || die "Uncommitted changes on dev — commit or stash first."
+[[ -z "$(git status --porcelain)" ]] \
+  || die "Uncommitted changes on ${WORK_BRANCH} — commit or stash first."
 
-ok "On dev, working tree clean"
+ok "On ${WORK_BRANCH}, working tree clean"
 
-git fetch origin dev --quiet
-# shellcheck disable=SC2055  # || is correct: not-up-to-date = HEAD differs from merge-base OR from origin/dev
-if [[ "$(git rev-parse HEAD)" != "$(git merge-base HEAD origin/dev)" \
-   || "$(git rev-parse HEAD)" != "$(git rev-parse origin/dev)" ]]; then
-  die "Local dev is behind or diverged from origin/dev — pull or rebase first."
+git fetch origin "$WORK_BRANCH" --quiet
+# shellcheck disable=SC2055  # || is correct: not-up-to-date = HEAD differs from merge-base OR from origin/<work>
+if [[ "$(git rev-parse HEAD)" != "$(git merge-base HEAD "origin/${WORK_BRANCH}")" \
+   || "$(git rev-parse HEAD)" != "$(git rev-parse "origin/${WORK_BRANCH}")" ]]; then
+  die "Local ${WORK_BRANCH} is behind or diverged from origin/${WORK_BRANCH} — pull or rebase first."
 fi
-ok "Local dev is up-to-date with origin/dev"
+ok "Local ${WORK_BRANCH} is up-to-date with origin/${WORK_BRANCH}"
 
-# NOTE: the version bump + tag now happen AFTER the full suite passes (further
-# down) so a release tag is only ever cut from code that has gone green through
-# tier 5 — not from a commit that the test run might still reject.
+# NOTE: the version bump + tag happen AFTER the suite passes (further down) so a
+# release tag is only ever cut from code that has gone green through tier 3 —
+# not from a commit that the test run might still reject.
 
 # Lint + shellcheck are the same gates CI enforces. Run them here (fast, seconds)
 # so a release can never be cut with a red lint job — a formatting/shellcheck
@@ -195,101 +171,8 @@ if [[ "$SKIP_TESTS" == true ]]; then
 else
   make test 2>&1 || die "Tiers 1-3 failed — fix before publishing."
   ok "Tiers 1-3 passed"
+  ok "All tests passed"
 fi
-
-step "Checking VM image"
-if [[ "$SKIP_TESTS" == true ]]; then
-  warn "Skipping VM/install tiers (--skip-tests)"
-else
-# Decide whether to rebuild the install image. The install tier exists to catch
-# install.sh breakage, so we REBUILD by default and reuse an existing image only
-# when it was built from a commit whose install-relevant paths (install/, setup.sh,
-# packages) are byte-identical to HEAD — i.e. nothing the installer touches changed.
-_build_image=true
-if [[ -f "$INSTALL_IMAGE" && -f "$INSTALL_META" ]]; then
-  _built_at="$(grep '^built_at=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
-  _built_commit="$(grep '^git_commit=' "$INSTALL_META" | cut -d= -f2- || echo unknown)"
-  printf '%s  ─ Image found (built %s from %s)%s\n' "$DM" "$_built_at" "$_built_commit" "$RS"
-  if [[ "$_built_commit" != "unknown" ]] \
-     && git rev-parse -q --verify "${_built_commit}^{commit}" >/dev/null 2>&1; then
-    if git diff --quiet "$_built_commit" HEAD -- install setup.sh packages; then
-      _build_image=false
-      ok "Reusing image — no install-path changes since it was built"
-    else
-      warn "install/, setup.sh or packages changed since the image was built — rebuilding"
-    fi
-  else
-    warn "Image build commit unknown or not in history — rebuilding to be safe"
-  fi
-else
-  warn "No VM image found — building before tiers 4 and 5 (~20 min)"
-fi
-
-if [[ "$_build_image" == true ]]; then
-  step "Building VM image (Packer runs install.sh end-to-end)"
-  if _vm_is_running; then
-    info "Stopping stale VM before rebuild..."
-    bash "$VM_RUN_SCRIPT" --stop 2>/dev/null || true
-  fi
-  bash "$REPO_ROOT/tests/install/build_image.sh" 2>&1 \
-    || die "VM image build failed — fix before publishing."
-  ok "VM image built"
-fi
-
-if _vm_is_running && [[ "$_build_image" == false ]]; then
-  info "VM already running — reusing"
-else
-  info "Starting test VM (port 2222)..."
-  bash "$VM_RUN_SCRIPT" 2>&1 || die "VM failed to start."
-  VM_STARTED_BY_US=true
-fi
-
-info "Tier 4: VM integration tests"
-make test-vm 2>&1 || die "Tier 4 (VM) failed — fix before publishing."
-ok "Tier 4 passed"
-
-if _install_vm_is_running; then
-  info "Install VM already running — reusing"
-else
-  info "Starting install test VM (port 2223)..."
-  if ! bash "$INSTALL_VM_RUN_SCRIPT" 2>&1; then
-    printf '\n%s  ✘ Install VM failed to start.%s\n\n' "$GL" "$RS"
-    printf '  1) Clean up stale overlays and retry\n'
-    printf '  2) Skip tier 5 (not recommended before publishing)\n'
-    printf '  3) Abort\n\n'
-    read -rp "  Choice [1/2/3, default 3]: " _recovery || true
-    case "${_recovery:-3}" in
-      1)
-        warn "Cleaning up and retrying..."
-        bash "$INSTALL_VM_RUN_SCRIPT" --stop 2>/dev/null || true
-        bash "$VM_RUN_SCRIPT" --stop 2>/dev/null || true
-        VM_STARTED_BY_US=false
-        info "Restarting tier-4 VM..."
-        bash "$VM_RUN_SCRIPT" 2>&1 || die "Tier-4 VM failed to restart."
-        VM_STARTED_BY_US=true
-        info "Restarting install VM..."
-        bash "$INSTALL_VM_RUN_SCRIPT" 2>&1 || die "Install VM failed after cleanup — aborting."
-        INSTALL_VM_STARTED_BY_US=true
-        ;;
-      2)
-        warn "Skipping tier 5 — publish will proceed without install validation"
-        ;;
-      *)
-        die "Aborted by user."
-        ;;
-    esac
-  else
-    INSTALL_VM_STARTED_BY_US=true
-  fi
-fi
-
-info "Tier 5: install validation"
-make test-install 2>&1 || die "Tier 5 (install) failed — fix before publishing."
-ok "Tier 5 passed"
-
-fi  # end: if [[ "$SKIP_TESTS" != true ]]
-
-[[ "$SKIP_TESTS" == true ]] || ok "All tests passed"
 
 # Suite is green — now bump the version and cut the tag from the tested HEAD.
 if [[ "$SKIP_BUMP" == false ]]; then
@@ -302,7 +185,7 @@ if [[ "$SKIP_BUMP" == false ]]; then
   else
     git add "$VERSION_FILE"
     git commit -m "release: [${release_tag}] bump version"
-    git push origin dev
+    git push origin "$WORK_BRANCH"
     ok "Bumped to ${version}"
   fi
 else
@@ -317,7 +200,7 @@ info "Release tag: ${release_tag}"
 step "Building release archive"
 archive_path="$(_build_release_archive "$release_tag")"
 archive_size="$(du -sh "$archive_path" | cut -f1)"
-ok "Release archive ready → ${archive_path#$REPO_ROOT/} (${archive_size})"
+ok "Release archive ready → ${archive_path#"$REPO_ROOT"/} (${archive_size})"
 
 if [[ "$SKIP_TAG" == false ]]; then
   if git rev-parse -q --verify "refs/tags/${release_tag}" >/dev/null; then
@@ -338,7 +221,7 @@ ${changelog}"
     else
       tag_body="Initial release."
     fi
-    git tag -a "$release_tag" -m "release: [${release_tag}] Promote dev to stable
+    git tag -a "$release_tag" -m "release: [${release_tag}] Promote ${WORK_BRANCH} to ${STABLE_BRANCH}
 
 ${tag_body}"
     ok "Created tag ${release_tag}"
@@ -349,16 +232,16 @@ fi
 
 if [[ "$DRY_RUN" == true ]]; then
   warn "Dry-run — skipping branch and tag pushes"
-  ok "Done — validated dev → stable promotion flow locally"
+  ok "Done — validated ${WORK_BRANCH} → ${STABLE_BRANCH} promotion flow locally"
   exit 0
 fi
 
-dev_sha="$(git rev-parse HEAD)"
+release_sha="$(git rev-parse HEAD)"
 
-step "Promoting dev to origin/${STABLE_BRANCH}"
+step "Promoting ${WORK_BRANCH} to origin/${STABLE_BRANCH}"
 git push --force-with-lease origin HEAD:"${STABLE_BRANCH}"
 git branch -f "${STABLE_BRANCH}" HEAD
-ok "origin/${STABLE_BRANCH} updated → ${dev_sha:0:7}"
+ok "origin/${STABLE_BRANCH} updated → ${release_sha:0:7}"
 
 if [[ "$SKIP_TAG" == false ]]; then
   step "Pushing tag ${release_tag}"
@@ -366,4 +249,4 @@ if [[ "$SKIP_TAG" == false ]]; then
   ok "Tag pushed → ${release_tag}"
 fi
 
-ok "Done — dev promoted to stable, archive built"
+ok "Done — ${WORK_BRANCH} promoted to ${STABLE_BRANCH}, archive built"

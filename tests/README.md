@@ -6,146 +6,66 @@
 make test
 ```
 
-Runs Tiers 1–3 (unit, integration, TUI). No Hyprland session required.
-
----
-
-## Full Suite (All 5 Tiers)
-
-### TL;DR — Run Everything From Scratch
-
-```bash
-make build-vm-image          # build VM image (~20 min, one-time)
-bash tests/vm/run_vm.sh      # start VM (blocks until SSH-ready)
-make test test-vm test-install
-```
-
-### One-Time Setup
-
-```bash
-# Enable KVM (AMD CPU — use kvm_intel for Intel)
-sudo modprobe kvm_amd
-
-# Install required tooling
-sudo pacman -S qemu-full packer python-pytest-asyncio
-
-# Build the VM image (~20 min)
-make build-vm-image
-```
-
-### Running All Tiers
-
-```bash
-# Tiers 1–3: unit, integration, TUI
-make test
-
-# Tier 4: live Hyprland in QEMU (start VM first)
-bash tests/vm/run_vm.sh
-make test-vm
-
-# Tier 5: full Arch install smoke test
-make test-install
-```
-
----
+Runs tiers 1–3 (unit, integration, TUI). No Hyprland session, no Omarchy shell,
+no host tools — the suite is hermetic and runs in an `archlinux:latest`
+container in CI.
 
 ## Tier Reference
 
-| Tier | What It Tests | Command | Requirements |
-|------|--------------|---------|--------------|
-| 1 — Unit | All Python config parsers/writers + shipped scripts | `make test-unit` | None |
-| 2 — Integration | Installer sparse-checkout + publish pipeline | `make test-integration` | None |
-| 3 — TUI | Textual Pilot headless UI tests | `make test-tui` | `python-pytest-asyncio` |
-| 4 — VM | Sync, TUI, and theme engine against live Hyprland | `make test-vm` | KVM + `qemu-full` + running VM |
-| 5 — Install | Full `install/install.sh` end-to-end | `make test-install` | KVM + `packer` + built image |
+| Tier | What it tests | Command | Requirements |
+|------|---------------|---------|--------------|
+| 1 — Unit | `lib/hyprconf/` modules, `install.sh` (fake `omarchy-*` bins, throwaway `HOME`), `hypr/scripts/*`, `bin/hyprconf-stats` + `hyprconf-gpu-info`, the Firefox policy, the PII and release guards | `make test-unit` | `python-pytest`, `python-pytest-xdist` |
+| 2 — Integration | Publish pipeline plumbing: `git archive` filtering, `scripts/publish --dry-run` | `make test-integration` | as above |
+| 3 — TUI | Textual Pilot, fully headless | `make test-tui` | + `python-pytest-asyncio`, `python-textual` |
 
----
+There are no VM or install tiers. Behaviour that needs a live Omarchy session is
+verified by hand and recorded in the commit message.
 
 ## Architecture
 
 ```
 tests/
-├── conftest.py               # Shared fixtures: hypr_dir
-├── unit/                     # Tier 1 — pure Python, zero Hyprland dependency
-│   ├── test_config.py
-│   ├── test_schema.py
-│   ├── test_file_edit.py
-│   ├── test_block_conf.py
-│   ├── test_keybinds.py
-│   ├── test_rules.py
-│   ├── test_monitors.py
-│   ├── test_hyprlock.py
-│   ├── test_hypridle.py
-│   └── test_hyprpaper.py
-├── integration/              # Tier 2 — installer + publish pipeline plumbing
-│   ├── test_installer_sparse_checkout.py
+├── conftest.py                   # hypr_dir: isolated ~/.config/hypr in tmp_path
+├── unit/                         # Tier 1
+│   ├── test_<module>.py          #   one per lib/hyprconf/<module>.py (schema, config,
+│   │                             #   keybinds, rules, monitors, hyprctl, file_edit, …)
+│   ├── test_omarchy_install.py   #   install.sh: every stage, restraint invariants, idempotency
+│   ├── test_switch_monitor.py    #   hypr/scripts/switch_monitor.sh
+│   ├── test_adjust_gaps.py       #   hypr/scripts/adjust-gaps
+│   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
+│   ├── test_config_exec_targets.py  # every ~/-anchored path a shipped config references ships
+│   ├── test_firefox.py           #   infra/firefox/policies.json
+│   ├── test_release.py           #   .gitattributes export-ignore, semver, branch constants
+│   └── test_no_pii.py            #   every tracked file, identities derived at runtime
+├── integration/                  # Tier 2
 │   └── test_publish_pipeline.py
-├── tui/                      # Tier 3 — Textual Pilot, fully headless
-│   └── test_tui_basic.py
-├── vm/                       # Tier 4 — SSH into live QEMU/Hyprland VM
-│   ├── run_vm.sh             #   Launch/stop the test VM
-│   └── test_hyprland_integration.py
-└── install/                  # Tier 5 — Packer builds fresh Arch VM, tests result
-    ├── arch.pkr.hcl          #   Packer template (uses real install/install.sh)
-    ├── build_image.sh        #   Convenience wrapper around packer build
-    └── test_full_install.py
+└── tui/                          # Tier 3
+    └── test_tui_basic.py
 ```
 
----
+## Rules
 
-## VM Management
-
-```bash
-bash tests/vm/run_vm.sh         # Start VM (blocks until SSH is ready)
-bash tests/vm/run_vm.sh --stop  # Stop VM
-bash tests/vm/run_vm.sh --wait  # Wait for SSH without starting
-```
-
-The VM uses `virtio-gpu-gl` (software OpenGL) so Hyprland's DRM requirement
-is satisfied without a physical GPU. SSH is forwarded to `localhost:2222`.
-
----
-
-## Installer CI Mode
-
-`install/install.sh` supports non-interactive execution for Tier 5:
-
-```bash
-HYPRCONF_CI=1 \
-HYPRCONF_CI_DISK=/dev/vda \
-HYPRCONF_CI_USERNAME=hyprtest \
-HYPRCONF_CI_PASSWORD=hyprtest \
-HYPRCONF_CI_HOSTNAME=hyprconf-test \
-HYPRCONF_CI_TIMEZONE=UTC \
-HYPRCONF_CI_PART_MODE=full \
-bash install/install.sh
-```
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `HYPRCONF_CI` | `0` | Set to `1` to enable non-interactive mode |
-| `HYPRCONF_CI_DISK` | *(required)* | Target block device, e.g. `/dev/vda` |
-| `HYPRCONF_CI_USERNAME` | `hyprtest` | User account name |
-| `HYPRCONF_CI_PASSWORD` | `hyprtest` | Account + LUKS password |
-| `HYPRCONF_CI_HOSTNAME` | `hyprconf-test` | System hostname |
-| `HYPRCONF_CI_TIMEZONE` | `UTC` | Timezone (from `/usr/share/zoneinfo`) |
-| `HYPRCONF_CI_PART_MODE` | `full` | `full` (wipe disk) or `unallocated` |
-| `HYPRCONF_CI_COPY_NETCONF` | `0` | Copy network config from live ISO |
-
----
+- Every system path a script reads must be env-overridable (`_HYPRCONF_*`,
+  `HYPRCONF_STATS_*`, `HYPRCONF_GPU_*`) and pointed at `tmp_path`; never
+  `readonly`.
+- Every external command is a fake bin on `PATH` — `omarchy-*`, `hyprctl`, `git`,
+  `jq`, `fc-list`, `sudo`. Never call a host binary, never invoke `pacman`.
+- CI runs as root (DAC checks are bypassed) — reproduce permission-sensitive
+  tests with `unshare -r python -m pytest <file>`.
+- No PII in fixtures: `~`, `$HOME`, `testuser`.
+- Never weaken a test to get green. An intended behaviour change updates the
+  test to the new contract, in the same commit, and says so.
 
 ## Coverage
 
 ```bash
 pytest tests/unit/ tests/integration/ \
-  --cov=stow/hypr/.local/lib/hyprconf \
+  --cov=lib/hyprconf \
   --cov-report=term-missing
 ```
 
----
-
 ## CI (GitHub Actions)
 
-Tiers 1–3 run automatically on every push and pull request via
-`.github/workflows/test.yml`. Tiers 4–5 require a self-hosted runner
-with KVM access.
+`.github/workflows/test.yml` runs Lint (`make shellcheck` + `make lint`), tiers
+1–2 (with coverage) and tier 3 on every push and pull request, each in an
+`archlinux:latest` container.

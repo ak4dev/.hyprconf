@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-LIB_DIR = Path(__file__).parent.parent.parent / "stow" / "hypr" / ".local" / "lib"
+LIB_DIR = Path(__file__).parent.parent.parent / "lib"
 if str(LIB_DIR) not in sys.path:
     sys.path.insert(0, str(LIB_DIR))
 
@@ -128,8 +128,22 @@ def test_set_option_returns_false_when_inactive(monkeypatch):
 
 def test_set_option_returns_true_on_success(monkeypatch):
     monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
-    with patch("subprocess.run", return_value=_mock_run(0, "ok")):
+    with patch("subprocess.run", return_value=_mock_run(0, "ok")) as run:
         assert hyprctl.set_option("general", "gaps_in", "5") is True
+    argv = run.call_args.args[0]
+    assert argv[:2] == ["hyprctl", "eval"]
+    assert argv[2] == "hl.config({ general = { gaps_in = 5 } })"
+
+
+def test_set_option_treats_error_reply_as_failure(monkeypatch):
+    """hyprctl eval reports a bad key as `error: …` (exit 7 on the real
+    binary); a 0 exit with an error reply must not read as success either."""
+    monkeypatch.setenv("HYPRLAND_INSTANCE_SIGNATURE", "test")
+    err = "error: [string]:1: unknown config key 'general.no_such_option_xyz'"
+    with patch("subprocess.run", return_value=_mock_run(0, err)):
+        assert hyprctl.set_option("general", "no_such_option_xyz", "5") is False
+    with patch("subprocess.run", return_value=_mock_run(7, "")):
+        assert hyprctl.set_option("general", "no_such_option_xyz", "5") is False
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""omarchy/install.sh — the overlay installer for Omarchy systems.
+"""install.sh — the overlay installer for Omarchy systems.
 
 This installer is unusual for hyprconf in that it runs on a machine it does not
 own: Omarchy owns the base system, and the overlay's whole design constraint is
@@ -24,6 +24,7 @@ suite is hermetic in a bare archlinux container per the testing rules.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -33,9 +34,8 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-OMARCHY_DIR = REPO_ROOT / "omarchy"
-INSTALL_SH = OMARCHY_DIR / "install.sh"
-HOOK = OMARCHY_DIR / "hooks" / "post-update.d" / "10-hyprconf"
+INSTALL_SH = REPO_ROOT / "install.sh"
+HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
 
 # A recording stub: appends its own name + args to the calls log, then runs an
 # optional body. One template covers every external the installer touches.
@@ -88,9 +88,18 @@ def _setup(tmp_path: Path, *, with_omarchy: bool = True, with_zsh: bool = True) 
         "omarchy-default-editor",
         "omarchy-shell",
         "omarchy-plugin-enable",
+        "omarchy-plugin-catalog",
+        "omarchy-restart-shell",
+        "omarchy-bar",
         "omarchy-update",
+        "sudo",
         "hyprctl",
         "kitty",
+        # switch_monitor.sh (run by several tests here) reports through these;
+        # the real ones would put a notification and an OSD on the developer's
+        # desktop every time the suite runs.
+        "omarchy-notification-send",
+        "omarchy-osd",
         # Asserted never to run: the GUI path out of omarchy-default-terminal.
         "omarchy-launch-floating-terminal-with-presentation",
         # Asserted never to run: switching the login shell.
@@ -139,32 +148,92 @@ def _setup(tmp_path: Path, *, with_omarchy: bool = True, with_zsh: bool = True) 
 
 
 def _run(
-    env: dict, *args: str, zsh: str | None = None, zsh_bin: str | None = None
+    env: dict,
+    *args: str,
+    zsh: str | None = None,
+    zsh_bin: str | None = None,
+    extra_env: dict[str, str] | None = None,
+    install_sh: Path = INSTALL_SH,
 ) -> subprocess.CompletedProcess:
     """Run install.sh against the fake tree. Returns the completed process.
 
     `zsh` pins the resolved zsh path outright; `zsh_bin` instead renames the
     binary the installer looks up on PATH, which is how a test can model "zsh
     does not exist until the package stage installs it" on a host whose own
-    /usr/bin/zsh would otherwise always be found.
+    /usr/bin/zsh would otherwise always be found. `install_sh` runs a copy of
+    the installer (see _checkout) instead of the one in this checkout.
     """
     child_env = {
         "HOME": str(env["home"]),
         "PATH": f"{env['bins']}:/usr/bin:/bin",
         "OMARCHY_PATH": str(env["omarchy_path"]),
         "_HYPRCONF_PKG_ADD": env["pkg_add"],
+        # The plugin-discovery wait polls a stub that never answers.
+        "_HYPRCONF_PLUGIN_WAIT": "0",
     }
     if zsh is not None:
         child_env["_HYPRCONF_ZSH"] = zsh
     if zsh_bin is not None:
         child_env["_HYPRCONF_ZSH_BIN"] = zsh_bin
+    if extra_env:
+        child_env.update(extra_env)
     return subprocess.run(
-        ["bash", str(INSTALL_SH), *args],
+        ["bash", str(install_sh), *args],
         capture_output=True,
         text=True,
         timeout=60,
         env=child_env,
     )
+
+
+# The payload install.sh reads at run time — enough of the repo to run every
+# stage from a copy. lib/ and tui/ are only ever symlink TARGETS, so they are
+# not needed for the installer itself to run.
+PAYLOAD = (
+    "install.sh",
+    "packages",
+    "hypr",
+    "bin",
+    "hooks",
+    "zsh",
+    "kitty",
+    "fastfetch",
+    "themes",
+    "wallpapers",
+    "plugins",
+    "infra",
+)
+
+# A git that is real for everything the refresh guard needs (`checkout --`)
+# and still fake for the two things a hermetic run must never do: clone Oh My
+# Zsh / powerlevel10k off the network, and pull.
+GIT_PASSTHROUGH = """\
+if [ "$1" = clone ]; then mkdir -p "${@: -1}"; exit 0; fi
+case " $* " in *" pull "*) exit 0 ;; esac
+exec "$(PATH=/usr/bin:/bin command -v git)" "$@"
+"""
+
+
+def _checkout(tmp_path: Path) -> Path:
+    """A throwaway git checkout of the overlay payload.
+
+    The refresh-guard tests have to simulate `omarchy refresh` clobbering the
+    checkout and the installer repairing it with git — which must never be
+    rehearsed on the real repository the suite runs from.
+    """
+    repo = tmp_path / "checkout"
+    repo.mkdir()
+    for name in PAYLOAD:
+        src = REPO_ROOT / name
+        if src.is_dir():
+            shutil.copytree(src, repo / name, ignore=shutil.ignore_patterns("__pycache__"))
+        else:
+            shutil.copy2(src, repo / name)
+    git = ["git", "-c", "user.name=hyprconf-tests", "-c", "user.email=tests@example.invalid"]
+    subprocess.run([*git, "init", "-q"], cwd=repo, check=True, timeout=30)
+    subprocess.run([*git, "add", "-A"], cwd=repo, check=True, timeout=30)
+    subprocess.run([*git, "commit", "-qm", "payload"], cwd=repo, check=True, timeout=30)
+    return repo
 
 
 def _calls(env: dict) -> list[str]:
@@ -194,6 +263,11 @@ def _code_only(body: str) -> str:
             continue
         out.append(line.split(" #", 1)[0])
     return "\n".join(out)
+
+
+def _code_only_qml(body: str) -> str:
+    """Drop // comment lines, so a scan cannot match the prose explaining it."""
+    return "\n".join(ln for ln in body.splitlines() if not ln.lstrip().startswith("//"))
 
 
 def _tree_hash(root: Path) -> str:
@@ -381,7 +455,7 @@ def test_hypr_overrides_are_symlinked_with_a_stock_backup(tmp_path: Path) -> Non
     hypr = env["home"] / ".config" / "hypr"
     for name in ("bindings.lua", "input.lua", "looknfeel.lua"):
         assert hypr.joinpath(name).is_symlink(), name
-        assert hypr.joinpath(name).resolve() == OMARCHY_DIR / "hypr" / name
+        assert hypr.joinpath(name).resolve() == REPO_ROOT / "hypr" / name
         assert hypr.joinpath(f"{name}.stock").read_text() == f"-- stock omarchy {name}\n"
 
 
@@ -458,7 +532,7 @@ def test_hypr_overrides_parse_as_lua(tmp_path: Path) -> None:
     luac = shutil.which("luac") or shutil.which("luac5.4")
     if luac is None:
         pytest.skip("no luac available to parse the Hyprland Lua config")
-    for lua in sorted((OMARCHY_DIR / "hypr").glob("*.lua")):
+    for lua in sorted((REPO_ROOT / "hypr").glob("*.lua")):
         proc = subprocess.run(
             [luac, "-p", str(lua)],
             capture_output=True,
@@ -551,7 +625,7 @@ def test_no_shipped_script_uses_the_dead_hyprctl_keyword_path() -> None:
     report errors (exit 7). Verified against Hyprland 0.56.2.
     """
     offenders = []
-    for script in sorted((OMARCHY_DIR / "hypr" / "scripts").iterdir()):
+    for script in sorted((REPO_ROOT / "hypr" / "scripts").iterdir()):
         if not script.is_file():
             continue
         for lineno, line in enumerate(_code_only(script.read_text()).splitlines(), 1):
@@ -568,7 +642,7 @@ def test_gap_reader_understands_the_current_hyprctl_shape() -> None:
     Reading only the old name makes every keypress compute its step from 0, so
     the keys look alive (0 -> 2 -> 0) while discarding the configured gap.
     """
-    src = (OMARCHY_DIR / "hypr" / "scripts" / "adjust-gaps").read_text()
+    src = (REPO_ROOT / "hypr" / "scripts" / "adjust-gaps").read_text()
     assert "'css'" in src or '"css"' in src
 
 
@@ -585,7 +659,7 @@ def test_osd_keys_are_left_to_omarchy(tmp_path: Path) -> None:
     # these keys are left alone necessarily name them.
     bindings = "\n".join(
         line
-        for line in (OMARCHY_DIR / "hypr" / "bindings.lua").read_text().splitlines()
+        for line in (REPO_ROOT / "hypr" / "bindings.lua").read_text().splitlines()
         if not line.lstrip().startswith("--")
     )
     for key in (
@@ -610,7 +684,7 @@ def test_every_binding_carries_a_description(tmp_path: Path) -> None:
     the menu still listed the Omarchy defaults hyprconf had replaced — worse
     than listing nothing. o.bind (via the rebind helper) records one.
     """
-    src = (OMARCHY_DIR / "hypr" / "bindings.lua").read_text()
+    src = (REPO_ROOT / "hypr" / "bindings.lua").read_text()
     code = [ln for ln in src.splitlines() if not ln.lstrip().startswith("--")]
     assert not [ln for ln in code if re.search(r"\bhl\.bind\s*\(", ln)], (
         "use rebind()/o.bind so the key appears in the keybindings menu"
@@ -634,7 +708,7 @@ def test_no_shipped_script_uses_the_dead_two_token_dispatch() -> None:
     hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'.
     """
     offenders = []
-    for script in sorted((OMARCHY_DIR / "hypr" / "scripts").iterdir()):
+    for script in sorted((REPO_ROOT / "hypr" / "scripts").iterdir()):
         if not script.is_file():
             continue
         for lineno, line in enumerate(_code_only(script.read_text()).splitlines(), 1):
@@ -655,7 +729,7 @@ def test_app_keys_go_through_omarchy_launchers(tmp_path: Path) -> None:
     """
     code = "\n".join(
         ln
-        for ln in (OMARCHY_DIR / "hypr" / "bindings.lua").read_text().splitlines()
+        for ln in (REPO_ROOT / "hypr" / "bindings.lua").read_text().splitlines()
         if not ln.lstrip().startswith("--")
     )
     # The quoted form is the point: `exec_cmd("nautilus")` pins the app, while
@@ -699,7 +773,7 @@ def test_wallpapers_land_where_omarchy_looks_for_them(tmp_path: Path) -> None:
     _run(env, "--no-update")
     seeded = env["home"] / ".config" / "omarchy" / "backgrounds" / "gruvbox" / "gruvbox.jpg"
     assert seeded.is_file()
-    assert seeded.read_bytes() == (OMARCHY_DIR / "wallpapers" / "gruvbox.jpg").read_bytes()
+    assert seeded.read_bytes() == (REPO_ROOT / "wallpapers" / "gruvbox.jpg").read_bytes()
 
 
 def test_a_replaced_wallpaper_is_left_alone(tmp_path: Path) -> None:
@@ -764,12 +838,13 @@ def test_bar_widget_never_sizes_itself_off_its_parent() -> None:
     makes this worth a test rather than a comment: there is no error to grep
     for, only a gap in the bar.
     """
-    qml = (OMARCHY_DIR / "plugins" / "hyprconf-resources" / "Widget.qml").read_text()
     offenders = [
-        line.strip()
-        for line in _code_only(qml).splitlines()
+        f"{qml.relative_to(REPO_ROOT)}: {line.strip()}"
+        for qml in sorted((REPO_ROOT / "plugins").glob("*/*.qml"))
+        for line in _code_only_qml(qml.read_text()).splitlines()
         if re.match(r"\s*implicit(Width|Height)\s*:", line) and "parent" in line
     ]
+    assert list((REPO_ROOT / "plugins").glob("*/*.qml")), "no plugin QML found"
     assert not offenders, (
         "Bar widget implicit size must not depend on `parent` (binding loop -> "
         "zero size -> invisible widget):\n" + "\n".join(offenders)
@@ -847,7 +922,7 @@ def test_hook_cannot_recurse_or_escalate() -> None:
 
 def _overlay_scripts() -> list[Path]:
     out = subprocess.run(
-        ["git", "ls-files", "omarchy"],
+        ["git", "ls-files", "install.sh", "hypr", "bin", "hooks", "zsh", "kitty", "plugins"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
@@ -866,8 +941,9 @@ def test_overlay_never_uses_forbidden_pacman_forms() -> None:
         assert "pacman -R" not in code, script
 
 
-def test_overlay_never_reaches_into_the_standalone_installer() -> None:
-    """setup.sh's remove_aur_packages would offer to uninstall Omarchy itself."""
+def test_overlay_never_reaches_into_the_retired_standalone_installer() -> None:
+    """setup.sh is gone with the standalone desktop; a reference to it is dead code
+    (and its remove_aur_packages would have offered to uninstall Omarchy itself)."""
     for script in _overlay_scripts():
         code = _code_only(script.read_text(errors="ignore"))
         assert "setup.sh" not in code, script
@@ -881,3 +957,524 @@ def test_overlay_installs_no_aur_packages() -> None:
         assert "yay " not in code, script
         assert "makepkg" not in code, script
         assert "omarchy-pkg-aur-add" not in code, script
+
+
+# ---------------------------------------------------------------------------
+# The Firefox policy — the overlay's one write outside $HOME
+# ---------------------------------------------------------------------------
+
+
+def test_firefox_policy_is_installed_via_sudo_when_interactive(tmp_path: Path) -> None:
+    """setup.sh's setup_firefox, ported: Firefox reads enterprise policies only
+    from root-owned paths, so the file goes through sudo to (an overridden)
+    /etc/firefox/policies. A matching file is left alone, so a re-run — and
+    every hyprsync after it — never re-prompts for a password."""
+    env = _setup(tmp_path)
+    # A sudo that actually runs its command, so the install lands in the tree.
+    _stub(env["bins"] / "sudo", env["calls"], '"$@"')
+    policies = tmp_path / "etc" / "firefox" / "policies"
+    extra = {"_HYPRCONF_ASSUME_TTY": "1", "_HYPRCONF_FIREFOX_POLICIES": str(policies)}
+    proc = _run(env, "--no-update", extra_env=extra)
+    assert proc.returncode == 0, proc.stderr
+    src = REPO_ROOT / "infra" / "firefox" / "policies.json"
+    assert (policies / "policies.json").read_text() == src.read_text()
+
+    env["calls"].write_text("")
+    _run(env, "--no-update", extra_env=extra)
+    assert not any(c.startswith("sudo") for c in _calls(env))
+
+
+def test_firefox_policy_is_skipped_without_a_terminal(tmp_path: Path) -> None:
+    """The post-update hook runs non-interactively inside omarchy-update; a
+    sudo password prompt there would stall the whole update, so no tty means
+    no attempt (and no half-configured warning-free failure)."""
+    env = _setup(tmp_path)
+    policies = tmp_path / "etc" / "firefox" / "policies"
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_FIREFOX_POLICIES": str(policies)})
+    assert proc.returncode == 0, proc.stderr
+    assert not (policies / "policies.json").exists()
+    assert not any(c.startswith("sudo") for c in _calls(env))
+
+
+def test_firefox_policy_sits_behind_the_no_packages_gate(tmp_path: Path) -> None:
+    """--no-packages means "no sudo" — the hook passes it for that reason, so
+    the only other privileged stage must honor it too."""
+    env = _setup(tmp_path)
+    policies = tmp_path / "etc" / "firefox" / "policies"
+    _run(
+        env,
+        "--no-update",
+        "--no-packages",
+        extra_env={"_HYPRCONF_ASSUME_TTY": "1", "_HYPRCONF_FIREFOX_POLICIES": str(policies)},
+    )
+    assert not any(c.startswith("sudo") for c in _calls(env))
+    assert not (policies / "policies.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# The TUI
+# ---------------------------------------------------------------------------
+
+
+def test_tui_is_wired_for_launch_and_the_app_menu(tmp_path: Path) -> None:
+    """Launcher on PATH, library importable, and an XDG desktop entry.
+
+    Omarchy's app menu lists DesktopEntries.applications (shell/services/
+    AppLibrary.qml), so the file under ~/.local/share/applications is what
+    makes the TUI appear there. Exec must carry an absolute path — desktop
+    Exec lines do not expand ~ — and launch through
+    omarchy-launch-or-focus-tui so a second press focuses the open window.
+    """
+    env = _setup(tmp_path)
+    _run(env, "--no-update")
+    home = env["home"]
+
+    launcher = home / ".local" / "bin" / "hyprconf"
+    assert os.access(launcher, os.X_OK)
+    assert (home / ".local" / "lib" / "hyprconf").resolve() == REPO_ROOT / "lib" / "hyprconf"
+    assert (home / ".config" / "hypr" / "scripts" / "hyprconf-tui").resolve() == REPO_ROOT / "tui"
+
+    desktop = (home / ".local" / "share" / "applications" / "hyprconf.desktop").read_text()
+    assert (
+        f"Exec=omarchy-launch-or-focus-tui --app-id=hyprconf {home}/.local/bin/hyprconf" in desktop
+    )
+    assert "~" not in desktop
+
+    # The launcher refuses to start without textual; the package stage must
+    # therefore carry it (official repos only, per the no-AUR policy).
+    assert re.search(r"^python-textual\b", (REPO_ROOT / "packages").read_text(), re.M)
+
+
+def test_tui_conf_d_loader_preserves_omarchy_hyprland_lua(tmp_path: Path) -> None:
+    """The conf.d loader lands in hyprland.lua's documented personal-config
+    tail. Everything Omarchy seeded there must survive, and the block must be
+    marker-replaced — never accumulated — across re-runs."""
+    env = _setup(tmp_path)
+    hyprland = env["home"] / ".config" / "hypr" / "hyprland.lua"
+    hyprland.write_text('require("default.hypr.omarchy")\n')
+    for _ in range(2):
+        _run(env, "--no-update")
+    body = hyprland.read_text()
+    assert body.startswith('require("default.hypr.omarchy")\n')
+    assert body.count("-- >>> hyprconf >>>") == 1
+    assert body.count("-- <<< hyprconf <<<") == 1
+    assert "conf.d" in body
+
+
+# ---------------------------------------------------------------------------
+# The bar clock
+# ---------------------------------------------------------------------------
+
+
+def _plugin_fixtures(env: dict, tmp_path: Path) -> Path:
+    """Real jq + a fake omarchy.clock plugin source behind a catalog stub.
+
+    The stage resolves the plugin source from omarchy-plugin-catalog at
+    runtime and rewrites its manifest with jq, so these tests need the real
+    jq (the default stub plays "broken") and a catalog pointing at a source
+    tree under tmp_path."""
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("no jq available for the clock stage")
+    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    src = tmp_path / "clock-src"
+    src.mkdir(exist_ok=True)
+    (src / "manifest.json").write_text(
+        json.dumps(
+            {
+                "id": "omarchy.clock",
+                "name": "Clock",
+                "barWidget": {"displayName": "Clock"},
+                "omarchy": {"clonePaths": [{"source": "x", "target": "x"}]},
+            }
+        )
+    )
+    (src / "BarWidget.qml").write_text("precision: SystemClock.Minutes\n")
+    catalog = tmp_path / "catalog.json"
+    catalog.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "omarchy.clock",
+                    "firstParty": True,
+                    "sourceDir": str(src),
+                    "manifestPath": str(src / "manifest.json"),
+                    "name": "Clock",
+                },
+            ]
+        )
+    )
+    _stub(env["bins"] / "omarchy-plugin-catalog", env["calls"], f'cat "{catalog}"')
+    return src
+
+
+def test_clock_is_copied_patched_and_set_once(tmp_path: Path) -> None:
+    """The stock widget samples SystemClock at Minutes precision (shell/
+    plugins/panels/clock/BarWidget.qml), so a seconds format freezes. The
+    stage copies the widget to the project's own hyprconf.clock — source
+    resolved from omarchy-plugin-catalog at runtime, manifest rewritten the
+    way omarchy-plugin-clone's update_manifest does — and patches the copy.
+    Set-once: the marker is what keeps the post-update hook from reverting a
+    format the user later picked."""
+    env = _setup(tmp_path)
+    _plugin_fixtures(env, tmp_path)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert "omarchy-plugin-enable hyprconf.clock" in calls
+    assert "omarchy-bar set hyprconf.clock format hh:mm:ss AP" in calls
+    # The shell loaded/drew the stock widget before the patch; without a
+    # restart the seconds sit frozen.
+    assert any(c.startswith("omarchy-restart-shell") for c in calls)
+
+    plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.clock"
+    widget = (plug / "BarWidget.qml").read_text()
+    assert "SystemClock.Seconds" in widget
+    assert "SystemClock.Minutes" not in widget
+    manifest = json.loads((plug / "manifest.json").read_text())
+    assert manifest["id"] == "hyprconf.clock"
+    assert manifest["omarchy"]["clonedFrom"] == "omarchy.clock"
+    assert "clonePaths" not in manifest["omarchy"]
+    assert manifest["barWidget"]["displayName"] == "hyprconf Clock"
+
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    again = _calls(env)
+    assert not any(c.startswith("omarchy-plugin-catalog") for c in again)
+    assert not any(c.startswith("omarchy-bar") for c in again)
+
+
+def test_clock_widget_id_carries_no_username(tmp_path: Path) -> None:
+    """omarchy-plugin-clone names clones <username>.<id> with no way to
+    choose otherwise — a username must never leak into shipped
+    configuration. The stage builds the copy itself under the project's own
+    namespace, beside hyprconf.resources."""
+    code = _code_only(INSTALL_SH.read_text())
+    assert "hyprconf.clock" in code
+    assert "omarchy-plugin-clone" not in code
+    assert "id -un" not in code
+    assert "$USER" not in code and "${USER" not in code
+
+    env = _setup(tmp_path)
+    _plugin_fixtures(env, tmp_path)
+    _run(env, "--no-update")
+    user = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
+    plugins = env["home"] / ".config" / "omarchy" / "plugins"
+    assert not (plugins / f"{user}.clock").exists()
+    assert (plugins / "hyprconf.clock").is_dir()
+
+
+def test_clock_stage_retries_until_the_shell_can_answer(tmp_path: Path) -> None:
+    """omarchy-plugin-enable talks to the live shell; a TTY or SSH run has
+    none to talk to. The failure must not abort the install, and the marker
+    must stay unwritten so the next in-session run tries again."""
+    env = _setup(tmp_path)
+    _plugin_fixtures(env, tmp_path)
+    _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not (env["home"] / ".local" / "state" / "hyprconf" / "clock-applied").exists()
+    assert not any(c.startswith("omarchy-bar") for c in _calls(env))
+
+
+def test_workspaces_widget_is_the_overlays_own_plugin(tmp_path: Path) -> None:
+    """The stock widget hardcodes pills 1-5, caps ids at 10 and reads no
+    settings, so the overlay ships its own widget (plugins/hyprconf-workspaces)
+    as a clonedFrom copy: the shell swaps it into the stock widget's slot and
+    `omarchy plugin disable hyprconf.workspaces` restores stock. Synced on
+    every run — a git pull updates it — and enabled once."""
+    env = _setup(tmp_path)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-plugin-enable hyprconf.workspaces" in _calls(env)
+
+    plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.workspaces"
+    src = REPO_ROOT / "plugins" / "hyprconf-workspaces"
+    for f in src.iterdir():
+        assert (plug / f.name).read_bytes() == f.read_bytes(), f.name
+    manifest = json.loads((plug / "manifest.json").read_text())
+    assert manifest["id"] == "hyprconf.workspaces"
+    assert manifest["omarchy"]["clonedFrom"] == "omarchy.workspaces"
+    assert manifest["entryPoints"]["barWidget"] == "Workspaces.qml"
+    assert manifest["kinds"] == ["bar-widget"]
+
+    # Synced, not seeded: a stale installed copy comes back to the repo's, and
+    # the running shell is reloaded so it draws the new one.
+    (plug / "Workspaces.qml").write_text("// stale\n")
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert (plug / "Workspaces.qml").read_bytes() == (src / "Workspaces.qml").read_bytes()
+    assert any(c.startswith("omarchy-restart-shell") for c in _calls(env))
+    # …but enabled once only, so a later `omarchy plugin disable` sticks.
+    assert "omarchy-plugin-enable hyprconf.workspaces" not in _calls(env)
+
+
+def test_workspaces_widget_shows_only_active_workspaces_on_two_lines() -> None:
+    """What the widget promises, pinned statically: no fixed pill set and no
+    id cap (only workspaces Hyprland has), two rows, hyprconf's Pac-Man on the
+    focused workspace, and the stock IPC id kept as moduleName."""
+    qml = _code_only_qml(
+        (REPO_ROOT / "plugins" / "hyprconf-workspaces" / "Workspaces.qml").read_text()
+    )
+    assert "var ids = []" in qml
+    assert "[1, 2, 3, 4, 5]" not in qml and "id <= 10" not in qml
+    assert "\\u{F0BAF}" in qml  # nf-md-pac_man, hyprconf's focused marker
+    assert "\\uDB85\\uDCFB" not in qml  # the stock dot
+    assert re.search(r"columns:.*Math\.ceil\(root\.ids\.length / 2\)", qml)
+    assert 'moduleName: "omarchy.workspaces"' in qml
+
+
+def test_window_title_is_omarchys_own_widget_enabled_once_after_the_workspaces(
+    tmp_path: Path,
+) -> None:
+    """hyprconf's bar drew the focused window's title beside the workspaces.
+    Omarchy's stock omarchy.active-window widget is the same thing, off by
+    default — so the overlay enables it (never ships a copy), once, placed
+    right after the workspaces widget. A later `omarchy plugin disable` is
+    the user's call and must survive the post-update hook's re-runs."""
+    env = _setup(tmp_path)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert (
+        "omarchy-plugin-enable omarchy.active-window --section left --after hyprconf.workspaces"
+        in calls
+    )
+    assert (env["home"] / ".local" / "state" / "hyprconf" / "window-title-applied").exists()
+    # Not shipped, not copied: nothing under the plugins dir carries that id.
+    assert not (env["home"] / ".config" / "omarchy" / "plugins" / "omarchy.active-window").exists()
+
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert not any("omarchy.active-window" in c for c in _calls(env))
+
+
+def test_window_title_falls_back_when_the_workspaces_copy_is_off_the_bar(tmp_path: Path) -> None:
+    """omarchy-plugin-enable refuses a --after target the bar does not carry.
+    A user who disabled hyprconf.workspaces is back on the stock widget, so
+    the title lands after that instead; with neither, the left section."""
+    env = _setup(tmp_path)
+    # Reject the copy's id as an anchor, accept the stock one.
+    _stub(
+        env["bins"] / "omarchy-plugin-enable",
+        env["calls"],
+        'case " $* " in *" --after hyprconf.workspaces "*) exit 1 ;; esac; exit 0',
+    )
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert (
+        "omarchy-plugin-enable omarchy.active-window --section left --after omarchy.workspaces"
+        in calls
+    )
+    assert (env["home"] / ".local" / "state" / "hyprconf" / "window-title-applied").exists()
+
+    env2 = _setup(tmp_path / "no-anchor")
+    _stub(
+        env2["bins"] / "omarchy-plugin-enable",
+        env2["calls"],
+        'case " $* " in *" --after "*) exit 1 ;; esac; exit 0',
+    )
+    assert _run(env2, "--no-update").returncode == 0
+    assert "omarchy-plugin-enable omarchy.active-window --section left" in _calls(env2)
+
+
+def test_window_title_retries_until_the_shell_can_answer(tmp_path: Path) -> None:
+    """No live shell (TTY/SSH): no marker, so the next in-session run tries again."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not (env["home"] / ".local" / "state" / "hyprconf" / "window-title-applied").exists()
+    assert "omarchy.active-window" in proc.stderr
+
+
+def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
+    """The post-update hook re-runs the installer after every Omarchy update;
+    an unconditional enable would undo `omarchy plugin disable <id>` each
+    time. The first run enables, later runs leave the choice alone."""
+    env = _setup(tmp_path)
+    _run(env, "--no-update")
+    calls = _calls(env)
+    assert "omarchy-plugin-enable hyprconf.resources --section right" in calls
+    assert "omarchy-plugin-enable hyprconf.workspaces" in calls
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert not any(c.startswith("omarchy-plugin-enable") for c in _calls(env))
+
+
+# ---------------------------------------------------------------------------
+# Workspace placement on a preset switch
+# ---------------------------------------------------------------------------
+
+
+def test_switch_monitor_moves_existing_workspaces(tmp_path: Path) -> None:
+    """Workspace rules only place FUTURE workspaces; a switch must move
+    today's. On reload Hyprland leaves existing workspaces on whatever monitor
+    they already occupy, so without an explicit move the kitchen hotkey
+    enabled the right outputs while workspaces 1-6 stayed on the bedroom TV.
+    The move uses the Lua dispatch form — hl.dsp.workspace.move, verified on
+    Hyprland 0.56.2 — for the same reason the dpms recovery does (the
+    two-token dispatch is a parse error there, per its own scan below)."""
+    env = _setup(tmp_path)
+    hypr = env["home"] / ".config" / "hypr"
+    hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
+    _run(env, "--no-update")
+
+    env["calls"].write_text("")
+    proc = subprocess.run(
+        ["bash", str(hypr / "scripts" / "switch_monitor.sh"), "kitchen"],
+        capture_output=True,
+        text=True,
+        env={"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"},
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    rules = re.findall(
+        r'hl\.workspace_rule\(\{ workspace = "(\d+)", monitor = "([^"]+)" \}\)',
+        (REPO_ROOT / "hypr" / "pcMonitors.kitchen.lua").read_text(),
+    )
+    assert rules, "kitchen preset carries no workspace rules"
+    calls = _calls(env)
+    for ws, mon in rules:
+        expected = (
+            f'hyprctl dispatch hl.dsp.workspace.move({{ workspace = {ws}, monitor = "{mon}" }})'
+        )
+        assert expected in calls, expected
+
+
+def test_clock_copy_takes_the_center_anchor_with_it(tmp_path: Path) -> None:
+    """canonicalWidgetId does no clone resolution (shell/Commons/Util.qml — a
+    plain string cast), so a centerAnchor left at omarchy.clock matches
+    nothing once the bar swaps to hyprconf.clock, and the clock drifts
+    off-center. The stage follows the anchor — but only while it still
+    points at the stock id, so a user's own anchor choice is never
+    overridden."""
+    env = _setup(tmp_path)
+    _plugin_fixtures(env, tmp_path)
+    shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
+    shell_json.parent.mkdir(parents=True, exist_ok=True)
+    shell_json.write_text('{"bar": {"centerAnchor": "omarchy.clock"}}')
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "hyprconf.clock"
+
+    # An anchor the user re-pointed later is left alone (marker aside, the
+    # guard itself only matches the stock id).
+    shell_json.write_text('{"bar": {"centerAnchor": "omarchy.weather"}}')
+    _run(env, "--no-update")
+    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "omarchy.weather"
+
+
+# ---------------------------------------------------------------------------
+# The `omarchy refresh` guard
+# ---------------------------------------------------------------------------
+
+
+STOCK_BINDINGS = "-- Keep only your personal keybinding overrides here.\n"
+
+
+def _stock_templates(env: dict) -> Path:
+    """Omarchy's config/ templates — what omarchy-refresh-config copies from."""
+    templates = env["omarchy_path"] / "config" / "hypr"
+    templates.mkdir(parents=True, exist_ok=True)
+    (templates / "bindings.lua").write_text(STOCK_BINDINGS)
+    (templates / "monitors.lua").write_text('hl.monitor({ output = "", mode = "preferred" })\n')
+    return templates
+
+
+def _refresh_config(env: dict, templates: Path, name: str) -> None:
+    """What omarchy-refresh-config does to ~/.config/hypr/<name>: cp -f from the
+    template. cp -f follows a symlink, so with the overlay installed this
+    writes THROUGH the link into the checkout. Reproduced with the real cp."""
+    subprocess.run(
+        ["cp", "-f", str(templates / name), str(env["home"] / ".config" / "hypr" / name)],
+        check=True,
+        timeout=30,
+    )
+
+
+def test_refresh_through_the_symlink_is_undone_from_git(tmp_path: Path) -> None:
+    """`omarchy refresh hyprland` replaces every ~/.config/hypr/*.lua with the
+    stock template via cp -f, which follows the overlay's symlinks straight
+    into the checkout — hypr/bindings.lua became Omarchy's commented template
+    and every hyprconf hotkey vanished (observed on Omarchy 4.0.0-1). A
+    re-run must notice the checkout holds a byte-identical stock template and
+    put the committed file back."""
+    env = _setup(tmp_path)
+    repo = _checkout(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_PASSTHROUGH)
+    templates = _stock_templates(env)
+    committed = (repo / "hypr" / "bindings.lua").read_text()
+    assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
+
+    _refresh_config(env, templates, "bindings.lua")
+    assert (repo / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS  # the damage
+
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert (repo / "hypr" / "bindings.lua").read_text() == committed
+    assert "stock template" in proc.stderr and "restored" in proc.stderr
+    live = env["home"] / ".config" / "hypr" / "bindings.lua"
+    assert live.is_symlink() and live.read_text() == committed
+
+
+def test_a_real_edit_in_the_checkout_is_never_reverted(tmp_path: Path) -> None:
+    """The guard keys on byte-identity with the stock template and nothing
+    else: an edit made through the symlink is the user editing their own
+    dotfiles, exactly what the links are for."""
+    env = _setup(tmp_path)
+    repo = _checkout(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_PASSTHROUGH)
+    _stock_templates(env)
+    assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
+
+    live = env["home"] / ".config" / "hypr" / "bindings.lua"
+    edited = live.read_text() + '\no.bind("SUPER + SHIFT + R", "SSH", "kitty -e ssh box")\n'
+    live.write_text(edited)  # through the symlink, like an editor would
+
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert (repo / "hypr" / "bindings.lua").read_text() == edited
+    assert "stock template" not in proc.stderr
+
+
+def test_guard_reports_when_git_cannot_repair(tmp_path: Path) -> None:
+    """No git to restore from (a tarball, or the stub in every other test):
+    the clobber is still reported, and the run still completes."""
+    env = _setup(tmp_path)
+    repo = _checkout(tmp_path)
+    templates = _stock_templates(env)
+    assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
+    _refresh_config(env, templates, "bindings.lua")
+
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")  # git is the no-op stub
+    assert proc.returncode == 0, proc.stderr
+    assert "could not be" in proc.stderr and "git" in proc.stderr
+    assert (repo / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS
+
+
+def test_a_preset_reset_to_the_stock_template_is_reported_not_rewritten(tmp_path: Path) -> None:
+    """monitors.lua points at the chosen preset after a hotkey switch, so
+    `omarchy refresh config hypr/monitors.lua` lands on the preset. The
+    installer must say so — naming Omarchy's own .bak.<epoch> backup — and
+    must NOT re-seed on its own: a preset is machine-local, and re-enabling
+    outputs that are not plugged in right now would black out the desk."""
+    env = _setup(tmp_path)
+    templates = _stock_templates(env)
+    hypr = env["home"] / ".config" / "hypr"
+    hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
+    assert _run(env, "--no-update").returncode == 0
+    switch = hypr / "scripts" / "switch_monitor.sh"
+    child = {"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"}
+    assert subprocess.run(["bash", str(switch), "bedroom"], env=child, timeout=30).returncode == 0
+    assert hypr.joinpath("monitors.lua").is_symlink()
+
+    _refresh_config(env, templates, "monitors.lua")  # lands on pcMonitors.bedroom.lua
+    stock = (templates / "monitors.lua").read_text()
+    assert hypr.joinpath("pcMonitors.bedroom.lua").read_text() == stock
+
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "pcMonitors.bedroom.lua" in proc.stderr and "monitors.lua.bak" in proc.stderr
+    assert hypr.joinpath("pcMonitors.bedroom.lua").read_text() == stock  # left for the user

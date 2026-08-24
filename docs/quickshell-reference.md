@@ -1,364 +1,159 @@
-# Quickshell Configuration Reference
+# Omarchy Bar-Widget Plugin Reference
 
-> Curated cheatsheet for this dotfiles repo's bar (`stow/quickshell`). Covers every
-> Quickshell type in active use, verified against the installed build's qmltypes.
-> Full docs: <https://quickshell.org/docs/v0.3.0/types/> — **always consult the docs
-> version matching the installed package** (`pacman -Q quickshell`); swap the
-> `v0.3.0` path segment to match (e.g. `/docs/v0.4.0/types/` after an upgrade).
-
----
-
-## Table of Contents
-
-1. [Runtime & CLI](#runtime--cli)
-2. [Core Concepts](#core-concepts)
-3. [Windows (PanelWindow / layer shell)](#windows-panelwindow--layer-shell)
-4. [Quickshell.Io (Process, FileView, IPC)](#quickshellio-process-fileview-ipc)
-5. [Quickshell.Hyprland](#quickshellhyprland)
-6. [Quickshell.Services.SystemTray](#quickshellservicessystemtray)
-7. [Quickshell.Services.Pipewire](#quickshellservicespipewire)
-8. [Quickshell.Bluetooth](#quickshellbluetooth)
-9. [Quickshell.Networking](#quickshellnetworking)
-10. [Widgets & Misc](#widgets--misc)
-11. [Repo Integration Map](#repo-integration-map)
+> What an Omarchy bar-widget plugin in this repo needs (`plugins/hyprconf-resources/`, `plugins/hyprconf-workspaces/`,
+> and the `hyprconf.clock` / `hyprconf.workspaces` copies `install.sh` makes).
+> Verified against Omarchy 4.0.0 (`/usr/share/omarchy/shell/`) and the installed
+> Quickshell qmltypes (`/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, quickshell-git
+> 0.3.0). **Re-verify against both after every Omarchy or Quickshell upgrade** —
+> the shell contract and Quickshell's API both change between minor versions.
+> Quickshell docs: <https://quickshell.org/docs/v0.3.0/types/> (match the path
+> segment to `pacman -Q quickshell-git`).
 
 ---
 
-## Runtime & CLI
+## The shell
 
-- Entry point: `~/.config/quickshell/shell.qml`; sibling `.qml` files are components,
-  registered (with singletons) in `qmldir`.
-- Config files are **watched**: edits hot-reload the shell (`Quickshell.watchFiles`,
-  default true). A broken edit keeps the previous state running.
-- This repo launches via `~/.config/quickshell/launch.sh` (prefers `qs` from the
-  `quickshell` package, falls back to a user-local tree — see `stow/quickshell/README.md`).
+`omarchy-shell` is one long-running Quickshell instance; the bar, panels and
+overlays are plugins inside it (`/usr/share/omarchy/shell/README.md`). Layout:
 
-```bash
-qs                              # run the shell at ~/.config/quickshell
-qs ipc show                     # list IpcHandler targets/functions
-qs ipc call popouts toggle calendar   # call an IpcHandler function
-qs kill                         # stop the running instance
-qs log                          # tail the running instance's log
+```
+/usr/share/omarchy/shell/
+  shell.qml                       ShellRoot; IPC target "shell" (rescanPlugins, reloadConfig, summon …)
+  Commons/   Color.qml Style.qml  `import qs.Commons` — theme colours and typography/spacing tokens
+  Ui/        BarWidget.qml …      `import qs.Ui` — the base every bar widget extends
+  services/  PluginRegistry.qml   discovery, validation, enabled state, clonedFrom resolution
+  plugins/   bar/ panels/ …       first-party plugins (plugins/README.md lists ids and entry points)
 ```
 
-Docs: <https://quickshell.org/docs/v0.3.0/configuration/>
+User plugins live in `~/.config/omarchy/plugins/<plugin-id>/`; the bar layout and
+per-widget settings live in the `bar:` subtree of `~/.config/omarchy/shell.json`.
 
----
+## Manifest
 
-## Core Concepts
+Every plugin ships `manifest.json` (contract in `shell/README.md`). Ours:
 
-```qml
-import Quickshell
-
-ShellRoot {                       // root of shell.qml
-    Variants {                    // one instance per model entry
-        model: Quickshell.screens // list<ShellScreen>, updates on hotplug
-        delegate: Bar {}          // delegate gets `required property var modelData`
-    }
+```json
+{
+  "schemaVersion": 1,
+  "id": "hyprconf.resources",
+  "name": "Resource Usage",
+  "version": "1.0.0",
+  "author": "hyprconf",
+  "description": "CPU/temp/memory/GPU/network readout, ported from hyprconf's quickshell bar",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "Widget.qml" },
+  "barWidget": {
+    "displayName": "Resource Usage",
+    "description": "CPU/temp/memory/GPU/network readout",
+    "category": "System",
+    "allowMultiple": false
+  }
 }
 ```
 
-### Singletons
+Optional `barWidget` keys: `defaultSection`, `defaults` (per-widget settings the
+widget reads via `setting()`), `schema` (what `omarchy bar set` accepts). Validate
+with `omarchy plugin validate <plugin-folder>`.
 
-```qml
-pragma Singleton                  // first line of the file
-import Quickshell
-Singleton { id: root /* ... */ }  // register in qmldir: `singleton Theme Theme.qml`
-```
+### Copies of built-in widgets (`clonedFrom`)
 
-### The `Quickshell` singleton
+`omarchy plugin clone <source-id>` copies a first-party plugin into
+`~/.config/omarchy/plugins/<username>.<id>/` and rewrites the manifest:
+`id`, `name`, `barWidget.displayName`, and `omarchy.clonedFrom = <source-id>`
+(dropping `omarchy.clonePaths`). `clonedFrom` is what makes the shell route the
+built-in's IPC to the copy and swap the stock widget out when the copy is
+enabled (`services/PluginRegistry.qml`). Two source layouts exist:
+
+- plugin directory (`panels/clock/manifest.json`) — the whole dir is copied;
+- sibling manifest (`bar/widgets/Workspaces.manifest.json` next to
+  `Workspaces.qml`) — the manifest plus each `entryPoints` file.
+
+`install.sh`'s `copy_builtin_plugin` does exactly this under the `hyprconf.*`
+namespace (a username in shipped config is PII), resolving the source from
+`omarchy-plugin-catalog` (`sourceDir`, `manifestPath`) at runtime. The bar's
+`centerAnchor` in `shell.json` is a plain id with no clone resolution — after
+swapping `omarchy.clock` for `hyprconf.clock` the anchor must follow.
+
+## `BarWidget` (`qs.Ui`)
+
+`/usr/share/omarchy/shell/Ui/BarWidget.qml` — the `Item` every bar widget extends:
 
 | Member | Notes |
 |---|---|
-| `screens` | `list<ShellScreen>` — all outputs; pair with `Variants` for per-screen windows |
-| `env(name)` | Read an environment variable (or null) |
-| `execDetached(["cmd", "arg"])` | Spawn an **untracked** argv process — no shell; survives qs exit. Use for launching apps |
-| `shellDir` | Directory containing `shell.qml` (`configDir` is deprecated) |
-| `reload(hard)` | Reload the config programmatically |
+| `bar` | The host Bar instance. `bar.run(command)` launches a command the shell's way (`root.bar.run("omarchy-launch-or-focus-tui btop")`); `bar.moduleWidgets(id)` lists live instances |
+| `moduleName` | The widget's canonical id — set it to the manifest id |
+| `settings` | This widget's inline `shell.json` entry; read with `setting(name, fallback)` |
+| `vertical` | `true` when the bar is a side rail — switch layouts on it |
+| `barSize` | Bar thickness in px |
+| `broadcast(method)` | Call `method` on every live instance (one bar surface per monitor) |
 
-`execDetached` never invokes a shell — pass argv arrays only (this repo's security
-posture depends on it; never build `["sh", "-c", ...]` from external strings).
+Sizing rule: bind `implicitWidth`/`implicitHeight` to the widget's own content.
+The bar's ModuleSlot takes its height from the widget's implicit size, so
+`parent.height` closes a binding loop, QML drops it, and the widget renders
+zero-height with no error logged.
 
-### SystemClock
+## Theme tokens (`qs.Commons`)
 
-```qml
-SystemClock { id: clock; precision: SystemClock.Seconds }  // Hours | Minutes | Seconds
-// clock.date is a JS Date; format with Qt.formatDateTime(clock.date, "HH:mm")
-```
+- `Color.foreground`, `Color.accent`, `Color.urgent`, `Color.muted`,
+  `Color.background` — semantic roles from the active theme's `colors.toml`.
+  Only these exist; per-metric hues are not a thing an Omarchy theme defines,
+  so readings all use `Color.foreground` (`muted` is dimmed secondary chrome).
+- `Style.font.caption`, `Style.fontFamily`, `Style.spacing.sm` — typography and
+  spacing tokens, scaled by the theme's `shell.toml`.
 
-Use the coarsest precision that works — `Seconds` wakes the process every second.
+## Quickshell.Io — streaming a helper process
 
----
-
-## Windows (PanelWindow / layer shell)
-
-```qml
-import Quickshell
-import Quickshell.Wayland
-
-PanelWindow {
-    anchors { top: true; left: true; right: true }  // 1 or 3 anchors → exclusive zone works
-    implicitHeight: 24
-    color: "transparent"
-    exclusionMode: ExclusionMode.Ignore   // Auto (default) | Ignore | Normal
-    mask: Region {}                       // EMPTY region = fully click-through
-    screen: modelData                     // ShellScreen to display on
-    WlrLayershell.namespace: "quickshell:bar"       // hyprland layerrule matches this
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand  // None (default) | OnDemand | Exclusive
-    WlrLayershell.layer: WlrLayer.Top     // Background | Bottom | Top | Overlay
-}
-```
-
-- `exclusionMode: Auto` reserves space (a bar); `Ignore` overlays without reserving
-  (popouts, OSD, screen corners).
-- `mask: Region {}` makes a window purely visual — input passes through (OSD, corners).
-  Omit `mask` for normal input.
-- `WlrLayershell.namespace` cannot change after the window connects; Hyprland
-  `hl.layer_rule({ match = { namespace = "..." } })` keys off it (see `hyprland.lua`).
-- `keyboardFocus: OnDemand` is required for text fields in layer-shell windows
-  (Control Center password box). Never use `Exclusive` outside a lock screen.
-- `margins { top: N; left: N }` offsets from the anchored edges.
-
-Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell/PanelWindow/>
-
----
-
-## Quickshell.Io (Process, FileView, IPC)
-
-### Process
+Verified in `Io/quickshell-io.qmltypes`:
 
 ```qml
 import Quickshell.Io
 
 Process {
-    id: proc
-    command: ["hyprctl", "-j", "activewindow"]   // argv — NEVER a shell string
-    running: true                                 // true starts, false SIGTERMs
-    stdout: StdioCollector {                      // whole output at once
-        onStreamFinished: doSomething(text)
+    id: statsProc
+    running: true                          // bool — true starts, false stops
+    command: ["hyprconf-stats"]            // argv list — never a shell string
+    stdout: SplitParser {                  // DataStreamParser; splitMarker defaults to "\n"
+        onRead: data => { /* one line */ }
     }
-    // or line-by-line for long-lived streams:
-    stdout: SplitParser { onRead: data => handleLine(data) }
-    onExited: (code, status) => { /* re-arm with `running = true` to poll */ }
+    onExited: function(exitCode, exitStatus) { /* re-arm with running = true to restart */ }
 }
+Timer { id: restartTimer; interval: 1000; onTriggered: gpuProc.running = true }
 ```
 
-- Re-set `running = true` (e.g. from a `Timer`) to re-run; `command` changes apply
-  to the **next** start.
-- `environment: { VAR: "x" }`, `workingDirectory`, `signal(n)`, `write(s)` available.
-- One long-lived streaming process (see `stats.sh`) beats re-forking per poll.
-
-### FileView
-
-```qml
-FileView {
-    id: f
-    path: "/some/file"        // "" unloads
-    watchChanges: true        // emit fileChanged on disk changes
-    blockLoading: true        // first text() blocks until loaded
-    onFileChanged: reload()   // re-read on change
-}
-// f.text() is a FUNCTION, not a reactive property — bindings using it re-evaluate
-// via its accompanying change signal after reload() (pattern used by Theme.qml).
-```
-
-Also supports writes (`setText`, atomic by default) and a `JsonAdapter`.
-
-### IpcHandler
-
-```qml
-IpcHandler {
-    target: "popouts"                       // unique per instance
-    function toggle(name: string): string { // args/returns MUST be typed:
-        /* validate `name` against a fixed list — never execute it */
-    }                                       // string|int|bool|real|color|void
-}
-```
-
-Invoke: `qs ipc call popouts toggle calendar`. Anything with access to the user
-session can call these — validate inputs, keep them side-effect-minimal.
+- Other `Process` members: `stderr`, `workingDirectory`, `environment`,
+  `clearEnvironment`, `stdinEnabled`, `write(data)`, `signal(n)`, `exec(argv)`,
+  `startDetached()`; signals `started`, `exited(exitCode, exitStatus)`.
+  `StdioCollector` collects whole output instead of lines.
+- Pattern used by `Widget.qml`: one long-lived JSON stream per feeder
+  (`bin/hyprconf-stats`, `bin/hyprconf-gpu-info`, installed on `PATH` — the same
+  convention Omarchy's first-party plugins follow). A stream that produced
+  output and then died is restarted; one that exits without output means "no
+  such hardware" and stays hidden.
+- `SystemClock { precision: SystemClock.Seconds }` (`quickshell-core.qmltypes`:
+  `Hours | Minutes | Seconds`) is the one-line patch `install.sh` applies to the
+  `hyprconf.clock` copy — the stock clock samples at `Minutes`.
 
 Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/Process/>
 
----
+## CLI
 
-## Quickshell.Hyprland
+```bash
+omarchy plugin list [--json]                 # ids + enabled state
+omarchy plugin enable <id> [placement]       # e.g. --section right
+omarchy plugin disable <id>
+omarchy plugin clone <source-id> [--edit]    # ~/.config/omarchy/plugins/<username>.<id>
+omarchy plugin validate <plugin-folder>
+omarchy plugin add|remove|update …
 
-### `Hyprland` singleton
+omarchy bar set <id> <key> <value> [--json] [placement]   # per-widget option (omarchy bar set hyprconf.clock format 'hh:mm:ss AP')
+omarchy bar put|move <id> [placement]        # placement: --section left|center|right, --after <id>, --index N
+omarchy bar position|transparent|use|reset|defaults
 
-| Member | Notes |
-|---|---|
-| `workspaces` | ObjectModel<HyprlandWorkspace>, sorted by id (special/named ids are negative → filter `id > 0`) |
-| `activeToplevel` | Focused window (`.title`); **only populates from focus events** — seed initial state via `hyprctl -j activewindow` (see `Bar.qml`) |
-| `focusedMonitor` | HyprlandMonitor; map a screen with `monitorFor(screen)` |
-| `dispatch("workspace m+1")` | Any dispatcher string |
-| `rawEvent(HyprlandEvent)` | Every socket2 event; `event.name` (e.g. `activewindow`, `screencast`), `event.data` (comma-separated) |
-| `refreshWorkspaces()` / `refreshMonitors()` / `refreshToplevels()` | Manual re-sync |
-
-`HyprlandWorkspace`: `id`, `focused`, `activate()`.
-
-### HyprlandFocusGrab — popout dismissal
-
-```qml
-HyprlandFocusGrab {
-    active: win.visible
-    windows: [win, win.bar]   // whitelist; click outside → cleared
-    onCleared: win.close()
-}
+omarchy-shell shell rescanPlugins            # discovery is async — wait for the id in `plugin list` before enabling
+omarchy-shell shell reloadConfig             # re-read shell.json (idle timeouts, bar layout)
+omarchy restart shell
+omarchy-plugin-catalog                       # JSON: id, firstParty, sourceDir, manifestPath — resolve sources here, never a hard-coded path
 ```
 
-Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Hyprland/Hyprland/>
-
----
-
-## Quickshell.Services.SystemTray
-
-```qml
-import Quickshell.Services.SystemTray
-
-Repeater {
-    model: SystemTray.items.values   // array of SystemTrayItem
-    // item: id, title, icon (Image source), status, tooltipTitle,
-    //       hasMenu, onlyMenu (activate() does nothing), menu (QsMenuHandle)
-    // actions: activate(), secondaryActivate(), scroll(delta, horizontal)
-}
-```
-
-Menu rendering — the portable path is `QsMenuOpener` on `item.menu`:
-
-```qml
-QsMenuOpener { id: opener; menu: item.menu }
-// opener.children → entries: text, icon, enabled, isSeparator, hasChildren,
-// buttonType (QsMenuButtonType.CheckBox/RadioButton/None), checkState, triggered()
-```
-
-**Repo caveats (verified on 0.3.0):** the native `SystemTrayItem.display()` /
-`QsMenuAnchor` render nothing inside this layer-shell bar, so `TrayMenuPopout.qml`
-draws menus manually via `QsMenuOpener`; nested dbusmenu submenus (nm-applet's
-network list) arrive empty in the layer-shell popup. Menu labels are external
-input — render `Text.PlainText` only.
-
-Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Services.SystemTray/SystemTrayItem/>
-
----
-
-## Quickshell.Services.Pipewire
-
-```qml
-import Quickshell.Services.Pipewire
-
-// REQUIRED: nodes must be bound by a PwObjectTracker before their properties
-// (volume, description, ...) are populated/usable.
-PwObjectTracker { objects: [Pipewire.defaultAudioSink] }
-
-readonly property var sink: Pipewire.defaultAudioSink   // may be null in transitions
-// sink.audio.volume (0..1, writable) · sink.audio.muted (writable)
-// sink.description · sink.name · sink.isSink · sink.isStream
-```
-
-| `Pipewire` member | Notes |
-|---|---|
-| `defaultAudioSink` / `defaultAudioSource` | Current defaults; can briefly be null while switching |
-| `preferredDefaultAudioSink = node` | Set the default output (device pickers) |
-| `nodes.values.filter(n => n.isSink && !n.isStream && n.audio)` | Enumerate outputs |
-| `ready` | Initial server sync complete |
-
-Guard every access with `?.` — `sink?.audio?.volume ?? 0`.
-
-Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Services.Pipewire/Pipewire/>
-
----
-
-## Quickshell.Bluetooth
-
-New in 0.3.0 (BlueZ over D-Bus).
-
-```qml
-import Quickshell.Bluetooth
-
-Bluetooth.defaultAdapter          // BluetoothAdapter | null
-Bluetooth.devices                 // ObjectModel<BluetoothDevice>
-adapter.enabled = true            // writable power toggle
-adapter.discovering               // scan state (writable)
-```
-
-`BluetoothDevice`: `name`, `connected` (**writable** — assignment
-connects/disconnects, as used in `ControlCenter.qml`), `paired`, `bonded`,
-`trusted`, `battery` (0..1), `batteryAvailable`, `connect()`, `disconnect()`.
-Pairing new devices is not handled in-shell — this repo delegates to
-`blueman-manager`.
-
-Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Bluetooth/>
-
----
-
-## Quickshell.Networking
-
-New in 0.3.0. NetworkManager over D-Bus is the only backend (requires both
-running; this repo satisfies that). Verified against the installed qmltypes.
-
-```qml
-import Quickshell.Networking
-
-Networking.wifiEnabled = !Networking.wifiEnabled  // writable radio toggle (rfkill)
-Networking.devices                                 // ObjectModel<NetworkDevice>
-```
-
-| Type | Members in use |
-|---|---|
-| `NetworkDevice` | `type` (`DeviceType.Wifi/Wired/None`), `name`, `networks` (ObjectModel<Network>), `connected`, `state`, `autoconnect`, `disconnect()` |
-| `WifiDevice` (: NetworkDevice) | `scannerEnabled` (**writable** — set true while a picker is open, false after), `mode` |
-| `WiredDevice` (: NetworkDevice) | `hasLink`, `linkSpeed`, `network` |
-| `Network` | `name` (SSID), `connected`, `known` (saved profile exists), `state` (`ConnectionState.*`), `stateChanging`, `connect()`, `disconnect()`, `forget()`, signal `connectionFailed(reason)` |
-| `WifiNetwork` (: Network) | `signalStrength` (0..1), `security` (`WifiSecurityType.*`), `connectWithPsk(psk)` |
-
-- Connect flow: `known` or open networks → `network.connect()`; secured unknown
-  networks → `connectWithPsk(psk)`. A wrong PSK emits
-  `connectionFailed(ConnectionFailReason.NoSecrets)`.
-- `connectWithPsk` passes the secret over D-Bus to NetworkManager — **never via
-  argv/process list**; prefer it over shelling out to `nmcli`.
-- Open/passwordless security types: `WifiSecurityType.Open` and `.Owe`.
-- `ConnectionState`: `Unknown, Connecting, Connected, Disconnecting, Disconnected`.
-
-Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Networking/>
-
----
-
-## Widgets & Misc
-
-```qml
-import Quickshell.Widgets
-IconImage { source: trayItem.icon; implicitSize: 16 }   // icon-theme aware Image
-```
-
-- `QtQuick.Effects.RectangularShadow` (Qt, not Quickshell) draws the popout drop
-  shadow without offscreen layers.
-- Other 0.3.0 service modules exist but are unused here: `Mpris`, `Notifications`
-  (dunst owns notifications), `UPower` (battery comes from the existing script),
-  `Greetd`, `Pam`, `Polkit`, `DBusMenu` (wrapped by SystemTray).
-
----
-
-## Repo Integration Map
-
-| File | Quickshell APIs |
-|---|---|
-| `shell.qml` | ShellRoot, Variants, IpcHandler |
-| `Bar.qml` | PanelWindow, SystemClock, Process, SplitParser, StdioCollector, Hyprland, SystemTray, Pipewire, IconImage |
-| `Theme.qml` | Singleton, FileView (watch + reload pattern) |
-| `PopoutWindow.qml` | PanelWindow, WlrLayershell.keyboardFocus, HyprlandFocusGrab, RectangularShadow |
-| `ControlCenter.qml` | Pipewire, Bluetooth, Networking (Wi-Fi list/connect), TextInput (PSK) |
-| `VolumePopout.qml` / `Osd.qml` | Pipewire, PwObjectTracker; OSD is `mask: Region {}` click-through. Volume is pushed by Pipewire, backlight by `hyprconf-brightness` over IPC — sysfs backlight files emit no inotify events, so there is nothing a `FileView` could watch |
-| `TrayMenuPopout.qml` | QsMenuOpener, QsMenuButtonType, IconImage |
-| `ScreenCorners.qml` | PanelWindow + empty Region mask, Canvas |
-| `Services.qml` | Singleton owning EVERY bar data source (stats.sh stream, gpu_info.sh stream, battery/vpn polls) — Bar{} is per-monitor via Variants, so per-Bar Processes run once per screen; new data sources go HERE, never in Bar.qml |
-| `stats.sh` / `gpu_info.sh` | Long-lived streams: pure-bash cpu/mem/net/temp sampler (hwmon path resolved once); one `nvidia-smi --loop` piped through one awk (or AMD sysfs loop) |
-| `ScriptModule.qml` | Pure view (padding, class→color, hide-when-empty, blink, click) — bind `text`/`klass` from Services |
-
-Theming flow: `~/.config/hypr/.current-theme` → `theme-switcher/themes/<name>.json`
-→ `Theme.qml` FileViews (watched) → live repaint. Hyprland blurs the popout/OSD
-surfaces via `hl.layer_rule({...})` calls in `hyprland.lua` matching the
-`quickshell:*` namespaces.
-
-**When adding features not covered here, add a concise example of the new API to
-the appropriate section in this file** (same rule as `hyprland-reference.md`).
+**When adding a plugin API not covered here, add a concise example to this file**
+after verifying it against the installed qmltypes and shell sources.

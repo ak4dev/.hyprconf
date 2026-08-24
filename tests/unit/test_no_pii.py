@@ -3,13 +3,13 @@ PII guard tests.
 
 No tracked file may carry personal information about the person who authored it
 — a real username, an absolute /home/<user>/ path, or a personal email address.
-Two separate reasons: configs under stow/ and omarchy/ are installed into any
-user's $HOME, so a hardcoded path is broken on every other machine; and the
-repo is published, so a name in it is published too.
+Two separate reasons: the overlay's configs (hypr/, kitty/, zsh/, plugins/ …)
+are installed into any user's $HOME, so a hardcoded path is broken on every
+other machine; and the repo is published, so a name in it is published too.
 
 Scope is deliberately the WHOLE repository. An earlier version of this file
-scanned only stow/ and omarchy/, and only for path-shaped leaks — so a bare
-username sitting in a test fixture under tests/ went unseen. A guard that
+scanned only the shipped config trees, and only for path-shaped leaks — so a
+bare username sitting in a test fixture under tests/ went unseen. A guard that
 covers part of the tree teaches you to trust it everywhere.
 
 The identities being searched for are derived from the environment at runtime
@@ -20,7 +20,6 @@ the test exists to keep out.
 from __future__ import annotations
 
 import getpass
-import importlib.util
 import os
 import re
 import socket
@@ -30,7 +29,6 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-STOW_DIR = REPO_ROOT / "stow"
 
 # /home/<name>/ — a real per-user absolute path. Generic placeholders
 # (/home/$USER, /home/user, /home/username, /home/<user>) are allowed.
@@ -176,45 +174,3 @@ def test_no_personal_identities_anywhere() -> None:
         "Personal identity (username or git email) found in tracked files.\n"
         "Replace it with a placeholder such as 'testuser', ~ or $HOME:\n" + "\n".join(offenders)
     )
-
-
-def test_kitty_conf_uses_tilde_include() -> None:
-    kitty = STOW_DIR / "kitty" / ".config" / "kitty" / "kitty.conf"
-    text = kitty.read_text(encoding="utf-8")
-    assert "/home/" not in text, "kitty.conf must not contain a hardcoded /home/ path"
-    assert "include ~/.config/kitty/themes/" in text
-
-
-# ---------------------------------------------------------------------------
-# Root-cause regression: load_kitty_theme must write ~-relative includes for
-# paths under $HOME (kitty.conf is stowed, so absolute paths would leak to git).
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def switch_theme_module():
-    path = REPO_ROOT / "stow/hypr/.config/hypr/scripts/theme-switcher/switch_theme.py"
-    spec = importlib.util.spec_from_file_location("switch_theme_pii", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-def test_load_kitty_theme_writes_home_relative(tmp_path, monkeypatch, switch_theme_module):
-    st = switch_theme_module
-    # Make tmp_path act as $HOME so the theme file lives "under home".
-    monkeypatch.setenv("HOME", str(tmp_path))
-    kitty_conf = tmp_path / ".config" / "kitty" / "kitty.conf"
-    kitty_conf.parent.mkdir(parents=True)
-    kitty_conf.write_text("font_size 12.0\n")
-    monkeypatch.setattr(st, "KITTY_CONFIG_FILE", str(kitty_conf))
-
-    theme_conf = tmp_path / ".config" / "kitty" / "themes" / "generated.conf"
-    theme_conf.parent.mkdir(parents=True)
-    theme_conf.write_text("background #000000\n")
-
-    st.load_kitty_theme(str(theme_conf))
-
-    content = kitty_conf.read_text(encoding="utf-8")
-    assert "include ~/.config/kitty/themes/generated.conf" in content
-    assert str(tmp_path) not in content  # no absolute home path leaked

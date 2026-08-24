@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Re-assert hyprconf's overlay after an Omarchy update.
+#
+# Installed to ~/.config/omarchy/hooks/post-update.d/ — the directory
+# omarchy-update runs immediately after omarchy-migrate. Migrations are exactly
+# what undoes overlay work: one of them replaces ~/.config/hypr/bindings.lua
+# when it hash-matches the stock file, another appends to kitty.conf. A config
+# refresh also strips the `include hyprconf.conf` line. This puts them back.
+#
+# @HYPRCONF_DIR@ is substituted with the real checkout path at install time, so
+# this works regardless of where the repo was cloned.
+#
+# No `set -e`: omarchy-hook reports a failing hook but must never abort an
+# update, so every "nothing to do" path exits 0.
+set -uo pipefail
+
+readonly HYPRCONF_DIR="@HYPRCONF_DIR@"
+
+# Recursion guard. hyprsync runs omarchy-update, which runs this hook — and the
+# overlay was applied moments earlier, so there is nothing to re-assert.
+# Without this it is one redundant re-apply, not a loop (the flags below never
+# invoke omarchy-update), but the redundant run is still worth skipping.
+[[ -n ${HYPRCONF_SYNC_RUNNING:-} ]] && exit 0
+
+[[ -r $HYPRCONF_DIR/install.sh ]] || {
+  echo "hyprconf post-update hook: $HYPRCONF_DIR/install.sh is gone; skipping" >&2
+  exit 0
+}
+
+# --no-update is the recursion guard proper: this ran FROM omarchy-update.
+# --no-packages keeps `sudo pacman` out of an update that may still hold the
+# pacman lock, and stops an unattended run blocking on a password prompt.
+exec bash "$HYPRCONF_DIR/install.sh" --no-update --no-packages

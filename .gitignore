@@ -9,22 +9,10 @@ tests/unit/_fake_bins_*/
 *.bak
 *.backup.*
 
-# Generated monitor symlink target (created by setup.sh at runtime)
-stow/hypr/.config/hypr/monitors.lua
-
 # Editor
 .vscode/
 *.swp
 *.swo
-
-# VM test artefacts
-tests/vm/arch-hyprconf.qcow2
-tests/vm/arch-hyprconf.meta
-tests/vm/arch-hyprconf-vm-overlay.qcow2
-tests/vm/OVMF_VARS.4m.fd
-tests/vm/OVMF_VARS_install.4m.fd
-tests/vm/arch-hyprconf-install-overlay.qcow2
-tests/install/output-arch/
 
 # Release artefacts
 dist/

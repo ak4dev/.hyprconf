@@ -1,147 +1,135 @@
 # Contributing to hyprconf
 
+hyprconf is an overlay for [Omarchy](https://omarchy.org). Read
+[`AGENTS.md`](../AGENTS.md) first — its rules (use Omarchy's own tools, never
+work from memory about Omarchy, official repos only, no PII, hermetic tests)
+bind every change.
+
 ## Repository Layout
 
 ```
 .hyprconf/
-├── packages                  # Arch packages to install (one per line, comments ok)
-├── setup.sh                  # Local bootstrap + sync entry point
+├── install.sh                  # The overlay installer — idempotent stages, the only entry point
+├── packages                    # Official-repo packages, installed via omarchy-pkg-add
 │
-├── assets/                   # Shared project assets
-│   ├── banner.sh             # print_banner() — glitch palette + logo
-│   └── banner.svg            # README header banner
+├── hypr/
+│   ├── bindings.lua            # Hotkeys (o.bind with descriptions; unbind-then-rebind)
+│   ├── input.lua               # Input/gesture deltas from Omarchy's defaults
+│   ├── looknfeel.lua           # Look'n'feel deltas from Omarchy's defaults
+│   ├── hyprland.block.lua      # Managed block appended to ~/.config/hypr/hyprland.lua
+│   │                           #   (loadfile()s conf.d/{local,windowrules,workspacerules}.lua)
+│   ├── pcMonitors.lua          # Preset "pc"
+│   ├── pcMonitors.bedroom.lua  # Preset "bedroom"  (SUPER+SHIFT+B)
+│   ├── pcMonitors.kitchen.lua  # Preset "kitchen"  (SUPER+SHIFT+K)
+│   ├── pcMonitors.K.lua        # Preset "K"
+│   ├── laptopMonitors.lua      # Preset "laptop"
+│   └── scripts/
+│       ├── switch_monitor.sh   # Symlink a preset over monitors.lua, reload, rehome workspaces
+│       └── adjust-gaps         # SUPER+SHIFT+= / - via hyprctl eval
 │
-├── docs/
-│   ├── CONTRIBUTING.md       # This file
-│   ├── hyprland-reference.md # Hyprland config syntax cheatsheet
-│   ├── quickshell-reference.md # Quickshell API cheatsheet (bar/QML)
-│   └── security-hardening.md # Threat model + hardening reference (sysctls, SB, LUKS)
+├── bin/
+│   ├── hyprconf                # TUI launcher (→ ~/.local/bin)
+│   ├── hyprconf-stats          # cpu/mem/net/temp JSON stream for the bar widget
+│   └── hyprconf-gpu-info       # GPU JSON stream (nvidia-smi --loop or AMD sysfs)
 │
-├── infra/
-│   └── firefox/policies.json # System Firefox privacy policy (installed by setup.sh)
+├── lib/hyprconf/               # Python library (→ ~/.local/lib/hyprconf)
+│   ├── schema.py               # OPTION_SCHEMA + SECTION_ORDER — single source of truth
+│   ├── config.py               # conf.d/local.lua reader/writer
+│   ├── keybinds.py             # bindings.lua reader/writer
+│   ├── rules.py                # window/workspace rule reader/writer
+│   ├── monitors.py             # monitors.lua reader/writer
+│   ├── hyprctl.py              # hyprctl IPC wrapper
+│   ├── file_edit.py            # Atomic line-editing primitives
+│   ├── block_conf.py           # Generic block-format parser
+│   ├── lua_syntax.py           # Lua comment/value/single-line-call primitives
+│   ├── paths.py                # XDG path constants
+│   └── __init__.py             # __version__
+├── tui/main.py                 # Textual TUI (→ ~/.config/hypr/scripts/hyprconf-tui)
 │
-├── install/
-│   └── install.sh            # Self-contained installer
+├── plugins/hyprconf-resources/ # Omarchy bar-widget plugin (manifest.json + Widget.qml)
+├── plugins/hyprconf-workspaces/ # Omarchy bar-widget plugin replacing omarchy.workspaces (clonedFrom)
+├── themes/hyprconf/            # Omarchy user theme (colors.toml + backgrounds/)
+├── wallpapers/                 # Extra backgrounds, filed per Omarchy theme
+├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
+├── kitty/hyprconf.conf         # kitty include
+├── fastfetch/config.jsonc      # Greeting layout
+├── hooks/post-update.d/10-hyprconf   # Omarchy post-update hook
+├── infra/firefox/policies.json # System Firefox privacy policy
 │
-├── scripts/
-│   └── publish               # Run tests, promote dev → stable, build release archive
-│
-└── stow/                     # GNU Stow packages — symlinked into $HOME
-    ├── hypr/
-    │   ├── .config/hypr/
-    │   │   ├── hyprland.lua            # Animations, layout, env vars (Lua — Hyprland 0.55+;
-    │   │   │                           #   hyprlang .conf deprecated 0.56, removal ~0.57)
-    │   │   ├── keybinds.lua            # All keybindings
-    │   │   ├── gestures.lua
-    │   │   ├── hyprpaper.conf          # Separate program, still hyprlang .conf
-    │   │   ├── hyprlock.conf           # Separate program, still hyprlang .conf
-    │   │   ├── hypridle.conf           # Separate program, still hyprlang .conf
-    │   │   ├── laptopMonitors.lua
-    │   │   ├── pcMonitors.lua / .bedroom.lua / .kitchen.lua
-    │   │   ├── pcMonitors.K.lua         # Desktop alt preset
-    │   │   ├── conf.d/
-    │   │   │   └── local.lua               # Machine-local overrides (written by the TUI;
-    │   │   │                               #   individually require()d, so no source-guard
-    │   │   │                               #   placeholder file is needed anymore)
-    │   │   └── scripts/
-    │   │       ├── hyprconf-tui/main.py    # Textual TUI
-    │   │       ├── switch_monitor.sh
-    │   │       ├── toggle-native-display   # Toggle built-in laptop screen (eDP-1)
-    │   │       └── theme-switcher/
-    │   │           ├── switch_theme.py
-    │   │           └── themes/             # Theme JSON files
-    │   └── .local/
-    │       ├── bin/hyprconf               # TUI launcher → ~/.local/bin/
-    │       ├── bin/hyprconf-vpn           # NetworkManager VPN control + kill-switch
-    │       ├── bin/yubikey-fido2-setup    # FIDO2+PIN enrolment (sudo/TTY/DM/SSH/LUKS)
-    │       ├── bin/hyprconf-secureboot    # Signed-UKI Secure Boot setup + verify
-    │       ├── bin/hyprconf-power-monitor # AC/battery power-profile switcher (udev target)
-    │       ├── bin/…                      # + idle-action, autorotate, touch-panel*, wvkbd-*
-    │       └── lib/hyprconf/              # Shared Python library
-    │           ├── schema.py              # OPTION_SCHEMA — all Hyprland keys + types + defaults
-    │           ├── config.py              # Read/write conf.d/local.lua
-    │           ├── lua_syntax.py          # Lua comment/value/single-line-call primitives
-    │           ├── paths.py               # XDG path constants (single source of truth)
-    │           ├── hyprctl.py             # hyprctl IPC wrapper
-    │           ├── file_edit.py           # Atomic file operations
-    │           ├── block_conf.py          # Generic block-format config parser (hyprlock/hypridle/hyprpaper)
-    │           ├── keybinds.py            # Keybind read/write (Lua)
-    │           ├── rules.py               # Window/workspace rule read/write (Lua)
-    │           ├── monitors.py            # Monitor config read/write (Lua)
-    │           ├── hyprlock.py            # hyprlock block read/write
-    │           ├── hypridle.py            # hypridle block read/write
-    │           ├── hyprpaper.py           # hyprpaper read/write
-    │           └── __init__.py
-    ├── btop/   kitty/   dunst/   fastfetch/   code-oss/
-    └── quickshell/ wallpaper/
-theme/                          # Vendor extension payloads (NOT under stow/)
-    ├── firefox/extensions/
-    └── .vscode-oss/extensions/
+├── tests/                      # Tiers 1-3 (see below)
+├── scripts/publish             # Lint + test → promote omarchy → stable
+├── docs/                       # This file, hyprland-reference.md, quickshell-reference.md
+├── .github/                    # CI workflow, copilot-instructions.md
+├── web/, assets/               # Static landing page; banner + screenshot
+├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff/coverage config
+└── AGENTS.md, README.md
 ```
+
+Files the installer writes live in `$HOME` only (plus the Firefox policy under
+`/etc/firefox/policies/`). The `hypr/*.lua` override files are **symlinked** into
+`~/.config/hypr/`, so the checkout's copies are the live files — edit them there
+and re-run `bash install.sh`.
 
 ---
 
 ## Testing
 
-hyprconf uses a **5-tier test architecture**. Tiers 1–3 require only Python and run without a Hyprland session; Tiers 4–5 are opt-in and require KVM.
+Three tiers, all hermetic — no Hyprland or Omarchy shell, no host tools, no real
+`$HOME`. They run in an `archlinux:latest` container in CI, as root.
 
 ```
 tests/
-├── conftest.py              # shared fixtures (isolated config dirs, mock hyprctl)
-├── unit/                    # Tier 1 — pure Python, no Hyprland
-├── integration/             # Tier 2 — installer/publish pipeline plumbing
-├── tui/                     # Tier 3 — Textual Pilot (headless, no terminal needed)
-├── vm/                      # Tier 4 — live Hyprland in QEMU/KVM (opt-in)
-└── install/                 # Tier 5 — full Arch install smoke test (opt-in)
+├── conftest.py              # hypr_dir fixture: isolated ~/.config/hypr in tmp_path
+├── unit/                    # Tier 1 — library modules, shipped scripts, install.sh, guards
+├── integration/             # Tier 2 — publish pipeline plumbing (git archive, publish --dry-run)
+└── tui/                     # Tier 3 — Textual Pilot, headless
 ```
 
 ### Running tests
 
 ```bash
-# Tier 1 — unit tests (fastest, no deps beyond pytest)
-pytest tests/unit/
+make test                # tiers 1-3 in parallel (pytest -n auto)
+make test-unit           # tier 1
+make test-integration    # tier 2
+make test-tui            # tier 3 (needs python-textual + python-pytest-asyncio)
+make test-seq            # all tiers sequentially (clearer output)
 
-# Tier 2 — integration tests (mock hyprctl)
-pytest tests/integration/
+# Coverage (what CI reports for tiers 1-2)
+pytest tests/unit/ tests/integration/ --cov=lib/hyprconf --cov-report=term-missing
 
-# Tier 3 — TUI tests (requires python-pytest-asyncio + python-textual)
-pytest tests/tui/
-
-# Tiers 1–3 together with coverage
-pytest tests/unit/ tests/integration/ tests/tui/ --cov=stow/hypr/.local/lib/hyprconf
-
-# Tier 4 — live Hyprland in QEMU (requires KVM; sudo modprobe kvm_amd first)
-bash tests/vm/run_vm.sh           # start VM, wait for SSH
-pytest tests/vm/ --run-vm -v
-
-# Tier 5 — full Arch install smoke test
-bash tests/install/build_image.sh   # first time only; ~20 min
-bash tests/install/run_install_vm.sh
-pytest tests/install/ --run-install -v
-
-# Convenience via Makefile
-make test            # Tiers 1–3
-make test-vm         # Tier 4 (VM must be running)
-make test-install    # Tier 5 (image must be built)
-make build-vm-image  # runs build_image.sh
+# Lint gates
+make lint                # ruff check + ruff format --check
+make shellcheck          # every bash script, severity=warning
+make fmt                 # ruff format + safe fixes
+make typecheck           # mypy lib/hyprconf (informational)
+make clean
 ```
 
-### Tier 5 install image
+Python deps for the suite: `python-pytest`, `python-pytest-xdist`,
+`python-pytest-asyncio`, `python-pytest-cov`, `python-textual` (all official
+repos; `pyproject.toml`'s `test` extra lists the same set for a venv).
 
-`build_image.sh` runs Packer to build a full Arch+hyprconf image (exercising `install.sh` end-to-end) and writes `tests/vm/arch-hyprconf.meta` with the build date and commit. The VM launches on port 2223 via `run_install_vm.sh` using a **COW overlay**, so the base image is never dirtied by test runs.
+### Writing hermetic tests
 
-`scripts/publish` decides automatically whether to rebuild: it reuses the existing image **only** when the install-relevant paths (`install/`, `setup.sh`, `packages`) are byte-identical between `HEAD` and the commit the image was built from; any change there (or an unknown build commit) triggers a rebuild (~20 min, no prompt).
-
-### Key fixtures (`tests/conftest.py`)
-
-- `hypr_dir` — isolated `~/.config/hypr` in a `tmp_path`, monkeypatches all 9 module-level path constants so each test gets a clean slate
-- `mock_hyprctl` — patches `subprocess.run` with canned JSON responses; tests pass even without `HYPRLAND_INSTANCE_SIGNATURE`
+- Every system path a script reads is env-overridable (`_HYPRCONF_*` in
+  `install.sh`, `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders) — point it
+  at `tmp_path`. Never make such a variable `readonly`.
+- Stub every external command with a fake bin on `PATH` (`omarchy-*`, `hyprctl`,
+  `git`, `jq`, `fc-list`, `sudo`). `tests/unit/test_omarchy_install.py` shows the
+  pattern: fake `omarchy-*` binaries that record their calls, a throwaway `HOME`,
+  and assertions about what the installer must *not* do.
+- CI runs as root, which bypasses DAC checks — reproduce permission-sensitive
+  tests with `unshare -r python -m pytest <file>`.
+- `tests/unit/test_no_pii.py` scans every tracked file for the login name, home
+  directory, hostname and git email, derived at runtime. Use `~`, `$HOME`,
+  `testuser` in fixtures.
 
 ### CI
 
-`.github/workflows/test.yml` — a lint job (`make shellcheck` + `make lint`) and Tiers 1–3 run on every push/PR via GitHub Actions, all inside `archlinux:latest` containers. Tiers 4–5 require a self-hosted runner with KVM (`.github/workflows/iso-watchdog.yml` runs the install tier weekly against the latest Arch ISO when such a runner is registered).
-
-**Test packages** (`packages`): `python-pytest`, `python-pytest-asyncio`, `python-coverage`
+`.github/workflows/test.yml` runs three jobs on every push and PR, all inside
+`archlinux:latest`: **Lint** (`make shellcheck` + `make lint`), **Unit +
+Integration** (tiers 1-2 with coverage) and **TUI** (tier 3). All three must be
+green before a publish.
 
 ---
 
@@ -149,62 +137,44 @@ make build-vm-image  # runs build_image.sh
 
 | Branch | Purpose |
 |--------|---------|
-| `dev` | All active development — tests, docs, scripts, configs |
-| `stable` | Release-ready source branch with normal shared git history |
-
-The model is `dev` → `stable` with shared history. User installs use a sparse checkout of `stable`; release archives are exported from the same commit via `git archive`.
-
----
+| `omarchy` | All active development |
+| `stable` | What users clone; written only by `scripts/publish` |
 
 ## Publishing to stable
 
 ```bash
-bash scripts/publish
+bash scripts/publish            # from a clean, pushed `omarchy` checkout
 ```
 
-`scripts/publish` handles the full pipeline automatically:
-
-1. Verifies `dev` branch, a clean working tree, **and** that local `dev` is
-   byte-identical to `origin/dev` (commit *and push* before publishing)
-2. **Lint gates**: runs `make lint` (ruff check + format) and `make shellcheck`
-   — a release can never be cut with a red lint job
-3. Runs test tiers 1–3 (`make test`; aborts on any failure)
-4. **Tier 5 — install image decision** (automatic, no prompt): reuses
-   `tests/vm/arch-hyprconf.qcow2` only when `install/`, `setup.sh`, and
-   `packages` are unchanged since the image's build commit; otherwise rebuilds
-   via Packer (~20 min, exercising `install.sh` end-to-end)
-5. Starts the tier-4 VM (if needed) and runs tier 4, then starts the tier-5 VM
-   on port 2223 via COW overlay and runs tier 5; both are stopped on exit
-6. **Version bump** (after the suite is green): bumps patch/minor/major in
-   `__init__.py`, commits, and pushes to `origin/dev`
-7. Builds a filtered release archive from `HEAD` using `git archive` + `.gitattributes`
-8. Creates the annotated tag `v<hyprconf.__version__>` (unless it already points at `HEAD`)
-9. Pushes `HEAD` to `origin/stable` (`--force-with-lease`) and pushes the tag
-
-Files excluded from the release archive: `tests/` `scripts/` `.github/` `web/` `docs/` `AGENTS.md` `Makefile` `.editorconfig` `pyproject.toml` `__pycache__/` `*.pyc`
+1. Verifies the working branch, a clean tree, and that local `omarchy` matches its remote
+2. Lint gates: `make lint` + `make shellcheck`
+3. Tiers 1-3: `make test`
+4. Bumps the version in `lib/hyprconf/__init__.py` and commits it (after the suite is green)
+5. Builds a filtered release archive with `git archive` + `.gitattributes` `export-ignore`
+   (excludes `tests/`, `scripts/`, `.github/`, `web/`, `docs/`, `AGENTS.md`, `Makefile`,
+   `.editorconfig`, `pyproject.toml`, `__pycache__/`, `*.pyc`)
+6. Creates the annotated tag `v<version>` and promotes `HEAD` to `origin/stable`
 
 | Flag | Effect |
 |------|--------|
 | `--patch` / `--minor` / `--major` | Which version component to bump (default: patch) |
 | `--skip-bump` | Skip the version bump (version must be pre-bumped manually) |
-| `--skip-tests` | Skip the lint gates and all test tiers (nested harness calls only — the suite must still have passed before any real publish) |
+| `--skip-tests` | Skip the lint gates and test tiers (nested harness calls only — the suite must still have passed) |
 | `--skip-tag` | Skip annotated release-tag creation |
 | `--dry-run` | Build the release archive locally but do not push branches/tags |
 
+`tests/integration/test_publish_pipeline.py` and `tests/unit/test_release.py`
+pin the archive contents, the semver string and the branch constants.
+
 ## Updating the website
 
-The landing page (`web/index.html`) is served from S3 + CloudFront at
-`hyprconf.sh` — the CloudFront UA-router sends `curl`/`wget` to `install.sh` and
-browsers to the page. There is no deploy tooling (the CDK app and `hyprconf
-deploy` were removed); push changes manually:
+`web/index.html` is served from S3 + CloudFront at `hyprconf.sh`. There is no
+deploy tooling; push changes manually:
 
 ```bash
 aws s3 cp web/index.html    s3://hyprconf-sh/index.html    --content-type text/html
 aws s3 cp web/hyprconf.webp s3://hyprconf-sh/hyprconf.webp --content-type image/webp
-# refresh the installer too when install.sh changes:
-aws s3 cp install/install.sh s3://hyprconf-sh/install.sh
 
-# then invalidate the cache (distribution looked up by domain):
 DIST=$(aws cloudfront list-distributions \
   --query "DistributionList.Items[?contains(Aliases.Items,'hyprconf.sh')].Id" --output text)
 aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"

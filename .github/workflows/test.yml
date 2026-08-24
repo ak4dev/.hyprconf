@@ -56,7 +56,7 @@ jobs:
         run: |
           python -m pytest tests/unit/ tests/integration/ \
             --tb=short -q -n auto \
-            --cov=stow/hypr/.local/lib/hyprconf \
+            --cov=lib/hyprconf \
             --cov-report=term-missing
         env:
           PYTHONDONTWRITEBYTECODE: "1"

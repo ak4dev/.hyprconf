@@ -1,190 +1,47 @@
-# Core utilities
-git
-base-devel
-curl
-wget
-unzip
-vim
-stow
-pciutils
-xdg-user-dirs
+# Packages hyprconf adds to a fresh Omarchy install.
+#
+# Official Arch repositories ONLY — see the no-AUR policy in AGENTS.md. Omarchy
+# ships yay and uses the AUR itself, but hyprconf does not reach for it.
+#
+# Installed via `omarchy-pkg-add`, which is idempotent (guards with
+# omarchy-pkg-missing, verifies with `pacman -Q`). Never call `pacman -Syu`
+# here: Omarchy installs an ALPM AbortOnFail hook that blocks sysupgrade forms.
+#
+# Deliberately NOT listed — already in Omarchy's own base:
+#   eza zoxide fastfetch starship yay ttf-jetbrains-mono-nerd-basic
+#   xdg-terminal-exec foot
 
-# Hyprland & compositing
-hyprland
-hyprpaper
-hyprshot
-hyprlock
-hypridle
-xdg-desktop-portal-hyprland
-
-# hyprsunset — optional blue-light filter daemon (hyprctl hyprsunset ...).
-# Install with: pacman -S hyprsunset
-# hyprsunset
-
-# Audio (PipeWire stack + volume control)
-pipewire
-pipewire-pulse
-pipewire-alsa
-wireplumber
-pavucontrol
-
-# KDE Wallet (autostarted by hyprland.conf)
-kwallet
-kwallet-pam
-
-# Polkit authentication agent
-hyprpolkitagent
-
-# Media & input
-playerctl
-brightnessctl
-
-# Terminal & shell
+# Terminal. Becomes Omarchy's default via `omarchy-default-terminal`.
 kitty
+
+# Font. Geist Mono is the retro-modern face hyprconf sets as the system
+# monospace on first install; the -nerd build carries the full Nerd Font glyph
+# set the bar widgets draw from. Omarchy's own ttf-jetbrains-mono-nerd-basic
+# stays installed and remains selectable with `omarchy font set`.
+otf-geist-mono-nerd
+
+# Shell. hyprconf runs zsh inside kitty while leaving the LOGIN shell as bash,
+# so Omarchy's own bash rc chain, session and scripts are untouched.
 zsh
-zsh-syntax-highlighting
 zsh-autosuggestions
-fastfetch
+zsh-syntax-highlighting
 
-# Bar, launcher, notifications
-quickshell
-hyprlauncher
-dunst
+# Keybind dependencies — hypr/bindings.lua launches these and a fresh
+# Omarchy ships none of them.
+#
+# hyprshot was here for SUPER+SHIFT+4. That key now calls Omarchy's own
+# `omarchy-capture-screenshot region`, which freezes the screen the same way
+# (hyprpicker -r -z) and adds the click-to-edit notification back.
+#
+# playerctl was here for the media keys. Those now go to Omarchy's own
+# `omarchy-shell media`, and nothing else wants it: no Omarchy binary invokes
+# playerctl, and its shell only matches the *string* "playerctld" as a D-Bus
+# name to recognise that player. An orphan package is not a free one.
+firefox     # SUPER+F
+code        # SUPER+C
+# NB: SUPER+E is deliberately NOT dolphin here — it is repointed at Omarchy's
+# own nautilus rather than pulling a chunk of KDE onto an Omarchy system.
 
-# Applications
-firefox
-code
-dolphin
-htop
-btop
-cliphist
-wl-clipboard
-
-# File manager support (trash, MTP, network mounts)
-gvfs
-
-# System monitoring: nothing to install.  The bar samplers read the kernel
-# interfaces directly (stats.sh: /proc + hwmon sysfs for CPU temp; battery:
-# /sys/class/power_supply), so neither lm_sensors nor upower is needed —
-# upower still arrives as a hard dependency of power-profiles-daemon.
-
-# Python (theme switcher + hyprconf TUI)
-python
+# TUI. The hyprconf configuration TUI is Textual — the launcher probes for
+# this exact module and names this package in its error message when missing.
 python-textual
-# python-pillow  # optional: needed only for switch_theme.py --generate <image>
-
-# Testing (Tiers 1–3 run without a Hyprland session; pytest-asyncio is for TUI tests)
-python-pytest
-python-pytest-asyncio
-python-coverage
-
-# Theme / GTK sync (theme switcher)
-xsettingsd
-# breeze-gtk provides the Breeze-Dark/Breeze GTK theme directories that
-# _resolve_gtk_theme() uses as a fallback when adw-gtk3 (AUR) is absent.
-# Without this package, blueman and other GTK apps render with no theme.
-breeze-gtk
-# adw-gtk3 provides the preferred dark/light GTK3 theme for non-GNOME apps
-# (blueman, file-chooser dialogs, etc.); _resolve_gtk_theme() prefers it over
-# Breeze-Dark/Breeze when installed.
-# AUR only; install manually: yay -S adw-gtk3
-# adw-gtk3
-
-# gtk-layer-shell — required by touch-panel; installed automatically by setup.sh
-# on any device with a touchscreen (regardless of keyboard presence)
-gtk-layer-shell
-
-# Fonts
-ttf-jetbrains-mono-nerd
-noto-fonts-emoji
-
-# Qt/KDE theming — required for QT_QPA_PLATFORMTHEME=kde (set in hyprland.conf)
-# plasma-integration → KDEPlasmaPlatformTheme6.so (NOT a dolphin dep; must be listed here)
-# breeze             → breeze6.so Qt widget style (kdeglobals sets widgetStyle=breeze)
-# kde-cli-tools      → kwriteconfig6, used by switch_theme.py to update dolphinrc
-# qt6-wayland        → Qt6 Wayland backend (QT_QPA_PLATFORM=wayland in hyprland.conf)
-# qt5ct/qt6ct are NOT needed with QT_QPA_PLATFORMTHEME=kde
-plasma-integration
-breeze
-kde-cli-tools
-qt6-wayland
-
-# Icons & themes
-papirus-icon-theme
-# bibata-cursor-theme  -- AUR only; install manually: yay -S bibata-cursor-theme
-
-# Bluetooth
-bluez
-bluez-utils
-blueman
-
-# Networking
-networkmanager
-network-manager-applet
-# libappindicator — runtime AppIndicator/StatusNotifier lib. Without it,
-# `nm-applet --indicator` and blueman-applet render blank/white-box tray icons
-# in the bar's SNI tray (it is not a hard dependency of either applet).
-libappindicator
-# iwd  # optional: wifi backend for NetworkManager (guarded by `command -v iwctl`)
-openssh
-
-# Power management
-power-profiles-daemon
-
-# Hardware: on-screen keyboard (OSK) for touch devices
-# wvkbd is AUR-only. hyprconf NEVER installs AUR packages automatically, so the
-# OSK is NOT installed by setup.sh even when a touchscreen is detected. The
-# launcher/toggle/touch-panel scripts degrade gracefully when it is absent.
-# To enable the OSK, install it manually (AUR): yay -S wvkbd
-# wvkbd
-
-# Hardware: accelerometer / auto-rotation (auto-installed if an accelerometer is detected)
-iio-sensor-proxy
-
-# Firewall
-ufw
-
-# VPN / Network privacy
-# Core VPN support — NetworkManager manages OpenVPN (.ovpn) and WireGuard (.conf)
-# profiles; `hyprconf-vpn` wraps nmcli around them. networkmanager-openvpn is the
-# plugin NM needs to run imported OpenVPN profiles (e.g. ProtonVPN .ovpn configs);
-# wireguard-tools provides wg/wg-quick so nmcli can import WireGuard profiles too.
-# For ProtonVPN's official client (NetShield + built-in kill-switch), additionally
-# install its CLI manually (AUR): yay -S proton-vpn-cli
-networkmanager-openvpn
-wireguard-tools
-
-# Security: YubiKey FIDO2 + PIN login (optional hardware)
-# Required by `yubikey-fido2-setup` (stowed to ~/.local/bin). The script
-# auto-installs these via pacman if missing, so they stay commented here for
-# users without a YubiKey. To enable manually: sudo pacman -S libfido2 pam-u2f yubikey-manager
-# libfido2          # FIDO2/U2F library (LUKS systemd-cryptenroll, pam_u2f)
-# pam-u2f           # PAM module for sudo/login/SSH YubiKey auth
-# yubikey-manager   # ykman CLI: key detection + FIDO2 PIN management
-
-# Security: Secure Boot (signed UKI) — optional, UEFI only
-# Required by `hyprconf-secureboot` (stowed to ~/.local/bin). The helper
-# auto-installs sbctl via pacman when you run `hyprconf-secureboot setup`, so it
-# stays commented here for users who don't use Secure Boot. Manual: sudo pacman -S sbctl
-# sbctl             # Secure Boot key manager (create-keys/sign/verify/enroll)
-
-# Optional: uncomment if using an Nvidia GPU (gpu_info.sh bar widget)
-# nvidia-utils
-# egl-wayland is required for Nvidia + Wayland; nvidia-open, nvidia-utils, and
-# egl-wayland are installed automatically by setup.sh / setup.sh --sync when an
-# Nvidia GPU is detected.  Listed here for reference only.
-# nvidia-open
-# egl-wayland
-
-# GPU passthrough / VFIO — `gpu-passthrough.sh setup` checks for these and
-# prints the pacman command when missing: qemu-desktop edk2-ovmf docker
-# docker-compose dmidecode freerdp linux-headers dnsmasq iptables-nft
-# (optional, AUR, manual: looking-glass looking-glass-module-dkms)
-# NOTE: any AUR package in an addon is installed only after an explicit warning
-#       and confirmation — hyprconf never installs AUR packages automatically.
-
-# Arch Linux VM (`gpu-passthrough.sh vm arch`, sibling to the Windows VM
-# above) — `vm arch install`/`build` checks for these and prints the pacman
-# command when missing: packer qemu-desktop edk2-ovmf
-# (wayvnc + openssh are installed inside the built guest image, not on the
-# host — see gpu-passthrough.sh / install/install.sh's HYPRCONF_CI_VM_GUEST path)

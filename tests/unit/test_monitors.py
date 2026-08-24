@@ -8,6 +8,7 @@ from pathlib import Path
 from hyprconf.monitors import (
     MonitorConfig,
     delete_monitor,
+    monitor_call,
     read_monitor_configs,
     upsert_monitor,
 )
@@ -17,7 +18,7 @@ from hyprconf.monitors import (
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).parent.parent.parent
-_LAPTOP_CONF = _REPO_ROOT / "stow" / "hypr" / ".config" / "hypr" / "laptopMonitors.lua"
+_LAPTOP_CONF = _REPO_ROOT / "hypr" / "laptopMonitors.lua"
 
 MONITORS_CONF = """\
 monitor = HDMI-A-1, 3840x2160@120, 0x0, 1.5
@@ -286,4 +287,33 @@ def test_laptop_internal_display_uses_preferred() -> None:
     assert edp is not None, "eDP-1 entry missing from laptopMonitors.conf"
     assert edp.resolution == "preferred", (
         f"eDP-1 resolution is '{edp.resolution}', expected 'preferred'"
+    )
+
+
+# ---------------------------------------------------------------------------
+# monitor_call — the one hl.monitor({ … }) string used for both the persisted
+# line and the live `hyprctl eval`
+# ---------------------------------------------------------------------------
+
+
+def test_monitor_call_full_table() -> None:
+    assert monitor_call("DP-1", "3840x2160@120", "0x0", "1.5", "vrr, 1, cm, hdr") == (
+        'hl.monitor({ output = "DP-1", mode = "3840x2160@120", position = "0x0", '
+        'scale = 1.5, vrr = 1, cm = "hdr" })'
+    )
+
+
+def test_monitor_call_disable() -> None:
+    assert monitor_call("eDP-1", "disable", "", "") == (
+        'hl.monitor({ output = "eDP-1", disabled = true })'
+    )
+
+
+def test_monitor_call_matches_persisted_line(hypr_dir: Path) -> None:
+    p = hypr_dir / "monitors.lua"
+    p.write_text("")
+    upsert_monitor("HDMI-A-1", "preferred", "auto-right", "1", file=p)
+    assert p.read_text().strip() == monitor_call("HDMI-A-1", "preferred", "auto-right", "1")
+    assert read_monitor_configs(p)[0].to_line() == monitor_call(
+        "HDMI-A-1", "preferred", "auto-right", "1"
     )

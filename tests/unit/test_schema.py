@@ -110,11 +110,9 @@ def test_section_order_management_sections_before_separator() -> None:
         "keybinds",
         "window_rules",
         "workspace_rules",
-        "hyprlock",
-        "hypridle",
-        "hyprpaper",
         "theme",
-        "hardware",
+        "background",
+        "idle",
     ):
         assert section in before_sep, f"'{section}' should be before the separator"
 
