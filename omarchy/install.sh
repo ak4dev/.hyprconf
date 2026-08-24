@@ -65,7 +65,7 @@ echo "==> Shell: Oh My Zsh + Powerlevel10k"
 P10K_DIR="$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
 
 if command -v zsh >/dev/null 2>&1; then
-    for pkg in zsh-autosuggestions zsh-syntax-highlighting; do
+    for pkg in zsh-autosuggestions zsh-syntax-highlighting fastfetch; do
         pacman -Qi "$pkg" >/dev/null 2>&1 || \
             echo "    WARNING: pacman package '$pkg' not installed — run: sudo pacman -S $pkg"
     done
@@ -139,7 +139,9 @@ if command -v zsh >/dev/null 2>&1; then
     }
     add_if_missing 'source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh'
     add_if_missing 'source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh'
+    add_if_missing 'export PATH="$HOME/.local/bin:$PATH"'
     add_if_missing "alias hyprsync='bash ~/.hyprconf/omarchy/install.sh'"
+    add_if_missing "fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green"
 else
     echo "    WARNING: zsh not installed — skipping Oh My Zsh / Powerlevel10k"
 fi
