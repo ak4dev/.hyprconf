@@ -1,23 +1,33 @@
-// CPU / temp / memory / GPU / network readout, ported from hyprconf's
-// quickshell bar (retired with the standalone desktop; the two feeder scripts survive in bin/).
+// CPU / RAM / net and GPU / VRAM readout, ported from hyprconf's retired
+// quickshell bar. Two aligned lines:
+//
+//     <cpu>  <thermo>41°   3%   <mem> 12.7/94.2G   ↑ 12.3kB/s
+//     <gpu>  <thermo>36°   7%   <mem>  2.3/32.6G   ↓ 1.2MB/s
+//
 // Streams JSON off two long-lived background scripts rather than polling:
-//   hyprconf-stats     — cpu%, mem, net down/up, cpu temp (one line/sec)
-//   hyprconf-gpu-info  — nvidia-smi --loop or an AMD sysfs loop
-// Both are installed onto PATH by install.sh (the same convention
-// Omarchy's own plugins follow) rather than bundled in this plugin
-// directory — no first-party Omarchy plugin bundles its own scripts either;
-// they all shell out to standalone tools by name.
+//   hyprconf-stats     — cpu%, cpu temp, mem, net down/up (one line/sec)
+//   hyprconf-gpu-info  — the ACTIVE GPU's util/temp/VRAM (one line/2s): on a
+//                        multi-GPU box the card with the most VRAM in use,
+//                        re-picked every sample, so an idle second card
+//                        never shadows the one doing the work
+// Both are installed onto PATH by install.sh (the convention Omarchy's own
+// plugins follow — none bundles its scripts; they shell out by name).
+//
+// Every column has a FIXED width, measured once with TextMetrics from the
+// widest value it can show, so the line never shifts as a speed goes from
+// "0B/s" to "999.9MB/s" or a percentage from "3%" to "100%".
+//
+// Glyphs are the widget's own (the feeders emit numbers only): microchip
+// (nf-fa-microchip U+F2DB), expansion card (nf-md-expansion_card U+F08AE),
+// memory (nf-md-memory U+F061A) and the thermometer (nf-md-thermometer
+// U+F050F — a solid Material Design glyph; the Weather-Icons one at U+E350
+// the old feeder used is an outline that renders as a hairline at caption
+// size, i.e. invisible). All four verified present in GeistMono Nerd Font
+// (fc-list ':charset=…'), Omarchy's default bar font.
 //
 // Omarchy's Color singleton only exposes semantic roles (foreground, accent,
-// urgent, muted, background) — not hyprconf's per-metric hues (green cpu,
-// yellow mem, purple gpu), which no Omarchy theme is obliged to define. So
-// every segment renders in the same foreground color, matching how Omarchy's
-// own text-based widgets behave.
-//
-// Specifically NOT `muted`: that role is the theme's dimmed text, meant for
-// secondary chrome, and it made four of the five readings look switched off
-// next to the one drawn in foreground. A reading is a reading — they all
-// carry equal weight, so they all get the same colour.
+// urgent, muted, background) — not per-metric hues — so every segment
+// renders in the bar's foreground, matching Omarchy's own text widgets.
 
 import QtQuick
 import Quickshell
@@ -35,8 +45,20 @@ BarWidget {
   property string netDown: "0B/s"
   property string netUp: "0B/s"
 
-  property string gpuText: ""
   property bool gpuProduced: false
+  property int gpuUtil: 0
+  property string gpuTemp: ""
+  property string gpuVramUsed: ""
+  property string gpuVramTotal: ""
+  property string gpuTooltip: ""
+
+  readonly property string glyphCpu: "\u{F2DB}"
+  readonly property string glyphGpu: "\u{F08AE}"
+  readonly property string glyphMem: "\u{F061A}"
+  readonly property string glyphThermo: "\u{F050F}"
+
+  readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.fontFamily
+  readonly property color textColor: root.bar ? root.bar.barForeground : Color.foreground
 
   visible: true
   // Two lines of text in a 26px bar only fit if the line box is the glyph box.
@@ -51,6 +73,12 @@ BarWidget {
   // zero-height. It still loads, logs nothing at any verbosity, and paints
   // nothing: the bar simply has an invisible gap where the readout should be.
   implicitHeight: grid.implicitHeight
+
+  function tempText(t) { return t !== "" ? root.glyphThermo + t + " " : "" }
+  function vramText() {
+    if (root.gpuVramTotal === "" || root.gpuVramTotal === "0") return "shared"
+    return root.gpuVramUsed + "/" + root.gpuVramTotal + "G"
+  }
 
   Process {
     id: statsProc
@@ -72,8 +100,7 @@ BarWidget {
 
   // A stream that produced output and then died is restarted (driver
   // hiccup / transient error); one that exits without ever producing
-  // output means "no such hardware" and stays hidden, same as hyprconf's
-  // Services singleton.
+  // output means "no such hardware" and stays hidden.
   Process {
     id: gpuProc
     running: true
@@ -81,8 +108,13 @@ BarWidget {
     stdout: SplitParser {
       onRead: data => {
         try {
+          const j = JSON.parse(data)
           root.gpuProduced = true
-          root.gpuText = String(JSON.parse(data).text ?? "")
+          root.gpuUtil = Number(j.util ?? 0)
+          root.gpuTemp = (j.temp === null || j.temp === undefined) ? "" : String(j.temp) + "°"
+          root.gpuVramUsed = String(j.vram_used ?? "")
+          root.gpuVramTotal = String(j.vram_total ?? "")
+          root.gpuTooltip = String(j.tooltip ?? "")
         } catch (e) {}
       }
     }
@@ -97,78 +129,93 @@ BarWidget {
     onTriggered: gpuProc.running = true
   }
 
-  // Two stacked lines rather than one long row. Omarchy's bar is 26px tall and
-  // a single line of caption text uses about half of it, so the second line is
-  // free vertical space that was already being paid for — spending it halves
-  // how much of the bar's width this widget eats.
-  //
-  // A Grid rather than nested Rows so the same declaration serves a vertical
-  // bar: `columns: 1` stacks all four segments, which is the only sane shape
-  // when the bar is a side rail. Column widths are the widest cell, so the two
-  // lines align into tidy columns instead of drifting.
+  // Column widths: the widest thing each column can ever say, in the bar's
+  // own font, so the grid never re-flows. Measured, not guessed — a font
+  // change (omarchy font set) re-measures automatically.
+  TextMetrics {
+    id: loadCol
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    text: root.glyphGpu + " " + root.glyphThermo + "100° 100%"
+  }
+  TextMetrics {
+    id: memCol
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    text: root.glyphMem + " 999.9/999.9G"
+  }
+  TextMetrics {
+    id: netCol
+    font.family: root.fontFamily
+    font.pixelSize: Style.font.caption
+    text: "↓ 999.9MB/s"
+  }
+
+  component Cell: Text {
+    color: root.textColor
+    font.pixelSize: Style.font.caption
+    font.family: root.fontFamily
+    lineHeight: root.lineHeightScale
+    lineHeightMode: Text.ProportionalHeight
+    horizontalAlignment: Text.AlignLeft
+    elide: Text.ElideNone
+  }
+
+  // Row-major grid, three columns: load | memory | net. A vertical bar (side
+  // rail) stacks all six cells in one column instead.
   Grid {
     id: grid
     anchors.verticalCenter: parent.verticalCenter
-    columns: root.vertical ? 1 : 2
+    columns: root.vertical ? 1 : 3
     rowSpacing: 0
     columnSpacing: Style.spacing.sm
     flow: Grid.LeftToRight
 
-    // Line 1 — compute: CPU load and temperature, then the GPU readout
-    // (hyprconf-gpu-info already packs util, temp and VRAM into one string).
-    //
-    // Each line is prefixed with a Nerd Font glyph — a microchip for CPU, a
-    // memory stick for RAM — because stacking the numbers costs the reading
-    // order that a single row gave for free: "3% 52°" over "7.4/54.6G" says
-    // nothing about which is which.
-    Text {
-      text: "\u{F2DB} " + root.cpuPct + "%" + (root.cpuTemp !== "" ? " " + root.cpuTemp : "")
-      color: Color.foreground
-      font.pixelSize: Style.font.caption
-      font.family: Style.fontFamily
-      lineHeight: root.lineHeightScale
-      lineHeightMode: Text.ProportionalHeight
+    // ── line 1: CPU temp/util · RAM · upload ──────────────────────────────
+    Cell {
+      width: loadCol.width
+      text: root.glyphCpu + " " + root.tempText(root.cpuTemp) + root.cpuPct + "%"
 
       MouseArea {
         anchors.fill: parent
         // Omarchy's own TUI launcher: it focuses an existing btop window
-        // instead of stacking another, gives it the org.omarchy.btop app-id its
-        // window rules key off, and keeps the terminal open. `kitty -e htop`
-        // opened a window that exited immediately — htop is not installed, and
-        // nothing reported that.
+        // instead of stacking another and gives it the org.omarchy.btop
+        // app-id its window rules key off.
         onClicked: if (root.bar) root.bar.run("omarchy-launch-or-focus-tui btop")
       }
     }
-
-    Text {
-      visible: root.gpuProduced && root.gpuText !== ""
-      text: root.gpuText
-      color: Color.foreground
-      font.pixelSize: Style.font.caption
-      font.family: Style.fontFamily
-      lineHeight: root.lineHeightScale
-      lineHeightMode: Text.ProportionalHeight
+    Cell {
+      width: memCol.width
+      text: root.memText !== "" ? root.glyphMem + " " + root.memText : ""
+    }
+    Cell {
+      width: netCol.width
+      text: "↑ " + root.netUp
     }
 
-    // Line 2 — memory and I/O.
-    Text {
-      visible: root.memText !== ""
-      text: "\u{F061A} " + root.memText
-      color: Color.foreground
-      font.pixelSize: Style.font.caption
-      font.family: Style.fontFamily
-      lineHeight: root.lineHeightScale
-      lineHeightMode: Text.ProportionalHeight
-    }
+    // ── line 2: GPU temp/util · VRAM · download ───────────────────────────
+    // Empty (but still sized) cells when no GPU stream ever produced output,
+    // so the download cell stays under the upload one.
+    Cell {
+      width: loadCol.width
+      text: root.gpuProduced
+        ? root.glyphGpu + " " + root.tempText(root.gpuTemp) + root.gpuUtil + "%"
+        : ""
 
-    Text {
-      visible: root.netDown !== "0B/s" || root.netUp !== "0B/s"
-      text: "↓" + root.netDown + " ↑" + root.netUp
-      color: Color.foreground
-      font.pixelSize: Style.font.caption
-      font.family: Style.fontFamily
-      lineHeight: root.lineHeightScale
-      lineHeightMode: Text.ProportionalHeight
+      MouseArea {
+        anchors.fill: parent
+        hoverEnabled: true
+        onEntered: if (root.bar && root.gpuTooltip !== "") root.bar.showTooltip(root, root.gpuTooltip)
+        onExited: if (root.bar) root.bar.hideTooltip(root)
+      }
+    }
+    Cell {
+      width: memCol.width
+      text: root.gpuProduced ? root.glyphMem + " " + root.vramText() : ""
+    }
+    Cell {
+      width: netCol.width
+      text: "↓ " + root.netDown
     }
   }
 }

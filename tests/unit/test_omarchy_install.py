@@ -1468,6 +1468,29 @@ def test_window_title_retries_until_the_shell_can_answer(tmp_path: Path) -> None
     assert "omarchy.active-window" in proc.stderr
 
 
+def test_resources_widget_layout_is_fixed_width_and_ordered() -> None:
+    """Two aligned lines — CPU temp/util · RAM · upload over GPU temp/util ·
+    VRAM · download — with every column sized by TextMetrics from its widest
+    value, so nothing moves as the numbers change; the thermometer is the
+    solid Material Design glyph (U+F050F), not the Weather-Icons outline
+    (U+E350) that rendered as a hairline; the GPU cells read the structured
+    fields the feeder emits (no pre-rendered "text")."""
+    qml = _code_only_qml((REPO_ROOT / "plugins" / "hyprconf-resources" / "Widget.qml").read_text())
+    assert "\\u{F050F}" in qml and "\\ue350" not in qml.lower()
+    assert qml.count("TextMetrics {") == 3
+    for col in ("loadCol", "memCol", "netCol"):
+        assert qml.count(f"width: {col}.width") == 2, col  # one cell per line
+    # Row-major order: the upload cell precedes every GPU cell, the download cell is last.
+    up = qml.index('"↑ " + root.netUp')
+    down = qml.index('"↓ " + root.netDown')
+    gpu = qml.index('root.glyphGpu + " " + root.tempText')
+    assert up < gpu < down
+    for field in ("j.util", "j.temp", "j.vram_used", "j.vram_total", "j.tooltip"):
+        assert field in qml, field
+    assert "j.text" not in qml
+    assert "columns: root.vertical ? 1 : 3" in qml
+
+
 def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
     """The post-update hook re-runs the installer after every Omarchy update;
     an unconditional enable would undo `omarchy plugin disable <id>` each

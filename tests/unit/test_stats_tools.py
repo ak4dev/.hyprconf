@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -221,33 +222,65 @@ class TestStatsCpuTemp:
 
 
 # ---------------------------------------------------------------------------
-# gpu_info.sh (streaming: nvidia-smi --loop | awk, or AMD sysfs loop)
+# hyprconf-gpu-info (streaming: nvidia-smi --loop | awk, or AMD sysfs loop)
 # ---------------------------------------------------------------------------
 
-FAKE_NVIDIA_SMI = """\
+GPU_KEYS = {"index", "name", "util", "temp", "vram_used", "vram_total", "tooltip"}
+
+# Two GPUs, two iterations. Iteration 1: index 1 is the busy card (the real
+# two-card shape: 3070 idling at 2 MiB, 5090 working). Iteration 2 flips the
+# load onto index 0 so the selection must follow it.
+NVIDIA_TWO_GPU_LINES = [
+    "0, NVIDIA GeForce RTX 3070, 0, 20.11, 31, 2, 8192",
+    "1, NVIDIA GeForce RTX 5090, 7, 45.20, 36, 2314, 32607",
+    "0, NVIDIA GeForce RTX 3070, 55, 180.00, 62, 6000, 8192",
+    "1, NVIDIA GeForce RTX 5090, 1, 30.00, 35, 300, 32607",
+]
+
+
+def _fake_nvidia_smi(count: int, lines: list[str]) -> str:
+    """Fake nvidia-smi: the count query prints one line per GPU each holding
+    the total (the real shape); any other probe exits 0 quietly; the stream
+    (-l) emits `lines` (GPUs consecutive per iteration) and stops."""
+    count_out = "".join(f"{count}\\n" for _ in range(count))
+    stream = "\n".join('        echo "' + ln.replace('"', '\\"') + '"' for ln in lines)
+    return f"""\
 #!/usr/bin/env bash
-# Probe (no -l): exit 0 quietly. Stream (-l): emit two CSV samples and stop.
 for a in "$@"; do
-    if [[ $a == -l ]]; then
-        echo "12, 100.5, 55, 8192, 32768"
-        echo "34, 200.0, 60, 16384, 32768"
-        exit 0
-    fi
+    case $a in
+        --query-gpu=count) printf '{count_out}'; exit 0 ;;
+        -l)
+{stream}
+        exit 0 ;;
+    esac
 done
 exit 0
 """
 
 
+FAKE_NVIDIA_SMI = _fake_nvidia_smi(2, NVIDIA_TWO_GPU_LINES)
+
+
 class TestGpuInfoScript:
-    def _run(self, tmp_path: Path, *, nvidia: bool, drm_root: Path | None = None, env=None):
+    def _run(
+        self,
+        tmp_path: Path,
+        *,
+        nvidia: bool | str,
+        drm_root: Path | None = None,
+        env=None,
+    ) -> subprocess.CompletedProcess[str]:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir(exist_ok=True)
         # Always shadow nvidia-smi: on a real NVIDIA host the genuine binary
         # would otherwise answer the probe and stream real data into the test.
-        _write_exe(
-            bin_dir / "nvidia-smi",
-            FAKE_NVIDIA_SMI if nvidia else "#!/usr/bin/env bash\nexit 1\n",
-        )
+        if nvidia is True:
+            fake = FAKE_NVIDIA_SMI
+        elif nvidia:
+            fake = nvidia
+        else:
+            fake = "#!/usr/bin/env bash\nexit 1\n"
+        _write_exe(bin_dir / "nvidia-smi", fake)
         extra = {
             "PATH": f"{bin_dir}:{os.environ['PATH']}",
             "HYPRCONF_GPU_DRM_ROOT": str(drm_root or (tmp_path / "drm-empty")),
@@ -263,35 +296,191 @@ class TestGpuInfoScript:
             env={**os.environ, **extra},
         )
 
-    def test_nvidia_stream_formats_each_sample(self, tmp_path: Path) -> None:
-        r = self._run(tmp_path, nvidia=True)
+    def _lines(self, r: subprocess.CompletedProcess[str]) -> list[dict]:
         assert r.returncode == 0, r.stderr
         lines = [json.loads(ln) for ln in r.stdout.strip().splitlines()]
-        assert len(lines) == 2
-        assert "12%" in lines[0]["text"]
-        assert "8.0/32.0G" in lines[0]["text"]
-        assert "55°" in lines[0]["text"]
-        assert "34%" in lines[1]["text"]
-        assert "16.0/32.0G" in lines[1]["text"]
+        for payload in lines:
+            assert set(payload) == GPU_KEYS
+            assert isinstance(payload["index"], int)
+            assert isinstance(payload["name"], str)
+            assert isinstance(payload["util"], int)
+            assert payload["temp"] is None or isinstance(payload["temp"], int)
+            assert isinstance(payload["vram_used"], str)
+            assert isinstance(payload["vram_total"], str)
+        return lines
 
-    def test_amd_sysfs_loop(self, tmp_path: Path) -> None:
-        card = tmp_path / "drm" / "card1" / "device"
+    @staticmethod
+    def _amd_card(
+        drm: Path,
+        n: int,
+        *,
+        busy: str,
+        used: int | None,
+        total: int | None,
+        temp: str | None = None,
+        name: str | None = None,
+    ) -> Path:
+        card = drm / f"card{n}" / "device"
         card.mkdir(parents=True)
-        (card / "gpu_busy_percent").write_text("42\n")
-        hw = card / "hwmon" / "hwmon3"
-        hw.mkdir(parents=True)
-        (hw / "temp1_input").write_text("61000\n")
-        (card / "mem_info_vram_used").write_text(str(4 * 1024**3) + "\n")
-        (card / "mem_info_vram_total").write_text(str(16 * 1024**3) + "\n")
-        r = self._run(tmp_path, nvidia=False, drm_root=tmp_path / "drm")
-        assert r.returncode == 0, r.stderr
-        lines = [json.loads(ln) for ln in r.stdout.strip().splitlines()]
+        (card / "gpu_busy_percent").write_text(busy + "\n")
+        if used is not None:
+            (card / "mem_info_vram_used").write_text(str(used) + "\n")
+        if total is not None:
+            (card / "mem_info_vram_total").write_text(str(total) + "\n")
+        if temp is not None:
+            hw = card / "hwmon" / "hwmon3"
+            hw.mkdir(parents=True)
+            (hw / "temp1_input").write_text(temp + "\n")
+        if name is not None:
+            (card / "product_name").write_text(name + "\n")
+        return card
+
+    # -- NVIDIA ---------------------------------------------------------------
+
+    def test_nvidia_two_gpus_follow_the_busy_card(self, tmp_path: Path) -> None:
+        lines = self._lines(self._run(tmp_path, nvidia=True))
+        assert len(lines) == 2  # one JSON line per iteration, not per GPU
+        first, second = lines
+        assert first["index"] == 1
+        assert first["name"] == "NVIDIA GeForce RTX 5090"
+        assert first["util"] == 7
+        assert first["temp"] == 36
+        assert first["vram_used"] == "2.3"
+        assert first["vram_total"] == "31.8"
+        assert first["tooltip"] == (
+            "RTX 5090 (GPU 1) | Util 7% | Temp 36° | VRAM 2.3/31.8 GiB | Power 45W"
+        )
+        # Iteration 2: the load moved to index 0, so the selection flips.
+        assert second["index"] == 0
+        assert second["name"] == "NVIDIA GeForce RTX 3070"
+        assert second["util"] == 55
+        assert second["temp"] == 62
+        assert second["vram_used"] == "5.9"
+        assert second["vram_total"] == "8.0"
+        assert "RTX 3070" in second["tooltip"]
+
+    def test_nvidia_single_gpu(self, tmp_path: Path) -> None:
+        fake = _fake_nvidia_smi(
+            1,
+            [
+                "0, NVIDIA GeForce RTX 4080, 12, 100.5, 55, 8192, 16384",
+                "0, NVIDIA GeForce RTX 4080, 34, 200.0, 60, 12288, 16384",
+            ],
+        )
+        lines = self._lines(self._run(tmp_path, nvidia=fake))
+        assert [ln["util"] for ln in lines] == [12, 34]
+        assert lines[0]["index"] == 0
+        assert lines[0]["vram_used"] == "8.0"
+        assert lines[1]["vram_used"] == "12.0"
+        assert lines[1]["vram_total"] == "16.0"
+
+    def test_nvidia_name_with_comma_parses(self, tmp_path: Path) -> None:
+        fake = _fake_nvidia_smi(1, ['0, NVIDIA "Ada", Ltd 4090, 9, 50.0, 40, 1024, 24576'])
+        line = self._lines(self._run(tmp_path, nvidia=fake))[0]
+        assert line["name"] == 'NVIDIA "Ada", Ltd 4090'  # quotes escaped, comma kept
+        assert line["util"] == 9
+        assert line["temp"] == 40
+        assert line["vram_used"] == "1.0"
+        assert line["vram_total"] == "24.0"
+
+    def test_nvidia_memory_tie_broken_by_util(self, tmp_path: Path) -> None:
+        fake = _fake_nvidia_smi(
+            2,
+            [
+                "0, NVIDIA A, 3, 10.0, 30, 500, 8192",
+                "1, NVIDIA B, 9, 10.0, 30, 500, 8192",
+                # Full tie → lowest index.
+                "0, NVIDIA A, 9, 10.0, 30, 500, 8192",
+                "1, NVIDIA B, 9, 10.0, 30, 500, 8192",
+            ],
+        )
+        lines = self._lines(self._run(tmp_path, nvidia=fake))
+        assert [ln["index"] for ln in lines] == [1, 0]
+
+    def test_nvidia_unknown_temp_is_null(self, tmp_path: Path) -> None:
+        fake = _fake_nvidia_smi(1, ["0, NVIDIA T, 1, [N/A], [N/A], 100, 8192"])
+        line = self._lines(self._run(tmp_path, nvidia=fake))[0]
+        assert line["temp"] is None
+        assert "Power" not in line["tooltip"]
+
+    # -- AMD ------------------------------------------------------------------
+
+    def test_amd_two_cards_pick_more_vram_used(self, tmp_path: Path) -> None:
+        drm = tmp_path / "drm"
+        self._amd_card(drm, 1, busy="90", used=1 * 1024**3, total=16 * 1024**3, temp="50000")
+        self._amd_card(
+            drm,
+            2,
+            busy="42",
+            used=4 * 1024**3,
+            total=16 * 1024**3,
+            temp="61000",
+            name="Radeon RX 7900 XTX",
+        )
+        lines = self._lines(self._run(tmp_path, nvidia=False, drm_root=drm))
         assert len(lines) == 2  # HYPRCONF_GPU_ITERATIONS bounds the loop
-        assert "42%" in lines[0]["text"]
-        assert "61°" in lines[0]["text"]
-        assert "4.0/16.0G" in lines[0]["text"]
+        line = lines[0]
+        assert line["index"] == 2  # more memory used beats higher busy %
+        assert line["name"] == "Radeon RX 7900 XTX"
+        assert line["util"] == 42
+        assert line["temp"] == 61
+        assert line["vram_used"] == "4.0"
+        assert line["vram_total"] == "16.0"
+        assert line["tooltip"] == (
+            "Radeon RX 7900 XTX (GPU 2) | Util 42% | Temp 61° | VRAM 4.0/16.0 GiB"
+        )
+
+    def test_amd_memory_tie_broken_by_busy_then_index(self, tmp_path: Path) -> None:
+        drm = tmp_path / "drm"
+        self._amd_card(drm, 1, busy="10", used=100, total=16 * 1024**3)
+        self._amd_card(drm, 2, busy="20", used=100, total=16 * 1024**3)
+        self._amd_card(drm, 0, busy="20", used=100, total=16 * 1024**3)
+        line = self._lines(self._run(tmp_path, nvidia=False, drm_root=drm))[0]
+        assert line["index"] == 0
+
+    def test_amd_no_hwmon_and_no_name(self, tmp_path: Path) -> None:
+        drm = tmp_path / "drm"
+        self._amd_card(drm, 1, busy="5", used=2 * 1024**3, total=8 * 1024**3)
+        line = self._lines(self._run(tmp_path, nvidia=False, drm_root=drm))[0]
+        assert line["name"] == ""
+        assert line["temp"] is None
+        assert line["tooltip"].startswith("GPU 1 (GPU 1) | Util 5% | Temp n/a")
+
+    def test_amd_igpu_without_vram_files_is_shared(self, tmp_path: Path) -> None:
+        drm = tmp_path / "drm"
+        self._amd_card(drm, 0, busy="3", used=None, total=None, name="Raphael")
+        line = self._lines(self._run(tmp_path, nvidia=False, drm_root=drm))[0]
+        assert line["vram_total"] == "0"
+        assert line["vram_used"] == "0.0"
+        assert line["tooltip"].endswith("| VRAM shared")
+
+    def test_amd_ignores_connector_nodes(self, tmp_path: Path) -> None:
+        drm = tmp_path / "drm"
+        self._amd_card(drm, 1, busy="3", used=100, total=8 * 1024**3)
+        # A connector's device/ points back at the card; the glob prefix
+        # matches it but it must not be counted as a second GPU.
+        conn = drm / "card1-DP-1" / "device"
+        conn.mkdir(parents=True)
+        (conn / "gpu_busy_percent").write_text("99\n")
+        line = self._lines(self._run(tmp_path, nvidia=False, drm_root=drm))[0]
+        assert line["index"] == 1
+        assert line["util"] == 3
+
+    # -- neither --------------------------------------------------------------
 
     def test_no_gpu_exits_silently(self, tmp_path: Path) -> None:
         r = self._run(tmp_path, nvidia=False)
         assert r.returncode == 0
         assert r.stdout.strip() == ""
+
+    def test_no_pinned_gpu_and_no_prerendered_text(self) -> None:
+        """The widget owns the layout: the feeder must emit structured fields
+        only, and must never pin `-i 0` (which hid the busy card on a
+        two-GPU box)."""
+        code = "\n".join(
+            ln
+            for ln in GPU_INFO_SH.read_text(encoding="utf-8").splitlines()
+            if not ln.strip().startswith("#")
+        )
+        assert "-i 0" not in code
+        assert re.search(r'\\?"text\\?"', code) is None

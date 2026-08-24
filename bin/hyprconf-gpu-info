@@ -10,6 +10,18 @@ set -euo pipefail
 # (`--loop` mode, persistent session) piped through ONE awk; the AMD path is a
 # pure-bash sysfs loop with paths resolved once.
 #
+# Contract (the widget owns the layout and glyphs; this feeder is data only):
+#   {"index":1,"name":"NVIDIA GeForce RTX 5090","util":7,"temp":36,
+#    "vram_used":"2.3","vram_total":"31.8","tooltip":"RTX 5090 (GPU 1) | ..."}
+#   index int; name string ("" when unknown); util int %; temp int °C or null;
+#   vram_used/vram_total GiB with one decimal as strings, total "0" = shared /
+#   unknown (iGPU); tooltip a human line (Power only on NVIDIA).
+#
+# Every sample reports the ACTIVE GPU of all present: highest memory used,
+# ties broken by highest utilization, then lowest index. Re-evaluated each
+# tick, so the bar follows a workload that moves between cards and a box whose
+# second card idles at 2 MiB shows the busy one.
+#
 # Emits nothing and exits 0 when no supported GPU exists — the module hides
 # and is NOT restarted. A stream that produced output and then died IS
 # restarted by Services, so a driver hiccup self-heals.
@@ -19,88 +31,134 @@ set -euo pipefail
 : "${HYPRCONF_GPU_DRM_ROOT:=/sys/class/drm}"
 : "${HYPRCONF_GPU_ITERATIONS:=0}"   # AMD loop: 0 = forever; N = exit after N
 
-# Nerd Fonts renumbered the Material Design set between v2 and v3. U+F0620 was
-# the graphics-card icon under v2; in v3 it is an arrow-to-bar, so hyprconf's
-# original codepoint quietly rendered the wrong glyph rather than a missing one
-# — nothing looked broken enough to notice. U+F08AE is nf-md-expansion_card in
-# v3, verified by rendering it from the installed JetBrainsMonoNerdFont.
-_thermo=$(printf '\ue350')
-_vram_icon=$(printf '\U000F08AE')
-
 # bytes → GiB with one decimal (pure integer math, no external tools)
 gib_b() {
     local g10=$(( ($1 * 10 + 536870912) / 1073741824 ))
     printf '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
 }
 
+_nvidia_count=0
+
 _nvidia_probe() {
     command -v nvidia-smi &>/dev/null || return 1
-    nvidia-smi -i 0 --query-gpu=utilization.gpu \
-        --format=csv,noheader,nounits &>/dev/null
+    # `count` prints one line per GPU, each holding the total; awk reads them
+    # all (no SIGPIPE under pipefail) and yields 0 when the driver is absent.
+    _nvidia_count=$(nvidia-smi --query-gpu=count --format=csv,noheader,nounits 2>/dev/null |
+        awk 'NR == 1 { c = $1 } END { print c + 0 }') || true
+    (( _nvidia_count > 0 ))
 }
 
 _nvidia_stream() {
-    # -i 0 pins the first GPU: without it a multi-GPU box emits one line per
-    # GPU per iteration and the bar flaps between them (matches the old
-    # script, which read only the first line).
-    nvidia-smi -i 0 \
-        --query-gpu=utilization.gpu,power.draw,temperature.gpu,memory.used,memory.total \
+    # No -i pin: every GPU reports each iteration (consecutive lines, index 0
+    # first), and awk flushes one JSON line per <count> input lines after
+    # picking the active card. A comma inside a product name adds fields, so
+    # index/name come from the front and the five numbers from the END.
+    nvidia-smi \
+        --query-gpu=index,name,utilization.gpu,power.draw,temperature.gpu,memory.used,memory.total \
         --format=csv,noheader,nounits -l "$HYPRCONF_GPU_INTERVAL" 2>/dev/null |
-        awk -F', *' -v th="$_thermo" -v vi="$_vram_icon" '
-            NF >= 5 {
-                used  = sprintf("%.1f", $4 / 1024)
-                total = sprintf("%.1f", $5 / 1024)
-                printf "{\"text\":\"%s%% %s%s° %s %s/%sG\",\"tooltip\":\"Util: %s%% | Temp: %s° | VRAM: %s/%s GiB | Power: %.0fW\"}\n",
-                    $1, th, $3, vi, used, total, $1, $3, used, total, $2 + 0
+        awk -F', *' -v n="$_nvidia_count" '
+            function json(s) { gsub(/\\/, "\\\\", s); gsub(/"/, "\\\"", s); return s }
+            function short(s) { sub(/^NVIDIA /, "", s); sub(/^GeForce /, "", s); return s }
+            NF >= 7 {
+                idx = $1 + 0
+                name = $2
+                for (i = 3; i <= NF - 5; i++) name = name ", " $i
+                util = $(NF - 4) + 0
+                power = $(NF - 3)
+                temp = $(NF - 2)
+                used = $(NF - 1) + 0
+                total = $NF + 0
+                if (seen == 0 || used > b_used ||
+                    (used == b_used && (util > b_util || (util == b_util && idx < b_idx)))) {
+                    b_idx = idx; b_name = name; b_util = util
+                    b_power = power; b_temp = temp; b_used = used; b_total = total
+                }
+                seen++
+                if (seen < n) next
+                seen = 0
+                t_json = (b_temp ~ /^[0-9]+$/) ? b_temp + 0 : "null"
+                t_tip  = (b_temp ~ /^[0-9]+$/) ? b_temp "°" : "n/a"
+                p_tip  = (b_power ~ /^[0-9.]+$/) ? sprintf(" | Power %.0fW", b_power) : ""
+                vu = sprintf("%.1f", b_used / 1024)
+                vt = sprintf("%.1f", b_total / 1024)
+                printf "{\"index\":%d,\"name\":\"%s\",\"util\":%d,\"temp\":%s,\"vram_used\":\"%s\",\"vram_total\":\"%s\",\"tooltip\":\"%s (GPU %d) | Util %d%% | Temp %s | VRAM %s/%s GiB%s\"}\n",
+                    b_idx, json(b_name), b_util, t_json, vu, vt,
+                    json(short(b_name)), b_idx, b_util, t_tip, vu, vt, p_tip
                 fflush()
             }'
 }
 
-_amd_card=""
-_amd_temp_file=""
+# One entry per card with a busy counter, resolved once at startup.
+_amd_dev=()
+_amd_idx=()
+_amd_name=()
+_amd_temp=()
 
 _amd_probe() {
-    local d t
+    local d t name
     for d in "$HYPRCONF_GPU_DRM_ROOT"/card[0-9]*/device; do
         [[ -f "$d/gpu_busy_percent" ]] || continue
-        _amd_card="$d"
+        # Only bare cardN — connector nodes (cardN-DP-1) share the glob prefix.
+        [[ ${d%/device} =~ /card([0-9]+)$ ]] || continue
+        _amd_dev+=("$d")
+        _amd_idx+=("${BASH_REMATCH[1]}")
+        name=""
+        [[ -r "$d/product_name" ]] && { read -r name < "$d/product_name" || name=""; }
+        name=${name//\\/\\\\}
+        name=${name//\"/\\\"}
+        _amd_name+=("$name")
+        _amd_temp+=("")
         for t in "$d"/hwmon/hwmon*/temp1_input; do
-            [[ -r "$t" ]] && { _amd_temp_file="$t"; break; }
+            [[ -r "$t" ]] && { _amd_temp[-1]="$t"; break; }
         done
-        return 0
     done
-    return 1
+    (( ${#_amd_dev[@]} > 0 ))
 }
 
 _amd_stream() {
-    local iter=0 util temp_raw temp_str vram_used vram_total mem_str text
+    local iter=0 i util temp_raw used total
+    local b_i b_util b_temp b_used b_total temp_json temp_tip vu vt mem_tip short
     while :; do
-        util=0
-        [[ -r "$_amd_card/gpu_busy_percent" ]] && read -r util < "$_amd_card/gpu_busy_percent"
+        b_i=-1 b_util=0 b_used=0
+        for i in "${!_amd_dev[@]}"; do
+            util=0 used=0
+            [[ -r "${_amd_dev[i]}/gpu_busy_percent" ]] && read -r util < "${_amd_dev[i]}/gpu_busy_percent"
+            [[ -r "${_amd_dev[i]}/mem_info_vram_used" ]] && read -r used < "${_amd_dev[i]}/mem_info_vram_used"
+            [[ $util =~ ^[0-9]+$ ]] || util=0
+            [[ $used =~ ^[0-9]+$ ]] || used=0
+            if (( b_i < 0 || used > b_used ||
+                  (used == b_used && (util > b_util ||
+                  (util == b_util && _amd_idx[i] < _amd_idx[b_i]))) )); then
+                b_i=$i b_util=$util b_used=$used
+            fi
+        done
 
-        temp_str=""
-        if [[ -n "$_amd_temp_file" && -r "$_amd_temp_file" ]]; then
+        temp_json=null temp_tip=n/a
+        if [[ -n "${_amd_temp[b_i]}" && -r "${_amd_temp[b_i]}" ]]; then
             temp_raw=""
-            read -r temp_raw < "$_amd_temp_file" || temp_raw=""
-            [[ $temp_raw =~ ^[0-9]+$ ]] && temp_str="$(( (temp_raw + 500) / 1000 ))°"
+            read -r temp_raw < "${_amd_temp[b_i]}" || temp_raw=""
+            if [[ $temp_raw =~ ^[0-9]+$ ]]; then
+                b_temp=$(( (temp_raw + 500) / 1000 ))
+                temp_json=$b_temp temp_tip="${b_temp}°"
+            fi
         fi
 
-        vram_used=0 vram_total=0
-        [[ -r "$_amd_card/mem_info_vram_used"  ]] && read -r vram_used  < "$_amd_card/mem_info_vram_used"
-        [[ -r "$_amd_card/mem_info_vram_total" ]] && read -r vram_total < "$_amd_card/mem_info_vram_total"
-        if (( vram_total > 0 )); then
-            mem_str="$(gib_b "$vram_used")/$(gib_b "$vram_total")G"
+        total=0
+        [[ -r "${_amd_dev[b_i]}/mem_info_vram_total" ]] && read -r total < "${_amd_dev[b_i]}/mem_info_vram_total"
+        [[ $total =~ ^[0-9]+$ ]] || total=0
+        if (( total > 0 )); then
+            b_total=$total
+            vu=$(gib_b "$b_used") vt=$(gib_b "$b_total")
+            mem_tip="$vu/$vt GiB"
         else
-            mem_str="shared"   # iGPU: VRAM is carved from system RAM
+            vu=$(gib_b "$b_used") vt=0
+            mem_tip="shared"   # iGPU: VRAM is carved from system RAM
         fi
 
-        if [[ -n "$temp_str" ]]; then
-            text="${util}% ${_thermo}${temp_str} ${_vram_icon} ${mem_str}"
-        else
-            text="${util}% ${_vram_icon} ${mem_str}"
-        fi
-        printf '{"text":"%s","tooltip":"Util: %s%% | Temp: %s | VRAM: %s"}\n' \
-            "$text" "$util" "$temp_str" "$mem_str"
+        short=${_amd_name[b_i]:-GPU ${_amd_idx[b_i]}}
+        printf '{"index":%d,"name":"%s","util":%d,"temp":%s,"vram_used":"%s","vram_total":"%s","tooltip":"%s (GPU %d) | Util %d%% | Temp %s | VRAM %s"}\n' \
+            "${_amd_idx[b_i]}" "${_amd_name[b_i]}" "$b_util" "$temp_json" "$vu" "$vt" \
+            "$short" "${_amd_idx[b_i]}" "$b_util" "$temp_tip" "$mem_tip"
 
         if (( HYPRCONF_GPU_ITERATIONS > 0 && ++iter >= HYPRCONF_GPU_ITERATIONS )); then
             return 0
