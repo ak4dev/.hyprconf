@@ -6,41 +6,37 @@
 make test
 ```
 
-Runs tiers 1–3 (unit, integration, TUI). No Hyprland session, no Omarchy shell,
+Runs the unit and integration suites. No Hyprland session, no Omarchy shell,
 no host tools — the suite is hermetic and runs in an `archlinux:latest`
 container in CI.
 
-## Tier Reference
+## Suite Reference
 
-| Tier | What it tests | Command | Requirements |
-|------|---------------|---------|--------------|
-| 1 — Unit | `lib/hyprconf/` modules, `install.sh` (fake `omarchy-*` bins, throwaway `HOME`), `hypr/scripts/*`, `bin/hyprconf-stats` + `hyprconf-gpu-info`, the Firefox policy, the PII and release guards | `make test-unit` | `python-pytest`, `python-pytest-xdist` |
-| 2 — Integration | Publish pipeline plumbing: `git archive` filtering, `scripts/publish --dry-run` | `make test-integration` | as above |
-| 3 — TUI | Textual Pilot, fully headless | `make test-tui` | + `python-pytest-asyncio`, `python-textual` |
+| Suite | What it tests | Command | Requirements |
+|-------|---------------|---------|--------------|
+| Unit | `install.sh` (fake `omarchy-*` bins, throwaway `HOME`), `hypr/scripts/*`, `bin/` tools, `lib/hyprconf/firefox_theme.py`, the Firefox policy, the PII and release guards | `make test-unit` | `python-pytest`, `python-pytest-xdist` |
+| Integration | Publish pipeline plumbing: `git archive` filtering, `scripts/publish --dry-run` | `make test-integration` | as above |
 
-There are no VM or install tiers. Behaviour that needs a live Omarchy session is
-verified by hand and recorded in the commit message.
+There are no VM or install suites. Behaviour that needs a live Omarchy session
+is verified by hand and recorded in the commit message.
 
 ## Architecture
 
 ```
 tests/
-├── conftest.py                   # hypr_dir: isolated ~/.config/hypr in tmp_path
-├── unit/                         # Tier 1
-│   ├── test_<module>.py          #   one per lib/hyprconf/<module>.py (schema, config,
-│   │                             #   keybinds, rules, monitors, hyprctl, file_edit, …)
+├── conftest.py                   # puts lib/ on sys.path
+├── unit/
 │   ├── test_omarchy_install.py   #   install.sh: every stage, restraint invariants, idempotency
 │   ├── test_switch_monitor.py    #   hypr/scripts/switch_monitor.sh
 │   ├── test_adjust_gaps.py       #   hypr/scripts/adjust-gaps
 │   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
+│   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (theme-set hook bridge)
 │   ├── test_config_exec_targets.py  # every ~/-anchored path a shipped config references ships
 │   ├── test_firefox.py           #   infra/firefox/policies.json
 │   ├── test_release.py           #   .gitattributes export-ignore, semver, branch constants
 │   └── test_no_pii.py            #   every tracked file, identities derived at runtime
-├── integration/                  # Tier 2
-│   └── test_publish_pipeline.py
-└── tui/                          # Tier 3
-    └── test_tui_basic.py
+└── integration/
+    └── test_publish_pipeline.py
 ```
 
 ## Rules
@@ -66,6 +62,6 @@ pytest tests/unit/ tests/integration/ \
 
 ## CI (GitHub Actions)
 
-`.github/workflows/test.yml` runs Lint (`make shellcheck` + `make lint`), tiers
-1–2 (with coverage) and tier 3 on every push and pull request, each in an
+`.github/workflows/test.yml` runs Lint (`make shellcheck` + `make lint`) and
+Unit + Integration (with coverage) on every push and pull request, each in an
 `archlinux:latest` container.

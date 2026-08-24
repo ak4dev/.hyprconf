@@ -132,6 +132,25 @@ write_managed_block() {
     } > "$file"
 }
 
+# Remove a managed block from $1 (markers $2/$3), preserving everything else.
+# The inverse of write_managed_block, for a block the overlay no longer ships.
+strip_managed_block() {
+    local file="$1" begin="$2" end="$3" tmp
+    [[ -f $file ]] || return 0
+    # -e: the Lua marker starts with "--", which grep would read as an option.
+    grep -qxF -e "$begin" "$file" || return 0
+    tmp="$(mktemp)"
+    awk -v b="$begin" -v e="$end" '
+        $0 == b { skip = 1; next }
+        $0 == e { skip = 0; next }
+        skip { next }
+        { print }
+    ' "$file" > "$tmp"
+    # Drop the blank line the writer put in front of the block.
+    printf '%s\n' "$(cat "$tmp")" > "$file"
+    rm -f "$tmp"
+}
+
 # Undo an `omarchy refresh` that landed on the checkout.
 #
 # omarchy-refresh-config — and omarchy-refresh-hyprland, which calls it for
@@ -543,15 +562,17 @@ stage_fastfetch() {
 }
 
 stage_bin() {
-    log "PATH tools"
+    log "PATH tools (bin/hyprconf-*)"
     mkdir -p "$_HYPRCONF_LOCAL_BIN"
     local f
     # hyprconf-brightness is gone with the brightness rebinds: Omarchy's
     # omarchy-brightness-display does the same job and raises its OSD. Sweep up
     # the copy earlier overlay versions installed.
     rm -f "$_HYPRCONF_LOCAL_BIN/hyprconf-brightness"
-    for f in hyprconf-stats hyprconf-gpu-info; do
-        install -m 755 "$HERE/bin/$f" "$_HYPRCONF_LOCAL_BIN/$f"
+    # Every hyprconf-* tool the repo ships: the two bar-widget feeders and
+    # hyprconf-yubikey (LUKS FIDO2 unlock). A new tool is one file in bin/.
+    for f in "$HERE"/bin/hyprconf-*; do
+        install -m 755 "$f" "$_HYPRCONF_LOCAL_BIN/${f##*/}"
     done
     case ":$PATH:" in
         *":$_HYPRCONF_LOCAL_BIN:"*) ;;
@@ -559,49 +580,26 @@ stage_bin() {
     esac
 }
 
-# The hyprconf TUI — the Textual app (tui/) and the Python library it is
-# built on (lib/hyprconf/), wired through Omarchy's own seams: the launcher goes to
-# ~/.local/bin (already on Omarchy's PATH — default/bash/envs appends it), the
-# app-menu entry is an XDG desktop file (Omarchy's launcher lists
-# DesktopEntries.applications — shell/services/AppLibrary.qml), and the window
-# opens through omarchy-launch-or-focus-tui, which styles it like Omarchy's
-# own TUIs and focuses an existing window instead of stacking a second one.
-#
-# The TUI and library are SYMLINKED out of the checkout, so a `git pull` (or
-# hyprsync) updates them in place; the launcher is copied, like the other bin
-# tools. python-textual comes from the package stage.
-#
-# The TUI persists its edits to ~/.config/hypr/conf.d/{local,windowrules,
-# workspacerules}.lua — files hyprconf's own hyprland.lua loads but Omarchy's
-# knows nothing about. Omarchy's hyprland.lua ends with "Add any other
-# personal Hyprland configuration below", and that documented seam is where a
-# managed block (Lua-comment markers, same mechanics as the ~/.zshrc one)
-# loads them from.
-stage_tui() {
-    log "hyprconf TUI (SUPER+D menu > Apps, or \`hyprconf\` in a terminal)"
-    mkdir -p "$_HYPRCONF_CONFIG/hypr/scripts" "$_HYPRCONF_LOCAL_LIB" \
-             "$_HYPRCONF_LOCAL_BIN" "$_HYPRCONF_APPS"
-    ln -sfn "$HERE/tui" "$_HYPRCONF_CONFIG/hypr/scripts/hyprconf-tui"
-    ln -sfn "$HERE/lib/hyprconf" "$_HYPRCONF_LOCAL_LIB/hyprconf"
-    install -m 755 "$HERE/bin/hyprconf" "$_HYPRCONF_LOCAL_BIN/hyprconf"
-
-    # Exec in a desktop entry does not expand ~, so the absolute path is
-    # resolved here, the way the hook resolves @HYPRCONF_DIR@.
-    cat > "$_HYPRCONF_APPS/hyprconf.desktop" <<EOF
-[Desktop Entry]
-Name=hyprconf
-Comment=Hyprland configuration TUI
-Exec=omarchy-launch-or-focus-tui --app-id=hyprconf $_HYPRCONF_LOCAL_BIN/hyprconf
-Icon=preferences-desktop-display
-Terminal=false
-Type=Application
-Categories=Settings;
-StartupWMClass=hyprconf
-EOF
-
-    write_managed_block "$_HYPRCONF_CONFIG/hypr/hyprland.lua" \
-        "$HERE/hypr/hyprland.block.lua" \
+# The hyprconf TUI is gone (the overlay is a deployment mechanism, not a
+# configuration app: hypr/*.lua are edited by hand, per Omarchy's own model).
+# Earlier overlay versions installed it; sweep every piece up so an upgraded
+# machine ends up with the same tree as a fresh one: the launcher, the two
+# symlinks into the checkout, the app-menu entry, and the managed block the
+# TUI's conf.d loader lived in at the tail of ~/.config/hypr/hyprland.lua.
+# conf.d/*.lua files the TUI wrote are left in place — they are the user's
+# settings — with a note, since nothing loads them any more.
+stage_sweep_tui() {
+    log "Sweeping up the retired hyprconf TUI"
+    rm -f "$_HYPRCONF_LOCAL_BIN/hyprconf" "$_HYPRCONF_APPS/hyprconf.desktop"
+    local link
+    for link in "$_HYPRCONF_LOCAL_LIB/hyprconf" "$_HYPRCONF_CONFIG/hypr/scripts/hyprconf-tui"; do
+        [[ -L $link ]] && rm -f "$link"
+    done
+    strip_managed_block "$_HYPRCONF_CONFIG/hypr/hyprland.lua" \
         "-- >>> hyprconf >>>" "-- <<< hyprconf <<<"
+    if [[ -d $_HYPRCONF_CONFIG/hypr/conf.d ]] && [[ -n "$(ls -A "$_HYPRCONF_CONFIG/hypr/conf.d" 2>/dev/null)" ]]; then
+        warn "$_HYPRCONF_CONFIG/hypr/conf.d/ still holds files the retired TUI wrote — nothing loads them now; fold what you want to keep into hypr/*.lua"
+    fi
 }
 
 stage_bar_plugin() {
@@ -724,6 +722,29 @@ enable_plugin_once() {
     fi
 }
 
+# Retire the <user>.<id> copies earlier overlay versions made with
+# omarchy-plugin-clone (which hardcodes that name) once the hyprconf.* copy
+# exists: the shell swaps a clonedFrom copy into the stock widget's slot, but
+# a second copy of the same built-in stays on the bar beside it — observed
+# as two clocks after an upgrade. Omarchy's own plugin commands do the
+# work (omarchy-plugin-list --json reports clonedFrom; -disable pulls it
+# off the bar; -remove deletes the copy). Runs on every pass, before the
+# set-once markers, so an upgrade heals itself.
+retire_stale_clones() {
+    local stock="$1" keep="$2" id
+    command -v jq >/dev/null 2>&1 || return 0
+    while IFS= read -r id; do
+        [[ -n $id ]] || continue
+        omarchy-plugin-disable "$id" >/dev/null 2>&1 || true
+        omarchy-plugin-remove "$id" --yes >/dev/null 2>&1 || true
+        info "retired $id (an older copy of $stock; $keep replaces it)"
+        shell_reload_needed=1
+    done < <(omarchy-plugin-list --json 2>/dev/null |
+        jq -r --arg stock "$stock" --arg keep "$keep" \
+            '.[] | select((.clonedFrom // "") == $stock and .id != $keep and .id != $stock) | .id' 2>/dev/null ||
+        true)
+}
+
 # The bar clock, set ONCE to hyprconf's own format: 12-hour with seconds and
 # AM/PM ("hh:mm:ss AP" — Qt.formatDateTime tokens, which is what the widget
 # feeds its format setting to). The stock widget cannot tick seconds:
@@ -737,6 +758,7 @@ enable_plugin_once() {
 # stay theirs.
 stage_clock() {
     log "Bar clock: hh:mm:ss AP (hyprconf.clock)"
+    retire_stale_clones omarchy.clock hyprconf.clock
     local marker="$_HYPRCONF_STATE/hyprconf/clock-applied"
     if [[ -e $marker ]]; then
         info "already applied once — the clock is yours now"
@@ -801,6 +823,7 @@ stage_clock() {
 # plugin disable hyprconf.workspaces` restores the stock widget.
 stage_workspaces() {
     log "Bar workspaces: only active workspaces, two lines (hyprconf.workspaces)"
+    retire_stale_clones omarchy.workspaces hyprconf.workspaces
     if sync_plugin_dir hyprconf-workspaces hyprconf.workspaces; then
         shell_reload_needed=1
         info "widget files synced from plugins/hyprconf-workspaces"
@@ -934,7 +957,7 @@ main() {
     stage_monitors
     stage_fastfetch
     stage_bin
-    stage_tui
+    stage_sweep_tui
     stage_bar_plugin
     stage_clock
     stage_workspaces

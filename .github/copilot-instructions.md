@@ -1,9 +1,10 @@
 # AI Agent Instructions
 
-hyprconf is an **overlay for [Omarchy](https://omarchy.org)**: `install.sh` layers
-hyprconf's hotkeys, look'n'feel, monitor presets, bar widgets, shell and
-configuration TUI onto a stock Omarchy install, always through Omarchy's own
-tools and documented seams, and disturbs it as little as possible. The north
+hyprconf is a **lean deployment mechanism for [Omarchy](https://omarchy.org)**:
+`install.sh` plus the shipped payload port the hyprconf configuration suite's
+functionality (hotkeys, look'n'feel, monitor presets, bar widgets, shell, theme
+bridges, `bin/` tools) onto a stock Omarchy install, always through Omarchy's
+own tools and documented seams, and disturb it as little as possible. The north
 star and the binding repo rules live in [`AGENTS.md`](../AGENTS.md); this file
 is the working rule set.
 
@@ -47,7 +48,7 @@ This whole repository runs on a machine it does not own and cannot pin: Omarchy 
 
 **`README.md` is the primary source of truth for any AI agent working on this project.** Inaccurate README content means flawed context for every future agent — treat drift as a correctness bug, not a documentation gap.
 
-**The README must maintain 1:1 parity with the code.** Every installer stage, flag, package, hotkey, monitor preset, plugin id, TUI section, persistence path and behavioural detail that exists must be accurately reflected; nothing may appear in the README that no longer exists in the code.
+**The README must maintain 1:1 parity with the code.** Every installer stage, flag, package, hotkey, monitor preset, plugin id, `bin/` tool, path and behavioural detail that exists must be accurately reflected; nothing may appear in the README that no longer exists in the code.
 
 **Any change must include a README review as a non-optional step.** Before committing, grep `README.md` for content related to what you changed and update anything that describes the old behaviour. Triggers (illustrative, not exhaustive):
 
@@ -55,7 +56,7 @@ This whole repository runs on a machine it does not own and cannot pin: Omarchy 
 - Adding, changing, or removing hotkeys in `hypr/bindings.lua`
 - Adding or changing a monitor preset (`hypr/pcMonitors.<name>.lua`, `hypr/laptopMonitors.lua`) or `hypr/scripts/switch_monitor.sh`
 - Adding, reordering, or changing an `install.sh` stage, flag, marker or path
-- Adding or removing a TUI section, a persistence path, or a live-apply mechanism
+- Adding, removing or changing a tool under `bin/`
 - Adding or changing a plugin under `plugins/` or a widget copy `install.sh` makes
 - Changing `hypr/looknfeel.lua` / `hypr/input.lua` deltas, `zsh/zshrc.block`, `kitty/hyprconf.conf`, or the hook
 
@@ -67,10 +68,10 @@ This whole repository runs on a machine it does not own and cannot pin: Omarchy 
 
 ## Continuous Integration (must always be green)
 
-Every push (and PR) to any branch triggers `.github/workflows/test.yml`: three jobs
-in an `archlinux:latest` container — **Lint** (`make shellcheck` + `make lint`),
-**Unit + Integration** (tiers 1-2, with `--cov=lib/hyprconf`), and **TUI**
-(tier 3). All three must pass on **every** commit; a red run on `omarchy` or
+Every push (and PR) to any branch triggers `.github/workflows/test.yml`: two jobs
+in an `archlinux:latest` container — **Lint** (`make shellcheck` + `make lint`)
+and **Unit + Integration** (with `--cov=lib/hyprconf`). Both must pass on
+**every** commit; a red run on `omarchy` or
 `stable` is a release blocker, and `omarchy` must never be promoted to `stable`
 while any workflow is red.
 
@@ -78,7 +79,7 @@ Reproduce CI locally before every push:
 
 ```bash
 make lint && make shellcheck
-python -m pytest tests/unit/ tests/integration/ tests/tui/ -q
+python -m pytest tests/unit/ tests/integration/ -q
 ```
 
 - **CI runs as root.** The container's default user is uid 0, and root bypasses
@@ -87,7 +88,7 @@ python -m pytest tests/unit/ tests/integration/ tests/tui/ -q
   can pass as your user yet flip as root. Gate such logic on the euid
   (`(( EUID == 0 ))` / `os.geteuid() == 0`) and reproduce it as root before
   trusting a green local run: `unshare -r python -m pytest <file>`.
-- Tiers 1-3 are the whole suite. There is no VM or install tier; behaviour that
+- Unit + integration are the whole suite. There is no VM or install suite; behaviour that
   needs a live Omarchy session is verified by hand on the machine and recorded in
   the commit message (Omarchy version, command, file).
 
@@ -101,7 +102,7 @@ This repo follows the [Conventional Commits](https://www.conventionalcommits.org
 
 Rules:
 - The *subject line* must be readable in a single line and **≤ 140 characters** total.
-- `(<scope>)` is optional but encouraged — use a short area name (e.g., `install`, `hotkeys`, `tui`, `plugins`, `monitors`, `zsh`, `docs`).
+- `(<scope>)` is optional but encouraged — use a short area name (e.g., `install`, `hotkeys`, `plugins`, `monitors`, `zsh`, `docs`).
 - Breaking changes: add `!` to the tag (e.g., `feat!: ...`) and/or a `BREAKING CHANGE:` footer.
 - Name the Omarchy version a change was verified against.
 
@@ -130,7 +131,7 @@ This repo follows [Semantic Versioning](https://semver.org/). The version lives 
 
 - `install.sh` is the only entry point. Every stage is idempotent and byte-stable across re-runs; user choices are set once behind a marker in `~/.local/state/hyprconf/`; every system path is env-overridable (`_HYPRCONF_*`) so the suite can point it at a fake tree.
 - Do not create files under `~/.config/` by hand — add them to the repo and wire them through a stage.
-- **The bash `hyprconf` is a thin launcher; config logic lives in the Python library.** `lib/hyprconf/schema.py` is the single source of truth for options; `keybinds.py`, `rules.py`, `monitors.py`, `config.py`, `file_edit.py`, `lua_syntax.py`, `hyprctl.py`, `paths.py` own their formats. Add new logic to the library as a bounded, tested module — never an inline `python3 -c`/heredoc, never a second copy of the schema, and never more lines in `tui/main.py` when an extraction would do.
+- **Lean by design.** The repo is a deployment mechanism: `install.sh` and the payload it ships. Anything that is not needed to port the hyprconf suite onto Omarchy — a tool, a library module, a test, a doc section — is removed rather than kept. Logic that does need Python lives in `lib/hyprconf/` as a bounded, tested module (`firefox_theme.py` is the model), never as an inline `python3 -c`/heredoc.
 
 ## Repository Layout
 
@@ -138,18 +139,17 @@ This repo follows [Semantic Versioning](https://semver.org/). The version lives 
 |---|---|---|
 | `install.sh` | The overlay installer (idempotent stages) | ✔ |
 | `packages` | Official-repo packages, installed via `omarchy-pkg-add` | ✔ |
-| `hypr/` | `bindings.lua`, `input.lua`, `looknfeel.lua` override files; monitor presets; `hyprland.block.lua`; `scripts/` | ✔ |
-| `bin/` | `hyprconf` launcher, `hyprconf-stats`, `hyprconf-gpu-info` | ✔ |
-| `lib/hyprconf/` | Python library (symlinked to `~/.local/lib/hyprconf`) | ✔ |
-| `tui/main.py` | Textual TUI (symlinked to `~/.config/hypr/scripts/hyprconf-tui`) | ✔ |
+| `hypr/` | `bindings.lua`, `input.lua`, `looknfeel.lua` override files; monitor presets; `scripts/` | ✔ |
+| `bin/` | Tools installed by `install.sh` (`hyprconf-stats`, `hyprconf-gpu-info`, …) | ✔ |
+| `lib/hyprconf/` | Python package: `__version__`, `firefox_theme.py` (symlinked to `~/.local/lib/hyprconf`) | ✔ |
 | `plugins/hyprconf-resources/` | Omarchy bar-widget plugin (resource readout) | ✔ |
 | `plugins/hyprconf-workspaces/` | Omarchy bar-widget plugin replacing `omarchy.workspaces` via `clonedFrom` | ✔ |
 | `themes/hyprconf/`, `wallpapers/` | Omarchy user theme; extra backgrounds | ✔ |
-| `zsh/`, `kitty/`, `fastfetch/`, `hooks/` | Managed zshrc block + p10k; kitty include; fastfetch layout; post-update hook | ✔ |
+| `zsh/`, `kitty/`, `fastfetch/`, `hooks/` | Managed zshrc block + p10k; kitty include; fastfetch layout; post-update + theme-set hooks | ✔ |
 | `infra/firefox/policies.json` | System Firefox privacy policy | ✔ |
 | `assets/` | Banner SVG, screenshot | ✔ |
 | `web/` | Static landing page (S3 + CloudFront) — **not user-facing** | ✗ |
-| `tests/` | Tiers 1 unit / 2 integration / 3 TUI | ✗ |
+| `tests/` | Unit + integration suites | ✗ |
 | `scripts/publish` | Promotes `omarchy` → `stable` | ✗ |
 | `docs/` | CONTRIBUTING.md, hyprland-reference.md, quickshell-reference.md | ✗ |
 | `.github/` | CI workflow, these instructions | ✗ |
@@ -174,7 +174,7 @@ This repo follows [Semantic Versioning](https://semver.org/). The version lives 
 - Bind with `o.bind(keys, description, dispatcher, options)` — Omarchy's helper from `default/hypr/helpers.lua` — never bare `hl.bind`: only `o.bind` records the description `omarchy-menu-keybindings` (`SUPER+K`) lists. A string dispatcher becomes `hl.dsp.exec_cmd(...)`.
 - Every key hyprconf takes over is **unbound first** (`rebind()` does `hl.unbind` + `o.bind`); Hyprland does not replace a bind on a repeat of the same combo — both fire.
 - Omarchy declares digits and `-`/`=` by **keycode** (`SUPER + SHIFT + code:20`), which `hl.unbind` of the keysym does not match. Use `unbind_keycode()` for those (`KEYCODE` table in `bindings.lua`) or both bindings fire.
-- One bind per line — the TUI and `lib/hyprconf/keybinds.py` address binds by file and line.
+- One bind per line — it keeps `bindings.lua` diffable and greppable.
 - Launch apps through Omarchy's launchers (`omarchy-launch-terminal/-browser/-editor/-nautilus`), never a binary name; the user's defaults follow.
 - Volume, brightness and media keys, `SUPER+D` and `SUPER+K` are left to Omarchy on purpose. If a hotkey launches a program not in Omarchy's base, add it to `packages`.
 
@@ -182,12 +182,12 @@ This repo follows [Semantic Versioning](https://semver.org/). The version lives 
 
 - **Every new or modified code path must be covered by a test.** Write tests that exercise every new path and every changed branch, run `make test`, and do not let coverage regress (`--cov=lib/hyprconf`, reported with `--cov-report=term-missing`; not yet gated on a percentage — keep it high regardless).
 - **Tests track features, but are never silently weakened.** When a change *intentionally* alters behaviour, update the affected test to assert the **new** contract in the same commit and call it out in the commit message. Never gut, delete or loosen a test to mask a regression or get a green run: if a test fails for any reason other than an intended, documented behaviour change, fix the code, not the test.
-- Tiers: `tests/unit/` (library modules, shipped scripts, `install.sh` via fake `omarchy-*` bins in a throwaway `HOME`, PII and Firefox-policy guards), `tests/integration/` (publish pipeline plumbing via `git archive` and `scripts/publish --dry-run`), `tests/tui/` (Textual Pilot, headless). Run the full suite with `make test`.
-- **All tiers are hermetic — they run in a minimal `archlinux:latest` CI container, NOT on a live desktop.** No running Hyprland or Omarchy shell, no real hardware, no configured services, no real `$HOME`, not your group memberships, and never mutating the container (`pacman` exists there but must not be invoked). Rules:
+- Suites: `tests/unit/` (shipped scripts and `bin/` tools, `firefox_theme.py`, `install.sh` via fake `omarchy-*` bins in a throwaway `HOME`, PII and Firefox-policy guards), `tests/integration/` (publish pipeline plumbing via `git archive` and `scripts/publish --dry-run`). Run the full suite with `make test`.
+- **All suites are hermetic — they run in a minimal `archlinux:latest` CI container, NOT on a live desktop.** No running Hyprland or Omarchy shell, no real hardware, no configured services, no real `$HOME`, not your group memberships, and never mutating the container (`pacman` exists there but must not be invoked). Rules:
   - Never let a script-under-test read/write a hardcoded system path. Make it an env-overridable variable (`: "${_VAR:=/real/default}"`, never `readonly`) and point it at a `tmp_path` in the test (`_HYPRCONF_*` in `install.sh`, `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders).
   - Stub every external command the script calls — `omarchy-*`, `hyprctl`, `git`, `jq`, `fc-list`, `sudo` — by prepending a fake-bins dir to `PATH`; never rely on a host binary being present or behaving a certain way.
   - Don't depend on ambient state: real `id`/group membership, a configured git identity, an installed package, or a TTY. Inject it (`_HYPRCONF_ASSUME_TTY`).
-  - To reproduce CI locally: `podman run --rm -v "$PWD":/repo -w /repo archlinux:latest bash -c 'pacman -Syu --noconfirm --needed python python-pytest python-pytest-asyncio python-pytest-xdist python-textual && python -m pytest tests/unit tests/integration tests/tui -q'` (or `docker`).
+  - To reproduce CI locally: `podman run --rm -v "$PWD":/repo -w /repo archlinux:latest bash -c 'pacman -Syu --noconfirm --needed python python-pytest python-pytest-xdist && python -m pytest tests/unit tests/integration -q'` (or `docker`).
 
 ## Workflow Rules (Non-Negotiable)
 
@@ -246,7 +246,7 @@ Everything the overlay installs (`hypr/`, `kitty/`, `zsh/`, `plugins/`, `hooks/`
 
 - **Bash 5.3 `$(< file 2>/dev/null)` is broken** — the redirect breaks the `$(<)` special form, returning empty. Use `read -r var < file` (no fork) or `$(cat file 2>/dev/null)`.
 - **Number keys 3/4 are NOT bound to workspaces** — F1/F2 are used instead; `SUPER+3`/`SUPER+4` keep Omarchy's binds and `SUPER+SHIFT+4` is the screenshot key.
-- **`hyprctl keyword` is a silent no-op on Hyprland 0.56** — prints "keyword can't work with non-legacy parsers" and exits 0. `adjust-gaps` and the TUI use `hyprctl eval`; `toggle-native-display` and `hyprconf-brightness` were removed for this reason and `install.sh` sweeps their old copies.
+- **`hyprctl keyword` is a silent no-op on Hyprland 0.56** — prints "keyword can't work with non-legacy parsers" and exits 0. `adjust-gaps` uses `hyprctl eval`; `toggle-native-display` and `hyprconf-brightness` were removed for this reason and `install.sh` sweeps their old copies.
 - **Omarchy binds digits and `-`/`=` by keycode** (`code:10…21`), so `hl.unbind` of the keysym leaves Omarchy's bind live and both fire — `unbind_keycode()` in `bindings.lua` is load-bearing (the screenshot key once moved the window to workspace 4 first).
 - **`omarchy-default-terminal <t>` with `<t>` missing exec()s a floating GUI terminal** — fatal to a non-interactive run; `stage_terminal` asserts kitty exists first. `omarchy-install-terminal` prints "Failed to install" and exits 0, so it is never used.
 - **`omarchy-theme-set` only takes its permissive path for a symlinked user theme** — a real directory inside a git checkout is filtered as a stranger's theme, which is why `~/.config/omarchy/themes/hyprconf` is a symlink.

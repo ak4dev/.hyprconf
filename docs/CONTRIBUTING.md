@@ -1,7 +1,9 @@
 # Contributing to hyprconf
 
-hyprconf is an overlay for [Omarchy](https://omarchy.org). Read
-[`AGENTS.md`](../AGENTS.md) first — its rules (use Omarchy's own tools, never
+hyprconf is a lean deployment mechanism — `install.sh` plus the shipped
+payload — that ports the hyprconf configuration suite's functionality onto a
+stock [Omarchy](https://omarchy.org) install through Omarchy's own tools and
+seams. Read [`AGENTS.md`](../AGENTS.md) first — its rules (use Omarchy's own tools, never
 work from memory about Omarchy, official repos only, no PII, hermetic tests)
 bind every change.
 
@@ -16,8 +18,6 @@ bind every change.
 │   ├── bindings.lua            # Hotkeys (o.bind with descriptions; unbind-then-rebind)
 │   ├── input.lua               # Input/gesture deltas from Omarchy's defaults
 │   ├── looknfeel.lua           # Look'n'feel deltas from Omarchy's defaults
-│   ├── hyprland.block.lua      # Managed block appended to ~/.config/hypr/hyprland.lua
-│   │                           #   (loadfile()s conf.d/{local,windowrules,workspacerules}.lua)
 │   ├── pcMonitors.lua          # Preset "pc"
 │   ├── pcMonitors.bedroom.lua  # Preset "bedroom"  (SUPER+SHIFT+B)
 │   ├── pcMonitors.kitchen.lua  # Preset "kitchen"  (SUPER+SHIFT+K)
@@ -27,24 +27,13 @@ bind every change.
 │       ├── switch_monitor.sh   # Symlink a preset over monitors.lua, reload, rehome workspaces
 │       └── adjust-gaps         # SUPER+SHIFT+= / - via hyprctl eval
 │
-├── bin/
-│   ├── hyprconf                # TUI launcher (→ ~/.local/bin)
-│   ├── hyprconf-stats          # cpu/mem/net/temp JSON stream for the bar widget
-│   └── hyprconf-gpu-info       # GPU JSON stream (nvidia-smi --loop or AMD sysfs)
+├── bin/                        # Tools installed by install.sh (→ ~/.local/bin), e.g.
+│   ├── hyprconf-stats          #   cpu/mem/net/temp JSON stream for the bar widget
+│   └── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop or AMD sysfs)
 │
-├── lib/hyprconf/               # Python library (→ ~/.local/lib/hyprconf)
-│   ├── schema.py               # OPTION_SCHEMA + SECTION_ORDER — single source of truth
-│   ├── config.py               # conf.d/local.lua reader/writer
-│   ├── keybinds.py             # bindings.lua reader/writer
-│   ├── rules.py                # window/workspace rule reader/writer
-│   ├── monitors.py             # monitors.lua reader/writer
-│   ├── hyprctl.py              # hyprctl IPC wrapper
-│   ├── file_edit.py            # Atomic line-editing primitives
-│   ├── block_conf.py           # Generic block-format parser
-│   ├── lua_syntax.py           # Lua comment/value/single-line-call primitives
-│   ├── paths.py                # XDG path constants
-│   └── __init__.py             # __version__
-├── tui/main.py                 # Textual TUI (→ ~/.config/hypr/scripts/hyprconf-tui)
+├── lib/hyprconf/               # Python package (→ ~/.local/lib/hyprconf)
+│   ├── firefox_theme.py        # Firefox/LibreWolf chrome from Omarchy's theme (theme-set hook)
+│   └── __init__.py             # __version__ (bumped by scripts/publish)
 │
 ├── plugins/hyprconf-resources/ # Omarchy bar-widget plugin (manifest.json + Widget.qml)
 ├── plugins/hyprconf-workspaces/ # Omarchy bar-widget plugin replacing omarchy.workspaces (clonedFrom)
@@ -53,10 +42,11 @@ bind every change.
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
 ├── kitty/hyprconf.conf         # kitty include
 ├── fastfetch/config.jsonc      # Greeting layout
-├── hooks/{post-update,theme-set}.d/10-hyprconf   # Omarchy post-update hook
+├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update
+├── hooks/theme-set.d/10-hyprconf     # Bridges a theme change to apps Omarchy does not theme
 ├── infra/firefox/policies.json # System Firefox privacy policy
 │
-├── tests/                      # Tiers 1-3 (see below)
+├── tests/                      # Unit + integration (see below)
 ├── scripts/publish             # Lint + test → promote omarchy → stable
 ├── docs/                       # This file, hyprland-reference.md, quickshell-reference.md
 ├── .github/                    # CI workflow, copilot-instructions.md
@@ -74,27 +64,25 @@ and re-run `bash install.sh`.
 
 ## Testing
 
-Three tiers, all hermetic — no Hyprland or Omarchy shell, no host tools, no real
+Two suites, both hermetic — no Hyprland or Omarchy shell, no host tools, no real
 `$HOME`. They run in an `archlinux:latest` container in CI, as root.
 
 ```
 tests/
-├── conftest.py              # hypr_dir fixture: isolated ~/.config/hypr in tmp_path
-├── unit/                    # Tier 1 — library modules, shipped scripts, install.sh, guards
-├── integration/             # Tier 2 — publish pipeline plumbing (git archive, publish --dry-run)
-└── tui/                     # Tier 3 — Textual Pilot, headless
+├── conftest.py              # puts lib/ on sys.path
+├── unit/                    # install.sh, shipped scripts and bin/ tools, firefox_theme, guards
+└── integration/             # publish pipeline plumbing (git archive, publish --dry-run)
 ```
 
 ### Running tests
 
 ```bash
-make test                # tiers 1-3 in parallel (pytest -n auto)
-make test-unit           # tier 1
-make test-integration    # tier 2
-make test-tui            # tier 3 (needs python-textual + python-pytest-asyncio)
-make test-seq            # all tiers sequentially (clearer output)
+make test                # both suites in parallel (pytest -n auto)
+make test-unit
+make test-integration
+make test-seq            # both suites sequentially (clearer output)
 
-# Coverage (what CI reports for tiers 1-2)
+# Coverage (what CI reports)
 pytest tests/unit/ tests/integration/ --cov=lib/hyprconf --cov-report=term-missing
 
 # Lint gates
@@ -106,8 +94,8 @@ make clean
 ```
 
 Python deps for the suite: `python-pytest`, `python-pytest-xdist`,
-`python-pytest-asyncio`, `python-pytest-cov`, `python-textual` (all official
-repos; `pyproject.toml`'s `test` extra lists the same set for a venv).
+`python-pytest-cov` (all official repos; `pyproject.toml`'s `test` extra lists
+the same set for a venv).
 
 ### Writing hermetic tests
 
@@ -126,10 +114,9 @@ repos; `pyproject.toml`'s `test` extra lists the same set for a venv).
 
 ### CI
 
-`.github/workflows/test.yml` runs three jobs on every push and PR, all inside
-`archlinux:latest`: **Lint** (`make shellcheck` + `make lint`), **Unit +
-Integration** (tiers 1-2 with coverage) and **TUI** (tier 3). All three must be
-green before a publish.
+`.github/workflows/test.yml` runs two jobs on every push and PR, both inside
+`archlinux:latest`: **Lint** (`make shellcheck` + `make lint`) and **Unit +
+Integration** (with coverage). Both must be green before a publish.
 
 ---
 
@@ -148,7 +135,7 @@ bash scripts/publish            # from a clean, pushed `omarchy` checkout
 
 1. Verifies the working branch, a clean tree, and that local `omarchy` matches its remote
 2. Lint gates: `make lint` + `make shellcheck`
-3. Tiers 1-3: `make test`
+3. Test suites: `make test`
 4. Bumps the version in `lib/hyprconf/__init__.py` and commits it (after the suite is green)
 5. Builds a filtered release archive with `git archive` + `.gitattributes` `export-ignore`
    (excludes `tests/`, `scripts/`, `.github/`, `web/`, `docs/`, `AGENTS.md`, `Makefile`,
@@ -159,7 +146,7 @@ bash scripts/publish            # from a clean, pushed `omarchy` checkout
 |------|--------|
 | `--patch` / `--minor` / `--major` | Which version component to bump (default: patch) |
 | `--skip-bump` | Skip the version bump (version must be pre-bumped manually) |
-| `--skip-tests` | Skip the lint gates and test tiers (nested harness calls only — the suite must still have passed) |
+| `--skip-tests` | Skip the lint gates and test suites (nested harness calls only — the suite must still have passed) |
 | `--skip-tag` | Skip annotated release-tag creation |
 | `--dry-run` | Build the release archive locally but do not push branches/tags |
 

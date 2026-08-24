@@ -7,8 +7,8 @@ never surfaced. These tests map every ~/-anchored script/binary reference in
 the shipped hypr/ Lua files back to the files install.sh ships (hypr/scripts/
 -> ~/.config/hypr/scripts/, bin/ -> ~/.local/bin/) and fail on danglers.
 
-Runtime-generated files (monitors.lua, the conf.d/ local override) and
-Omarchy's own paths are deliberately out of scope: only prefixes whose content
+Runtime-generated files (monitors.lua) and Omarchy's own paths are
+deliberately out of scope: only prefixes whose content
 is repo-shipped are validated. Hyprland's config is Lua (`--` comments); the
 `.conf` branch is kept for any hyprlang file that may join hypr/ later.
 """

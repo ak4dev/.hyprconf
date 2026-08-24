@@ -10,10 +10,12 @@ Omarchy platform reference (the host system): the installed tree at `/usr/share/
 
 ## Project vision (the north star)
 
-hyprconf is an **add-on layer for Omarchy**. Its whole job is to put hyprconf's
-hotkeys, look'n'feel, monitor presets, bar widgets, shell and configuration TUI
-on top of a stock Omarchy install while disturbing that install as little as
-possible. Omarchy owns the base system; hyprconf never competes with it. When a
+hyprconf is a **lean deployment mechanism — `install.sh` plus the shipped
+payload — that ports the hyprconf configuration suite's functionality onto a
+stock Omarchy install through Omarchy's own tools and seams**: hotkeys,
+look'n'feel, monitor presets, bar widgets, shell, theme bridges and `bin/`
+tools, disturbing that install as little as possible. Omarchy owns the base
+system; hyprconf never competes with it. When a
 change could be read multiple ways, choose the reading that best upholds these
 principles:
 
@@ -46,9 +48,8 @@ principles:
    Origin force-installed; nothing phones home; **official repositories only,
    never the AUR** (rule below). A change may add privacy, never reduce it.
 
-6. **Tests and docs move in lockstep.** Hermetic tiers 1-3, CI green, no PII,
-   thin bash with the logic in the tested Python library; `tui/main.py` must not
-   grow. See the audit principles.
+6. **Tests and docs move in lockstep.** Hermetic unit + integration suites, CI
+   green, no PII. See the audit principles.
 
 7. **Posture: a personal config shared as-is.** One person's setup, published as
    reference — not a maintained product. Favour removing scaffolding over adding
@@ -66,19 +67,19 @@ Every change — feature, fix, or refactor — must satisfy **all** of these, **
 same commit**:
 
 1. **Tests move in lockstep with features.** Adding or changing a stage, flag,
-   script, config path, package, hotkey, preset, plugin or TUI section means
-   adding or updating its tests in the same commit, in the right tier (`unit` /
-   `integration` / `tui`). When a change intentionally alters behaviour, update
+   script, config path, package, hotkey, preset or plugin means adding or
+   updating its tests in the same commit, in the right suite (`unit` /
+   `integration`). When a change intentionally alters behaviour, update
    the affected test to assert the **new** contract and say so in the commit
    message — never silently weaken, delete or loosen a test to get a green run.
    Run `make test` before every commit.
 
 2. **Docs move in lockstep too.** `README.md` and this file keep 1:1 parity with
-   the code — every stage, flag, package, hotkey, preset, plugin id, TUI section
-   and path. Doc drift is a correctness bug. `web/index.html` is a hand-maintained
+   the code — every stage, flag, package, hotkey, preset, plugin id and path.
+   Doc drift is a correctness bug. `web/index.html` is a hand-maintained
    static reflection, not a mirror.
 
-3. **Tests stay hermetic.** Tiers 1-3 must pass in a minimal `archlinux:latest`
+3. **Tests stay hermetic.** Both suites must pass in a minimal `archlinux:latest`
    container as root — no running Hyprland or Omarchy shell, no host tools, no
    real `$HOME`, no ambient state, never mutating the container. Make every
    system path env-overridable (`: "${_VAR:=/default}"`, never `readonly`) and
@@ -93,18 +94,12 @@ same commit**:
    Firefox policy. `tests/unit/test_omarchy_install.py` asserts these.
 
 5. **Hygiene.** `shellcheck` and `ruff` clean; no dead code; no committed
-   artefacts; no PII.
+   artefacts; no PII. Favour deleting over adding: every line ships to a user's
+   `$HOME`, so anything not needed to deploy the overlay goes.
 
-6. **Thin bash, logic in Python — the monoliths must not grow.** `bin/hyprconf`
-   is a launcher; config-editing logic lives in `lib/hyprconf/` (`schema.py` is
-   the single source of truth for options), consumed by `tui/main.py`. Add new
-   logic to the library as a bounded, tested module — never an inline
-   `python3 -c`/heredoc, and never more lines in `tui/main.py` or `install.sh`
-   when an extraction would do.
-
-7. **GitHub CI must always be green.** Every push must leave
+6. **GitHub CI must always be green.** Every push must leave
    `.github/workflows/test.yml` passing. Before pushing run `make lint`,
-   `make shellcheck` and tiers 1-3 locally. CI runs as **root** in the
+   `make shellcheck` and `make test` locally. CI runs as **root** in the
    container, and root bypasses DAC checks — gate any `[[ -r ]]`/`os.access`
    logic on the euid and reproduce with `unshare -r python -m pytest …`. Never
    promote `omarchy` → `stable` while any workflow is red.

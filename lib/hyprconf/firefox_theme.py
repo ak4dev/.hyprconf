@@ -23,6 +23,8 @@ from __future__ import annotations
 import argparse
 import configparser
 import os
+import shutil
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -171,8 +173,19 @@ def _pref_key(line: str) -> str | None:
     return stripped.split(",", 1)[0].split("(", 1)[1].strip().strip('"')
 
 
-def merge_user_js(path: Path, prefs: dict[str, object]) -> None:
-    """Rewrite the managed prefs in *path*, keeping every other line as it is."""
+def _write_if_changed(path: Path, text: str) -> bool:
+    """Write *text* to *path*; True when the file did not already say that."""
+    if path.exists() and path.read_text(encoding="utf-8") == text:
+        return False
+    path.write_text(text, encoding="utf-8")
+    return True
+
+
+def merge_user_js(path: Path, prefs: dict[str, object]) -> bool:
+    """Rewrite the managed prefs in *path*, keeping every other line as it is.
+
+    Returns True when the file changed.
+    """
     kept: list[str] = []
     if path.exists():
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -180,15 +193,34 @@ def merge_user_js(path: Path, prefs: dict[str, object]) -> None:
                 continue
             kept.append(line)
     kept.extend(format_pref(k, v) for k, v in prefs.items())
-    path.write_text("\n".join(kept) + "\n", encoding="utf-8")
+    return _write_if_changed(path, "\n".join(kept) + "\n")
 
 
-def apply(profile: Path, palette: dict[str, str]) -> None:
-    """Write the stylesheet and prefs into one profile."""
+def apply(profile: Path, palette: dict[str, str]) -> bool:
+    """Write the stylesheet and prefs into one profile. True when anything changed."""
     chrome = profile / "chrome"
     chrome.mkdir(parents=True, exist_ok=True)
-    (chrome / "userChrome.css").write_text(render_userchrome(palette), encoding="utf-8")
-    merge_user_js(profile / "user.js", theme_prefs(palette["mode"]))
+    changed = _write_if_changed(chrome / "userChrome.css", render_userchrome(palette))
+    return merge_user_js(profile / "user.js", theme_prefs(palette["mode"])) or changed
+
+
+def notify(message: str) -> None:
+    """A desktop notification through Omarchy's own command, when there is one.
+
+    Firefox only reads userChrome.css at startup, and a theme switch gives no
+    other sign that the browser is now behind — this is the one place the
+    user learns a restart is due. Silent when the command is absent (a TTY
+    run, a test) or fails: cosmetic, never an error.
+    """
+    cmd = shutil.which("omarchy-notification-send")
+    if cmd is None:
+        return
+    try:
+        subprocess.run(
+            [cmd, "Firefox theme", message], check=False, timeout=10, capture_output=True
+        )
+    except (OSError, subprocess.SubprocessError):
+        pass
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -212,15 +244,24 @@ def main(argv: list[str] | None = None) -> int:
     palette = read_palette(colors)
 
     applied = 0
+    changed: list[str] = []
     for browser, ini in profile_inis(home):
         profile = default_profile(ini)
         if profile is None or not profile.is_dir():
             continue
-        apply(profile, palette)
+        if apply(profile, palette):
+            changed.append(browser)
         print(f"{browser}: {profile / 'chrome' / 'userChrome.css'} ({palette['mode']})")
         applied += 1
     if not applied:
         print("hyprconf firefox theme: no Firefox/LibreWolf profile found — nothing to do")
+    elif changed:
+        print(
+            "restart "
+            + " and ".join(changed)
+            + " to see the new theme (userChrome.css loads at startup)"
+        )
+        notify("Restart " + " and ".join(changed) + " to apply the new theme")
     return 0
 
 

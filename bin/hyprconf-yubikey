@@ -1,0 +1,590 @@
+#!/usr/bin/env bash
+# hyprconf-yubikey — unlock the LUKS2 root at boot with a FIDO2 key (YubiKey).
+#
+# Port of the retired hyprconf suite's yubikey-fido2-setup, cut down to the one
+# job Omarchy has no tool for: enrolling a FIDO2 token into the LUKS2 root via
+# systemd-cryptenroll and switching the initramfs so it can use it at boot.
+# The other half of the old tool — FIDO2 for sudo and polkit through pam_u2f —
+# IS an Omarchy command (/usr/share/omarchy/bin/omarchy-setup-security-fido2,
+# route `omarchy setup security fido2`), so `hyprconf-yubikey sudo` hands over
+# to it. Checked on Omarchy 4.0.0-1: `omarchy commands --json` has no route
+# that touches systemd-cryptenroll, mkinitcpio HOOKS or the kernel cmdline, and
+# /usr/share/omarchy/bin has only omarchy-setup-security-fido2 (PAM) and
+# omarchy-refresh-limine (resets /boot/limine.conf, edits no cmdline).
+#
+# Facts this tool is built on (verified on Omarchy 4.0.0-1, mkinitcpio 41.1,
+# systemd 261, limine-mkinitcpio-hook 1.37.1):
+#   * Omarchy's initramfs is the busybox chain: /etc/mkinitcpio.conf.d/
+#     omarchy_hooks.conf sets HOOKS=(base udev plymouth keyboard autodetect
+#     microcode modconf kms keymap consolefont block encrypt filesystems fsck
+#     btrfs-overlayfs) and omarchy_resume.conf appends resume. The busybox
+#     `encrypt` hook cannot do FIDO2. systemd's `sd-encrypt` hook (/usr/lib/
+#     initcpio/install/sd-encrypt) bundles libcryptsetup-token-systemd-fido2.so
+#     and libfido2 and reads rd.luks.name= / rd.luks.options= from the cmdline.
+#   * mkinitcpio concatenates /etc/mkinitcpio.conf.d/*.conf onto the main
+#     config in `sort -V` order and sources the result (/usr/bin/mkinitcpio,
+#     "Source additional configuration files"). A drop-in whose name sorts last
+#     therefore sees Omarchy's final HOOKS and may rewrite them without editing
+#     any file Omarchy owns — that is the seam used here.
+#   * The kernel cmdline lives in /etc/default/limine as
+#     KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=...:root root=/dev/mapper/root ..."
+#     (format documented in /etc/limine-entry-tool.conf), consumed by
+#     limine-entry-tool --get-cmdline when limine-update rebuilds. cryptdevice=
+#     is KEPT beside the new rd.luks.* parameters: each hook ignores the other's,
+#     so the box still boots through `encrypt` if Omarchy ever rewrites its
+#     drop-in back to the busybox hooks.
+#   * limine-update (limine-mkinitcpio-hook) = limine-install + limine-mkinitcpio,
+#     and limine-mkinitcpio runs /usr/share/libalpm/scripts/limine-mkinitcpio-install
+#     "rebuild", which calls /usr/bin/mkinitcpio for every installed kernel
+#     (build_initramfs / build_uki) and re-renders the Limine entries. That is
+#     the whole rebuild: a separate `mkinitcpio -P` would build everything twice
+#     and, on Omarchy, hit the interactive /usr/local/bin/mkinitcpio wrapper the
+#     same package installs ("Would you like to run 'limine-mkinitcpio' now?").
+#   * Read-only snapshot boots: limine-mkinitcpio-hook ships the busybox
+#     btrfs-overlayfs runtime hook AND sd-btrfs-overlayfs, which bundles
+#     overlayfs-setup.service (WantedBy=initrd.target) for the systemd initrd.
+#     The drop-in swaps to the sd- variant when it is installed, so snapshots
+#     booted from the Limine menu keep their writable overlay. On an older
+#     limine-mkinitcpio-hook without it, snapshot boots lose the overlay under
+#     systemd init; normal boots are unaffected either way.
+#   * Packages come from the official repos via omarchy-pkg-add (libfido2:
+#     fido2-token + the library sd-encrypt bundles). Official repos only, never the AUR.
+#
+# Reverting: `hyprconf-yubikey disable` removes the drop-in and the rd.luks.*
+# parameters and rebuilds (the LUKS slot stays; the passphrase boots the box
+# through Omarchy's encrypt hook again); `remove` also wipes the FIDO2 slot.
+# Passphrase slots are never touched: the only --wipe-slot this tool knows is
+# fido2.
+#
+# Paths are env-overridable (never read-only) so the hermetic suite points them
+# at tmp copies; every external command is a recording stub on PATH there.
+set -uo pipefail
+
+: "${_HYPRCONF_LIMINE_DEFAULT:=/etc/default/limine}"
+: "${_HYPRCONF_MKINITCPIO_D:=/etc/mkinitcpio.conf.d}"
+: "${_HYPRCONF_FIDO2_DROPIN:=zz-hyprconf-fido2.conf}"
+: "${_HYPRCONF_INITCPIO_INSTALL:=/usr/lib/initcpio/install}"
+
+DEVICE=""      # --device
+YES=0          # --yes
+SNAPSHOT=1     # --no-snapshot clears it
+CHANGED=0      # set by every step that modified a file
+DEV=""         # picked LUKS2 device
+DEV_UUID=""
+
+die()  { printf 'hyprconf-yubikey: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'hyprconf-yubikey: warning: %s\n' "$*" >&2; }
+info() { printf '%s\n' "$*"; }
+have() { command -v -- "$1" >/dev/null 2>&1; }
+
+# Root work: direct as root, else through sudo (the suite stubs sudo).
+run_root() {
+    if ((EUID == 0)); then "$@"; else sudo -- "$@"; fi
+}
+
+# Same, but never prompts (status must stay non-interactive).
+run_root_quiet() {
+    if ((EUID == 0)); then "$@"; else sudo -n -- "$@"; fi
+}
+
+# --yes skips the question; without a terminal there is nobody to ask, so
+# refuse rather than guess.
+confirm() {
+    ((YES)) && return 0
+    [[ -t 0 && -t 1 ]] || die "no terminal to confirm on — re-run with --yes"
+    local answer
+    read -r -p "$1 [y/N] " answer
+    [[ $answer == [yY]* ]]
+}
+
+usage() {
+    cat <<EOF
+hyprconf-yubikey — FIDO2 key (YubiKey) unlock of the LUKS2 root at boot, on Omarchy
+
+usage: hyprconf-yubikey status                 devices, enrolment and boot-config state (default)
+       hyprconf-yubikey enroll  [options]     enrol the plugged-in key, switch the initramfs to systemd
+       hyprconf-yubikey disable [options]     undo the boot config (drop-in + cmdline); LUKS slot kept
+       hyprconf-yubikey remove  [options]     wipe the FIDO2 LUKS slot, then disable
+       hyprconf-yubikey sudo                  FIDO2 for sudo/polkit: Omarchy's omarchy-setup-security-fido2
+       hyprconf-yubikey help
+
+options (enroll, disable, remove):
+  --device /dev/X   use this LUKS2 device instead of the picker
+  --yes             no prompts; required when there is no terminal to confirm on
+  --no-snapshot     skip the \`omarchy snapshot create\` taken before changing anything
+
+what enroll changes (every step is idempotent; cryptdevice= is kept):
+  1. systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes <dev>
+     asks for the LUKS passphrase, the key's FIDO2 PIN, then a touch — the
+     passphrase slot stays as the fallback
+  2. $_HYPRCONF_MKINITCPIO_D/$_HYPRCONF_FIDO2_DROPIN
+     rewrites Omarchy's HOOKS for the systemd initramfs: udev->systemd,
+     encrypt->sd-encrypt, keymap->sd-vconsole, btrfs-overlayfs->sd-btrfs-overlayfs
+     (when installed), consolefont and resume dropped, everything else kept
+  3. $_HYPRCONF_LIMINE_DEFAULT — KERNEL_CMDLINE[default] gains
+     rd.luks.name=<UUID>=root rd.luks.options=<UUID>=fido2-device=auto
+     (backup first: $_HYPRCONF_LIMINE_DEFAULT.bak.<epoch>)
+  4. limine-update — rebuilds the initramfs/UKIs and the Limine entries
+
+at boot: plug the key in, enter its PIN, touch it. With no key present systemd
+waits token-timeout (30 s by default, crypttab(5)) and then asks for the
+passphrase. The key needs a FIDO2 PIN: \`fido2-token -S /dev/hidrawN\` sets one
+(\`fido2-token -L\` lists devices; both from libfido2).
+
+snapshot boots: read-only snapshots started from the Limine menu keep their
+writable overlay only when limine-mkinitcpio-hook ships sd-btrfs-overlayfs
+(the drop-in swaps to it); an older limine-mkinitcpio-hook without it loses the
+overlay under systemd init. Normal boots are unaffected either way.
+
+revert: \`hyprconf-yubikey disable\` puts the boot config back on Omarchy's encrypt
+hook (passphrase unlock; the FIDO2 slot stays); \`hyprconf-yubikey remove\` also
+wipes the FIDO2 slot (systemd-cryptenroll --wipe-slot=fido2).
+Passphrase slots are never touched.
+EOF
+}
+
+parse_flags() {
+    while (($#)); do
+        case $1 in
+            --device) [[ -n ${2:-} ]] || die "--device needs a path"; DEVICE=$2; shift 2 ;;
+            --device=*) DEVICE=${1#*=}; shift ;;
+            --yes | -y) YES=1; shift ;;
+            --no-snapshot) SNAPSHOT=0; shift ;;
+            -h | --help) usage; exit 0 ;;
+            *) die "unknown argument: $1 (see: hyprconf-yubikey help)" ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Devices
+# ---------------------------------------------------------------------------
+
+# One "path version uuid" line per crypto_LUKS device. -r prints raw, single-
+# space-separated fields, so awk must split on exactly one space or an empty
+# FSVER would shift the UUID left. PATH rather than NAME: a LUKS container on
+# a dm device lists as NAME=vg-lv but PATH=/dev/mapper/vg-lv.
+list_luks() {
+    lsblk -rno PATH,FSTYPE,FSVER,UUID 2>/dev/null |
+        awk -F'[ ]' '$2 == "crypto_LUKS" { print $1, $3, $4 }'
+}
+
+# Sets DEV and DEV_UUID. --device skips the picker; LUKS1 is refused
+# (systemd-cryptenroll needs LUKS2); one candidate is taken as is, several
+# need a terminal for the menu or --device.
+pick_device() {
+    local -a rows=() cands=()
+    local row path ver uuid
+    mapfile -t rows < <(list_luks)
+    ((${#rows[@]})) || die "no LUKS device found (lsblk -rno PATH,FSTYPE,FSVER,UUID lists none)"
+    for row in "${rows[@]}"; do
+        read -r path ver uuid <<<"$row"
+        if [[ -n $DEVICE && $path != "$DEVICE" ]]; then
+            continue
+        fi
+        if [[ $ver != 2 ]]; then
+            [[ -n $DEVICE ]] && die "$path is LUKS${ver:-?} — systemd-cryptenroll needs LUKS2 (see cryptsetup(8) convert)"
+            warn "$path is LUKS${ver:-?} — not eligible, LUKS2 is required"
+            continue
+        fi
+        [[ -n $uuid ]] || { [[ -n $DEVICE ]] && die "$path has no UUID"; continue; }
+        cands+=("$path $uuid")
+    done
+    if [[ -n $DEVICE ]]; then
+        ((${#cands[@]})) || die "$DEVICE is not a LUKS device (lsblk lists: ${rows[*]%% *})"
+        read -r DEV DEV_UUID <<<"${cands[0]}"
+        return 0
+    fi
+    ((${#cands[@]})) || die "no LUKS2 device found"
+    if ((${#cands[@]} == 1)); then
+        read -r DEV DEV_UUID <<<"${cands[0]}"
+        return 0
+    fi
+    local -a paths=("${cands[@]%% *}")
+    ((YES)) && die "several LUKS2 devices — pick one with --device: ${paths[*]}"
+    [[ -t 0 && -t 1 ]] || die "several LUKS2 devices and no terminal — pick one with --device: ${paths[*]}"
+    local i=1 choice
+    info "LUKS2 devices:"
+    for row in "${cands[@]}"; do
+        info "  $i) $row"
+        ((i++))
+    done
+    read -r -p "Which one? [1-${#cands[@]}] " choice
+    [[ $choice =~ ^[0-9]+$ ]] && ((choice >= 1 && choice <= ${#cands[@]})) || die "invalid choice"
+    read -r DEV DEV_UUID <<<"${cands[choice - 1]}"
+}
+
+fido2_slot_present() {  # <dev>; needs root to read the LUKS header
+    run_root cryptsetup luksDump "$1" 2>/dev/null | grep -q systemd-fido2
+}
+
+# ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+
+# Like omarchy-setup-security-fido2's check_fido2_hardware, plus the retired
+# tool's plug-it-in retry on a terminal (three tries).
+wait_for_token() {
+    local tries=0 tokens
+    while :; do
+        tokens=$(fido2-token -L 2>/dev/null)
+        if [[ -n $tokens ]]; then
+            info "FIDO2 token: ${tokens%%$'\n'*}"
+            return 0
+        fi
+        ((tries++))
+        if ((YES)) || [[ ! -t 0 ]] || ((tries >= 3)); then
+            die "no FIDO2 device detected (fido2-token -L) — plug the key in (unlock it if needed) and retry"
+        fi
+        warn "no FIDO2 device detected (attempt $tries/3) — plug the key in"
+        read -r -p "Press Enter to retry... "
+    done
+}
+
+preflight() {
+    have omarchy-pkg-add || die "omarchy-pkg-add not found — hyprconf-yubikey runs on Omarchy only"
+    have systemd-cryptenroll || die "systemd-cryptenroll not found (package systemd)"
+    have limine-update || die "limine-update not found (package limine-mkinitcpio-hook) — Omarchy boots with Limine"
+    # libfido2 = fido2-token + the library sd-encrypt bundles into the initramfs.
+    # omarchy-pkg-add is a no-op when the package is present (it checks
+    # omarchy-pkg-missing first) — the same call Omarchy's own FIDO2 script makes.
+    omarchy-pkg-add libfido2 || die "could not install libfido2 (omarchy-pkg-add libfido2)"
+    wait_for_token
+}
+
+# `omarchy snapshot create` (route -> omarchy-snapshot per `omarchy commands
+# --json`; it sudo's snapper itself). Exit 127 means snapper is not installed
+# (omarchy-cmd-missing) — nothing to snapshot, carry on. Any other failure
+# aborts: never change the boot config without the rollback point asked for.
+take_snapshot() {
+    ((SNAPSHOT)) || { info "Skipping the snapshot (--no-snapshot)"; return 0; }
+    info "Taking a snapper snapshot first (omarchy snapshot create) ..."
+    local rc=0
+    omarchy-snapshot create || rc=$?
+    case $rc in
+        0) ;;
+        127) warn "snapper not available — continuing without a snapshot" ;;
+        *) die "snapshot failed (exit $rc) — fix it, or re-run with --no-snapshot" ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# Files: the mkinitcpio drop-in and the Limine cmdline
+# ---------------------------------------------------------------------------
+
+# Omarchy's own backup convention: $file.bak.$(date +%s) (omarchy-refresh-config).
+backup_file() {
+    local bak
+    bak="$1.bak.$(date +%s)"
+    [[ -e $bak ]] && bak+=".$$"  # two edits within one second must not clobber
+    run_root cp -p -- "$1" "$bak" || die "could not back up $1"
+    info "backup: $bak"
+}
+
+# Content on stdin; tee keeps the target's owner and mode.
+write_root_file() {
+    run_root tee -- "$1" >/dev/null || die "could not write $1"
+}
+
+dropin_content() {
+    cat <<'EOF'
+# shellcheck shell=bash
+# zz-hyprconf-fido2.conf — written by `hyprconf-yubikey enroll`.
+# Remove with: hyprconf-yubikey disable
+#
+# FIDO2 unlock of the LUKS2 root at boot needs systemd's initramfs: the
+# sd-encrypt hook (/usr/lib/initcpio/install/sd-encrypt) bundles
+# libcryptsetup-token-systemd-fido2.so and libfido2 and honours rd.luks.name= /
+# rd.luks.options= on the kernel cmdline. The busybox `encrypt` hook Omarchy
+# sets in omarchy_hooks.conf cannot do FIDO2.
+#
+# mkinitcpio appends /etc/mkinitcpio.conf.d/*.conf to mkinitcpio.conf in name
+# order and sources the result; "zz-" sorts after Omarchy's omarchy_hooks.conf
+# and omarchy_resume.conf, so this file sees their final HOOKS and rewrites it
+# without editing anything Omarchy owns:
+#   udev -> systemd, encrypt -> sd-encrypt, keymap -> sd-vconsole,
+#   btrfs-overlayfs -> sd-btrfs-overlayfs (limine-mkinitcpio-hook's systemd
+#   twin, when installed — keeps read-only snapshot boots writable),
+#   consolefont and resume dropped (sd-vconsole covers the font; systemd
+#   resumes itself from resume= on the cmdline), empty elements dropped,
+#   everything else (plymouth, kms, ...) left where it is.
+# _HYPRCONF_INITCPIO_INSTALL exists for the hermetic test-suite only.
+_hyprconf_hooks=()
+for _hyprconf_hook in "${HOOKS[@]}"; do
+  case $_hyprconf_hook in
+    udev) _hyprconf_hooks+=(systemd) ;;
+    encrypt) _hyprconf_hooks+=(sd-encrypt) ;;
+    keymap) _hyprconf_hooks+=(sd-vconsole) ;;
+    btrfs-overlayfs)
+      if [[ -r "${_HYPRCONF_INITCPIO_INSTALL:-/usr/lib/initcpio/install}/sd-btrfs-overlayfs" ]]; then
+        _hyprconf_hooks+=(sd-btrfs-overlayfs)
+      else
+        _hyprconf_hooks+=(btrfs-overlayfs)
+      fi
+      ;;
+    consolefont | resume | '') ;;
+    *) _hyprconf_hooks+=("$_hyprconf_hook") ;;
+  esac
+done
+HOOKS=("${_hyprconf_hooks[@]}")
+unset _hyprconf_hooks _hyprconf_hook
+EOF
+}
+
+dropin_path() { printf '%s/%s\n' "$_HYPRCONF_MKINITCPIO_D" "$_HYPRCONF_FIDO2_DROPIN"; }
+
+write_dropin() {
+    local path
+    path=$(dropin_path)
+    if [[ -r $path ]] && [[ $(<"$path") == "$(dropin_content)" ]]; then
+        info "$path: already in place"
+        return 0
+    fi
+    run_root mkdir -p -- "$_HYPRCONF_MKINITCPIO_D" || die "could not create $_HYPRCONF_MKINITCPIO_D"
+    write_root_file "$path" < <(dropin_content)
+    CHANGED=1
+    info "$path: written (systemd initramfs hooks)"
+}
+
+remove_dropin() {
+    local path
+    path=$(dropin_path)
+    [[ -e $path ]] || { info "$path: already absent"; return 0; }
+    run_root rm -f -- "$path" || die "could not remove $path"
+    CHANGED=1
+    info "$path: removed"
+}
+
+# The mapper name Omarchy's cryptdevice=<dev>:<name>[:opts] uses ("root" on a
+# stock install); rd.luks.name must produce the same /dev/mapper/<name> that
+# root= points at.
+mapper_name() {
+    local tok
+    tok=$(grep -o 'cryptdevice=[^[:space:]"]*' "$_HYPRCONF_LIMINE_DEFAULT" 2>/dev/null | head -n1)
+    tok=${tok#cryptdevice=}
+    [[ $tok == *:* ]] || tok=""
+    tok=${tok#*:}
+    tok=${tok%%:*}
+    printf '%s\n' "${tok:-root}"
+}
+
+# Split `KERNEL_CMDLINE[default]+="a b c"` into L_PREFIX (up to and including
+# the `=`), L_VALUE (the parameters, quotes stripped), L_QUOTE ('"' or empty)
+# and L_TAIL (anything after a closing quote). /etc/limine-entry-tool.conf
+# documents both the quoted and the bare form; anything else is refused.
+split_cmdline_line() {
+    local line=$1 rest quotes
+    L_PREFIX=${line%%=*}=
+    rest=${line#*=}
+    quotes=${rest//[^\"]/}
+    case ${#quotes} in
+        0) L_QUOTE=""; L_VALUE=$rest; L_TAIL="" ;;
+        2) L_QUOTE='"'; L_VALUE=${rest#*\"}; L_VALUE=${L_VALUE%\"*}; L_TAIL=${rest##*\"} ;;
+        *) return 1 ;;
+    esac
+}
+
+# cmdline_add <uuid> <name> <value>: the value with the two systemd-cryptsetup
+# parameters, added once (an existing rd.luks.options for the UUID gains
+# fido2-device=auto instead of a duplicate).
+cmdline_add() {
+    local uuid=$1 name=$2 w have_name=0 have_opts=0
+    local -a words=() out=()
+    read -r -a words <<<"$3"
+    for w in "${words[@]}"; do
+        case $w in
+            "rd.luks.name=$uuid="*) have_name=1 ;;
+            "rd.luks.options=$uuid="*)
+                have_opts=1
+                [[ $w == *fido2-device=* ]] || w+=",fido2-device=auto"
+                ;;
+        esac
+        out+=("$w")
+    done
+    ((have_name)) || out+=("rd.luks.name=$uuid=$name")
+    ((have_opts)) || out+=("rd.luks.options=$uuid=fido2-device=auto")
+    printf '%s\n' "${out[*]}"
+}
+
+# cmdline_strip <value>: the value without any rd.luks.name= / rd.luks.options=
+# parameter; cryptdevice= and everything else stay.
+cmdline_strip() {
+    local w
+    local -a words=() out=()
+    read -r -a words <<<"$1"
+    for w in "${words[@]}"; do
+        case $w in
+            rd.luks.name=* | rd.luks.options=*) ;;
+            *) out+=("$w") ;;
+        esac
+    done
+    printf '%s\n' "${out[*]}"
+}
+
+# edit_limine <transform> [args...]: rewrite the value of the KERNEL_CMDLINE[default]
+# line (the one carrying cryptdevice=, else the first) through <transform>,
+# which gets the current value as its last argument and prints the new one.
+# Backs the file up before the first change; a no-op when nothing changes.
+edit_limine() {
+    local file=$_HYPRCONF_LIMINE_DEFAULT re='^[[:space:]]*KERNEL_CMDLINE\[default\][+]?='
+    local -a lines=()
+    local i idx="" new
+    [[ -r $file ]] || die "$file not found — Omarchy keeps the kernel cmdline there (limine-mkinitcpio-hook)"
+    mapfile -t lines <"$file"
+    for i in "${!lines[@]}"; do
+        [[ ${lines[i]} =~ $re ]] || continue
+        if [[ ${lines[i]} == *cryptdevice=* ]]; then
+            idx=$i
+            break
+        fi
+        [[ -n $idx ]] || idx=$i
+    done
+    [[ -n $idx ]] || die "no KERNEL_CMDLINE[default] line in $file"
+    split_cmdline_line "${lines[idx]}" ||
+        die "cannot parse $file line $((idx + 1)) — expected KERNEL_CMDLINE[default]+=\"...\""
+    new=$("$@" "$L_VALUE")
+    if [[ $new == "$L_VALUE" ]]; then
+        info "$file: already up to date"
+        return 0
+    fi
+    lines[idx]="$L_PREFIX$L_QUOTE$new$L_QUOTE$L_TAIL"
+    backup_file "$file"
+    write_root_file "$file" < <(printf '%s\n' "${lines[@]}")
+    CHANGED=1
+    info "$file: KERNEL_CMDLINE[default] is now: $new"
+}
+
+rebuild_boot() {
+    info "Rebuilding the initramfs and the Limine entries (limine-update) ..."
+    run_root limine-update || die "limine-update failed — see above and re-run \`sudo limine-update\` once fixed"
+}
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+cmd_enroll() {
+    parse_flags "$@"
+    preflight
+    pick_device
+    info "Device: $DEV (LUKS2, UUID $DEV_UUID)"
+    confirm "Enrol the plugged-in FIDO2 key to unlock $DEV at boot?" || die "aborted — nothing changed"
+    take_snapshot
+    if fido2_slot_present "$DEV"; then
+        info "$DEV: a FIDO2 token is already enrolled — keeping it (to add another key:" \
+            "sudo systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes $DEV)"
+    else
+        info "systemd-cryptenroll will ask for the LUKS passphrase, the key's FIDO2 PIN, then a touch."
+        run_root systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes "$DEV" ||
+            die "systemd-cryptenroll failed — nothing else was changed"
+        info "$DEV: FIDO2 token enrolled (the passphrase slot stays)"
+    fi
+    write_dropin
+    edit_limine cmdline_add "$DEV_UUID" "$(mapper_name)"
+    rebuild_boot
+    info ""
+    info "Done. Reboot to test — plug the key in, enter its PIN, touch it."
+    info "The passphrase still works as a fallback (systemd asks for it after token-timeout, 30 s)."
+    info "Revert with: hyprconf-yubikey disable"
+}
+
+disable_boot_config() {
+    remove_dropin
+    edit_limine cmdline_strip
+    if ((CHANGED)); then
+        rebuild_boot
+    else
+        info "Nothing to rebuild — FIDO2 boot unlock was not configured."
+    fi
+    info "Boot config is back on Omarchy's encrypt hook: the passphrase unlocks the root."
+}
+
+cmd_disable() {
+    parse_flags "$@"
+    confirm "Disable FIDO2 unlock at boot (remove the drop-in and the rd.luks.* parameters) and rebuild?" ||
+        die "aborted — nothing changed"
+    take_snapshot
+    disable_boot_config
+    info "The FIDO2 LUKS slot is kept; wipe it with: hyprconf-yubikey remove"
+}
+
+cmd_remove() {
+    parse_flags "$@"
+    have systemd-cryptenroll || die "systemd-cryptenroll not found (package systemd)"
+    pick_device
+    confirm "Wipe the FIDO2 slot on $DEV (passphrase slots are kept) and disable FIDO2 boot unlock?" ||
+        die "aborted — nothing changed"
+    take_snapshot
+    # Only the FIDO2 token slots go — systemd-cryptenroll(1) --wipe-slot=fido2.
+    run_root systemd-cryptenroll --wipe-slot=fido2 "$DEV" ||
+        die "systemd-cryptenroll --wipe-slot=fido2 failed — nothing else was changed"
+    info "$DEV: FIDO2 slot wiped"
+    disable_boot_config
+}
+
+cmd_status() {
+    local dropin limine tokens row path ver uuid slot sd_overlay
+    dropin=$(dropin_path)
+    limine=$_HYPRCONF_LIMINE_DEFAULT
+    info "hyprconf-yubikey status"
+    if have omarchy-pkg-add; then info "  omarchy:              found (omarchy-pkg-add)"; else info "  omarchy:              NOT found — not an Omarchy box?"; fi
+    if have systemd-cryptenroll; then info "  systemd-cryptenroll:  found"; else info "  systemd-cryptenroll:  NOT found"; fi
+    if have fido2-token; then info "  libfido2:             installed (fido2-token)"; else info "  libfido2:             not installed (enroll installs it)"; fi
+    tokens=$(fido2-token -L 2>/dev/null || true)
+    if [[ -n $tokens ]]; then info "  FIDO2 token:          plugged in — ${tokens%%$'\n'*}"; else info "  FIDO2 token:          none detected"; fi
+    info "  LUKS devices:"
+    local any=0
+    while read -r path ver uuid; do
+        [[ -n $path ]] || continue
+        any=1
+        if [[ $ver == 2 ]]; then
+            if run_root_quiet cryptsetup luksDump "$path" 2>/dev/null | grep -q systemd-fido2; then
+                slot="yes"
+            elif run_root_quiet cryptsetup luksDump "$path" >/dev/null 2>&1; then
+                slot="no"
+            else
+                slot="unknown (run as root)"
+            fi
+            info "    $path  LUKS2  UUID $uuid  systemd-fido2 slot: $slot"
+        else
+            info "    $path  LUKS${ver:-?}  UUID $uuid  (not eligible — LUKS2 required)"
+        fi
+    done < <(list_luks)
+    ((any)) || info "    none found"
+    if [[ -e $dropin ]]; then info "  initramfs drop-in:    present ($dropin)"; else info "  initramfs drop-in:    absent ($dropin)"; fi
+    if [[ ! -r $limine ]]; then
+        info "  kernel cmdline:       $limine not found"
+    elif grep -q 'rd\.luks\.options=[^[:space:]"]*fido2-device=' "$limine"; then
+        info "  kernel cmdline:       rd.luks.options fido2-device present ($limine)"
+    else
+        info "  kernel cmdline:       no rd.luks.options fido2-device ($limine)"
+    fi
+    if [[ -r $_HYPRCONF_INITCPIO_INSTALL/sd-btrfs-overlayfs ]]; then
+        sd_overlay="sd-btrfs-overlayfs installed — read-only snapshot boots keep their overlay"
+    else
+        sd_overlay="sd-btrfs-overlayfs NOT installed — snapshot boots lose their overlay under systemd init (normal boots unaffected)"
+    fi
+    info "  snapshot boots:       $sd_overlay"
+    return 0
+}
+
+# FIDO2 for sudo + polkit (pam_u2f) is Omarchy's own job — omarchy-setup-security-fido2
+# installs libfido2 + pam-u2f, registers the key in /etc/fido2/fido2 and edits
+# /etc/pam.d/{sudo,polkit-1} — so hand over rather than duplicate it.
+cmd_sudo() { exec omarchy-setup-security-fido2 "$@"; }
+
+main() {
+    local cmd=${1:-status}
+    (($#)) && shift
+    case $cmd in
+        status) cmd_status "$@" ;;
+        enroll | enrol) cmd_enroll "$@" ;;
+        disable) cmd_disable "$@" ;;
+        remove) cmd_remove "$@" ;;
+        sudo) cmd_sudo "$@" ;;
+        help | -h | --help) usage ;;
+        *) die "unknown subcommand: $cmd (see: hyprconf-yubikey help)" ;;
+    esac
+}
+
+main "$@"

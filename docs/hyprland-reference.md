@@ -1,7 +1,7 @@
 # Hyprland Configuration Reference
 
 > Curated cheatsheet of the Lua config syntax this overlay uses in `hypr/*.lua`
-> and in what the `hyprconf` TUI writes. Full wiki: <https://wiki.hypr.land>.
+> and the monitor presets, for hand-editing them. Full wiki: <https://wiki.hypr.land>.
 > Omarchy owns the rest of the Hyprland setup (autostart, env vars, lock/idle,
 > backgrounds, session) — see `/usr/share/omarchy/default/hypr/`.
 
@@ -19,7 +19,6 @@
 8. [Workspace Rules](#workspace-rules)
 9. [Color Format](#color-format)
 10. [Runtime: hyprctl on 0.56](#runtime-hyprctl-on-056)
-11. [hyprconf TUI](#hyprconf-tui)
 
 ---
 
@@ -41,14 +40,14 @@ hl.config({
 })
 
 -- Include another module (dots become path separators — "hypr.bindings" is
--- ~/.config/hypr/bindings.lua). A directory whose NAME contains a dot (conf.d/)
--- cannot be require()d; use loadfile() as hypr/hyprland.block.lua does.
+-- ~/.config/hypr/bindings.lua). A directory whose NAME contains a dot cannot
+-- be require()d; loadfile() a path instead.
 require("hypr.bindings")
 ```
 
 - One `hl.*(...)` statement per line is this repo's convention (not a Lua
-  requirement) — it keeps every bind/rule/monitor entry addressable by line
-  number, which is how the TUI adds and deletes entries.
+  requirement) — `switch_monitor.sh` parses presets line by line, and a
+  one-line entry is what `grep`/`diff` show cleanly.
 - **Ground truth:** the installed package's Lua API stub
   (`/usr/share/hypr/stubs/hl.meta.lua`) and example config
   (`/usr/share/hypr/hyprland.lua`). Re-check them before trusting an unfamiliar
@@ -71,9 +70,7 @@ require("hypr.looknfeel")         -- ~/.config/hypr/looknfeel.lua  ← symlink t
 require("hypr.autostart")         -- left to Omarchy
 require("default.hypr.toggles")
 -- Add any other personal Hyprland configuration below.
--- >>> hyprconf >>>  (managed block from hypr/hyprland.block.lua: loadfile()s
---                    conf.d/local.lua, windowrules.lua, workspacerules.lua)
--- <<< hyprconf <<<
+-- o.window("qemu", { workspace = "5" })
 ```
 
 Because the overrides load *after* the defaults, each file states only where
@@ -288,12 +285,13 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/#input>
 
 ## Window Rules
 
-Written by the TUI to `~/.config/hypr/conf.d/windowrules.lua`, one per line:
+Hand-written, one per line, in the "personal configuration" tail of
+`~/.config/hypr/hyprland.lua` (Omarchy's template invites them there):
 
 ```lua
 -- hl.window_rule({ name = "...", match = { PROP = value, ... }, EFFECT = value, ... })
 hl.window_rule({ match = { class = "pavucontrol" }, float = true })
-hl.window_rule({ match = { class = "hyprconf" }, float = true, center = true, size = "820 440" })
+hl.window_rule({ match = { class = "btop" }, float = true, center = true, size = "820 440" })
 ```
 
 **Common effects:** `float`, `tile`, `fullscreen`, `center`, `size = "W H"`,
@@ -303,7 +301,8 @@ hl.window_rule({ match = { class = "hyprconf" }, float = true, center = true, si
 **Match fields:** `class`, `title`, `float`, `fullscreen`, `workspace`, `xwayland`.
 
 Omarchy's own helper for the same thing is `o.window("class", { … })`
-(see the tail of its `hyprland.lua` template).
+(`/usr/share/omarchy/default/hypr/helpers.lua`; the tail of its `hyprland.lua`
+template shows `o.window("qemu", { workspace = "5" })`).
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
 
@@ -311,8 +310,8 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Window-Rules/>
 
 ## Workspace Rules
 
-Written by the TUI to `~/.config/hypr/conf.d/workspacerules.lua`; monitor
-presets carry their own.
+Monitor presets (`hypr/*Monitors*.lua`) carry their own, one per line; any
+others go in the same `hyprland.lua` tail as window rules.
 
 ```lua
 hl.workspace_rule({ workspace = "1", monitor = "NAME" })
@@ -365,28 +364,7 @@ hyprctl getoption general:gaps_in -j    # 0.56 reports four-sided gaps under "cs
 hyprctl monitors [all] | clients | devices | activeworkspace
 ```
 
-`adjust-gaps`, `switch_monitor.sh` and the TUI's live apply all use the `eval` /
-Lua-dispatch forms above.
+`adjust-gaps` and `switch_monitor.sh` use the `eval` / Lua-dispatch forms above.
 
 Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/>
 
----
-
-## hyprconf TUI
-
-`hyprconf` (Textual, `tui/main.py`) edits every option section from
-`lib/hyprconf/schema.py` (`SECTION_ORDER`) plus keybinds, window/workspace
-rules, monitors, and Omarchy's theme / background / idle settings. Writes go to:
-
-| Section | File |
-|---|---|
-| options | `~/.config/hypr/conf.d/local.lua` — one nested `hl.config({...})` call |
-| keybinds | `~/.config/hypr/bindings.lua` — `o.bind` / `rebind` / `hl.bind`, one per line |
-| window/workspace rules | `~/.config/hypr/conf.d/windowrules.lua`, `workspacerules.lua` |
-| monitors | `~/.config/hypr/monitors.lua` |
-| idle | `idle` block of `~/.config/omarchy/shell.json` |
-
-Persistence keys are `section:subsection:key` internally; live apply is
-`hyprctl eval` (`hl.config` / `hl.monitor`), never `hyprctl keyword`. The
-`conf.d/*.lua` files are loaded by the managed block in `hyprland.lua`
-(`hypr/hyprland.block.lua`).

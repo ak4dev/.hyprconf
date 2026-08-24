@@ -41,7 +41,3 @@ firefox     # SUPER+F
 code        # SUPER+C
 # NB: SUPER+E is deliberately NOT dolphin here — it is repointed at Omarchy's
 # own nautilus rather than pulling a chunk of KDE onto an Omarchy system.
-
-# TUI. The hyprconf configuration TUI is Textual — the launcher probes for
-# this exact module and names this package in its error message when missing.
-python-textual

@@ -88,6 +88,8 @@ def _setup(tmp_path: Path, *, with_omarchy: bool = True, with_zsh: bool = True) 
         "omarchy-default-editor",
         "omarchy-shell",
         "omarchy-plugin-enable",
+        "omarchy-plugin-disable",
+        "omarchy-plugin-remove",
         "omarchy-plugin-catalog",
         "omarchy-restart-shell",
         "omarchy-bar",
@@ -202,8 +204,8 @@ def _run(
 
 
 # The payload install.sh reads at run time — enough of the repo to run every
-# stage from a copy. lib/ and tui/ are only ever symlink TARGETS, so they are
-# not needed for the installer itself to run.
+# stage from a copy. lib/ is only reached through the theme-set hook's
+# PYTHONPATH, which points at the real checkout, so it is not needed here.
 PAYLOAD = (
     "install.sh",
     "packages",
@@ -1138,53 +1140,104 @@ def test_firefox_policy_sits_behind_the_no_packages_gate(tmp_path: Path) -> None
 
 
 # ---------------------------------------------------------------------------
-# The TUI
+# The retired TUI
 # ---------------------------------------------------------------------------
 
 
-def test_tui_is_wired_for_launch_and_the_app_menu(tmp_path: Path) -> None:
-    """Launcher on PATH, library importable, and an XDG desktop entry.
+def test_retired_tui_is_swept_up(tmp_path: Path) -> None:
+    """Earlier overlay versions installed the hyprconf TUI: a launcher, two
+    symlinks into the checkout, a desktop entry and a managed block at the
+    tail of hyprland.lua loading conf.d/*.lua. The TUI is gone; a re-run
+    must leave an upgraded machine looking like a fresh one, while the user's
+    own conf.d files and everything else in hyprland.lua survive."""
+    env = _setup(tmp_path)
+    home = env["home"]
+    (home / ".local" / "bin").mkdir(parents=True)
+    (home / ".local" / "bin" / "hyprconf").write_text("#!/bin/bash\n")
+    (home / ".local" / "lib").mkdir(parents=True)
+    (home / ".local" / "lib" / "hyprconf").symlink_to(REPO_ROOT / "lib" / "hyprconf")
+    (home / ".config" / "hypr" / "scripts").mkdir(parents=True)
+    (home / ".config" / "hypr" / "scripts" / "hyprconf-tui").symlink_to(
+        tmp_path / "old-checkout" / "tui"
+    )
+    (home / ".local" / "share" / "applications").mkdir(parents=True)
+    (home / ".local" / "share" / "applications" / "hyprconf.desktop").write_text(
+        "[Desktop Entry]\n"
+    )
+    hyprland = home / ".config" / "hypr" / "hyprland.lua"
+    hyprland.write_text(
+        'require("default.hypr.omarchy")\n\n-- >>> hyprconf >>>\nloadfile("conf.d")\n-- <<< hyprconf <<<\n'
+    )
+    conf_d = home / ".config" / "hypr" / "conf.d"
+    conf_d.mkdir()
+    (conf_d / "local.lua").write_text("hl.config({})\n")
 
-    Omarchy's app menu lists DesktopEntries.applications (shell/services/
-    AppLibrary.qml), so the file under ~/.local/share/applications is what
-    makes the TUI appear there. Exec must carry an absolute path — desktop
-    Exec lines do not expand ~ — and launch through
-    omarchy-launch-or-focus-tui so a second press focuses the open window.
-    """
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not (home / ".local" / "bin" / "hyprconf").exists()
+    assert not (home / ".local" / "lib" / "hyprconf").is_symlink()
+    assert not (home / ".config" / "hypr" / "scripts" / "hyprconf-tui").is_symlink()
+    assert not (home / ".local" / "share" / "applications" / "hyprconf.desktop").exists()
+    assert hyprland.read_text() == 'require("default.hypr.omarchy")\n'
+    assert (conf_d / "local.lua").exists()
+    assert "conf.d" in proc.stderr  # told, not deleted
+
+    # A fresh box has none of it; the sweep must be a silent no-op there.
+    env2 = _setup(tmp_path / "fresh")
+    proc2 = _run(env2, "--no-update")
+    assert proc2.returncode == 0, proc2.stderr
+    assert "conf.d" not in proc2.stderr
+    assert not any(
+        "python-textual" in ln for ln in (REPO_ROOT / "packages").read_text().splitlines()
+    )
+
+
+def test_stale_username_clones_are_retired(tmp_path: Path) -> None:
+    """The first overlay versions cloned the clock with omarchy-plugin-clone,
+    which names the copy <user>.clock. Once hyprconf.clock exists that copy
+    is a second clock on the bar (seen after an upgrade). The stage retires
+    every clonedFrom copy of the built-in that is not ours, through Omarchy's
+    own plugin commands, and does so on every run."""
+    env = _setup(tmp_path)
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("no jq for the plugin list")
+    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    listing = json.dumps(
+        [
+            {"id": "omarchy.clock", "enabled": False, "clonedFrom": ""},
+            {"id": "testuser.clock", "enabled": True, "clonedFrom": "omarchy.clock"},
+            {"id": "hyprconf.clock", "enabled": True, "clonedFrom": "omarchy.clock"},
+            {"id": "testuser.workspaces", "enabled": True, "clonedFrom": "omarchy.workspaces"},
+            {"id": "hyprconf.workspaces", "enabled": True, "clonedFrom": "omarchy.workspaces"},
+        ]
+    )
+    _stub(env["bins"] / "omarchy-plugin-list", env["calls"], f"cat <<'EOF'\n{listing}\nEOF")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert "omarchy-plugin-disable testuser.clock" in calls
+    assert "omarchy-plugin-remove testuser.clock --yes" in calls
+    assert "omarchy-plugin-disable testuser.workspaces" in calls
+    assert "omarchy-plugin-remove testuser.workspaces --yes" in calls
+    for keep in ("hyprconf.clock", "hyprconf.workspaces", "omarchy.clock", "omarchy.workspaces"):
+        assert f"omarchy-plugin-disable {keep}" not in calls
+        assert f"omarchy-plugin-remove {keep} --yes" not in calls
+    assert any(c.startswith("omarchy-restart-shell") for c in calls)
+
+
+def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
+    """bin/hyprconf-* is the whole tool set: the two bar-widget feeders and
+    hyprconf-yubikey. Installed by glob, so a new tool is one file."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
-    home = env["home"]
-
-    launcher = home / ".local" / "bin" / "hyprconf"
-    assert os.access(launcher, os.X_OK)
-    assert (home / ".local" / "lib" / "hyprconf").resolve() == REPO_ROOT / "lib" / "hyprconf"
-    assert (home / ".config" / "hypr" / "scripts" / "hyprconf-tui").resolve() == REPO_ROOT / "tui"
-
-    desktop = (home / ".local" / "share" / "applications" / "hyprconf.desktop").read_text()
-    assert (
-        f"Exec=omarchy-launch-or-focus-tui --app-id=hyprconf {home}/.local/bin/hyprconf" in desktop
-    )
-    assert "~" not in desktop
-
-    # The launcher refuses to start without textual; the package stage must
-    # therefore carry it (official repos only, per the no-AUR policy).
-    assert re.search(r"^python-textual\b", (REPO_ROOT / "packages").read_text(), re.M)
-
-
-def test_tui_conf_d_loader_preserves_omarchy_hyprland_lua(tmp_path: Path) -> None:
-    """The conf.d loader lands in hyprland.lua's documented personal-config
-    tail. Everything Omarchy seeded there must survive, and the block must be
-    marker-replaced — never accumulated — across re-runs."""
-    env = _setup(tmp_path)
-    hyprland = env["home"] / ".config" / "hypr" / "hyprland.lua"
-    hyprland.write_text('require("default.hypr.omarchy")\n')
-    for _ in range(2):
-        _run(env, "--no-update")
-    body = hyprland.read_text()
-    assert body.startswith('require("default.hypr.omarchy")\n')
-    assert body.count("-- >>> hyprconf >>>") == 1
-    assert body.count("-- <<< hyprconf <<<") == 1
-    assert "conf.d" in body
+    shipped = sorted(p.name for p in (REPO_ROOT / "bin").glob("hyprconf-*"))
+    assert {"hyprconf-stats", "hyprconf-gpu-info", "hyprconf-yubikey"} <= set(shipped)
+    for name in shipped:
+        installed = env["home"] / ".local" / "bin" / name
+        assert os.access(installed, os.X_OK), name
+        assert installed.read_bytes() == (REPO_ROOT / "bin" / name).read_bytes()
+    assert not (env["home"] / ".local" / "bin" / "hyprconf").exists()
 
 
 # ---------------------------------------------------------------------------

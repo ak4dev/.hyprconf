@@ -38,21 +38,21 @@ jobs:
         run: make lint
 
   unit-integration:
-    name: "Unit + Integration (Tiers 1-2)"
+    name: "Unit + Integration"
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm --needed git python \
-            python-pytest python-pytest-asyncio python-pytest-xdist python-pytest-cov
+            python-pytest python-pytest-xdist python-pytest-cov
       - uses: actions/checkout@v4
       # The container runs as root but the checkout is owned by another uid, so
       # git refuses repo operations (e.g. the git-archive tests) with "dubious
       # ownership". Trust the workspace.
       - name: Trust the workspace for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
-      - name: Run tiers 1-2 (unit + integration)
+      - name: Run unit + integration
         run: |
           python -m pytest tests/unit/ tests/integration/ \
             --tb=short -q -n auto \
@@ -61,17 +61,3 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
 
-  tui:
-    name: "TUI (Tier 3)"
-    runs-on: ubuntu-latest
-    container: archlinux:latest
-    steps:
-      - name: Install toolchain
-        run: |
-          pacman -Syu --noconfirm --needed git python \
-            python-pytest python-pytest-asyncio python-pytest-xdist python-textual
-      - uses: actions/checkout@v4
-      - name: Run tier 3 (TUI, headless)
-        run: python -m pytest tests/tui/ --tb=short -q -n auto
-        env:
-          PYTHONDONTWRITEBYTECODE: "1"

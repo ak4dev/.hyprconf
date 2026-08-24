@@ -39,7 +39,6 @@ INSTALL_PAYLOAD = [
     "install.sh",
     "hypr/",
     "lib/",
-    "tui/",
     "bin/",
     "packages",
     "plugins/",
@@ -174,8 +173,8 @@ def test_publish_script_has_no_vm_or_install_tiers() -> None:
         "Tier 5",
     ):
         assert needle not in text, f"scripts/publish still references {needle!r}"
-    # Tiers 1-3 remain the release test gate.
-    assert "make test 2>&1" in text, "scripts/publish must run tiers 1-3 via make test"
+    # The unit + integration suites remain the release test gate.
+    assert "make test 2>&1" in text, "scripts/publish must run the test suites via make test"
 
 
 def test_publish_script_keeps_lint_gates() -> None:

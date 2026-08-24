@@ -1,17 +1,16 @@
-.PHONY: help test test-unit test-integration test-tui test-seq shellcheck lint typecheck fmt clean
+.PHONY: help test test-unit test-integration test-seq shellcheck lint typecheck fmt clean
 
 export PYTHONDONTWRITEBYTECODE := 1
 
-# All shipped + test Python: the library, the TUI, and tests.
+# All shipped + test Python: the library and the tests.
 PYSRC := lib/hyprconf/ \
-         tui/main.py \
          tests/
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 	    awk -F':.*?## ' '{printf "  %-20s %s\n", $$1, $$2}'
 
-test: test-unit test-integration test-tui ## Run unit + integration + TUI suites (parallel)
+test: test-unit test-integration ## Run unit + integration suites (parallel)
 
 test-unit: ## Run unit tests in parallel
 	pytest tests/unit/ -q -n auto
@@ -19,12 +18,9 @@ test-unit: ## Run unit tests in parallel
 test-integration: ## Run integration tests in parallel
 	pytest tests/integration/ -q -n auto
 
-test-tui: ## Run TUI tests in parallel
-	pytest tests/tui/ -q -n auto
-
 # Sequential mode — lower resource use, clearer output (no parallelism)
 test-seq: ## Run all tests sequentially (clearer output)
-	pytest tests/unit/ tests/integration/ tests/tui/ -q
+	pytest tests/unit/ tests/integration/ -q
 
 shellcheck: ## Run shellcheck on all bash scripts (severity=warning)
 	@git ls-files -z | while IFS= read -r -d '' f; do \

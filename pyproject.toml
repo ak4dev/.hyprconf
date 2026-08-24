@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "hyprconf"
 # Single source of truth: the version is read from the package (bumped by scripts/publish).
 dynamic = ["version"]
-description = "hyprconf — an Omarchy overlay: hotkeys, look, monitor presets, bar widgets and a Hyprland configuration TUI"
+description = "hyprconf — an overlay for Omarchy: hotkeys, look, monitor presets, bar widgets, theme bridges"
 # 3.12 is the real floor: CI tests 3.12 and Arch ships ≥3.13.
 requires-python = ">=3.12"
 
@@ -14,8 +14,6 @@ requires-python = ">=3.12"
 test = [
     "pytest>=8",
     "pytest-xdist>=3",
-    "pytest-asyncio>=0.23",
-    "textual>=0.50",
     "coverage[toml]",
     "pytest-cov",
 ]
@@ -29,7 +27,6 @@ version = { attr = "hyprconf.__version__" }
 [tool.pytest.ini_options]
 pythonpath = ["lib"]
 testpaths  = ["tests"]
-asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["hyprconf"]

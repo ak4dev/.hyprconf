@@ -44,7 +44,6 @@ REQUIRED_IN_ARCHIVE = [
     ".hyprconf/install.sh",
     ".hyprconf/hypr/",
     ".hyprconf/lib/",
-    ".hyprconf/tui/",
     ".hyprconf/bin/",
     ".hyprconf/packages",
     ".hyprconf/plugins/",

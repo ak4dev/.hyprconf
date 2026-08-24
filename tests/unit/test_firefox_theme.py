@@ -169,14 +169,14 @@ def test_apply_writes_stylesheet_and_prefs_idempotently(tmp_path: Path) -> None:
     palette = ft.read_palette(
         tmp_path / "home" / ".local" / "state" / "omarchy" / "current" / "theme" / "colors.toml"
     )
-    ft.apply(profile, palette)
+    assert ft.apply(profile, palette) is True
     css = (profile / "chrome" / "userChrome.css").read_text()
     js = (profile / "user.js").read_text()
     assert "#16242d" in css and "#8bc9eb" in css
     assert 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);' in js
     assert 'user_pref("ui.systemUsesDarkTheme", 1);' in js
 
-    ft.apply(profile, palette)
+    assert ft.apply(profile, palette) is False  # nothing to rewrite, nothing to announce
     assert (profile / "chrome" / "userChrome.css").read_text() == css
     assert (profile / "user.js").read_text() == js
 
@@ -186,9 +186,17 @@ def test_main_themes_every_default_profile_under_home(
 ) -> None:
     home, profile = _home_with_theme_and_profile(tmp_path)
     monkeypatch.setenv("HOME", str(home))
+    notices: list[str] = []
+    monkeypatch.setattr(ft, "notify", notices.append)
     assert ft.main([]) == 0
     assert (profile / "chrome" / "userChrome.css").is_file()
-    assert "firefox:" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "firefox:" in out and "restart firefox" in out.lower()
+    # Firefox reads userChrome.css at startup only: the change is announced
+    # once, through Omarchy's notification command, and not on a no-op re-run.
+    assert notices == ["Restart firefox to apply the new theme"]
+    assert ft.main([]) == 0
+    assert len(notices) == 1
 
 
 def test_main_without_a_theme_fails_and_without_a_profile_is_a_noop(

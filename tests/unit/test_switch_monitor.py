@@ -177,8 +177,8 @@ def test_atomic_write_uses_ln_sf_not_rm_cp() -> None:
     """Regression: switch_monitor.sh must use ln -sf (atomic symlink) not rm+cp.
 
     The rm+cp pattern leaves a window where monitors.lua is absent. ln -sf is
-    a single syscall that atomically replaces the symlink. This also ensures
-    TUI edits flow directly to the tracked preset file.
+    a single syscall that atomically replaces the symlink. It is also what lets
+    edits to monitors.lua land on the tracked preset file.
     """
     src = SCRIPT.read_text()
     assert "ln -sf" in src, (

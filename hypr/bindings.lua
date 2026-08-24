@@ -111,9 +111,8 @@ rebind(mainMod .. " + SHIFT + minus", "Decrease window gaps", hl.dsp.exec_cmd("~
 
 -- Switch workspaces with mainMod + [0-9]; move the active window with
 -- mainMod + SHIFT + [0-9]. Workspaces 3 and 4 sit on F1/F2, as hyprconf's
--- keymap always has. One bind per line on purpose: the hyprconf TUI (and
--- lib/hyprconf/keybinds.py) addresses binds by file and line, so a loop would
--- hide these twenty from its keybinds section.
+-- keymap always has. One bind per line on purpose: the file is edited by
+-- hand, and a loop hides which keys are really bound behind a table.
 --
 -- Omarchy binds SUPER+code:10…19 / SUPER+SHIFT+code:10…19 for workspaces
 -- 1-10. Same destination as ours for the number keys, so the duplicate is
