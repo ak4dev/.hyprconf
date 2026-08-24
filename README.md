@@ -9,12 +9,6 @@
   <a href="https://omarchy.org"><img alt="omarchy overlay" src="https://img.shields.io/badge/omarchy-overlay-3a7f2e?style=for-the-badge" /></a>
 </p>
 
-<p align="center">
-  <img src="assets/hyprconf.png" width="920" alt=".hyprconf desktop" />
-</p>
-
-<p align="center"><sub>Screenshot shows the pre-Omarchy hyprconf desktop; an Omarchy-era capture will replace it.</sub></p>
-
 # .hyprconf
 
 **hyprconf** is an overlay for [Omarchy](https://omarchy.org): a lean deployment
@@ -35,6 +29,7 @@ own tools and documented seams:
 | Theme reach | Every `omarchy theme set` also lands in Firefox and Code - OSS, which Omarchy's own fan-out misses |
 | Privacy | A system Firefox policy: telemetry off, tracking protection on, uBlock Origin force-installed — plus hyprconf's UI defaults (vertical tabs, the revamped sidebar, client-side decorations, compact mode available, Pocket off) |
 | YubiKey | `hyprconf-yubikey`: unlock the LUKS root at boot with a FIDO2 key (Omarchy's own `omarchy-setup-security-fido2` covers sudo/polkit) |
+| VPN | **Proton VPN** in Omarchy's menu — Install → Service, beside NordVPN — installed from Arch's official repos with `omarchy-pkg-add` |
 
 hyprconf used to be a standalone Arch + Hyprland installer, a dotfiles suite and a configuration TUI; that era is gone, and this repository is now only the overlay. Configuration is edited by hand in `hypr/*.lua`, per Omarchy's own model.
 
@@ -48,11 +43,17 @@ hyprconf used to be a standalone Arch + Hyprland installer, a dotfiles suite and
 ## Install
 
 ```bash
-git clone https://github.com/ak4dev/.hyprconf ~/.hyprconf && cd ~/.hyprconf
-bash install.sh
+bash <(curl -fsSL hyprconf.sh)
 ```
 
-`stable` is the branch users get; `omarchy` is the working branch until `scripts/publish` promotes it.
+`hyprconf.sh` serves `install.sh` itself to curl. Run with no payload beside it, it refuses a box without Omarchy before touching anything, clones the `stable` branch into `~/.hyprconf` — or uses the checkout already there, without pulling it — and hands over to that checkout's `install.sh` with the same options. `HYPRCONF_REPO` (`https://github.com/ak4dev/.hyprconf`), `HYPRCONF_BRANCH` (`stable`) and `HYPRCONF_DIR` (`~/.hyprconf`) override those three. The same by hand:
+
+```bash
+git clone -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf
+bash ~/.hyprconf/install.sh
+```
+
+`stable` is the branch users get; `omarchy` is the working branch until `scripts/publish` promotes it. On a terminal every run opens with the `.hyprconf` ASCII banner (the art of `assets/banner.svg`, naming the branch); the post-update hook's run inside `omarchy-update` stays quiet — that run has a pty (`omarchy-update` re-execs under `script(1)`), so the gate is the `OMARCHY_UPDATE_LOGGED` marker it exports, not the tty test.
 
 | Flag | Effect |
 |---|---|
@@ -60,6 +61,7 @@ bash install.sh
 | `--sync` | `git pull --ff-only` the checkout, re-apply, then run `omarchy-update`. This is what the `hyprsync` alias runs. |
 | `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook, which already runs inside an update. |
 | `--no-packages` | Skip the two stages that need `sudo`: packages and the Firefox policy. The hook passes this too. |
+| `-h`, `--help` | Usage: both forms and the three variables. On the curl path it answers from the served copy — nothing is cloned. |
 
 ### What each stage does
 
@@ -77,7 +79,8 @@ bash install.sh
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups) |
 | monitors | Seeds the five presets into `~/.config/hypr/`; saves Omarchy's `monitors.lua` to `monitors.lua.stock` once | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. The active `monitors.lua` is untouched until a hotkey is pressed |
 | fastfetch | `~/.config/fastfetch/config.jsonc` → `fastfetch/config.jsonc` | Symlink |
-| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey`, `hyprconf-firefox-theme` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path |
+| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey`, `hyprconf-firefox-theme`, `hyprconf-install-service-protonvpn` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path |
+| menu | A **Proton VPN** row in Omarchy's menu, Install → Service, beside NordVPN — hidden once `proton-vpn-gtk-app` is installed (below) | A managed block (`// >>> hyprconf >>>` … `// <<< hyprconf <<<`) before the closing brace of `~/.config/omarchy/extensions/omarchy-menu.jsonc`, Omarchy's own menu extension file: seeded from its template when absent, written through a symlink, rewritten only when the bytes differ. A file with no closing-brace line is left alone with a warning |
 | sweep_tui | Removes what earlier overlay versions installed for the retired TUI: the `hyprconf` launcher, the `~/.local/lib/hyprconf` and `~/.config/hypr/scripts/hyprconf-tui` symlinks, `hyprconf.desktop`, and the managed block at the tail of `~/.config/hypr/hyprland.lua` | `conf.d/*.lua` files the TUI wrote are left in place with a note — nothing loads them any more |
 | bar_plugin | `hyprconf.resources` widget in the bar's right section | `plugins/hyprconf-resources/` synced into `~/.config/omarchy/plugins/` on every run; enabled **once** |
 | clock | `hyprconf.clock`: a copy of `omarchy.clock` patched to tick seconds, format `hh:mm:ss AP` — **set once** | Same copy mechanics as `omarchy plugin clone` (project namespace instead of `<username>.`); `omarchy-bar set`; the bar's `centerAnchor` follows only if it still pointed at `omarchy.clock`. Any leftover `<username>.clock` copy from an earlier overlay version is retired first (`omarchy-plugin-disable` + `-remove`) — that is what showed two clocks after an upgrade |
@@ -114,7 +117,7 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 | `install.sh` | The overlay installer — idempotent stages, the only entry point |
 | `packages` | Official-repo packages added via `omarchy-pkg-add` |
 | `hypr/` | `bindings.lua`, `input.lua`, `looknfeel.lua` (symlinked over Omarchy's override points); `pcMonitors.*.lua` / `laptopMonitors.lua` presets; `scripts/switch_monitor.sh`, `scripts/adjust-gaps` |
-| `bin/` | `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey` (LUKS FIDO2 unlock), `hyprconf-firefox-theme` (apply / `--status`) |
+| `bin/` | `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey` (LUKS FIDO2 unlock), `hyprconf-firefox-theme` (apply / `--status`), `hyprconf-install-service-protonvpn` (the menu row's installer) |
 | `lib/hyprconf/` | `__init__.py` (the version) and `firefox_theme.py` (the Firefox half of the theme-set hook) |
 | `plugins/hyprconf-resources/` | Omarchy bar-widget plugin (QML): resource readout |
 | `plugins/hyprconf-workspaces/` | Omarchy bar-widget plugin (QML): workspaces, replaces `omarchy.workspaces` |
@@ -125,9 +128,9 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 | `hooks/post-update.d/`, `hooks/theme-set.d/` | Omarchy hooks (re-apply after updates; theme reach into Firefox and Code - OSS) |
 | `infra/firefox/policies.json` | System Firefox policy: privacy locks + UI defaults |
 | `tests/` | Unit + integration — hermetic (fake `omarchy-*`/`hyprctl`/`sudo` binaries first on `PATH`, temp `$HOME`), run in an `archlinux:latest` container in CI |
-| `docs/`, `AGENTS.md`, `.github/` | Contributor docs, agent rules, CI |
+| `docs/`, `AGENTS.md`, `.github/` | `CONTRIBUTING.md` + the Hyprland/Quickshell cheatsheets; the one rule file; the CI workflow |
 | `scripts/publish` | Promotes `omarchy` → `stable` |
-| `web/`, `assets/` | Static landing page (S3, managed manually); banner + screenshot |
+| `web/`, `assets/` | `index.html` + `favicon.svg`, the static landing page (S3, managed manually); `banner.svg` |
 
 ## Monitor presets
 
@@ -297,6 +300,14 @@ hyprconf-yubikey remove            # wipe the FIDO2 slot, then disable
 
 At boot: plug the key in, enter its PIN, touch it; with no key present systemd waits `token-timeout` (30 s) and falls back to the passphrase. `enroll` refuses a `/etc/vconsole.conf` whose first `XKBLAYOUT` is non-Latin (the systemd initramfs always bundles it, so a Latin passphrase could become untypeable) unless `--allow-non-latin-layout` is given. Your passphrase stays as a fallback — no passphrase slot is ever touched. Limine's read-only **snapshot** boot entries keep their writable overlay through `sd-btrfs-overlayfs` (limine-mkinitcpio-hook ≥ 1.37 ships it; an older hook package without it loses the overlay under systemd init — normal boots are unaffected either way). `disable` reverts the drop-in and the cmdline additions; `remove` also wipes the FIDO2 slot.
 
+## Proton VPN
+
+Omarchy's menu installs NordVPN from Install → Service; the `menu` stage puts a **Proton VPN** row beside it through Omarchy's own seam for user rows, `~/.config/omarchy/extensions/omarchy-menu.jsonc` (merged over the default menu and watched, so the row appears without a shell restart). It is shaped like Omarchy's NordVPN row: hidden once `proton-vpn-gtk-app` is installed, and it runs `hyprconf-install-service-protonvpn` in the floating presentation terminal, where the package prompt is on screen.
+
+That script is one `omarchy-pkg-add proton-vpn-gtk-app proton-vpn-cli` — both from Arch's `extra` repository, never the AUR; `proton-vpn-daemon` comes with them. Nothing is enabled and no group is joined: the daemon's `proton.VPN.service` is D-Bus-activated (`me.proton.vpn.split_tunneling.service`), so unlike NordVPN there is no `systemctl enable` and no reboot. Sign in with `protonvpn login` (the CLI) or in the Proton VPN app (`protonvpn-app`).
+
+Remove: delete the managed block from `omarchy-menu.jsonc` (the `sed` under Reverting to stock — the parser drops the comma it leaves before `}`), then `omarchy pkg drop proton-vpn-gtk-app proton-vpn-cli` (`pacman -Rns`, so the daemon goes too) or Omarchy's picker, `omarchy pkg remove` (menu → Remove → Package).
+
 ## Reverting to stock
 
 ```bash
@@ -308,6 +319,7 @@ omarchy plugin disable hyprconf.active-window
 rm ~/.config/hypr/{bindings,input,looknfeel}.lua && omarchy refresh hyprland  # or mv the .stock files back
 rm ~/.config/omarchy/hooks/{post-update,theme-set}.d/10-hyprconf
 sed -i '/^include hyprconf.conf$/d' ~/.config/kitty/kitty.conf
+sed -i '/^  \/\/ >>> hyprconf >>>$/,/^  \/\/ <<< hyprconf <<<$/d' ~/.config/omarchy/extensions/omarchy-menu.jsonc  # the Proton VPN row
 omarchy default terminal <name>; omarchy font set <name>; omarchy theme set <name>
 hyprconf-yubikey remove   # only if you enrolled a key
 sudo rm /etc/firefox/policies/policies.json

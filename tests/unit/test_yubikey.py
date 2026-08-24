@@ -242,6 +242,14 @@ class Box:
     def calls(self) -> list[str]:
         return self.calls_file.read_text().splitlines() if self.calls_file.exists() else []
 
+    def ran_as_root(self, cmd: str) -> bool:
+        """Whether `cmd` went through run_root the right way for this euid:
+        through the sudo stub (recorded as `sudo -- cmd`) — or, when the suite
+        itself runs as root (CI does), NOT through sudo: run_root skips it
+        under EUID 0, and the real command it then runs leaves no record, so
+        the callers pair this with the tool's own report of the result."""
+        return (f"sudo -- {cmd}" in self.calls()) is not (os.geteuid() == 0)
+
     def reset_calls(self) -> None:
         self.calls_file.unlink(missing_ok=True)
 
@@ -414,7 +422,7 @@ def test_enroll_happy_path(tmp_path: Path) -> None:
     # was looked up on the ESP, as root, and found fresh — only then "Done"
     image = box.image_path("linux")
     assert image.is_file()
-    assert f"sudo -- stat -c %Y -- {image}" in calls
+    assert box.ran_as_root(f"stat -c %Y -- {image}")
     assert f"{image}: rebuilt" in res.stdout
     assert "Boot images verified" in res.stdout
     assert "Done." in res.stdout and "passphrase" in res.stdout.lower()
@@ -802,7 +810,7 @@ def test_rebuild_looks_for_the_initramfs_without_uki(tmp_path: Path, uki: bool, 
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stderr
     assert f"{initramfs}: rebuilt" in res.stdout
-    assert f"sudo -- stat -c %Y -- {initramfs}" in box.calls()
+    assert box.ran_as_root(f"stat -c %Y -- {initramfs}")
 
 
 def test_rebuild_uki_prefix_falls_back_to_machine_id(tmp_path: Path) -> None:

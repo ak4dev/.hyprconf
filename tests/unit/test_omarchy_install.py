@@ -38,6 +38,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "install.sh"
 HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
+PROTONVPN_INSTALLER = REPO_ROOT / "bin" / "hyprconf-install-service-protonvpn"
 
 # A recording stub: appends its own name + args to the calls log, then runs an
 # optional body. One template covers every external the installer touches.
@@ -54,6 +55,40 @@ allow_remote_control yes
 listen_on unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{kitty_pid}
 font_family JetBrainsMono Nerd Font
 font_size 10
+"""
+
+# Omarchy's config/omarchy/extensions/omarchy-menu.jsonc (4.0.0-1), verbatim:
+# all comments, the shape a fresh box's user extension file has.
+OMARCHY_MENU_EXTENSION = r"""{
+  // Extend the Quickshell Omarchy menu with JSONC.
+  //
+  // IDs are object keys. The parent is inferred from the dotted id, so
+  // "personal.notes" appears under "personal", and "personal" appears on the
+  // root menu. Reuse an existing id to override/extend it.
+  //
+  // Fields:
+  //   icon        Nerd Font glyph shown in the icon column.
+  //   label       Visible row title.
+  //   action      Shell command to run. If omitted, the row is a submenu.
+  //   target      Existing submenu id to open. Use for links/aliases.
+  //   provider    Runtime provider function/command returning JSON rows.
+  //   aliases     alternate `omarchy menu summon <name>` routes; also searchable.
+  //   description Optional subtitle and extra search text.
+  //   when        Shell condition; hide row when it fails.
+  //   checked     Shell condition; append ✓ when it succeeds.
+  //
+  // Examples:
+  // "personal": {"icon":"","label":"Personal"},
+  // "personal.notes": {"icon":"󰎞","label":"Notes","action":"omarchy-launch-editor ~/notes"},
+  // "personal.files": {"icon":"","label":"Files","action":"uwsm-app -- nautilus ~/Documents"},
+  //
+  // Only use provider when a provider_name function or command named "name"
+  // returns JSON rows. Static submenus only need dotted ids.
+  //
+  // Example: replace the default About action by reusing the same id. Existing
+  // fields are kept unless overridden.
+  // "about": {"icon":"","label":"About","action":"omarchy-launch-or-focus-tui \"zsh -c 'fastfetch; read -k 1'\""},
+}
 """
 
 
@@ -165,6 +200,12 @@ def _setup(
     (omarchy_path / "config" / "omarchy").mkdir(parents=True)
     (omarchy_path / "config" / "omarchy" / "shell.json").write_text(
         json.dumps({"version": 1, "idle": {"lock": 300, "screensaver": 150}})
+    )
+    # Omarchy's template for the user's menu extension file — what stage_menu
+    # seeds ~/.config/omarchy/extensions/omarchy-menu.jsonc from.
+    (omarchy_path / "config" / "omarchy" / "extensions").mkdir()
+    (omarchy_path / "config" / "omarchy" / "extensions" / "omarchy-menu.jsonc").write_text(
+        OMARCHY_MENU_EXTENSION
     )
 
     return {
@@ -320,7 +361,7 @@ def _tree_hash(root: Path) -> str:
 
 
 def test_scripts_are_syntactically_valid() -> None:
-    for script in (INSTALL_SH, HOOK):
+    for script in (INSTALL_SH, HOOK, PROTONVPN_INSTALLER):
         assert subprocess.run(["bash", "-n", str(script)]).returncode == 0, script
 
 
@@ -2258,3 +2299,431 @@ def test_a_preset_reset_to_the_stock_template_is_reported_not_rewritten(tmp_path
     assert proc.returncode == 0, proc.stderr
     assert "pcMonitors.bedroom.lua" in proc.stderr and "monitors.lua.bak" in proc.stderr
     assert hypr.joinpath("pcMonitors.bedroom.lua").read_text() == stock  # left for the user
+
+
+# ---------------------------------------------------------------------------
+# The curl path — `bash <(curl -fsSL hyprconf.sh)` serves install.sh alone
+# ---------------------------------------------------------------------------
+
+# A git that really clones a LOCAL repository (the throwaway checkout under
+# tmp_path — never the network) and is otherwise GIT_PASSTHROUGH: a clone of
+# a URL only makes the directory, a pull is a no-op.
+GIT_LOCAL_CLONE = """\
+if [ "$1" = clone ]; then
+  src="${@: -2:1}"
+  if [ -d "$src" ]; then exec "$(PATH=/usr/bin:/bin command -v git)" "$@"; fi
+  mkdir -p "${@: -1}"; exit 0
+fi
+case " $* " in *" pull "*) exit 0 ;; esac
+exec "$(PATH=/usr/bin:/bin command -v git)" "$@"
+"""
+
+
+def _served_copy(tmp_path: Path) -> Path:
+    """install.sh alone, the way hyprconf.sh serves it to curl: no payload beside it."""
+    served = tmp_path / "served"
+    served.mkdir()
+    shutil.copy2(INSTALL_SH, served / "install.sh")
+    return served / "install.sh"
+
+
+def _stable_checkout(tmp_path: Path) -> Path:
+    """_checkout on `stable`, the branch the curl path clones by default."""
+    repo = _checkout(tmp_path)
+    subprocess.run(["git", "branch", "-M", "stable"], cwd=repo, check=True, timeout=30)
+    return repo
+
+
+def test_curl_path_clones_the_checkout_and_hands_over_to_it(tmp_path: Path) -> None:
+    """Run with nothing beside it, install.sh clones HYPRCONF_REPO (branch
+    stable, single-branch) into HYPRCONF_DIR and execs that checkout's own
+    copy with the same arguments — which then applies every stage from the
+    checkout, not from /dev/fd."""
+    env = _setup(tmp_path)
+    repo = _stable_checkout(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_LOCAL_CLONE)
+    target = tmp_path / "hyprconf-dir"
+    proc = _run(
+        env,
+        "--no-update",
+        extra_env={"HYPRCONF_REPO": str(repo), "HYPRCONF_DIR": str(target)},
+        install_sh=_served_copy(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert f"git clone --branch stable --single-branch {repo} {target}" in _calls(env)
+    assert (target / ".git").is_dir()
+    for name in PAYLOAD:
+        assert (target / name).exists(), name
+    # The stages ran, from the checkout: the tools and hooks resolve to it and
+    # the override links point into it.
+    assert "omarchy-default-terminal kitty" in _calls(env)
+    assert env["pkg_add"] in _commands(env)
+    hook = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
+    assert f'HYPRCONF_DIR="{target}"' in hook.read_text()
+    bindings = env["home"] / ".config" / "hypr" / "bindings.lua"
+    assert Path(os.readlink(bindings)) == target / "hypr" / "bindings.lua"
+    assert (env["home"] / ".zshrc").exists()
+    assert "omarchy-update" not in _commands(env)
+
+
+def test_curl_path_refuses_a_box_without_omarchy_before_cloning(tmp_path: Path) -> None:
+    """Preflight runs BEFORE the clone: a machine that is not Omarchy gets the
+    refusal and nothing else — no checkout lands on it."""
+    env = _setup(tmp_path, with_omarchy=False)
+    repo = _stable_checkout(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_LOCAL_CLONE)
+    target = tmp_path / "hyprconf-dir"
+    proc = _run(
+        env,
+        extra_env={"HYPRCONF_REPO": str(repo), "HYPRCONF_DIR": str(target)},
+        install_sh=_served_copy(tmp_path),
+    )
+    assert proc.returncode != 0
+    assert "omarchy" in proc.stderr.lower()
+    assert not target.exists()
+    assert not any(c.startswith("git clone") for c in _calls(env))
+    assert not (env["home"] / ".zshrc").exists()
+
+
+def test_curl_path_reuses_an_existing_checkout_without_pulling(tmp_path: Path) -> None:
+    """A checkout already at HYPRCONF_DIR is used as it is: no clone over it,
+    and no pull either — updating it is --sync's job, not the bootstrap's."""
+    env = _setup(tmp_path)
+    repo = _stable_checkout(tmp_path)
+    git = ["git", "-C", str(repo)]
+    head = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+    _stub(env["bins"] / "git", env["calls"], GIT_LOCAL_CLONE)
+    proc = _run(
+        env,
+        "--no-update",
+        extra_env={"HYPRCONF_REPO": str(tmp_path / "never-cloned"), "HYPRCONF_DIR": str(repo)},
+        install_sh=_served_copy(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "existing checkout" in proc.stdout
+    assert not any(c.startswith("git clone") and c.endswith(f" {repo}") for c in _calls(env))
+    assert not any(" pull " in f" {c} " for c in _calls(env))
+    assert not (tmp_path / "never-cloned").exists()
+    after = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True)
+    assert after.stdout == head.stdout
+    status = subprocess.run([*git, "status", "--porcelain"], capture_output=True, text=True)
+    assert status.stdout == ""
+    # …and the stages ran from that checkout.
+    hook = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
+    assert f'HYPRCONF_DIR="{repo}"' in hook.read_text()
+
+
+def test_curl_path_help_and_bad_options_never_clone(tmp_path: Path) -> None:
+    """The option loop runs before the hand-over, so --help (and a typo) answer
+    from the served copy without touching the machine."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_LOCAL_CLONE)
+    target = tmp_path / "hyprconf-dir"
+    served = _served_copy(tmp_path)
+    proc = _run(env, "--help", extra_env={"HYPRCONF_DIR": str(target)}, install_sh=served)
+    assert proc.returncode == 0
+    assert "bash <(curl -fsSL hyprconf.sh)" in proc.stdout
+    assert "HYPRCONF_REPO" in proc.stdout
+    proc = _run(env, "--bogus", extra_env={"HYPRCONF_DIR": str(target)}, install_sh=served)
+    assert proc.returncode != 0
+    assert not target.exists()
+    assert _calls(env) == []
+
+
+# ---------------------------------------------------------------------------
+# The banner
+# ---------------------------------------------------------------------------
+
+
+def _banner_rows() -> list[str]:
+    """The six logo rows of assets/banner.svg — the same art the installer prints."""
+    svg = (REPO_ROOT / "assets" / "banner.svg").read_text()
+    rows = re.findall(r"<text[^>]*>([^<]*)</text>", svg)
+    assert len(rows) == 6, rows
+    return rows
+
+
+def test_banner_prints_on_a_terminal_only_and_matches_the_svg(tmp_path: Path) -> None:
+    """The .hyprconf banner (the retired assets/banner.sh, ported): once, at
+    the start, on a terminal only — this suite sees nothing — and never
+    inside omarchy-update, where the post-update hook runs it: stdout IS a
+    tty there (omarchy-update re-execs itself under script(1), Omarchy
+    4.0.0-1), so the gate is the OMARCHY_UPDATE_LOGGED marker that re-exec
+    exports. The logo rows are byte-identical to assets/banner.svg, colours
+    only on a real tty, and never a screen clear (the update's output must
+    stay on screen)."""
+    env = _setup(tmp_path)
+    quiet = _run(env, "--no-update")
+    assert quiet.returncode == 0, quiet.stderr
+    assert "[ SYS ]" not in quiet.stdout
+
+    hooked = _run(
+        env,
+        "--no-update",
+        "--no-packages",
+        extra_env={"_HYPRCONF_ASSUME_TTY": "1", "OMARCHY_UPDATE_LOGGED": "1"},
+    )
+    assert hooked.returncode == 0, hooked.stderr
+    assert "[ SYS ]" not in hooked.stdout
+
+    loud = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert loud.returncode == 0, loud.stderr
+    assert "\n".join(_banner_rows()) + "\n" in loud.stdout
+    assert loud.stdout.count("[ SYS ] omarchy overlay") == 1
+    assert "hyprconf.sh" in loud.stdout
+    assert "[ SYS ] origin: github.com/ak4dev/.hyprconf   branch: " in loud.stdout
+    assert loud.stdout.index("[ SYS ]") < loud.stdout.index("==> ")
+    assert "\x1b" not in loud.stdout  # not a real tty: no colour codes
+    assert "[2J" not in INSTALL_SH.read_text() and "\x1b[2J" not in loud.stdout
+
+    # The curl path prints it in the served copy and marks it shown, so the
+    # checkout's copy it execs does not print it a second time.
+    again = _run(
+        env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1", "HYPRCONF_BANNER_SHOWN": "1"}
+    )
+    assert again.returncode == 0, again.stderr
+    assert "[ SYS ]" not in again.stdout
+
+
+# ---------------------------------------------------------------------------
+# The menu — Proton VPN under Install > Service, through Omarchy's extension file
+# ---------------------------------------------------------------------------
+
+MENU_EXT = Path(".config") / "omarchy" / "extensions" / "omarchy-menu.jsonc"
+MENU_BEGIN = "  // >>> hyprconf >>>"
+MENU_END = "  // <<< hyprconf <<<"
+PROTONVPN_ROW = {
+    "icon": "󰦝",
+    "label": "Proton VPN",
+    "when": "! omarchy-pkg-present proton-vpn-gtk-app",
+    "action": "omarchy-launch-floating-terminal-with-presentation hyprconf-install-service-protonvpn",
+}
+
+
+def _menu_items(path: Path) -> dict:
+    """The extension file the way Omarchy's menu reads it: a port of
+    shell/plugins/menu/MenuModel.js stripJsonc (4.0.0-1) — whole-line //
+    comments go, then the comma before a } or ] — and JSON.parse. Anything
+    that fails here makes the shell silently drop the WHOLE user file."""
+    raw = path.read_text()
+    stripped = re.sub(r"^\s*//[^\n]*(\n|$)", "", raw, flags=re.M)
+    stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)
+    return json.loads(stripped)
+
+
+def test_menu_row_is_added_through_omarchys_extension_file(tmp_path: Path) -> None:
+    """A fresh box: the user extension file is seeded from Omarchy's template
+    (all comments, kept byte for byte), the managed block sits right before
+    the closing brace, and the result parses the way the menu parses it —
+    with the one row exactly as Omarchy shapes its own install.service rows.
+    The row's action is the tool stage_bin put on ~/.local/bin."""
+    env = _setup(tmp_path)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    ext = env["home"] / MENU_EXT
+    text = ext.read_text()
+    assert text.startswith(OMARCHY_MENU_EXTENSION.rsplit("}", 1)[0])
+    lines = text.splitlines()
+    assert lines.count(MENU_BEGIN) == 1 and lines.count(MENU_END) == 1
+    assert lines[-3:] == [
+        '  "install.service.protonvpn": {"icon":"󰦝","label":"Proton VPN",'
+        '"when":"! omarchy-pkg-present proton-vpn-gtk-app",'
+        '"action":"omarchy-launch-floating-terminal-with-presentation'
+        ' hyprconf-install-service-protonvpn"},',
+        MENU_END,
+        "}",
+    ]
+    assert lines[-4] == MENU_BEGIN
+    assert _menu_items(ext) == {"install.service.protonvpn": PROTONVPN_ROW}
+
+    tool = env["home"] / ".local" / "bin" / "hyprconf-install-service-protonvpn"
+    assert os.access(tool, os.X_OK)
+    assert PROTONVPN_ROW["action"].endswith(" " + tool.name)
+    # `when` hides the row once the package the tool installs is present.
+    assert "omarchy-pkg-add proton-vpn-gtk-app proton-vpn-cli" in tool.read_text()
+
+
+@pytest.mark.parametrize(
+    ("before", "after_head"),
+    [
+        # The last entry has no trailing comma: it gets one.
+        (
+            '{\n  "personal": {"icon":"x","label":"P"}\n}\n',
+            '{\n  "personal": {"icon":"x","label":"P"},\n',
+        ),
+        # It already has one, and a comment follows: nothing doubled, nothing lost.
+        (
+            '{\n  "personal": {"icon":"x","label":"P"},\n  // mine\n}\n',
+            '{\n  "personal": {"icon":"x","label":"P"},\n  // mine\n',
+        ),
+        # A multi-line entry: the comma lands on its closing brace.
+        (
+            '{\n  "personal": {\n    "icon": "x",\n    "label": "P"\n  }\n}\n',
+            '{\n  "personal": {\n    "icon": "x",\n    "label": "P"\n  },\n',
+        ),
+    ],
+    ids=["no-comma", "comma-then-comment", "multi-line"],
+)
+def test_menu_block_keeps_the_users_file_parseable(
+    tmp_path: Path, before: str, after_head: str
+) -> None:
+    """The block goes last, so the user's own last entry must end with a comma
+    for the file to stay valid — it is given one when it has none, and never
+    a second. Everything the user wrote survives, in place."""
+    env = _setup(tmp_path)
+    ext = env["home"] / MENU_EXT
+    ext.parent.mkdir(parents=True)
+    ext.write_text(before)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    text = ext.read_text()
+    assert text.startswith(after_head + MENU_BEGIN + "\n")
+    assert text.endswith(MENU_END + "\n}\n")
+    assert _menu_items(ext) == {
+        "personal": {"icon": "x", "label": "P"},
+        "install.service.protonvpn": PROTONVPN_ROW,
+    }
+
+
+def test_menu_block_is_byte_stable_and_left_alone_when_current(tmp_path: Path) -> None:
+    """A re-run (the post-update hook, every Omarchy update) changes nothing
+    and does not even touch the file: the menu watches it, and a rewrite of
+    the same bytes would still make it reparse."""
+    env = _setup(tmp_path)
+    assert _run(env, "--no-update").returncode == 0
+    ext = env["home"] / MENU_EXT
+    before = ext.read_bytes()
+    os.utime(ext, (0, 0))
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert ext.read_bytes() == before
+    assert ext.stat().st_mtime == 0
+    assert "already current" in proc.stdout
+    # No temp file left beside it either.
+    assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
+
+
+def test_menu_block_is_byte_stable_from_the_first_run_after_trailing_blank_lines(
+    tmp_path: Path,
+) -> None:
+    """Blank lines after the closing brace: the first run already writes what
+    a re-run would (strip_managed_block drops trailing newlines before the
+    block goes back in), so the second run is the no-op — not the third."""
+    env = _setup(tmp_path)
+    ext = env["home"] / MENU_EXT
+    ext.parent.mkdir(parents=True)
+    ext.write_text('{\n  "personal": {"icon":"x","label":"P"}\n}\n\n\n')
+    first = _run(env, "--no-update")
+    assert first.returncode == 0, first.stderr
+    text = ext.read_text()
+    assert text.endswith(MENU_END + "\n}\n")
+    assert _menu_items(ext) == {
+        "personal": {"icon": "x", "label": "P"},
+        "install.service.protonvpn": PROTONVPN_ROW,
+    }
+    second = _run(env, "--no-update")
+    assert second.returncode == 0, second.stderr
+    assert ext.read_text() == text
+    assert "already current" in second.stdout
+
+
+def test_an_empty_extension_file_is_seeded_like_a_missing_one(tmp_path: Path) -> None:
+    """A touched or truncated omarchy-menu.jsonc holds nothing of the user's
+    and is unparseable for the menu as it is: it is seeded from Omarchy's
+    template and gets the block, the same as when it is absent — not left
+    empty with a warning."""
+    env = _setup(tmp_path)
+    ext = env["home"] / MENU_EXT
+    ext.parent.mkdir(parents=True)
+    ext.write_text("")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "seeded omarchy-menu.jsonc" in proc.stdout
+    assert "closing-brace" not in proc.stderr
+    assert ext.read_text().startswith(OMARCHY_MENU_EXTENSION.rsplit("}", 1)[0])
+    assert _menu_items(ext) == {"install.service.protonvpn": PROTONVPN_ROW}
+
+
+def test_a_stale_menu_block_is_replaced_not_duplicated(tmp_path: Path) -> None:
+    """An older overlay's block — a different row, an extra row — is stripped
+    before the current one goes in: one marker pair, and only today's rows."""
+    env = _setup(tmp_path)
+    ext = env["home"] / MENU_EXT
+    ext.parent.mkdir(parents=True)
+    ext.write_text(
+        '{\n  "personal": {"icon":"x","label":"P"},\n'
+        + MENU_BEGIN
+        + '\n  "install.service.protonvpn": {"icon":"old","label":"Old"},\n'
+        + '  "gone.row": {"label":"gone"},\n'
+        + MENU_END
+        + "\n}\n"
+    )
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    text = ext.read_text()
+    assert text.count(MENU_BEGIN) == 1 and text.count(MENU_END) == 1
+    assert "gone.row" not in text and '"old"' not in text
+    assert _menu_items(ext) == {
+        "personal": {"icon": "x", "label": "P"},
+        "install.service.protonvpn": PROTONVPN_ROW,
+    }
+
+
+def test_menu_stage_leaves_a_file_it_cannot_extend_alone(tmp_path: Path) -> None:
+    """No closing-brace line to put the block before (a one-line file): the
+    file is left exactly as it is, with a warning — a wrong edit would make
+    the menu drop every row the user has."""
+    env = _setup(tmp_path)
+    ext = env["home"] / MENU_EXT
+    ext.parent.mkdir(parents=True)
+    ext.write_text('{"personal": {"icon":"x"}}\n')
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert ext.read_text() == '{"personal": {"icon":"x"}}\n'
+    assert "closing-brace" in proc.stderr
+    assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
+
+
+def test_menu_stage_writes_through_a_symlinked_extension_file(tmp_path: Path) -> None:
+    """A stow-style link into a dotfiles checkout stays a link; the file
+    behind it gets the block."""
+    env = _setup(tmp_path)
+    real = tmp_path / "dotfiles" / "omarchy-menu.jsonc"
+    real.parent.mkdir()
+    real.write_text("{\n}\n")
+    ext = env["home"] / MENU_EXT
+    ext.parent.mkdir(parents=True)
+    ext.symlink_to(real)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert ext.is_symlink() and ext.resolve() == real.resolve()
+    assert _menu_items(real) == {"install.service.protonvpn": PROTONVPN_ROW}
+    assert sorted(p.name for p in real.parent.iterdir()) == ["omarchy-menu.jsonc"]
+
+
+def test_protonvpn_installer_installs_both_official_packages_through_omarchy(
+    tmp_path: Path,
+) -> None:
+    """bin/hyprconf-install-service-protonvpn mirrors omarchy-install-service-
+    nordvpn: one omarchy-pkg-add with both extra-repo packages, then how to
+    sign in. No daemon to enable, no group, no reboot — and a failed install
+    stops it before it claims success."""
+    env = _setup(tmp_path)
+    child = {"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"}
+    assert os.access(PROTONVPN_INSTALLER, os.X_OK)
+    proc = subprocess.run(
+        ["bash", str(PROTONVPN_INSTALLER)], env=child, capture_output=True, text=True, timeout=30
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert _calls(env) == ["omarchy-pkg-add proton-vpn-gtk-app proton-vpn-cli"]
+    assert "protonvpn login" in proc.stdout
+    code = _code_only(PROTONVPN_INSTALLER.read_text())
+    for forbidden in ("systemctl", "usermod", "reboot", "gum "):
+        assert forbidden not in code, forbidden
+
+    _stub(env["bins"] / "omarchy-pkg-add", env["calls"], "exit 1")
+    proc = subprocess.run(
+        ["bash", str(PROTONVPN_INSTALLER)], env=child, capture_output=True, text=True, timeout=30
+    )
+    assert proc.returncode != 0
+    assert "installed" not in proc.stdout

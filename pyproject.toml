@@ -1,15 +1,5 @@
-[project]
-name = "hyprconf"
-description = "hyprconf — an overlay for Omarchy: hotkeys, look, monitor presets, bar widgets, theme bridges"
-# 3.12 is the real floor: CI tests 3.12 and Arch ships ≥3.13.
-requires-python = ">=3.12"
-
-[project.optional-dependencies]
-test = [
-    "pytest>=8",
-    "pytest-xdist>=3",
-]
-
+# Tool config only: nothing packages or pip-installs the repo (AGENTS.md,
+# Layout), and CI takes pytest from pacman.
 [tool.pytest.ini_options]
 pythonpath = ["lib"]
 testpaths  = ["tests"]

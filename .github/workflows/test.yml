@@ -45,10 +45,13 @@ jobs:
       # jq: hypr/scripts/adjust-gaps parses `hyprctl getoption -j` with it.
       # shellcheck: tests/unit/test_yubikey.py lints the generated mkinitcpio
       # drop-in and would otherwise skip silently.
+      # diffutils: install.sh compares files with `cmp -s` (a test stub does
+      # too); Omarchy has it through mkinitcpio, the bare container does not.
+      # lua: luac parses the hypr/*.lua overrides, which would otherwise skip.
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm --needed git make python \
-            python-pytest python-pytest-xdist jq shellcheck
+            python-pytest python-pytest-xdist jq shellcheck diffutils lua
       - uses: actions/checkout@v4
       # The container runs as root but the checkout is owned by another uid, so
       # git refuses repo operations (e.g. the publish --dry-run clone) with

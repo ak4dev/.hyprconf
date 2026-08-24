@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# hyprconf-install-service-protonvpn — Proton VPN, the way Omarchy installs
+# its own services (bin/omarchy-install-service-nordvpn, Omarchy 4.0.0-1):
+# run from the menu row install.sh adds under Install > Service, in the
+# floating presentation terminal, so the package prompt is on screen.
+#
+# Both packages are in Arch's official extra repo (pacman -Si) — never the
+# AUR. No `systemctl enable` and no group: proton-vpn-daemon's proton.VPN
+# service is D-Bus-activated (me.proton.vpn.split_tunneling.service), so
+# there is nothing to enable and no reboot to wait for.
+#
+# omarchy:summary=Install Proton VPN (GTK app + CLI) from the official repos
+# omarchy:requires-sudo=true
+set -euo pipefail
+
+echo "Installing Proton VPN..."
+# One call: omarchy-pkg-add takes several names (omarchy-pkg-missing "$@",
+# then pacman -S --needed "$@" and a pacman -Q per name).
+omarchy-pkg-add proton-vpn-gtk-app proton-vpn-cli
+
+echo
+echo "Proton VPN installed. Sign in with 'protonvpn login' (the CLI), or open"
+echo "the Proton VPN app (protonvpn-app; SUPER+SPACE > Proton VPN) and sign in there."

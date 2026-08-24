@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # Installs the hyprconf overlay on top of a fresh Omarchy install.
 #
-#   git clone <hyprconf-repo-url> ~/.hyprconf && cd ~/.hyprconf
-#   bash install.sh
+#   bash <(curl -fsSL hyprconf.sh)
+#
+# hyprconf.sh serves this very file to curl and wget. Run that way it has no
+# payload beside it, so it clones github.com/ak4dev/.hyprconf (branch stable)
+# into ~/.hyprconf — or uses the checkout already there — and hands over to
+# that checkout's own copy (see bootstrap). The same by hand:
+#
+#   git clone -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf
+#   bash ~/.hyprconf/install.sh
 #
 # Every stage is idempotent, so re-running is the supported way to pick up
 # changes after a `git pull`. `hyprsync` is the alias for `--sync`.
@@ -19,7 +26,10 @@ set -euo pipefail
 # The installer lives at the repository root, so the two are the same
 # directory; both names are kept because they read differently ($HERE for
 # shipped data files beside this script, $REPO_ROOT for git and the hook).
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# ${BASH_SOURCE[0]} is /dev/fd/NN under `bash <(curl …)` and unset under
+# `curl … | bash` (hence the $0 fallback, for set -u); either way no payload
+# sits beside it and main() hands over to bootstrap.
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$HERE"
 
 # Paths are env-overridable so the hermetic test suite can point them at a fake
@@ -55,6 +65,16 @@ REPO_ROOT="$HERE"
 # copied plugin (attempts x 0.05s). The hermetic suite sets it to 0 — its
 # omarchy-plugin-list is a stub that never answers.
 : "${_HYPRCONF_PLUGIN_WAIT:=40}"
+# Where the curl path (bootstrap) gets the checkout from and puts it. Plain
+# names, not _HYPRCONF_*: these are for users too (a fork, a branch under
+# test, a checkout somewhere other than ~/.hyprconf).
+: "${HYPRCONF_REPO:=https://github.com/ak4dev/.hyprconf}"
+: "${HYPRCONF_BRANCH:=stable}"
+: "${HYPRCONF_DIR:=$HOME/.hyprconf}"
+
+# The arguments as given, for bootstrap to hand to the checkout's copy: the
+# option loop below shifts them away.
+orig_args=("$@")
 
 do_pull=0
 do_update=0
@@ -70,9 +90,15 @@ die()  { printf 'hyprconf: %s\n' "$*" >&2; exit 1; }
 
 usage() {
     cat <<'USAGE'
-Usage: bash install.sh [OPTIONS]
+Usage: bash <(curl -fsSL hyprconf.sh) [OPTIONS]
+       bash install.sh [OPTIONS]
 
 Installs (or re-applies) the hyprconf overlay on an Omarchy system.
+
+The curl form clones github.com/ak4dev/.hyprconf (branch stable) into
+~/.hyprconf — or uses the checkout already there, without pulling it — and
+runs that checkout's install.sh with the same options. HYPRCONF_REPO,
+HYPRCONF_BRANCH and HYPRCONF_DIR override those three.
 
 Options:
   --sync          Pull the hyprconf checkout, re-apply, then run omarchy-update.
@@ -107,6 +133,82 @@ preflight() {
         die "no Omarchy found at $_HYPRCONF_OMARCHY_PATH — this overlay installs on top of Omarchy."
     command -v "$_HYPRCONF_PKG_ADD" >/dev/null 2>&1 ||
         die "$_HYPRCONF_PKG_ADD not on PATH — this overlay installs on top of Omarchy."
+}
+
+# ---------------------------------------------------------------- bootstrap
+
+# The .hyprconf banner, kept from the retired standalone setup (its
+# assets/banner.sh; the same art as assets/banner.svg). Colours only on a
+# terminal, and NO screen clear — the post-update hook runs this script
+# inside omarchy-update, whose output must stay on screen. $1 is the branch
+# named on the second SYS line.
+banner() {
+    local wh='' gl='' ng='' am='' dm='' rs=''
+    if [[ -t 1 ]]; then
+        wh=$'\e[1;37m' gl=$'\e[1;31m' ng=$'\e[2;32m'
+        am=$'\e[1;33m' dm=$'\e[2;37m' rs=$'\e[0m'
+    fi
+    # top noise line
+    printf '%s  ▒░▒▓▒░░▒▓░░▒▓▒░▒░▒▓▒░░▒▓░▒▓▒░▒░▒▓▒░░▒▓░▒▓▒░▒░▒▓▒░░▒▓░▒▓▒░▒░▒▓▒░▒▓%s\n' "$ng" "$rs"
+    # .hyprconf logo — standard ASCII-art lowercase font. The (_) glyph on
+    # rows 4–5 is the figlet rendering of the leading '.'; row 3 is
+    # glitch-red, the corrupted-scanline artifact.
+    printf '%s         _                                        __%s\n'                   "$dm" "$rs"
+    printf '%s        | |__  _   _ _ __  _ __ ___ ___  _ __  / _|%s\n'                  "$wh" "$rs"
+    printf "%s        | '_ \\| | | | '_ \\| '__/ __/ _ \\| '_ \\| |_%s\n"                "$gl" "$rs"
+    printf '%s       _| | | | |_| | |_) | | | (_| (_) | | | |  _|%s\n'                  "$wh" "$rs"
+    printf '%s     (_)|_| |_|\__, | .__/|_|  \___\___/|_| |_||_|%s\n'                   "$dm" "$rs"
+    printf '%s               |___/|_|%s\n'                                               "$dm" "$rs"
+    # bottom noise line + sys info
+    printf '%s  ▓░▒▓░▒▓▒▓░▒▓░▒▓░░▒▓░▒▓▒░▒▓░░▒▓░▒▓░▒▓░▒▓░▒▓▒▓░▒▓░▒▓░░▒▓░▒▓░░▒▓░▒▓░▒▓%s\n' "$ng" "$rs"
+    printf '%s  ──────────────────────────────────────────────────────────────────────%s\n'   "$dm" "$rs"
+    printf '%s  [ SYS ] %-49s%s\n'                                                     "$am" "omarchy overlay" "hyprconf.sh"
+    printf    '  [ SYS ] origin: github.com/ak4dev/.hyprconf   branch: %s%s\n'          "$1" "$rs"
+    printf '%s  ──────────────────────────────────────────────────────────────────────%s\n\n' "$dm" "$rs"
+}
+
+# The banner, once per install: on a terminal only (or the suite's stand-in
+# for one), never inside omarchy-update, and never twice on the curl path —
+# bootstrap prints it, then exports HYPRCONF_BANNER_SHOWN before it hands
+# over to the checkout's copy. The post-update hook needs its own gate: the
+# tty test is TRUE there, because omarchy-update re-execs itself under
+# script(1) (bin/omarchy-update, Omarchy 4.0.0-1: `exec env
+# OMARCHY_UPDATE_LOGGED=1 script -qefc ...`), which puts a pty on every
+# child's stdout — and exports OMARCHY_UPDATE_LOGGED to every one of them,
+# which is the marker used here. The branch is $1, or the checkout's when
+# not given.
+show_banner() {
+    [[ -z ${HYPRCONF_BANNER_SHOWN:-} && -z ${OMARCHY_UPDATE_LOGGED:-} ]] || return 0
+    [[ -t 1 || -n $_HYPRCONF_ASSUME_TTY ]] || return 0
+    local branch="${1:-}"
+    [[ -n $branch ]] ||
+        branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    banner "${branch:-unknown}"
+}
+
+# The curl path: `bash <(curl -fsSL hyprconf.sh)` runs this file from /dev/fd
+# with nothing beside it, so nothing is applied from here. Preflight FIRST —
+# a box without Omarchy is refused before anything lands on it — then the
+# checkout is cloned into $HYPRCONF_DIR, or the one already there is used as
+# it is (never pulled: that is --sync's job), and its own install.sh takes
+# over with the arguments as given. That copy re-reads nothing from this
+# one, so the served file can be any version that has this function.
+bootstrap() {
+    show_banner "$HYPRCONF_BRANCH"
+    preflight
+    command -v git >/dev/null 2>&1 ||
+        die "git not on PATH — install it (omarchy-pkg-add git) and re-run"
+    if [[ -d $HYPRCONF_DIR/.git ]]; then
+        log "Using the existing checkout at $HYPRCONF_DIR"
+    else
+        log "Cloning $HYPRCONF_REPO ($HYPRCONF_BRANCH) into $HYPRCONF_DIR"
+        git clone --branch "$HYPRCONF_BRANCH" --single-branch "$HYPRCONF_REPO" "$HYPRCONF_DIR" ||
+            die "git clone failed — see the message above"
+    fi
+    [[ -f $HYPRCONF_DIR/install.sh ]] ||
+        die "$HYPRCONF_DIR/install.sh not found — is $HYPRCONF_DIR a hyprconf checkout?"
+    export HYPRCONF_BANNER_SHOWN=1
+    exec bash "$HYPRCONF_DIR/install.sh" "$@"
 }
 
 # ------------------------------------------------------------------ helpers
@@ -658,6 +760,100 @@ stage_bin() {
     esac
 }
 
+# hyprconf's rows in Omarchy's menu, through Omarchy's own seam for them:
+# ~/.config/omarchy/extensions/omarchy-menu.jsonc, the one user file the menu
+# merges over its defaults (shell/plugins/menu/Menu.qml, userMenuPath; the
+# FileView watches it, so an edit shows up with no shell restart). Omarchy
+# 4.0.0-1 ships no command that edits that file — `omarchy commands --json`
+# has no menu-extension route, and omarchy-menu only summons — so it is
+# edited here, in a managed block kept immediately before the closing brace.
+# The shape is dictated by the parser (shell/plugins/menu/MenuModel.js,
+# stripJsonc): it drops only comment lines that START with //, and only a
+# comma right before a } or ], and one parse failure silently drops the WHOLE
+# user file. Hence: markers on comment lines of their own, every entry in the
+# block ending with a comma, and the user's own last entry ahead of the block
+# given the comma it then needs. Seeded from Omarchy's template (all
+# comments) when the user has no file yet; the previous block is stripped
+# first, and the file is left untouched when nothing would change.
+#
+# One row: Proton VPN under Install > Service, beside Omarchy's own NordVPN
+# row and shaped exactly like it (default/omarchy/omarchy-menu.jsonc,
+# install.service.nordvpn) — dotted id, `when` hides it once installed, and
+# the floating presentation terminal runs bin/hyprconf-install-service-
+# protonvpn, which stage_bin put on ~/.local/bin (on PATH in the session:
+# default/bash/envs appends it, and the bar widgets find hyprconf-stats the
+# same way).
+stage_menu() {
+    log "Omarchy menu: Proton VPN installer (Install > Service)"
+    local file="$_HYPRCONF_CONFIG/omarchy/extensions/omarchy-menu.jsonc"
+    local template="$_HYPRCONF_OMARCHY_PATH/config/omarchy/extensions/omarchy-menu.jsonc"
+    local begin='  // >>> hyprconf >>>' end='  // <<< hyprconf <<<'
+    local entry='  "install.service.protonvpn": {"icon":"󰦝","label":"Proton VPN","when":"! omarchy-pkg-present proton-vpn-gtk-app","action":"omarchy-launch-floating-terminal-with-presentation hyprconf-install-service-protonvpn"},'
+
+    mkdir -p "${file%/*}"
+    # Absent or empty — a touched or truncated file holds nothing of the
+    # user's and is unparseable for the menu as it is — it is seeded.
+    if [[ ! -s $file ]]; then
+        if [[ -f $template ]]; then
+            cp "$template" "$file"
+            info "seeded omarchy-menu.jsonc from Omarchy's template"
+        else
+            printf '{\n}\n' > "$file"
+        fi
+        chmod 644 "$file"
+    fi
+
+    # Through a symlink (a stow-style dotfiles checkout), never over it. The
+    # rewrite is done on a copy beside the real file — the block stripped,
+    # then re-inserted — and moved into place only when the bytes differ.
+    local target tmp
+    target="$(readlink -f "$file")"
+    tmp="$(mktemp "$target.XXXXXX")"
+    cp "$target" "$tmp"
+    strip_managed_block "$tmp" "$begin" "$end"
+    if ! awk -v b="$begin" -v e="$end" -v entry="$entry" '
+        { lines[NR] = $0 }
+        END {
+            close_at = 0
+            for (i = NR; i >= 1; i--)
+                if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) { close_at = i; break }
+            if (!close_at) exit 3
+            # The last line of content the user owns: blank lines and
+            # whole-line comments do not count (the parser drops those).
+            prev = 0
+            for (i = close_at - 1; i >= 1; i--) {
+                if (lines[i] ~ /^[[:space:]]*$/) continue
+                if (lines[i] ~ /^[[:space:]]*\/\//) continue
+                prev = i; break
+            }
+            for (i = 1; i < close_at; i++) {
+                line = lines[i]
+                if (i == prev && line !~ /[,{][[:space:]]*$/) line = line ","
+                print line
+            }
+            print b; print entry; print e
+            # Trailing empty lines go now: a re-run strips the block with
+            # strip_managed_block, which drops them, so keeping them here
+            # would make the first re-run a rewrite instead of a no-op.
+            last = NR
+            while (last > close_at && lines[last] == "") last--
+            for (i = close_at; i <= last; i++) print lines[i]
+        }' "$tmp" > "$tmp.new"; then
+        rm -f "$tmp" "$tmp.new"
+        warn "$file has no closing-brace line to put the hyprconf block before — add the Proton VPN row by hand"
+        return 0
+    fi
+    rm -f "$tmp"
+    if cmp -s "$tmp.new" "$target"; then
+        rm -f "$tmp.new"
+        info "already current"
+        return 0
+    fi
+    chmod --reference="$target" "$tmp.new"
+    mv "$tmp.new" "$target"
+    info "install.service.protonvpn -> $file (SUPER+D > Install > Service)"
+}
+
 # The hyprconf TUI is gone (the overlay is a deployment mechanism, not a
 # configuration app: hypr/*.lua are edited by hand, per Omarchy's own model).
 # Earlier overlay versions installed it; sweep every piece up so an upgraded
@@ -1204,6 +1400,9 @@ stage_update() {
 # --------------------------------------------------------------------- main
 
 main() {
+    # No payload beside this file: the curl path. bootstrap execs or dies.
+    [[ -d $HERE/hypr && -f $HERE/packages ]] || bootstrap "${orig_args[@]}"
+    show_banner
     preflight
     if (( do_pull ));     then stage_pull; fi
     if (( do_packages )); then stage_packages; fi
@@ -1222,6 +1421,7 @@ main() {
     stage_monitors
     stage_fastfetch
     stage_bin
+    stage_menu
     stage_sweep_tui
     stage_bar_plugin
     stage_clock
@@ -1245,4 +1445,4 @@ main() {
     log "Done. SUPER+D still opens Omarchy's menu; the login shell is still bash."
 }
 
-main "$@"
+main
