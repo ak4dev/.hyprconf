@@ -18,9 +18,8 @@
     <meta property="og:type" content="website" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <style>
-      /* Self-contained, dependency-free: system fonts only, no external CDN/font
-         or network requests, so the page stays private and zero-maintenance.
-         Palette: the repo's own `ai:circuit` theme (mint + cyan on near-black). */
+      /* Self-contained: system fonts only, no external requests, no JS.
+         Palette: the repo's `ai:circuit` theme (mint + cyan on near-black). */
       :root {
         --bg: #010e0a;
         --panel: #04160e;
@@ -43,10 +42,8 @@
         margin: 0;
         color: var(--fg);
         font-family: var(--sans);
-        line-height: 1.6;
+        line-height: 1.5;
         background-color: var(--bg);
-        /* Faint circuit-board grid + two soft corner glows — a whisper, so
-           text stays crisp on top. */
         background-image:
           radial-gradient(circle at 12% 0%, rgba(0, 212, 255, 0.06), transparent 42%),
           radial-gradient(circle at 92% 100%, rgba(0, 229, 160, 0.07), transparent 46%),
@@ -54,7 +51,6 @@
           linear-gradient(90deg, rgba(0, 229, 160, 0.028) 1px, transparent 1px);
         background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
       }
-      /* Thin accent "bus" across the very top of the page. */
       body::before {
         content: "";
         position: fixed;
@@ -65,25 +61,23 @@
       }
       a { color: var(--accent); }
       code { font-family: var(--mono); font-size: 0.92em; color: var(--fg); }
-      .wrap { max-width: 840px; margin: 0 auto; padding: 4.5rem 1.35rem 4.5rem; }
+      .wrap { max-width: 840px; margin: 0 auto; padding: 1.75rem 1.25rem 2rem; }
 
-      /* ── Hero ─────────────────────────────────────────────────────────── */
+      /* ── Brand: the figlet banner from assets/banner.svg, verbatim ────── */
       .kicker {
         font-family: var(--mono);
-        font-size: 0.78rem;
+        font-size: 0.72rem;
         letter-spacing: 0.22em;
         text-transform: uppercase;
         color: var(--fg-dim);
-        margin-bottom: 1.1rem;
+        margin: 0 0 0.5rem;
       }
-      .kicker .sep { color: var(--accent); opacity: 0.7; padding: 0 0.15rem; }
-      /* The figlet banner from assets/banner.svg, verbatim. 52 columns at
-         ~0.6em per glyph: the clamp keeps it inside the column from 320px up
-         (8px × 52 × 0.6 ≈ 250px) and caps it on wide screens; if a font
-         runs wider the pre scrolls on its own — never the page. */
+      .sep { color: var(--accent); opacity: 0.7; padding: 0 0.2rem; }
+      /* 52 columns at ~0.6em per glyph: the clamp keeps it inside the column
+         from 320px up and caps it on wide screens; a wider font scrolls the
+         pre, never the page. */
       .logo {
-        margin: 0 0 1rem;
-        padding: 0 0 0.25rem;
+        margin: 0;
         overflow-x: auto;
         font-family: var(--mono);
         font-size: clamp(0.5rem, 2.3vw, 1.05rem);
@@ -91,262 +85,166 @@
         color: var(--accent);
         text-shadow: 0 0 14px rgba(0, 229, 160, 0.45);
       }
-      .brand {
-        font-family: var(--mono);
-        font-size: 2.9rem;
-        font-weight: 700;
-        color: var(--fg-bright);
-        letter-spacing: -0.02em;
-        line-height: 1.05;
-        margin: 0;
-      }
-      .brand .dot {
-        color: var(--accent);
-        text-shadow: 0 0 18px rgba(0, 229, 160, 0.7);
-      }
-      .tagline {
-        font-size: 1.2rem;
+      h1 {
+        margin: 0.35rem 0 0.5rem;
+        font-size: 1.15rem;
+        font-weight: 500;
         color: var(--fg-dim);
-        margin: 0.4rem 0 1.4rem;
       }
-      .lead { font-size: 1.06rem; max-width: 60ch; margin: 0; }
+      .lead { max-width: 64ch; margin: 0 0 0.9rem; font-size: 0.98rem; }
 
-      /* ── Feature grid (circuit-board cells joined by hairline traces) ──── */
+      /* ── Install ──────────────────────────────────────────────────────── */
+      .terminal {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--panel);
+        box-shadow: 0 20px 50px -30px rgba(0, 0, 0, 0.9);
+      }
+      .term-head {
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.45rem 0.85rem;
+        background: var(--panel-2);
+        border-bottom: 1px solid var(--line);
+        font-family: var(--mono);
+        font-size: 0.74rem;
+        color: var(--fg-dim);
+      }
+      .tdot { width: 9px; height: 9px; border-radius: 50%; }
+      .tdot.a { background: var(--accent); box-shadow: 0 0 7px rgba(0, 229, 160, 0.6); }
+      .tdot.b { background: var(--cyan); box-shadow: 0 0 7px rgba(0, 212, 255, 0.5); }
+      .tdot.c { background: var(--line); margin-right: 0.3rem; }
+      .terminal pre {
+        margin: 0;
+        padding: 0.8rem 1rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font-family: var(--mono);
+        font-size: 0.95rem;
+        color: var(--fg-bright);
+      }
+      .prompt { color: var(--accent); user-select: none; margin-right: 0.5rem; }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem 1rem;
+        flex-wrap: wrap;
+        margin: 0.55rem 0 1.1rem;
+      }
+      .note { margin: 0; font-family: var(--mono); font-size: 0.78rem; color: var(--fg-dim); }
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        background: rgba(0, 229, 160, 0.05);
+        color: var(--fg-bright);
+        font-size: 0.88rem;
+        font-weight: 600;
+        text-decoration: none;
+        transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+      }
+      .btn svg { width: 17px; height: 17px; color: var(--accent); transition: color 0.18s ease; }
+      .btn:hover { background: var(--accent); border-color: var(--accent); color: #010e0a; }
+      .btn:hover svg { color: #010e0a; }
+      .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+      /* ── Feature grid (cells joined by hairline traces) ───────────────── */
       .features {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 1px;
-        margin: 2.5rem 0 1rem;
+        margin: 0 0 0.55rem;
         background: var(--line);
         border: 1px solid var(--line);
-        border-radius: 12px;
+        border-radius: 10px;
         overflow: hidden;
       }
-      .feat {
-        background: var(--bg);
-        padding: 1.3rem 1.4rem;
-      }
+      .feat { background: var(--bg); padding: 0.8rem 0.95rem; }
       .feat h2 {
         display: flex;
         align-items: center;
-        gap: 0.65rem;
+        gap: 0.55rem;
         margin: 0;
-        font-size: 1rem;
+        font-size: 0.92rem;
         font-weight: 600;
         color: var(--fg-bright);
       }
       .node {
         flex: none;
-        width: 7px;
-        height: 7px;
+        width: 6px;
+        height: 6px;
         border-radius: 50%;
         background: var(--accent);
-        box-shadow: 0 0 9px 1px rgba(0, 229, 160, 0.75);
+        box-shadow: 0 0 8px 1px rgba(0, 229, 160, 0.75);
       }
       .feat p {
-        margin: 0.55rem 0 0;
-        padding-left: 1.3rem;
+        margin: 0.3rem 0 0;
+        padding-left: 1.1rem;
         color: var(--fg-dim);
-        font-size: 0.92rem;
-        line-height: 1.55;
+        font-size: 0.86rem;
+        line-height: 1.45;
       }
-      /* The smaller layers, one line under the grid. */
-      .also {
-        margin: 0 0 2.5rem;
-        padding: 0 0.2rem;
-        font-family: var(--mono);
-        font-size: 0.8rem;
-        line-height: 1.8;
-        color: var(--fg-dim);
-      }
-      .also .sep { color: var(--accent); opacity: 0.7; padding: 0 0.3rem; }
-
-      /* ── Terminal install card ────────────────────────────────────────── */
-      .terminal {
-        margin: 2.25rem 0 0.6rem;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        overflow: hidden;
-        background: var(--panel);
-        box-shadow: 0 24px 60px -30px rgba(0, 0, 0, 0.9);
-      }
-      .term-head {
-        display: flex;
-        align-items: center;
-        gap: 0.45rem;
-        padding: 0.65rem 0.95rem;
-        background: var(--panel-2);
-        border-bottom: 1px solid var(--line);
-      }
-      .tdot { width: 10px; height: 10px; border-radius: 50%; }
-      .tdot.a { background: var(--accent); box-shadow: 0 0 7px rgba(0, 229, 160, 0.6); }
-      .tdot.b { background: var(--cyan); box-shadow: 0 0 7px rgba(0, 212, 255, 0.5); }
-      .tdot.c { background: var(--line); }
-      .term-title {
-        margin-left: 0.35rem;
-        font-family: var(--mono);
-        font-size: 0.78rem;
-        letter-spacing: 0.04em;
-        color: var(--fg-dim);
-      }
-      .terminal pre {
+      .also, .foot {
         margin: 0;
-        padding: 1.1rem 1.2rem;
-        white-space: pre-wrap;
-        overflow-wrap: anywhere;
         font-family: var(--mono);
-        font-size: 0.98rem;
-        color: var(--fg-bright);
-      }
-      .prompt { color: var(--accent); user-select: none; margin-right: 0.55rem; }
-      .term-note {
-        margin: 0 0 1.6rem;
-        padding: 0 0.2rem;
-        font-family: var(--mono);
-        font-size: 0.8rem;
+        font-size: 0.76rem;
+        line-height: 1.7;
         color: var(--fg-dim);
       }
-
-      /* ── GitHub button ────────────────────────────────────────────────── */
-      .actions { margin-top: 0.25rem; }
-      .btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.6rem;
-        padding: 0.72rem 1.35rem;
-        border: 1px solid var(--line-soft);
-        border-radius: 9px;
-        background: rgba(0, 229, 160, 0.05);
-        color: var(--fg-bright);
-        font-size: 0.95rem;
-        font-weight: 600;
-        text-decoration: none;
-        transition: color 0.18s ease, background 0.18s ease,
-          border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-      }
-      .btn svg { width: 19px; height: 19px; color: var(--accent); transition: color 0.18s ease; }
-      .btn .chev { margin-left: 0.1rem; opacity: 0.55; transition: transform 0.18s ease, opacity 0.18s ease; }
-      .btn:hover {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: #010e0a;
-        transform: translateY(-1px);
-        box-shadow: 0 0 0 1px var(--accent), 0 12px 34px -10px rgba(0, 229, 160, 0.55);
-      }
-      .btn:hover svg { color: #010e0a; }
-      .btn:hover .chev { transform: translateX(3px); opacity: 1; }
-      .btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
-
-      /* ── Disclaimer ───────────────────────────────────────────────────── */
-      .disclaimer {
-        margin: 2.5rem 0 0;
-        padding: 0.95rem 1.15rem;
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-left: 3px solid var(--accent);
-        border-radius: 8px;
-        color: var(--fg-dim);
-        font-size: 0.94rem;
-      }
-      .disclaimer strong { color: var(--fg); font-weight: 600; }
+      .foot { margin-top: 0.7rem; }
+      .foot strong { color: var(--fg); font-weight: 600; }
 
       /* ── Screenshot ───────────────────────────────────────────────────── */
       .shot {
         display: block;
         width: 100%;
         height: auto;
-        margin-top: 2.5rem;
+        margin-top: 1rem;
         border: 1px solid var(--line);
-        border-radius: 12px;
-        box-shadow: 0 30px 70px -35px rgba(0, 229, 160, 0.22),
-          0 20px 50px -30px rgba(0, 0, 0, 0.8);
+        border-radius: 10px;
+        box-shadow: 0 30px 70px -35px rgba(0, 229, 160, 0.22), 0 20px 50px -30px rgba(0, 0, 0, 0.8);
       }
 
       @media (max-width: 560px) {
-        .wrap { padding-top: 3.25rem; }
-        .brand { font-size: 2.15rem; }
+        .wrap { padding: 1.25rem 1rem 1.5rem; }
         .features { grid-template-columns: 1fr; }
       }
       @media (prefers-reduced-motion: reduce) {
-        .btn, .btn .chev { transition: none; }
-        .btn:hover { transform: none; }
+        .btn, .btn svg { transition: none; }
       }
     </style>
   </head>
   <body>
     <main class="wrap">
-      <div class="kicker">
-        Omarchy <span class="sep">·</span> Hyprland <span class="sep">·</span> Arch Linux
-      </div>
-      <pre class="logo" aria-hidden="true">         _                                        __
+      <p class="kicker">Omarchy <span class="sep">·</span> Hyprland <span class="sep">·</span> Arch Linux</p>
+      <pre class="logo" role="img" aria-label=".hyprconf">         _                                        __
         | |__  _   _ _ __  _ __ ___ ___  _ __  / _|
         | '_ \| | | | '_ \| '__/ __/ _ \| '_ \| |_
        _| | | | |_| | |_) | | | (_| (_) | | | |  _|
      (_)|_| |_|\__, | .__/|_|  \___\___/|_| |_||_|
                |___/|_|</pre>
-      <h1 class="brand"><span class="dot">.</span>hyprconf</h1>
-      <p class="tagline">An overlay for Omarchy</p>
-
+      <h1>An overlay for Omarchy</h1>
       <p class="lead">
-        One command layers hyprconf's hotkeys, look'n'feel, monitor presets,
-        bar widgets and theme reach onto a stock Omarchy install. Omarchy owns
-        the base system; hyprconf adds one person's preferences on top, only
-        through Omarchy's documented seams — a user theme, shell plugins,
-        hooks, and the override files Omarchy already reads.
-      </p>
-
-      <section class="features" aria-label="Highlights">
-        <div class="feat">
-          <h2><span class="node"></span>One command</h2>
-          <p>
-            <code>bash &lt;(curl -fsSL hyprconf.sh)</code> clones to
-            <code>~/.hyprconf</code> and applies every stage. Re-running it is
-            idempotent, and updates ride <code>omarchy-update</code> through a
-            post-update hook.
-          </p>
-        </div>
-        <div class="feat">
-          <h2><span class="node"></span>Bar widgets</h2>
-          <p>
-            Omarchy shell plugins: a clock that ticks seconds, only the
-            workspaces in use on two lines with a Pac-Man on the focused one,
-            the focused window's title, CPU/GPU temp and load, RAM/VRAM,
-            up/down.
-          </p>
-        </div>
-        <div class="feat">
-          <h2><span class="node"></span>Theme reach</h2>
-          <p>
-            A Dracula theme in Omarchy's theme menu, and every
-            <code>omarchy theme set</code> also lands in Firefox and Code - OSS.
-          </p>
-        </div>
-        <div class="feat">
-          <h2><span class="node"></span>Keys and VPN</h2>
-          <p>
-            <code>hyprconf-yubikey</code> unlocks the LUKS root with a FIDO2
-            key at boot. Proton VPN installs from Omarchy's Install → Service
-            menu, the way Omarchy ships NordVPN.
-          </p>
-        </div>
-      </section>
-      <p class="also">
-        Also: hotkeys with descriptions in <code>SUPER+K</code>
-        <span class="sep">·</span> monitor presets on a hotkey
-        <span class="sep">·</span> kitty with zsh + Powerlevel10k inside the terminal
-        <span class="sep">·</span> a privacy-hardened Firefox policy
+        One command layers hyprconf's hotkeys, look'n'feel, monitor presets, bar
+        widgets and theme reach onto a stock Omarchy install — only through
+        Omarchy's own seams: a user theme, shell plugins, hooks and the override
+        files it already reads.
       </p>
 
       <div class="terminal">
         <div class="term-head" aria-hidden="true">
-          <span class="tdot a"></span><span class="tdot b"></span><span class="tdot c"></span>
-          <span class="term-title">install</span>
+          <span class="tdot a"></span><span class="tdot b"></span><span class="tdot c"></span>install
         </div>
         <pre><code><span class="prompt" aria-hidden="true">$</span>bash &lt;(curl -fsSL hyprconf.sh)</code></pre>
       </div>
-      <p class="term-note">Requires a running Omarchy install.</p>
-
-      <div class="actions">
+      <div class="row">
+        <p class="note">Requires a running Omarchy install. Re-runs are idempotent; updates ride <code>omarchy-update</code>.</p>
         <a class="btn" href="https://github.com/ak4dev/.hyprconf">
           <svg viewBox="0 0 16 16" aria-hidden="true">
             <path
@@ -355,19 +253,40 @@
             />
           </svg>
           View on GitHub
-          <span class="chev" aria-hidden="true">→</span>
         </a>
       </div>
 
-      <p class="disclaimer">
-        <strong>A personal Omarchy overlay, shared openly</strong> as reference
-        and inspiration. Fork it, take what's useful. Offered as-is — feature
-        requests and issues may not be taken.
+      <section class="features" aria-label="Highlights">
+        <div class="feat">
+          <h2><span class="node"></span>One command</h2>
+          <p>Clones to <code>~/.hyprconf</code> and applies every stage through Omarchy's own tools; a post-update hook re-applies after each <code>omarchy-update</code>.</p>
+        </div>
+        <div class="feat">
+          <h2><span class="node"></span>Bar widgets</h2>
+          <p>Omarchy shell plugins: a clock that ticks seconds, only the workspaces in use on two lines with a Pac-Man on the focused one, the focused window's title, CPU/GPU temp and load, RAM/VRAM, up/down.</p>
+        </div>
+        <div class="feat">
+          <h2><span class="node"></span>Theme reach</h2>
+          <p>A Dracula theme in Omarchy's theme menu, and every <code>omarchy theme set</code> also lands in Firefox and Code - OSS.</p>
+        </div>
+        <div class="feat">
+          <h2><span class="node"></span>Keys and VPN</h2>
+          <p><code>hyprconf-yubikey</code> unlocks the LUKS root with a FIDO2 key at boot. Proton VPN installs from Omarchy's Install → Service menu, the way Omarchy ships NordVPN.</p>
+        </div>
+      </section>
+      <p class="also">
+        Also: hotkeys with descriptions in <code>SUPER+K</code>
+        <span class="sep">·</span> monitor presets on a hotkey
+        <span class="sep">·</span> kitty with zsh + Powerlevel10k inside the terminal
+        <span class="sep">·</span> a privacy-hardened Firefox policy
+      </p>
+      <p class="foot">
+        <strong>A personal Omarchy overlay, shared as-is</strong> — fork it, take what's useful;
+        feature requests and issues may not be taken.
       </p>
 
-      <!-- Placeholder (assets/screenshot.svg) until a desktop capture exists;
-           the real capture replaces this object under the same src and S3
-           key, so nothing else here or in the README moves. -->
+      <!-- Placeholder (assets/screenshot.svg) until a desktop capture exists; the
+           real capture replaces this object under the same src and S3 key. -->
       <img
         class="shot"
         src="./screenshot.svg"
