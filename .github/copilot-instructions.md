@@ -40,6 +40,23 @@ When modifying any Quickshell feature (anything under `stow/quickshell/`), consu
 
 ---
 
+## Omarchy Documentation
+
+When modifying anything under `omarchy/` — the overlay that installs hyprconf on top of an existing Omarchy system — **never work from memory or training data**. The overlay runs on a machine it does not own and cannot pin: Omarchy ships breaking changes between releases, so every assumption about its files, commands, defaults or seams must be re-derived from the system in front of you, in this order:
+
+1. **The installed tree** — `/usr/share/omarchy/`, authoritative for the version actually running (`omarchy version`, `/usr/share/omarchy/version`). Read it freely; **never edit it** (the package owns it, and an update overwrites it):
+   - `default/hypr/*.lua` — the Hyprland defaults the overlay layers onto. Diff against these before adding a setting: restating a value Omarchy already sets creates drift the moment it retunes the default.
+   - `config/` — the templates a fresh `$HOME` is seeded from (`omarchy refresh config <path>` re-copies one).
+   - `bin/` — what a command really does, guards and exit codes included: `cat "$(which omarchy-theme-set)"`. Several are booby-trapped for non-interactive callers (`omarchy-default-terminal` exec()s a GUI window when the terminal is missing; `omarchy-install-terminal` prints a failure and exits 0).
+2. **The live command surface** — `omarchy commands --json` lists every route with its group, args, aliases and `requires_sudo`; `omarchy <group> --help` and `omarchy <group> <action> --help` document one. Confirm a command exists and takes the arguments you think it does before calling it, and prefer the documented `omarchy <group> <action>` form over the underlying `omarchy-*` binary. Where the overlay needs a list of Omarchy's commands, themes, plugins, fonts or presets, **generate it at runtime from those commands** — a derived list tracks Omarchy, a hard-coded one rots.
+3. **The manual** — <https://omarchy.org/manual/> — for user-facing behaviour and documented seams. The chapters the overlay overlaps: Monitors, Keyboard/Mouse/Trackpad, Themes, Making your own theme, Hotkeys, Shell Plugins, Toggles/Idle/Screensaver, Omarchy CLI, Backgrounds, Fonts, Dotfiles, Common tweaks, Updates.
+
+**Extend only through documented seams** — a user theme, a shell plugin, a `~/.config/omarchy/hooks/*.d/` hook, an `include` appended to a config Omarchy owns, or one of the `~/.config/hypr/*.lua` files Omarchy `require`s *after* its defaults. Nothing under `omarchy/` may write to `/etc` or `/usr/share/omarchy`, change the login shell, or run `pacman -Syu`/`pacman -R` (an ALPM AbortOnFail hook blocks sysupgrade forms, and the "foreign" set includes Omarchy itself).
+
+**Record what you verified.** Name the Omarchy version a change was checked against in the commit message, and cite the file or command backing each claim about Omarchy's behaviour — as the existing overlay comments do. A claim with no traceable source is not verified, and a fix premised on stale knowledge is a regression even when the diff looks right.
+
+---
+
 ## README
 
 **`README.md` is the primary source of truth for any AI agent working on this project.** Inaccurate README content means flawed context for every future agent — treat drift as a correctness bug, not a documentation gap.

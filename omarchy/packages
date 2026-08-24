@@ -14,6 +14,12 @@
 # Terminal. Becomes Omarchy's default via `omarchy-default-terminal`.
 kitty
 
+# Font. Geist Mono is the retro-modern face hyprconf sets as the system
+# monospace on first install; the -nerd build carries the full Nerd Font glyph
+# set the bar widgets draw from. Omarchy's own ttf-jetbrains-mono-nerd-basic
+# stays installed and remains selectable with `omarchy font set`.
+otf-geist-mono-nerd
+
 # Shell. hyprconf runs zsh inside kitty while leaving the LOGIN shell as bash,
 # so Omarchy's own bash rc chain, session and scripts are untouched.
 zsh
@@ -22,8 +28,15 @@ zsh-syntax-highlighting
 
 # Keybind dependencies — omarchy/hypr/bindings.lua launches these and a fresh
 # Omarchy ships none of them.
-playerctl   # XF86Audio{Next,Prev,Play,Pause}
-hyprshot    # SUPER+SHIFT+4 region screenshot (--freeze)
+#
+# hyprshot was here for SUPER+SHIFT+4. That key now calls Omarchy's own
+# `omarchy-capture-screenshot region`, which freezes the screen the same way
+# (hyprpicker -r -z) and adds the click-to-edit notification back.
+#
+# playerctl was here for the media keys. Those now go to Omarchy's own
+# `omarchy-shell media`, and nothing else wants it: no Omarchy binary invokes
+# playerctl, and its shell only matches the *string* "playerctld" as a D-Bus
+# name to recognise that player. An orphan package is not a free one.
 firefox     # SUPER+F
 code        # SUPER+C
 # NB: SUPER+E is deliberately NOT dolphin here — it is repointed at Omarchy's

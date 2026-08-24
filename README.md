@@ -138,8 +138,9 @@ bash omarchy/install.sh
 | `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook. |
 | `--no-packages` | Skip the package stage — the only stage needing sudo. |
 
-**What it changes:** installs `kitty`, `zsh`, the two zsh plugins, `playerctl`,
-`hyprshot`, `firefox` and `code` (all official repos) via `omarchy-pkg-add`;
+**What it changes:** installs `kitty`, `zsh`, the two zsh plugins,
+`otf-geist-mono-nerd`, `firefox` and `code` (all official repos) via
+`omarchy-pkg-add`;
 makes kitty the default terminal through Omarchy's own
 `omarchy-default-terminal`; adds a `hyprconf` theme, a resource-usage bar
 plugin and a `post-update` hook under `~/.config/omarchy/`; symlinks

@@ -19,17 +19,16 @@ if [[ "$direction" != "+" && "$direction" != "-" ]]; then
 fi
 
 _get_gap() {
-    # gaps_in / gaps_out are CCssGapData (custom type: "T R B L").
-    # Use the first (top) value as the representative uniform gap.
+    # gaps_in / gaps_out are a four-sided gap value, reported as "T R B L".
+    # Hyprland 0.56 names that field "css"; older builds called it "custom".
+    # Read both, or the step is computed from 0 every single press — the keys
+    # still appear to work (0 -> 2 -> 0) while quietly discarding the real gap.
     hyprctl getoption "$1" -j 2>/dev/null \
         | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
-c = d.get('custom', '')
-if c:
-    print(int(c.split()[0]))
-else:
-    print(d.get('int', 0))
+sides = d.get('css') or d.get('custom') or ''
+print(int(sides.split()[0]) if sides else d.get('int', 0))
 " 2>/dev/null || echo "0"
 }
 
@@ -46,4 +45,12 @@ else
     new_out=$(( new_out < 0 ? 0 : new_out ))
 fi
 
-hyprctl --batch "keyword general:gaps_in $new_in ; keyword general:gaps_out $new_out"
+# `hyprctl keyword` is dead on Hyprland 0.56+: with the Lua parser it answers
+# "keyword can't work with non-legacy parsers. Use eval." AND STILL EXITS 0, so
+# the old call failed silently and these keys did nothing at all. `eval` runs
+# the same Lua the config does, and it does report failure (exit 7).
+if ! out="$(hyprctl eval "hl.config({ general = { gaps_in = $new_in, gaps_out = $new_out } })" 2>&1)" ||
+   [[ "$out" != ok ]]; then
+    printf 'adjust-gaps: %s\n' "$out" >&2
+    exit 1
+fi

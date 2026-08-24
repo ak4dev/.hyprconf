@@ -6,6 +6,8 @@ Hyprland config reference (syntax cheatsheet): [`docs/hyprland-reference.md`](do
 
 Quickshell API reference (bar/QML cheatsheet): [`docs/quickshell-reference.md`](docs/quickshell-reference.md) — when touching `stow/quickshell/`, always re-verify APIs against the quickshell.org docs for the **installed** version (see the Quickshell Documentation section of the copilot instructions).
 
+Omarchy platform reference (the overlay's host system): the installed tree at `/usr/share/omarchy` is authoritative for the version actually running (`omarchy version`), `omarchy commands --json` is the live command surface, and the manual at <https://omarchy.org/manual/> is the published behaviour. When touching `omarchy/`, re-verify against all three for the installed version — see **Never work from memory about Omarchy** in Repo rules.
+
 ## Project vision (the north star)
 
 hyprconf is an **instantly-deployable, privacy-focused** Arch Linux + Hyprland
@@ -113,7 +115,16 @@ non-negotiables:
 
 ## Repo rules
 
-- **Never commit PII.** No real names, emails, hostnames, IPs, MAC addresses, serial numbers, API keys/tokens, or absolute paths containing the user's home directory (e.g. `/home/<user>`) may appear in tracked files — configs, docs, scripts, or commit messages. Sanitize/genericize before committing, under all circumstances.
+- **Never commit PII.** No real names, emails, hostnames, IPs, MAC addresses, serial numbers, API keys/tokens, or absolute paths containing the user's home directory (e.g. `/home/<user>`) may appear in tracked files — configs, docs, scripts, or commit messages. Sanitize/genericize before committing, under all circumstances. Use a placeholder (`testuser`, `/home/$USER`, `~`) even in test fixtures, where a real value looks harmless and is not. Enforced across **every tracked file** by `tests/unit/test_no_pii.py`, which derives the identities to search for — login name, home directory name, hostname, git email — from the environment at runtime, so the guard itself never has to name them.
+
+- **Never work from memory about Omarchy — check the running system and the current docs before every overlay change.** The overlay under `omarchy/` sits on a system it does not own and cannot pin: Omarchy ships breaking changes between releases, and every assumption about its files, commands, defaults or seams is a drift bug waiting to happen. An "obvious" fact about Omarchy that was true when a doc was written is not evidence. Before writing, reviewing or reasoning about anything under `omarchy/`:
+
+  1. **Read the installed source.** `/usr/share/omarchy/` is authoritative for the version this machine runs (`omarchy version`, `/usr/share/omarchy/version`): `default/hypr/*.lua` for the Hyprland defaults the overlay layers onto, `config/` for the templates a fresh `$HOME` is seeded from, `bin/` for what a command actually does (`cat "$(which omarchy-theme-set)"`) including its guards and its exit codes. Read it freely; **never edit it** — the omarchy package owns it and an update overwrites it.
+  2. **Enumerate from the machine, never from memory.** `omarchy commands --json` lists every route with its group, args, aliases and `requires_sudo`. Use it to confirm a command exists and takes the arguments you think it does, and prefer the documented `omarchy <group> <action>` form over the underlying `omarchy-*` binary. Where the overlay needs a list of Omarchy's commands, themes, plugins, fonts or presets, **derive it at runtime from those commands** rather than hard-coding a snapshot — a generated list tracks Omarchy, a literal one rots.
+  3. **Re-verify against the published manual** at <https://omarchy.org/manual/> whenever a change touches user-facing behaviour or a documented seam — Monitors, Keyboard/Mouse/Trackpad, Themes, Hotkeys, Shell Plugins, Toggles/Idle/Screensaver, Omarchy CLI, Dotfiles and Common tweaks are the chapters the overlay overlaps.
+  4. **Record what you checked.** Name the Omarchy version the change was verified against in the commit message, and cite the specific file or command that justifies each claim about Omarchy's behaviour, the way the existing overlay comments do (`omarchy-default-terminal` exec'ing a GUI window, `omarchy-theme-set`'s symlink test, the ALPM AbortOnFail hook). A claim about Omarchy with no traceable source is not verified.
+
+  This binds documentation and review as much as code: a "fix" premised on stale knowledge of Omarchy is a regression even when the diff looks right.
 
 - **Avoid the AUR at all costs — and never install from it without asking first.** Official repositories only. Every package this project installs automatically, on any code path (`setup.sh`, the Omarchy overlay under `omarchy/`, or anything added later), must come from an official Arch repository. If a feature appears to require an AUR package, **stop and raise it with the user, and verify the package, before implementing anything** — do not add it, do not add an AUR helper call, and do not quietly pick an AUR-only dependency to make a feature work. AUR packages remain something the user installs manually, by choice.
 

@@ -19,8 +19,13 @@ set -euo pipefail
 : "${HYPRCONF_GPU_DRM_ROOT:=/sys/class/drm}"
 : "${HYPRCONF_GPU_ITERATIONS:=0}"   # AMD loop: 0 = forever; N = exit after N
 
+# Nerd Fonts renumbered the Material Design set between v2 and v3. U+F0620 was
+# the graphics-card icon under v2; in v3 it is an arrow-to-bar, so hyprconf's
+# original codepoint quietly rendered the wrong glyph rather than a missing one
+# — nothing looked broken enough to notice. U+F08AE is nf-md-expansion_card in
+# v3, verified by rendering it from the installed JetBrainsMonoNerdFont.
 _thermo=$(printf '\ue350')
-_vram_icon=$(printf '\U000F0620')
+_vram_icon=$(printf '\U000F08AE')
 
 # bytes → GiB with one decimal (pure integer math, no external tools)
 gib_b() {

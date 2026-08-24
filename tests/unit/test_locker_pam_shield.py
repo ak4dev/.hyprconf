@@ -71,7 +71,7 @@ def _is_hazardous(stack: str, login_stack: str = "", home: str | None = None) ->
 def _authfile(tmp_path: Path, *, readable: bool) -> Path:
     """An authfile the running test user can, or cannot, read."""
     path = tmp_path / ("readable_keys" if readable else "unreadable_keys")
-    path.write_text("andy:credential\n")
+    path.write_text("testuser:credential\n")
     path.chmod(0o644 if readable else 0o000)
     return path
 
@@ -117,7 +117,7 @@ def test_pam_u2f_with_readable_authfile_is_left_alone(tmp_path: Path) -> None:
 def _seed_per_user_authfile(home: Path) -> None:
     keys = home / ".config" / "Yubico" / "u2f_keys"
     keys.parent.mkdir(parents=True, exist_ok=True)
-    keys.write_text("andy:credential\n")
+    keys.write_text("testuser:credential\n")
     keys.chmod(0o600)
     # pam_u2f reads this as the session user, who owns it. When the suite runs
     # as root (the CI container), fixtures are root-owned by default, and a

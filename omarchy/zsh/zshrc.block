@@ -37,6 +37,12 @@ typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION=$''
 
 alias hyprsync='bash ~/.hyprconf/omarchy/install.sh --sync'
 
+# Shell greeting, as hyprconf's own ~/.zshrc has always opened with. The
+# layout lives in omarchy/fastfetch/config.jsonc, linked to
+# ~/.config/fastfetch/config.jsonc by the installer.
+command -v fastfetch >/dev/null 2>&1 &&
+  fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green
+
 # zsh-syntax-highlighting must be sourced last — it wraps the widgets that
 # everything above may have defined.
 [ -r /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] &&
