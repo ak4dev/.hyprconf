@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "hyprconf.resources",
+  "name": "Resource Usage",
+  "version": "1.0.0",
+  "author": "hyprconf",
+  "description": "CPU/temp/memory/GPU/network readout, ported from hyprconf's quickshell bar",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Widget.qml"
+  },
+  "barWidget": {
+    "displayName": "Resource Usage",
+    "description": "CPU/temp/memory/GPU/network readout",
+    "category": "System",
+    "allowMultiple": false
+  }
+}

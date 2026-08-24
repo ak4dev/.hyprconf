@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# adjust-gaps + | -
+# Increase or decrease Hyprland window gaps (inner and outer) by a fixed step.
+# Both general:gaps_in and general:gaps_out move together so their difference
+# is preserved (proportionate adjustment).
+#
+# Usage: adjust-gaps +    # increase by STEP
+#        adjust-gaps -    # decrease by STEP (floors at 0)
+
+readonly STEP=2
+
+direction="${1:-+}"
+
+if [[ "$direction" != "+" && "$direction" != "-" ]]; then
+    printf 'Usage: %s <+|->\n' "$(basename "$0")" >&2
+    exit 1
+fi
+
+_get_gap() {
+    # gaps_in / gaps_out are CCssGapData (custom type: "T R B L").
+    # Use the first (top) value as the representative uniform gap.
+    hyprctl getoption "$1" -j 2>/dev/null \
+        | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+c = d.get('custom', '')
+if c:
+    print(int(c.split()[0]))
+else:
+    print(d.get('int', 0))
+" 2>/dev/null || echo "0"
+}
+
+gaps_in=$(  _get_gap general:gaps_in  )
+gaps_out=$( _get_gap general:gaps_out )
+
+if [[ "$direction" == "+" ]]; then
+    new_in=$(( gaps_in  + STEP ))
+    new_out=$(( gaps_out + STEP ))
+else
+    new_in=$(( gaps_in  - STEP ))
+    new_out=$(( gaps_out - STEP ))
+    new_in=$(( new_in  < 0 ? 0 : new_in  ))
+    new_out=$(( new_out < 0 ? 0 : new_out ))
+fi
+
+hyprctl --batch "keyword general:gaps_in $new_in ; keyword general:gaps_out $new_out"
