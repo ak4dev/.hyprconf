@@ -381,7 +381,8 @@ def test_never_changes_the_login_shell(tmp_path: Path) -> None:
 
 
 def test_never_opens_the_floating_terminal(tmp_path: Path) -> None:
-    """omarchy-default-terminal exec()s a GUI window when kitty is missing."""
+    """No stage may reach a GUI-opening Omarchy command in a non-interactive
+    run (the post-update hook has no display to put a window on)."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
     assert not any(c.startswith("omarchy-launch-floating") for c in _commands(env))
@@ -559,12 +560,9 @@ def test_hypr_overrides_parse_as_lua(tmp_path: Path) -> None:
 
 
 def test_theme_is_installed_as_a_symlink(tmp_path: Path) -> None:
-    """omarchy-theme-set only takes its permissive path for a symlinked theme.
-
-    Its check is `[[ ! -L $source && -d $source/.git ]]` — a real directory
-    inside a git checkout would be treated as a stranger's theme and filtered
-    through INSTALLED_THEME_DENIED instead when the user picks it from the menu.
-    """
+    """A symlink, so a `git pull` updates the theme in place; omarchy-theme-set
+    (4.0.0-1) only tests `-d` and `cp -r`s the contents, both of which follow
+    a link."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
     assert (env["home"] / ".config" / "omarchy" / "themes" / "hyprconf").is_symlink()
@@ -1224,6 +1222,100 @@ def test_stale_username_clones_are_retired(tmp_path: Path) -> None:
         assert f"omarchy-plugin-disable {keep}" not in calls
         assert f"omarchy-plugin-remove {keep} --yes" not in calls
     assert any(c.startswith("omarchy-restart-shell") for c in calls)
+
+
+def test_stock_widget_left_beside_our_copy_is_healed_by_reseating(tmp_path: Path) -> None:
+    """After an upgrade from the first overlay versions both omarchy.clock and
+    hyprconf.clock can sit on the bar (their <user>.clock clone had taken the
+    stock slot, so ours was appended; retiring the clone restored the stock
+    entry). The registry swaps a copy into the stock slot only at enable
+    time, so the stage takes ours off and puts it back — every run, before
+    the set-once marker — and re-applies the format and anchor that travel
+    with the layout entry."""
+    env = _setup(tmp_path)
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("no jq for the layout read")
+    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    state = env["home"] / ".local" / "state" / "hyprconf"
+    state.mkdir(parents=True)
+    (state / "clock-applied").write_text("")  # set-once path already done
+    shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
+    shell_json.parent.mkdir(parents=True, exist_ok=True)
+    shell_json.write_text(
+        json.dumps(
+            {
+                "bar": {
+                    "centerAnchor": "omarchy.clock",
+                    "layout": {
+                        "left": ["omarchy.menu", {"id": "hyprconf.workspaces"}],
+                        "center": [
+                            {"id": "omarchy.clock"},
+                            {"id": "hyprconf.clock", "format": "x"},
+                        ],
+                        "right": [],
+                    },
+                }
+            }
+        )
+    )
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert "omarchy-plugin-disable hyprconf.clock" in calls
+    assert "omarchy-plugin-enable hyprconf.clock" in calls
+    assert "omarchy-bar set hyprconf.clock format hh:mm:ss AP" in calls
+    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "hyprconf.clock"
+    assert any(c.startswith("omarchy-restart-shell") for c in calls)
+    # The workspaces slot was fine (only ours on the bar): left alone.
+    assert "omarchy-plugin-disable hyprconf.workspaces" not in calls
+
+    # Only the copy on the bar: nothing to heal, nothing re-applied.
+    shell_json.write_text(
+        json.dumps(
+            {"bar": {"layout": {"left": [], "center": [{"id": "hyprconf.clock"}], "right": []}}}
+        )
+    )
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert not any("hyprconf.clock" in c for c in _calls(env) if c.startswith("omarchy-plugin"))
+
+
+def test_clones_found_by_manifest_on_disk_are_retired_too(tmp_path: Path) -> None:
+    """A <user>.clock copy the running shell has not scanned (or a run with
+    no shell to ask) still has its manifest on disk; it is retired from that."""
+    env = _setup(tmp_path)
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("no jq for the manifest read")
+    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    stale = env["home"] / ".config" / "omarchy" / "plugins" / "testuser.clock"
+    stale.mkdir(parents=True)
+    (stale / "manifest.json").write_text(
+        json.dumps({"id": "testuser.clock", "omarchy": {"clonedFrom": "omarchy.clock"}})
+    )
+    (stale / "BarWidget.qml").write_text("")
+    proc = _run(env, "--no-update")  # omarchy-plugin-list still answers []
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert "omarchy-plugin-disable testuser.clock" in calls
+    assert "omarchy-plugin-remove testuser.clock --yes" in calls
+    assert not stale.exists()
+
+
+def test_defaults_marker_waits_for_a_successful_seed(tmp_path: Path) -> None:
+    """A first run with --no-packages (firefox/code not installed yet) must not
+    record the defaults as applied, or they would never be seeded."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "omarchy-default-browser", env["calls"], "exit 1")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not (env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied").exists()
+    _stub(env["bins"] / "omarchy-default-browser", env["calls"], "exit 0")
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert any(c.startswith("omarchy-default-browser firefox") for c in _calls(env))
+    assert (env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied").exists()
 
 
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:

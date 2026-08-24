@@ -286,13 +286,11 @@ stage_firefox() {
 
 stage_terminal() {
     log "Terminal: kitty"
-    # Assert kitty is present BEFORE touching the default. omarchy-default-
-    # terminal's own guard is `omarchy-cmd-missing kitty`, and when that fires
-    # without --install it exec()s a floating GUI window — fatal in a
-    # non-interactive run. Proving kitty exists makes that branch unreachable.
-    # (--install avoids the window but routes through omarchy-install-terminal,
-    # which prints "Failed to install" and still exits 0, so a failed install
-    # would read as success under set -e.)
+    # Assert kitty is present BEFORE touching the default: omarchy-default-
+    # terminal (Omarchy 4.0.0-1) checks nothing — it writes the desktop id
+    # into ~/.config/xdg-terminals.list and notifies — so pointing it at an
+    # absent kitty would leave SUPER+RETURN and every TUI launcher with no
+    # terminal at all.
     command -v kitty >/dev/null 2>&1 ||
         die "kitty is not installed — re-run without --no-packages"
 
@@ -344,10 +342,10 @@ stage_kitty_include() {
 stage_theme() {
     log "Theme: hyprconf (Dracula)"
     mkdir -p "$_HYPRCONF_CONFIG/omarchy/themes"
-    # A SYMLINK on purpose. omarchy-theme-set decides whether a user theme came
-    # from a stranger with `[[ ! -L $source && -d $source/.git ]]`; because ours
-    # is a symlink it takes the permissive branch. Turning this into a copy of a
-    # git checkout would put it through INSTALLED_THEME_DENIED instead.
+    # A SYMLINK on purpose, so a `git pull` updates the theme in place.
+    # omarchy-theme-set (Omarchy 4.0.0-1) only needs `-d $USER_THEMES_PATH/<name>`
+    # to hold and then `cp -r`s the directory's contents into the staged
+    # theme — both follow a symlink, so nothing distinguishes it from a copy.
     ln -sfn "$HERE/themes/hyprconf" "$_HYPRCONF_CONFIG/omarchy/themes/hyprconf"
 
     # Installed, never activated. Which theme is active is the user's choice,
@@ -401,14 +399,24 @@ stage_defaults() {
         return 0
     fi
 
-    omarchy-default-browser firefox ||
+    local seeded=1
+    omarchy-default-browser firefox || {
+        seeded=0
         warn "could not set firefox as the default browser (set it with: omarchy default browser firefox)"
-    omarchy-default-editor code ||
+    }
+    omarchy-default-editor code || {
+        seeded=0
         warn "could not set code as the default editor (set it with: omarchy default editor code)"
-
-    mkdir -p "$(dirname "$marker")"
-    : > "$marker"
-    info "browser=firefox editor=code (change with: omarchy default browser|editor <name>)"
+    }
+    # No marker on a failed seed — a first run with --no-packages (firefox
+    # and code not installed yet) must not record the defaults as applied.
+    if (( seeded )); then
+        mkdir -p "$(dirname "$marker")"
+        : > "$marker"
+        info "browser=firefox editor=code (change with: omarchy default browser|editor <name>)"
+    else
+        warn "defaults not seeded — will retry on the next run"
+    fi
 }
 
 stage_backgrounds() {
@@ -731,18 +739,100 @@ enable_plugin_once() {
 # off the bar; -remove deletes the copy). Runs on every pass, before the
 # set-once markers, so an upgrade heals itself.
 retire_stale_clones() {
-    local stock="$1" keep="$2" id
+    local stock="$1" keep="$2" id dir seen=" "
     command -v jq >/dev/null 2>&1 || return 0
-    while IFS= read -r id; do
-        [[ -n $id ]] || continue
-        omarchy-plugin-disable "$id" >/dev/null 2>&1 || true
-        omarchy-plugin-remove "$id" --yes >/dev/null 2>&1 || true
-        info "retired $id (an older copy of $stock; $keep replaces it)"
+    retire() {
+        [[ $seen == *" $1 "* ]] && return 0
+        seen+="$1 "
+        omarchy-plugin-disable "$1" >/dev/null 2>&1 || true
+        omarchy-plugin-remove "$1" --yes >/dev/null 2>&1 || true
+        info "retired $1 (an older copy of $stock; $keep replaces it)"
         shell_reload_needed=1
+    }
+    # What the running shell knows…
+    while IFS= read -r id; do
+        [[ -n $id ]] && retire "$id"
     done < <(omarchy-plugin-list --json 2>/dev/null |
         jq -r --arg stock "$stock" --arg keep "$keep" \
             '.[] | select((.clonedFrom // "") == $stock and .id != $keep and .id != $stock) | .id' 2>/dev/null ||
         true)
+    # …and what is on disk regardless (a copy the shell has not scanned, or
+    # a run with no shell to ask): every user plugin whose manifest says it
+    # was cloned from the stock widget.
+    for dir in "$_HYPRCONF_CONFIG/omarchy/plugins"/*/; do
+        [[ -f $dir/manifest.json ]] || continue
+        id="$(jq -r '.id // empty' "$dir/manifest.json" 2>/dev/null || true)"
+        [[ -n $id && $id != "$keep" && $id != "$stock" ]] || continue
+        [[ "$(jq -r '.omarchy.clonedFrom // empty' "$dir/manifest.json" 2>/dev/null || true)" == "$stock" ]] || continue
+        retire "$id"
+        rm -rf "$dir"   # omarchy-plugin-remove needs the shell; make sure it is gone
+    done
+    unset -f retire
+}
+
+# Wait (bounded) for the shell to have written a widget id into shell.json.
+# Its config writes are asynchronous (PluginRegistry hands them to a FileView),
+# so a read-modify-write straight after an enable can work on a stale file.
+wait_for_layout_id() {
+    local id="$1" json="$_HYPRCONF_CONFIG/omarchy/shell.json" _attempt
+    for (( _attempt = 0; _attempt < _HYPRCONF_PLUGIN_WAIT; _attempt++ )); do
+        [[ -f $json ]] && grep -qF "\"$id\"" "$json" && return 0
+        sleep 0.05
+    done
+    return 0
+}
+
+# The ids on the bar, one per line (layout entries are bare strings or
+# objects with an id — omarchy-bar's own entry_id rule).
+layout_ids() {
+    local json="$_HYPRCONF_CONFIG/omarchy/shell.json"
+    [[ -f $json ]] || return 0
+    jq -r '[.bar.layout // {} | .[]? | .[]? | if type == "string" then . else (.id // "") end] | .[]' \
+        "$json" 2>/dev/null || true
+}
+
+# A copy and the stock widget BOTH on the bar — what an upgrade from the
+# first overlay versions leaves behind: their <user>.clock clone had taken
+# the stock slot, so enabling hyprconf.clock found no omarchy.clock entry to
+# replace and was appended instead; retiring the clone then put omarchy.clock
+# back (the registry restores a clone's source on disable) — two clocks.
+# The registry swaps a clonedFrom copy INTO the stock entry only at enable
+# time (shell/services/PluginRegistry.qml, setPluginEnabled), so the repair
+# is to take ours off and put it back on: it lands in the stock slot and the
+# stock entry is gone. Returns 0 when it re-seated, 1 when nothing was
+# wrong, 2 when the shell could not do it.
+heal_widget_slot() {
+    local stock="$1" keep="$2" ids
+    command -v jq >/dev/null 2>&1 || return 1
+    ids="$(layout_ids)"
+    { grep -qxF "$stock" <<<"$ids" && grep -qxF "$keep" <<<"$ids"; } || return 1
+    omarchy-plugin-disable "$keep" >/dev/null 2>&1 || true
+    if activate_plugin_copy "$keep"; then
+        wait_for_layout_id "$keep"
+        info "$keep re-seated into the $stock slot — both were on the bar"
+        shell_reload_needed=1
+        return 0
+    fi
+    warn "$stock and $keep are both on the bar and the shell could not re-seat $keep — run: omarchy plugin disable $stock"
+    return 2
+}
+
+# The bar centers on an anchor id, and canonicalWidgetId does no clone
+# resolution (shell/Commons/Util.qml — a plain string cast), so an anchor
+# left at omarchy.clock matches nothing once the bar swaps to our copy and
+# the clock drifts off-center. Follow the swap — but only while the anchor
+# still points at the stock id, so a user's own anchor choice is never
+# overridden. Waits for the shell's write of the new entry first (see
+# wait_for_layout_id) so the edit is not made on a stale file.
+follow_center_anchor() {
+    local stock="$1" keep="$2" shell_json="$_HYPRCONF_CONFIG/omarchy/shell.json"
+    wait_for_layout_id "$keep"
+    if [[ -f $shell_json ]] &&
+        [[ "$(jq -r '.bar.centerAnchor // ""' "$shell_json")" == "$stock" ]]; then
+        jq --arg id "$keep" '.bar.centerAnchor = $id' "$shell_json" > "$shell_json.tmp" &&
+            mv "$shell_json.tmp" "$shell_json"
+        info "bar centerAnchor follows $keep"
+    fi
 }
 
 # The bar clock, set ONCE to hyprconf's own format: 12-hour with seconds and
@@ -759,6 +849,15 @@ retire_stale_clones() {
 stage_clock() {
     log "Bar clock: hh:mm:ss AP (hyprconf.clock)"
     retire_stale_clones omarchy.clock hyprconf.clock
+    local healed=0
+    heal_widget_slot omarchy.clock hyprconf.clock || healed=$?   # 0 re-seated, 1 nothing to do, 2 failed
+    if (( healed == 0 )); then
+        # A re-seated entry is a fresh copy of the stock one: the format and
+        # the anchor travel with the layout entry, so put both back.
+        omarchy-bar set hyprconf.clock format "hh:mm:ss AP" >/dev/null 2>&1 ||
+            warn "could not set the clock format (set it with: omarchy bar set hyprconf.clock format 'hh:mm:ss AP')"
+        follow_center_anchor omarchy.clock hyprconf.clock
+    fi
     local marker="$_HYPRCONF_STATE/hyprconf/clock-applied"
     if [[ -e $marker ]]; then
         info "already applied once — the clock is yours now"
@@ -792,19 +891,7 @@ stage_clock() {
     omarchy-bar set "$id" format "hh:mm:ss AP" ||
         warn "could not set the clock format (set it with: omarchy bar set $id format 'hh:mm:ss AP')"
 
-    # The bar centers on an anchor id, and canonicalWidgetId does no clone
-    # resolution (shell/Commons/Util.qml — a plain string cast), so an anchor
-    # left at omarchy.clock matches nothing once the bar swaps to our copy
-    # and the clock drifts off-center. Follow the swap — but only while the
-    # anchor still points at the stock id, so a user's own anchor choice is
-    # never overridden.
-    local shell_json="$_HYPRCONF_CONFIG/omarchy/shell.json"
-    if [[ -f $shell_json ]] &&
-        [[ "$(jq -r '.bar.centerAnchor // ""' "$shell_json")" == omarchy.clock ]]; then
-        jq --arg id "$id" '.bar.centerAnchor = $id' "$shell_json" > "$shell_json.tmp" &&
-            mv "$shell_json.tmp" "$shell_json"
-        info "bar centerAnchor follows $id"
-    fi
+    follow_center_anchor omarchy.clock "$id"
 
     shell_reload_needed=1
     mkdir -p "$(dirname "$marker")"
@@ -824,6 +911,7 @@ stage_clock() {
 stage_workspaces() {
     log "Bar workspaces: only active workspaces, two lines (hyprconf.workspaces)"
     retire_stale_clones omarchy.workspaces hyprconf.workspaces
+    heal_widget_slot omarchy.workspaces hyprconf.workspaces || true
     if sync_plugin_dir hyprconf-workspaces hyprconf.workspaces; then
         shell_reload_needed=1
         info "widget files synced from plugins/hyprconf-workspaces"
@@ -853,6 +941,7 @@ stage_window_title() {
     # Earlier overlay versions enabled the STOCK widget under this marker;
     # the copy has its own, so those machines get the swap on their next run.
     rm -f "$_HYPRCONF_STATE/hyprconf/window-title-applied"
+    heal_widget_slot omarchy.active-window hyprconf.active-window || true
     local marker="$_HYPRCONF_STATE/hyprconf/active-window-applied"
     if [[ -e $marker ]]; then
         info "enabled once already — \`omarchy plugin disable hyprconf.active-window\` sticks"

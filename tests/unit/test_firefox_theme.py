@@ -105,12 +105,20 @@ def test_userchrome_uses_the_lightweight_theme_variables() -> None:
     assert "--lwt-sidebar-background-color: #16242d !important;" in css
     for var in ("--lwt-text-color", "--toolbar-field-background-color", "--tab-selected-bgcolor"):
         assert var in css
+    # Direct chrome selectors too, so the colours hold under any active theme.
+    assert "#navigator-toolbox, #TabsToolbar, #nav-bar, #PersonalToolbar {" in css
+    assert ".tab-background[selected] {" in css and "#urlbar-background, #searchbar {" in css
+    assert css.count("#16242d !important") >= 4
 
 
 def test_theme_prefs_follow_the_mode() -> None:
     dark = ft.theme_prefs("dark")
     light = ft.theme_prefs("light")
     assert dark["toolkit.legacyUserProfileCustomizations.stylesheets"] is True
+    # The variables only apply under a lightweight theme: the built-in one is
+    # activated, dark or light to match the palette.
+    assert dark["extensions.activeThemeID"] == "firefox-compact-dark@mozilla.org"
+    assert light["extensions.activeThemeID"] == "firefox-compact-light@mozilla.org"
     assert dark["ui.systemUsesDarkTheme"] == 1 and light["ui.systemUsesDarkTheme"] == 0
     assert dark["browser.theme.content-theme"] == 0 and light["browser.theme.content-theme"] == 1
 
