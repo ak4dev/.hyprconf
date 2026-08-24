@@ -1,0 +1,30 @@
+# Packages hyprconf adds to a fresh Omarchy install.
+#
+# Official Arch repositories ONLY — see the no-AUR policy in AGENTS.md. Omarchy
+# ships yay and uses the AUR itself, but hyprconf does not reach for it.
+#
+# Installed via `omarchy-pkg-add`, which is idempotent (guards with
+# omarchy-pkg-missing, verifies with `pacman -Q`). Never call `pacman -Syu`
+# here: Omarchy installs an ALPM AbortOnFail hook that blocks sysupgrade forms.
+#
+# Deliberately NOT listed — already in Omarchy's own base:
+#   eza zoxide fastfetch starship yay ttf-jetbrains-mono-nerd-basic
+#   xdg-terminal-exec foot
+
+# Terminal. Becomes Omarchy's default via `omarchy-default-terminal`.
+kitty
+
+# Shell. hyprconf runs zsh inside kitty while leaving the LOGIN shell as bash,
+# so Omarchy's own bash rc chain, session and scripts are untouched.
+zsh
+zsh-autosuggestions
+zsh-syntax-highlighting
+
+# Keybind dependencies — omarchy/hypr/bindings.lua launches these and a fresh
+# Omarchy ships none of them.
+playerctl   # XF86Audio{Next,Prev,Play,Pause}
+hyprshot    # SUPER+SHIFT+4 region screenshot (--freeze)
+firefox     # SUPER+F
+code        # SUPER+C
+# NB: SUPER+E is deliberately NOT dolphin here — it is repointed at Omarchy's
+# own nautilus rather than pulling a chunk of KDE onto an Omarchy system.

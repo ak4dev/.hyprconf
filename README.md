@@ -27,6 +27,17 @@
 | **`hyprconf`** | AUR-compatible TUI for configuring Hyprland — edit options, keybinds, rules, monitors, themes, lock/idle/wallpaper daemons, and more. Installable standalone. |
 | **Dotfiles** | The maintainer's Arch Linux + Hyprland configuration, managed via GNU Stow. Bootstrapped from a single command; demonstrates and depends on `hyprconf`. |
 
+### Two deployment modes
+
+| Mode | Entry point | Branch | What owns the base system |
+|---|---|---|---|
+| **Standalone** | `setup.sh` | `dev` / `stable` | hyprconf — it installs and configures the whole desktop |
+| **Omarchy overlay** | `omarchy/install.sh` | `omarchy` | [Omarchy](https://omarchy.org) — hyprconf only layers look and hotkeys on top |
+
+Both are supported during the current transition. See
+[Omarchy overlay](#4-omarchy-overlay-on-top-of-a-fresh-omarchy-install) for the
+second mode; everything else in this README describes the standalone one.
+
 ---
 
 ## Features
@@ -97,7 +108,7 @@ Clones the repo from the stable release branch using a sparse checkout and runs 
 
 > **WiFi:** if no wifi profiles were copied from the ISO (e.g. ethernet install), connect after first boot with `nmtui`.
 
-> **No AUR, ever:** setup installs **only** official-repo packages — it never installs from the AUR automatically (not even the `yay` helper or the touch-device on-screen keyboard). It also *offers to remove* any foreign/AUR packages already on the system (prompted; the `yay` helper is kept), and gives packages hyprconf itself has retired (e.g. `waybar`, replaced by the quickshell bar) the same prompted, never-automatic treatment on sync. AUR-only extras such as `bibata-cursor-theme` and `wvkbd` must be installed manually: `yay -S bibata-cursor-theme wvkbd`.
+> **No AUR, ever:** this applies to *every* install path, the Omarchy overlay included — official repositories only, and nothing from the AUR is ever installed without asking first. Omarchy ships `yay` and uses the AUR itself; hyprconf still does not reach for it. Setup installs **only** official-repo packages — it never installs from the AUR automatically (not even the `yay` helper or the touch-device on-screen keyboard). It also *offers to remove* any foreign/AUR packages already on the system (prompted; the `yay` helper is kept), and gives packages hyprconf itself has retired (e.g. `waybar`, replaced by the quickshell bar) the same prompted, never-automatic treatment on sync. AUR-only extras such as `bibata-cursor-theme` and `wvkbd` must be installed manually: `yay -S bibata-cursor-theme wvkbd`.
 
 ### [3] hyprconf only *(any existing Hyprland system)*
 
@@ -108,6 +119,43 @@ Installs just the `hyprconf` TUI into `~/.local/bin` and its library into `~/.lo
 3. Copies the Python library to `~/.local/lib/hyprconf/`
 4. Ready to use: `hyprconf`
 
+### [4] Omarchy overlay *(on top of a fresh Omarchy install)*
+
+A second deployment mode, on branch `omarchy`. Instead of installing a desktop,
+it layers hyprconf's look and hotkeys onto an existing [Omarchy](https://omarchy.org)
+system, which keeps ownership of the base install.
+
+```bash
+git clone <repo-url> ~/.hyprconf && cd ~/.hyprconf
+git checkout omarchy
+bash omarchy/install.sh
+```
+
+| Flag | Effect |
+| --- | --- |
+| *(none)* | Apply every stage once. Idempotent — re-running is how you pick up changes. |
+| `--sync` | Pull the checkout, re-apply, then run `omarchy-update`. This is what `hyprsync` runs. |
+| `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook. |
+| `--no-packages` | Skip the package stage — the only stage needing sudo. |
+
+**What it changes:** installs `kitty`, `zsh`, the two zsh plugins, `playerctl`,
+`hyprshot`, `firefox` and `code` (all official repos) via `omarchy-pkg-add`;
+makes kitty the default terminal through Omarchy's own
+`omarchy-default-terminal`; adds a `hyprconf` theme, a resource-usage bar
+plugin and a `post-update` hook under `~/.config/omarchy/`; symlinks
+`~/.config/hypr/bindings.lua` (stock backed up to `.stock`) plus the monitor
+presets and helper scripts; and writes a marked block in `~/.zshrc`.
+
+**What it deliberately leaves alone:** the login shell (**no `chsh`** — it stays
+bash, so Omarchy's aliases, functions, `omarchy` tab-completion, session and
+scripts all keep working), the body of `~/.config/kitty/kitty.conf` (hyprconf's
+two settings arrive via a single appended `include`), `~/.bashrc`, and anything
+under `/etc`. `stow/` is never used. zsh runs *inside kitty* only, and
+`~/.zshrc` sources Omarchy's own `envs`/`aliases` so its updates flow through.
+
+> After `omarchy reinstall configs` or `omarchy refresh config`, re-run
+> `bash omarchy/install.sh` — those commands can strip the kitty `include` line.
+
 ### Sync
 
 ```bash
@@ -116,6 +164,12 @@ setup.sh --sync --force  # discard local divergence, hard-reset to remote branch
 setup.sh --sync --full   # as above + full dotfile restow (resets configs to repo defaults)
 hyprsync                 # shell alias for setup.sh --sync
 ```
+
+On the **Omarchy overlay** (mode 4) `hyprsync` means something different: it is
+an alias for `bash ~/.hyprconf/omarchy/install.sh --sync`, which pulls the
+checkout, re-applies the overlay, then hands off to Omarchy's own
+`omarchy-update`. It never calls `pacman` directly — Omarchy installs an ALPM
+hook that aborts a bare `pacman -Syu`.
 
 `setup.sh --sync` is **always config-safe** — additive-only stow creates symlinks for new files but never replaces files you've modified. `--force` hard-resets a diverged branch; `--full` restows all dotfiles. `~/.config/hypr/conf.d/local.lua` (written by the TUI) is machine-local, never managed by stow or git, and survives all sync modes.
 

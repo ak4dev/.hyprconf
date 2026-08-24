@@ -18,15 +18,34 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 STOW_DIR = REPO_ROOT / "stow"
+# The Omarchy overlay installs into $HOME the same way stow/ does, so it is
+# under the same obligation — and `hyprsync`-style checkout handling is exactly
+# the kind of code that leaks a /home/<user>/ path.
+OMARCHY_DIR = REPO_ROOT / "omarchy"
 
 # /home/<name>/ — a real per-user absolute path. Generic placeholders
-# (/home/$USER, /home/user, /home/<user>) are allowed.
-HOME_PATH_RE = re.compile(r"/home/(?!\$|user\b|<|USER\b)[A-Za-z0-9._-]+/")
+# (/home/$USER, /home/user, /home/username, /home/<user>) are allowed.
+#
+# The leading lookbehind requires the match to begin at a path boundary, so a
+# substring like ".../not/home/directory/" in prose is not mistaken for an
+# absolute home path. Both exclusions exist to keep the check precise: a rule
+# that cries wolf on vendored upstream comments gets muted, and then it stops
+# catching the real thing.
+HOME_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9._/-])/home/(?!\$|user\b|username\b|<|USER\b)[A-Za-z0-9._-]+/"
+)
 
 
 def _tracked_stow_text_files() -> list[Path]:
     files: list[Path] = []
-    for p in STOW_DIR.rglob("*"):
+    for root in (STOW_DIR, OMARCHY_DIR):
+        files.extend(_text_files_under(root))
+    return files
+
+
+def _text_files_under(root: Path) -> list[Path]:
+    files: list[Path] = []
+    for p in root.rglob("*"):
         if not p.is_file() or p.is_symlink():
             continue
         # Skip compiled/byte artifacts and vendored payloads

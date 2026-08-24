@@ -22,7 +22,9 @@
 local mainMod = "SUPER"
 
 local terminal    = "kitty"
-local fileManager = "dolphin"
+-- Omarchy ships nautilus; hyprconf's own dolphin would drag a chunk of KDE
+-- onto an Omarchy system for a file manager, so SUPER+E uses Omarchy's.
+local fileManager = "nautilus"
 local browser     = "firefox"
 
 local function rebind(keys, dispatcher, options)

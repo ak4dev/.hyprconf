@@ -1,0 +1,44 @@
+# >>> hyprconf >>>
+# Managed block — regenerate with: bash ~/.hyprconf/omarchy/install.sh
+# Everything between these markers is replaced on each run; edit the source at
+# omarchy/zsh/zshrc.block instead. Anything outside the markers is preserved.
+#
+# Omarchy is bash-only. hyprconf runs zsh inside kitty and leaves the LOGIN
+# shell as bash, so Omarchy's session, uwsm, SSH and scripts are untouched.
+# The trade is that zsh does not see Omarchy's interactive bash rc chain, so
+# we source Omarchy's own files rather than reimplementing them — its future
+# updates then flow straight through.
+#
+# Deliberately failure-tolerant: these are bash files being read by zsh. They
+# parse today, but a bashism in some future Omarchy release must degrade to a
+# missing alias, never to an unusable shell.
+_hyprconf_bash="${OMARCHY_PATH:-/usr/share/omarchy}/default/bash"
+for _hyprconf_f in env-bootstrap envs aliases; do
+  [ -r "$_hyprconf_bash/$_hyprconf_f" ] &&
+    source "$_hyprconf_bash/$_hyprconf_f" 2>/dev/null
+done
+unset _hyprconf_bash _hyprconf_f
+
+# Omarchy aliases `cd` to its `zd` wrapper, which calls zoxide's `z`. Without
+# initialising zoxide for zsh, that alias breaks `cd` for anything that isn't
+# an existing directory.
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+
+# Oh My Zsh hosts powerlevel10k as its theme; ~/.p10k.zsh carries the prompt
+# configuration and is symlinked out of the hyprconf checkout.
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="powerlevel10k/powerlevel10k"
+[ -r "$ZSH/oh-my-zsh.sh" ] && source "$ZSH/oh-my-zsh.sh"
+[ -r "$HOME/.p10k.zsh" ] && source "$HOME/.p10k.zsh"
+typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION=$''
+
+[ -r /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ] &&
+  source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+alias hyprsync='bash ~/.hyprconf/omarchy/install.sh --sync'
+
+# zsh-syntax-highlighting must be sourced last — it wraps the widgets that
+# everything above may have defined.
+[ -r /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] &&
+  source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+# <<< hyprconf <<<
