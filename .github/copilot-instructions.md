@@ -144,6 +144,7 @@ This repo follows [Semantic Versioning](https://semver.org/). The version lives 
 | `lib/hyprconf/` | Python package: `__version__`, `firefox_theme.py` (symlinked to `~/.local/lib/hyprconf`) | ✔ |
 | `plugins/hyprconf-resources/` | Omarchy bar-widget plugin (resource readout) | ✔ |
 | `plugins/hyprconf-workspaces/` | Omarchy bar-widget plugin replacing `omarchy.workspaces` via `clonedFrom` | ✔ |
+| `plugins/hyprconf-active-window/` | Omarchy bar-widget plugin replacing `omarchy.active-window` (two-line title) | ✔ |
 | `themes/hyprconf/`, `wallpapers/` | Omarchy user theme; extra backgrounds | ✔ |
 | `zsh/`, `kitty/`, `fastfetch/`, `hooks/` | Managed zshrc block + p10k; kitty include; fastfetch layout; post-update + theme-set hooks | ✔ |
 | `infra/firefox/policies.json` | System Firefox privacy policy | ✔ |

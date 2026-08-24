@@ -832,37 +832,47 @@ stage_workspaces() {
 }
 
 # The focused window's title beside the workspaces, as hyprconf's own bar
-# always drew it. Nothing to ship: Omarchy's stock omarchy.active-window
-# widget (shell/plugins/bar/widgets/ActiveWindow.qml) is the same thing —
-# elided title, tooltip with the full one, click focuses, middle-click
-# closes — merely off by default. Enabled ONCE, right after the workspaces
-# widget (the copy's id first; the stock id if the user went back to it;
-# the head of the left section as the last resort — a placement target
-# the bar does not carry makes omarchy-plugin-enable fail). Its width is
-# the widget's own maxWidth setting: `omarchy bar set omarchy.active-window
-# maxWidth 400`.
+# drew it — on TWO lines. Omarchy's stock omarchy.active-window widget is
+# the same thing on one line (elided title, tooltip with the full one, click
+# focuses, middle-click closes) and reads one setting, maxWidth, so the
+# two-line version is the overlay's own copy (plugins/hyprconf-active-window,
+# header comment there): clonedFrom the stock widget, so the shell swaps it
+# into the stock widget's slot and routes the stock IPC to it, and `omarchy
+# plugin disable hyprconf.active-window` restores stock. Synced every run,
+# enabled ONCE, right after the workspaces widget (the copy's id first; the
+# stock id if the user went back to it; the head of the left section as the
+# last resort — a --after target the bar does not carry makes
+# omarchy-plugin-enable fail). The character budget is the stock setting:
+# `omarchy bar set hyprconf.active-window maxWidth 400`.
 stage_window_title() {
-    log "Bar window title (omarchy.active-window)"
-    local marker="$_HYPRCONF_STATE/hyprconf/window-title-applied"
+    log "Bar window title, two lines (hyprconf.active-window)"
+    if sync_plugin_dir hyprconf-active-window hyprconf.active-window; then
+        shell_reload_needed=1
+        info "widget files synced from plugins/hyprconf-active-window"
+    fi
+    # Earlier overlay versions enabled the STOCK widget under this marker;
+    # the copy has its own, so those machines get the swap on their next run.
+    rm -f "$_HYPRCONF_STATE/hyprconf/window-title-applied"
+    local marker="$_HYPRCONF_STATE/hyprconf/active-window-applied"
     if [[ -e $marker ]]; then
-        info "enabled once already — \`omarchy plugin disable omarchy.active-window\` sticks"
+        info "enabled once already — \`omarchy plugin disable hyprconf.active-window\` sticks"
         return 0
     fi
     local anchor
     for anchor in hyprconf.workspaces omarchy.workspaces; do
-        if activate_plugin_copy omarchy.active-window --section left --after "$anchor"; then
+        if activate_plugin_copy hyprconf.active-window --section left --after "$anchor"; then
             mkdir -p "$(dirname "$marker")"
             : > "$marker"
-            info "enabled after $anchor (back to stock with: omarchy plugin disable omarchy.active-window)"
+            info "enabled after $anchor (back to stock with: omarchy plugin disable hyprconf.active-window)"
             return 0
         fi
     done
-    if activate_plugin_copy omarchy.active-window --section left; then
+    if activate_plugin_copy hyprconf.active-window --section left; then
         mkdir -p "$(dirname "$marker")"
         : > "$marker"
-        info "enabled in the left section (back to stock with: omarchy plugin disable omarchy.active-window)"
+        info "enabled in the left section (back to stock with: omarchy plugin disable hyprconf.active-window)"
     else
-        warn "could not enable omarchy.active-window (is the Omarchy shell running?) — will retry on the next run"
+        warn "could not enable hyprconf.active-window (is the Omarchy shell running?) — will retry on the next run"
     fi
 }
 

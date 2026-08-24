@@ -168,7 +168,9 @@ BarWidget {
     anchors.verticalCenter: parent.verticalCenter
     columns: root.vertical ? 1 : 3
     rowSpacing: 0
-    columnSpacing: Style.spacing.sm
+    // 30 % of Omarchy's small spacing token: the fixed-width columns already
+    // carry their own slack, so the gap between them is kept to a hairline.
+    columnSpacing: Style.spacing.sm * 0.3
     flow: Grid.LeftToRight
 
     // ── line 1: CPU temp/util · RAM · upload ──────────────────────────────

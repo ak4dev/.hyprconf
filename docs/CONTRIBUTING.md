@@ -37,6 +37,7 @@ bind every change.
 │
 ├── plugins/hyprconf-resources/ # Omarchy bar-widget plugin (manifest.json + Widget.qml)
 ├── plugins/hyprconf-workspaces/ # Omarchy bar-widget plugin replacing omarchy.workspaces (clonedFrom)
+├── plugins/hyprconf-active-window/ # Omarchy bar-widget plugin replacing omarchy.active-window (two-line title)
 ├── themes/hyprconf/            # Omarchy user theme (colors.toml + backgrounds/)
 ├── wallpapers/                 # Extra backgrounds, filed per Omarchy theme
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh

@@ -81,7 +81,7 @@ bash install.sh
 | bar_plugin | `hyprconf.resources` widget in the bar's right section | `plugins/hyprconf-resources/` synced into `~/.config/omarchy/plugins/` on every run; enabled **once** |
 | clock | `hyprconf.clock`: a copy of `omarchy.clock` patched to tick seconds, format `hh:mm:ss AP` — **set once** | Same copy mechanics as `omarchy plugin clone` (project namespace instead of `<username>.`); `omarchy-bar set`; the bar's `centerAnchor` follows only if it still pointed at `omarchy.clock`. Any leftover `<username>.clock` copy from an earlier overlay version is retired first (`omarchy-plugin-disable` + `-remove`) — that is what showed two clocks after an upgrade |
 | workspaces | `hyprconf.workspaces`: the overlay's own workspaces widget — only workspaces that exist, on two lines, Pac-Man on the focused one | `plugins/hyprconf-workspaces/` synced on every run (a `clonedFrom` copy the shell swaps into the stock widget's slot); enabled **once**; leftover `<username>.workspaces` copies retired the same way |
-| window_title | The focused window's title after the workspaces — Omarchy's own `omarchy.active-window` widget, nothing shipped | `omarchy-plugin-enable omarchy.active-window --section left --after hyprconf.workspaces`, **once** |
+| window_title | `hyprconf.active-window`: the focused window's title after the workspaces, on **two lines** | `plugins/hyprconf-active-window/` synced on every run (a `clonedFrom` copy the shell swaps into the stock `omarchy.active-window` slot); enabled **once**, `--section left --after hyprconf.workspaces` |
 | shell | Oh My Zsh + Powerlevel10k cloned into `~/.oh-my-zsh`; `~/.p10k.zsh` → `zsh/.p10k.zsh`; managed block in `~/.zshrc` | Plain `git clone`, no `chsh` |
 | hooks | `~/.config/omarchy/hooks/post-update.d/10-hyprconf` and `theme-set.d/10-hyprconf` | The first re-runs `install.sh --no-update --no-packages` after every `omarchy-update`; the second extends every `omarchy theme set` to Firefox and Code - OSS (below) |
 | theme_apps | Firefox `userChrome.css`/`user.js` and Code - OSS settings match the **active** theme right away | Runs the theme-set hook once for `~/.local/state/omarchy/current/theme.name`; a no-op with no active theme |
@@ -117,6 +117,7 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 | `lib/hyprconf/` | `__init__.py` (the version) and `firefox_theme.py` (the Firefox half of the theme-set hook) |
 | `plugins/hyprconf-resources/` | Omarchy bar-widget plugin (QML): resource readout |
 | `plugins/hyprconf-workspaces/` | Omarchy bar-widget plugin (QML): workspaces, replaces `omarchy.workspaces` |
+| `plugins/hyprconf-active-window/` | Omarchy bar-widget plugin (QML): two-line window title, replaces `omarchy.active-window` |
 | `themes/hyprconf/` | Omarchy user theme (`colors.toml` + background) |
 | `wallpapers/` | Extra backgrounds, filed under the Omarchy theme each belongs to |
 | `zsh/`, `kitty/`, `fastfetch/` | `zshrc.block` + `.p10k.zsh`; `hyprconf.conf` kitty include; `config.jsonc` |
@@ -150,8 +151,8 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 |---|---|---|
 | `hyprconf.clock` | Copy of `omarchy.clock` sampling at `SystemClock.Seconds`, format `hh:mm:ss AP` | `omarchy plugin disable hyprconf.clock` |
 | `hyprconf.workspaces` | The overlay's own workspaces widget: only workspaces that exist (no fixed 1–5 pills, no id cap), stacked on two lines like the resources widget, hyprconf's Pac-Man (`󰮯`) on the focused workspace; click focuses | `omarchy plugin disable hyprconf.workspaces` |
-| `hyprconf.resources` | Two aligned lines fed by `hyprconf-stats` and `hyprconf-gpu-info` (long-lived JSON streams): top **CPU temp / util · RAM · ↑ upload**, bottom **GPU temp / util · VRAM · ↓ download**. Columns are fixed-width (sized from their widest value), so nothing shifts as the numbers change. On a multi-GPU box the **active** card is shown — the one with the most VRAM in use (ties: utilization, then index), re-evaluated every sample. Click opens `btop` via `omarchy-launch-or-focus-tui` | `omarchy plugin disable hyprconf.resources` |
-| `omarchy.active-window` | Omarchy's stock focused-window title (elided; hover for the full title; click focuses, middle-click closes), enabled after the workspaces the way hyprconf's bar drew it; width via `omarchy bar set omarchy.active-window maxWidth 400` | `omarchy plugin disable omarchy.active-window` |
+| `hyprconf.resources` | Two aligned lines fed by `hyprconf-stats` and `hyprconf-gpu-info` (long-lived JSON streams): top **CPU temp / util · RAM · ↑ upload**, bottom **GPU temp / util · VRAM · ↓ download**. Columns are fixed-width (sized from their widest value) with a hairline gap between them, so nothing shifts as the numbers change. On a multi-GPU box the **active** card is shown — the one with the most VRAM in use (ties: utilization, then index), re-evaluated every sample. Click opens `btop` via `omarchy-launch-or-focus-tui` | `omarchy plugin disable hyprconf.resources` |
+| `hyprconf.active-window` | The focused window's title after the workspaces, the way hyprconf's bar drew it — a copy of Omarchy's `omarchy.active-window` that lays the same character budget (`maxWidth`, 280 px of body text by default) out on **two caption-size lines**, so it takes about half the width; hover for the full title, click focuses, middle-click closes; budget via `omarchy bar set hyprconf.active-window maxWidth 400` | `omarchy plugin disable hyprconf.active-window` |
 
 The clock copy is set once, and every widget is *enabled* once — disabling any of them sticks. The two plugins the overlay ships (`plugins/hyprconf-*`) are re-synced on every run, so a `git pull` updates them. `omarchy bar set hyprconf.clock format 'HH:mm'` reformats the clock.
 
@@ -282,7 +283,7 @@ At boot: plug the key in, enter its PIN, touch it; with no key present systemd w
 omarchy plugin disable hyprconf.clock
 omarchy plugin disable hyprconf.workspaces
 omarchy plugin disable hyprconf.resources
-omarchy plugin disable omarchy.active-window
+omarchy plugin disable hyprconf.active-window
 ~/.config/hypr/scripts/switch_monitor.sh stock
 rm ~/.config/hypr/{bindings,input,looknfeel}.lua && omarchy refresh hyprland  # or mv the .stock files back
 rm ~/.config/omarchy/hooks/{post-update,theme-set}.d/10-hyprconf

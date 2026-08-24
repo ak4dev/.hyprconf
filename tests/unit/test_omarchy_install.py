@@ -1403,29 +1403,64 @@ def test_workspaces_widget_shows_only_active_workspaces_on_two_lines() -> None:
     assert 'moduleName: "omarchy.workspaces"' in qml
 
 
-def test_window_title_is_omarchys_own_widget_enabled_once_after_the_workspaces(
+def test_window_title_is_a_two_line_clone_enabled_once_after_the_workspaces(
     tmp_path: Path,
 ) -> None:
     """hyprconf's bar drew the focused window's title beside the workspaces.
-    Omarchy's stock omarchy.active-window widget is the same thing, off by
-    default — so the overlay enables it (never ships a copy), once, placed
-    right after the workspaces widget. A later `omarchy plugin disable` is
-    the user's call and must survive the post-update hook's re-runs."""
+    Omarchy's stock omarchy.active-window does that on one line; the overlay
+    ships a clonedFrom copy that lays the same character budget out on two
+    lines. Synced every run, enabled once, placed right after the workspaces
+    widget; a later `omarchy plugin disable` survives the hook's re-runs."""
     env = _setup(tmp_path)
+    # A machine from the version that enabled the stock widget under the old marker.
+    old_marker = env["home"] / ".local" / "state" / "hyprconf" / "window-title-applied"
+    old_marker.parent.mkdir(parents=True)
+    old_marker.write_text("")
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     calls = _calls(env)
     assert (
-        "omarchy-plugin-enable omarchy.active-window --section left --after hyprconf.workspaces"
+        "omarchy-plugin-enable hyprconf.active-window --section left --after hyprconf.workspaces"
         in calls
     )
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "window-title-applied").exists()
-    # Not shipped, not copied: nothing under the plugins dir carries that id.
-    assert not (env["home"] / ".config" / "omarchy" / "plugins" / "omarchy.active-window").exists()
+    assert not any("omarchy-plugin-enable omarchy.active-window" in c for c in calls)
+    assert (env["home"] / ".local" / "state" / "hyprconf" / "active-window-applied").exists()
+    assert not old_marker.exists()
+
+    plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.active-window"
+    src = REPO_ROOT / "plugins" / "hyprconf-active-window"
+    for f in src.iterdir():
+        assert (plug / f.name).read_bytes() == f.read_bytes(), f.name
+    manifest = json.loads((plug / "manifest.json").read_text())
+    assert manifest["id"] == "hyprconf.active-window"
+    assert manifest["omarchy"]["clonedFrom"] == "omarchy.active-window"
+    assert manifest["entryPoints"]["barWidget"] == "ActiveWindow.qml"
 
     env["calls"].write_text("")
     _run(env, "--no-update")
-    assert not any("omarchy.active-window" in c for c in _calls(env))
+    assert not any(
+        "active-window" in c for c in _calls(env) if c.startswith("omarchy-plugin-enable")
+    )
+
+
+def test_window_title_widget_lays_the_same_budget_out_on_two_lines() -> None:
+    """Pinned statically: the stock maxWidth budget (body-size, one line) is
+    rendered as two caption-size lines of half the width, word-wrapped and
+    elided on the second line; stock behaviours (tooltip, click focus,
+    middle-click close, hidden when nothing is focused / vertical bar) and
+    the stock IPC id are kept."""
+    qml = _code_only_qml(
+        (REPO_ROOT / "plugins" / "hyprconf-active-window" / "ActiveWindow.qml").read_text()
+    )
+    assert 'moduleName: "omarchy.active-window"' in qml
+    assert 'setting("maxWidth", 280)' in qml
+    assert "Style.font.caption / Style.font.body / 2" in qml
+    assert "maximumLineCount: 2" in qml and "wrapMode: Text.Wrap" in qml
+    assert "elide: Text.ElideRight" in qml and "font.pixelSize: Style.font.caption" in qml
+    assert "lineHeightMode: Text.ProportionalHeight" in qml
+    assert 'visible: title !== "" && !vertical' in qml
+    assert "root.toplevel.close()" in qml and "root.toplevel.activate()" in qml
+    assert "showTooltip(root, root.title)" in qml
 
 
 def test_window_title_falls_back_when_the_workspaces_copy_is_off_the_bar(tmp_path: Path) -> None:
@@ -1433,7 +1468,6 @@ def test_window_title_falls_back_when_the_workspaces_copy_is_off_the_bar(tmp_pat
     A user who disabled hyprconf.workspaces is back on the stock widget, so
     the title lands after that instead; with neither, the left section."""
     env = _setup(tmp_path)
-    # Reject the copy's id as an anchor, accept the stock one.
     _stub(
         env["bins"] / "omarchy-plugin-enable",
         env["calls"],
@@ -1443,10 +1477,10 @@ def test_window_title_falls_back_when_the_workspaces_copy_is_off_the_bar(tmp_pat
     assert proc.returncode == 0, proc.stderr
     calls = _calls(env)
     assert (
-        "omarchy-plugin-enable omarchy.active-window --section left --after omarchy.workspaces"
+        "omarchy-plugin-enable hyprconf.active-window --section left --after omarchy.workspaces"
         in calls
     )
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "window-title-applied").exists()
+    assert (env["home"] / ".local" / "state" / "hyprconf" / "active-window-applied").exists()
 
     env2 = _setup(tmp_path / "no-anchor")
     _stub(
@@ -1455,7 +1489,7 @@ def test_window_title_falls_back_when_the_workspaces_copy_is_off_the_bar(tmp_pat
         'case " $* " in *" --after "*) exit 1 ;; esac; exit 0',
     )
     assert _run(env2, "--no-update").returncode == 0
-    assert "omarchy-plugin-enable omarchy.active-window --section left" in _calls(env2)
+    assert "omarchy-plugin-enable hyprconf.active-window --section left" in _calls(env2)
 
 
 def test_window_title_retries_until_the_shell_can_answer(tmp_path: Path) -> None:
@@ -1464,8 +1498,8 @@ def test_window_title_retries_until_the_shell_can_answer(tmp_path: Path) -> None
     _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
-    assert not (env["home"] / ".local" / "state" / "hyprconf" / "window-title-applied").exists()
-    assert "omarchy.active-window" in proc.stderr
+    assert not (env["home"] / ".local" / "state" / "hyprconf" / "active-window-applied").exists()
+    assert "hyprconf.active-window" in proc.stderr
 
 
 def test_resources_widget_layout_is_fixed_width_and_ordered() -> None:
@@ -1500,6 +1534,7 @@ def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
     calls = _calls(env)
     assert "omarchy-plugin-enable hyprconf.resources --section right" in calls
     assert "omarchy-plugin-enable hyprconf.workspaces" in calls
+    assert any(c.startswith("omarchy-plugin-enable hyprconf.active-window") for c in calls)
     env["calls"].write_text("")
     _run(env, "--no-update")
     assert not any(c.startswith("omarchy-plugin-enable") for c in _calls(env))
