@@ -3,6 +3,9 @@
 # line per second on stdout. Long-lived so counters can be diffed in-process
 # instead of re-forking a sampler every poll.
 set -u
+# bash's loadable sleep builtin (package bash) saves the exec of /usr/bin/sleep
+# every tick; the external one stays in use where the loadable is missing.
+enable -f /usr/lib/bash/sleep sleep 2>/dev/null
 
 # System paths and pacing are env-overridable so the hermetic test suite can
 # point them at a fake tree (never readonly — see testing rules).
@@ -13,13 +16,15 @@ set -u
 : "${HYPRCONF_STATS_INTERVAL:=1}"
 : "${HYPRCONF_STATS_ITERATIONS:=0}"   # 0 = run forever; N = exit after N samples
 
-# SI-decimal size with an arbitrary unit suffix (e.g. "46.2kB/s", "1.3GB").
+# human <bytes> <varname>: SI-decimal rate ("46.2kB/s") into the named variable
+# — printf -v, so a tick forks nothing for it.
 human() {
-    local b=$1 u=${2:-B/s}
-    if   (( b < 1000 ));       then printf '%d%s' "$b" "$u"
-    elif (( b < 1000000 ));    then printf '%d.%dk%s' $(( b / 1000 )) $(( (b % 1000) / 100 )) "$u"
-    elif (( b < 1000000000 )); then printf '%d.%dM%s' $(( b / 1000000 )) $(( (b % 1000000) / 100000 )) "$u"
-    else                            printf '%d.%dG%s' $(( b / 1000000000 )) $(( (b % 1000000000) / 100000000 )) "$u"
+    local b=$1
+    local -n _out=$2
+    if   (( b < 1000 ));       then printf -v _out '%dB/s' "$b"
+    elif (( b < 1000000 ));    then printf -v _out '%d.%dkB/s' $(( b / 1000 )) $(( (b % 1000) / 100 ))
+    elif (( b < 1000000000 )); then printf -v _out '%d.%dMB/s' $(( b / 1000000 )) $(( (b % 1000000) / 100000 ))
+    else                            printf -v _out '%d.%dGB/s' $(( b / 1000000000 )) $(( (b % 1000000000) / 100000000 ))
     fi
 }
 
@@ -29,7 +34,7 @@ gib() {
     printf '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
 }
 
-# ---- cpu temperature source, resolved ONCE (zero forks per tick after this).
+# ---- cpu temperature source, resolved ONCE (no per-tick probe after this).
 # hwmon exposes the same sensors as `sensors`(1) as plain files: tempN_label +
 # tempN_input (millidegrees). Label priority mirrors the old cpu_temp.sh
 # probe order: AMD k10temp Tctl > Tdie, then Intel coretemp package > core.
@@ -54,7 +59,7 @@ for _lbl in "$HYPRCONF_STATS_HWMON_ROOT"/hwmon*/temp*_label; do
 done
 
 prev_total=0 prev_idle=0 prev_rx=0 prev_tx=0
-first=1 iter=0
+first=1 iter=0 down="" up=""
 
 while :; do
     # ---- cpu: aggregate line of /proc/stat
@@ -130,8 +135,10 @@ while :; do
     if (( first )); then
         first=0
     else
+        human "$drx" down
+        human "$dtx" up
         printf '{"cpu":%d,"mem":"%s","net":"%s","down":"%s","up":"%s","temp":"%s"}\n' \
-            "$cpu" "$mem" "$net" "$(human "$drx")" "$(human "$dtx")" "$temp"
+            "$cpu" "$mem" "$net" "$down" "$up" "$temp"
         if (( HYPRCONF_STATS_ITERATIONS > 0 && ++iter >= HYPRCONF_STATS_ITERATIONS )); then
             exit 0
         fi

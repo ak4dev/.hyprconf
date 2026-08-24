@@ -1,11 +1,9 @@
 # Contributing to hyprconf
 
-hyprconf is a lean deployment mechanism — `install.sh` plus the shipped
-payload — that ports the hyprconf configuration suite's functionality onto a
-stock [Omarchy](https://omarchy.org) install through Omarchy's own tools and
-seams. Read [`AGENTS.md`](../AGENTS.md) first — its rules (use Omarchy's own tools, never
-work from memory about Omarchy, official repos only, no PII, hermetic tests)
-bind every change.
+hyprconf is an overlay for [Omarchy](https://omarchy.org) — `README.md` opens
+with the contract. Read [`AGENTS.md`](../AGENTS.md) first — its rules (use
+Omarchy's own tools, never work from memory about Omarchy, official repos
+only, no PII, hermetic tests) bind every change.
 
 ## Repository Layout
 
@@ -54,8 +52,9 @@ bind every change.
 ├── scripts/publish             # Lint + test → promote omarchy → stable
 ├── docs/                       # This file, hyprland-reference.md, quickshell-reference.md
 ├── .github/                    # CI workflow
-├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg
+├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg, screenshot.svg (placeholder shown by the README and the page)
 ├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff/coverage config
+├── .editorconfig, .gitignore   # Editor indent/EOL defaults per file type; caches and artefacts git ignores
 └── AGENTS.md, README.md
 ```
 
@@ -74,22 +73,21 @@ There are no VM or install suites: behaviour that needs a live Omarchy session
 is verified by hand and recorded in the commit message.
 
 ```
-tests/
-├── conftest.py                   # puts lib/ on sys.path
+tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
-│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn
-│   ├── test_switch_monitor.py    #   hypr/scripts/switch_monitor.sh
 │   ├── test_adjust_gaps.py       #   hypr/scripts/adjust-gaps (fake hyprctl, real jq)
-│   ├── test_hypr_overrides.py    #   hypr/*.lua state the deltas the README promises (Steam tiled …)
-│   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
-│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; real shellcheck on the drop-in)
-│   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (theme-set hook bridge, --status)
 │   ├── test_config_exec_targets.py  # every ~/-anchored path a shipped config references ships
 │   ├── test_firefox.py           #   infra/firefox/policies.json
-│   ├── test_release.py           #   install payload roots, semver, scripts/publish constants
-│   └── test_no_pii.py            #   every tracked file, identities derived at runtime
+│   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (theme-set hook bridge, --status)
+│   ├── test_hypr_overrides.py    #   hypr/*.lua state the deltas the README promises (Steam tiled …)
+│   ├── test_no_pii.py            #   every tracked file, identities derived at runtime
+│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; real qmllint on plugins/*/*.qml
+│   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
+│   ├── test_switch_monitor.py    #   hypr/scripts/switch_monitor.sh
+│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; real shellcheck on the drop-in)
+│   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias finds a relocated checkout
 └── integration/
-    └── test_publish_pipeline.py  #   scripts/publish --help and --dry-run in a throwaway clone
+    └── test_publish_pipeline.py  #   scripts/publish --help, --dry-run and the real promotion against a throwaway bare origin
 ```
 
 ### Running tests
@@ -111,23 +109,28 @@ make clean
 ```
 
 Python deps for the suite: `python-pytest`, `python-pytest-xdist` (official
-repos). `jq`, `shellcheck`, `luac` and `git` are used real by the tests that
-need them and skipped when absent — CI installs `jq`, `shellcheck` and `lua` so
-nothing skips there, plus `diffutils` for the `cmp` `install.sh` runs (Omarchy
-has it through mkinitcpio; the bare `archlinux:latest` container does not).
+repos). `jq`, `shellcheck`, `luac`, `qmllint` and `git` are used real by the
+tests that need them and skipped when absent — CI installs `jq`, `shellcheck`,
+`lua` and `qt6-declarative` (`qmllint`, under `/usr/lib/qt6/bin`) so nothing
+skips there, plus `diffutils` for the `cmp` `install.sh` runs (Omarchy has it
+through mkinitcpio; the bare `archlinux:latest` container does not).
 
 ### Writing hermetic tests
 
-- Every system path a script reads is env-overridable (`_HYPRCONF_*` in
-  `install.sh`, `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders) — point it
-  at `tmp_path`. Never make such a variable `readonly`.
+- Every path a script reads is under `$HOME` (relocated wholesale by the
+  suite) or behind an env seam — `_HYPRCONF_*` in `install.sh` for binaries and
+  non-`$HOME` paths (`OMARCHY_PATH`, `PKG_ADD`, `ZSH_BIN`, `ZSH`, `KITTY_BIN`,
+  `FIREFOX_POLICIES`, `ASSUME_TTY`, `PLUGIN_WAIT`), `_HYPRCONF_*` in
+  `bin/hyprconf-yubikey` for the boot files it edits (`MKINITCPIO_D`,
+  `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `VCONSOLE`, `MACHINE_ID`, `EFI_DIR`, …),
+  `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders — pointed at
+  `tmp_path`. Never make such a variable `readonly`.
 - Every command that could touch the desktop or the system — `omarchy-*`,
   `hyprctl`, `sudo`, `chsh`, `fc-list`, `systemd-cryptenroll`, `limine-update`,
   `git clone`/`pull` … — is **always** a fake bin first on `PATH`; a test must
-  never reach a real binary that changes the desktop (the suite once put a
-  notification on the owner's desktop). Pure tools are real when present and
-  the test skips otherwise: `jq`, `luac`, `cp`, `python3`, `shellcheck`, and
-  `git` `init`/`add`/`commit`/`checkout` — plus, for the curl-path tests, a
+  never reach a real binary that changes the desktop. Pure tools are real when
+  present and the test skips otherwise: `jq`, `luac`, `qmllint`, `cp`, `python3`,
+  `shellcheck`, and `git` `init`/`add`/`commit`/`checkout` — plus, for the curl-path tests, a
   `clone` whose source is a local directory — inside a throwaway clone under
   `tmp_path`; never the repository the suite runs from. Never invoke `pacman`
   (it exists in the container). `tests/unit/test_omarchy_install.py` shows the
@@ -150,8 +153,8 @@ the test job in the same container before a push (`docker` works the same):
 
 ```bash
 podman run --rm -v "$PWD":/repo -w /repo archlinux:latest bash -c \
-  'pacman -Syu --noconfirm --needed git make python python-pytest python-pytest-xdist jq shellcheck diffutils lua &&
-   git config --global --add safe.directory /repo && make test'
+  'pacman -Syu --noconfirm --needed git make python python-pytest python-pytest-xdist jq shellcheck diffutils lua qt6-declarative &&
+   make test'
 ```
 
 ---
@@ -172,10 +175,10 @@ bash scripts/publish            # from a clean, pushed `omarchy` checkout
 1. Verifies the working branch, a clean tree, and that local `omarchy` matches its remote
 2. Lint gates: `make lint` + `make shellcheck`
 3. Test suites: `make test`
-4. Bumps the version in `lib/hyprconf/__init__.py` and commits it (after the suite is green)
+4. Bumps the version in `lib/hyprconf/__init__.py`, commits it and pushes the commit to `origin/omarchy` (after the suite is green)
 5. Creates the annotated tag `v<version>` and promotes `HEAD` to `origin/stable`
 6. **By hand, right after — upload `stable`'s `install.sh` and invalidate
-   CloudFront** (the commands under "Updating the website" below), before
+   CloudFront** (the objects under "Updating the website" below), before
    anything points users at `bash <(curl -fsSL hyprconf.sh)`: `scripts/publish`
    deploys nothing, so until that upload `hyprconf.sh` keeps serving the
    previous release's `install.sh` to curl — whatever that file does.
@@ -190,8 +193,11 @@ Nothing is packaged: users `git clone -b stable`, so the promoted branch is the 
 | `--skip-tag` | Skip annotated release-tag creation |
 | `--dry-run` | Run every gate and resolve the tag, but push nothing (the version bump is reverted) |
 
-`tests/integration/test_publish_pipeline.py` and `tests/unit/test_release.py`
-pin the install payload roots, the semver string and the branch constants.
+`tests/integration/test_publish_pipeline.py` runs the script end to end
+against a throwaway bare origin (a recording `make` stub stands in for the
+gates): `--help`, `--dry-run` (gates run, bump reverted, nothing pushed), the
+real promotion (bump commit on `origin/omarchy`, `origin/stable` == `omarchy`,
+annotated tag), the bump flags, and the dirty-tree / off-branch refusals.
 
 ## Updating the website
 
@@ -199,15 +205,36 @@ pin the install payload roots, the semver string and the branch constants.
 that routes on the User-Agent: browsers get the `index.html` object, `curl` and
 `wget` get the `install.sh` object — which is what makes
 `bash <(curl -fsSL hyprconf.sh)` work. That router is existing infrastructure
-outside this repo, managed by hand; there is no deploy tooling. Two objects to
-upload, and the `install.sh` one must be the **`stable`** branch's — upload it
-after `scripts/publish`, never the `omarchy` copy:
+outside this repo, managed by hand; there is no deploy tooling (`aws` comes
+from `omarchy-pkg-add aws-cli-v2`, an official `extra` package). Four objects,
+and the `install.sh` one must be the **`stable`** branch's — upload it after
+`scripts/publish`, never the `omarchy` copy:
+
+| Key | Source | Content-Type |
+|---|---|---|
+| `install.sh` | `git show stable:install.sh` | `text/plain; charset=utf-8`, `Cache-Control: no-cache, no-store` |
+| `index.html` | `web/index.html` | `text/html; charset=utf-8` |
+| `favicon.svg` | `web/favicon.svg` | `image/svg+xml` |
+| `screenshot.svg` | `assets/screenshot.svg` | `image/svg+xml` — the placeholder; the real capture replaces it under the same key. If that capture is a raster, the key, `web/index.html`'s `src` and the README path change together |
 
 ```bash
-aws s3 cp web/index.html s3://hyprconf-sh/index.html --content-type text/html
-git show stable:install.sh | aws s3 cp - s3://hyprconf-sh/install.sh --content-type text/plain
+git show stable:install.sh | aws s3 cp - s3://hyprconf-sh/install.sh \
+  --content-type 'text/plain; charset=utf-8' --cache-control 'no-cache, no-store'
+aws s3 cp web/index.html        s3://hyprconf-sh/index.html     --content-type 'text/html; charset=utf-8'
+aws s3 cp web/favicon.svg       s3://hyprconf-sh/favicon.svg    --content-type image/svg+xml
+aws s3 cp assets/screenshot.svg s3://hyprconf-sh/screenshot.svg --content-type image/svg+xml
+aws s3 rm s3://hyprconf-sh/hyprconf.webp   # the previous page's og:image — once, if it is still there
 
 DIST=$(aws cloudfront list-distributions \
   --query "DistributionList.Items[?contains(Aliases.Items,'hyprconf.sh')].Id" --output text)
 aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"
+```
+
+Verify both routes once the invalidation has completed — the curl UA must get
+`stable`'s installer, a browser UA the page:
+
+```bash
+curl -fsSL hyprconf.sh | cmp - <(git show stable:install.sh) && echo installer-ok
+curl -fsSL -A 'Mozilla/5.0' hyprconf.sh | cmp - web/index.html && echo page-ok
+curl -sSI -A 'Mozilla/5.0' https://hyprconf.sh/screenshot.svg | grep -i '^content-type: image/svg+xml'
 ```

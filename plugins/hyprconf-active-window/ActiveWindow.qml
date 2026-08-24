@@ -19,7 +19,6 @@
 // plugin code are stable IPC targets, and the manifest's clonedFrom is what
 // maps this copy onto them — the same rule omarchy-plugin-clone follows.
 import QtQuick
-import Quickshell
 import Quickshell.Wayland
 import qs.Commons
 import qs.Ui

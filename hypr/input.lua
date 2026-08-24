@@ -1,24 +1,12 @@
--- hyprconf input overlay for Omarchy.
---
--- Ported from the hyprland.lua of hyprconf's retired standalone desktop (its INPUT
--- section) and gestures.lua, into Omarchy's ~/.config/hypr/input.lua override
--- point — loaded after Omarchy's defaults, so only the deltas are stated here.
---
--- Deliberately NOT ported, each one checked against Omarchy's own input.lua:
---   * kb_layout / kb_variant / kb_model / kb_options / kb_rules. hyprconf hard
---     codes a bare "us" with no options; Omarchy derives the layout from
---     /etc/vconsole.conf, binds compose to CapsLock, and prepends a Latin
---     layout when the chosen one cannot type Latin keysyms (without which its
---     own SUPER bindings stop firing). Replacing that with "us" is a downgrade.
---   * follow_mouse = 1 and sensitivity = 0 — already Omarchy's values.
---   * hl.device({ name = "epic-mouse-v1", sensitivity = -0.5 }): the device
---     out of Hyprland's sample config, present on no machine here.
+-- hyprconf input overlay for Omarchy: loaded after Omarchy's defaults
+-- (/usr/share/omarchy/default/hypr/input.lua), so only the deltas are stated.
+-- The keyboard layout logic (kb_* from /etc/vconsole.conf, compose on
+-- CapsLock, a Latin fallback layout) is Omarchy's on purpose; follow_mouse
+-- and sensitivity already match.
 
 hl.config({
   input = {
-    -- Natural (inverted) scrolling, and the mouse wheel counts — this is the
-    -- default hyprconf has always shipped. Omarchy sets the touchpad to false
-    -- and leaves the mouse on Hyprland's own default, which is false too.
+    -- Natural (inverted) scrolling for the mouse and the touchpad (Omarchy: off).
     natural_scroll = true,
 
     touchpad = {
@@ -27,11 +15,9 @@ hl.config({
   },
 })
 
--- Touchpad gestures, from hyprconf's gestures.lua.
---
--- Since the 0.51 gesture rework the old gestures:workspace_swipe toggle is
--- gone: without this hl.gesture() the tuning below would apply to nothing and
--- swiping would do nothing.
+-- Touchpad gestures. Since the 0.51 gesture rework the swipe itself must be
+-- declared with hl.gesture(); the gestures.* tuning below applies to nothing
+-- without it.
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 
 hl.config({

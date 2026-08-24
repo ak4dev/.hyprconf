@@ -2,7 +2,9 @@
 set -euo pipefail
 
 # Streaming GPU stats for the quickshell bar: one JSON line per interval on
-# stdout, long-lived (started once by the Services singleton, shared by all screens).
+# stdout, long-lived — one instance per bar surface (Omarchy builds the bar
+# per monitor, and the widget starts its Process per instance the way
+# Omarchy's own KeyboardLayout.qml / SystemUpdate.qml do).
 #
 # The old one-shot version was respawned by a 2s timer: bash + nvidia-smi +
 # 2×awk + printf per tick ≈ 33 ms of process churn every poll, with nvidia-smi
@@ -22,9 +24,10 @@ set -euo pipefail
 # tick, so the bar follows a workload that moves between cards and a box whose
 # second card idles at 2 MiB shows the busy one.
 #
-# Emits nothing and exits 0 when no supported GPU exists — the module hides
-# and is NOT restarted. A stream that produced output and then died IS
-# restarted by Services, so a driver hiccup self-heals.
+# Emits nothing and exits 0 when no supported GPU exists — the widget keeps
+# its GPU cells blank (sized, so the grid holds) and does NOT restart it. A
+# stream that produced output and then died IS restarted by the widget, so a
+# driver hiccup self-heals.
 #
 # Env knobs are test overrides (hermetic suite drives this with fake trees).
 : "${HYPRCONF_GPU_INTERVAL:=2}"
@@ -172,6 +175,6 @@ if _nvidia_probe; then
 elif _amd_probe; then
     _amd_stream
 fi
-# No supported GPU (e.g. Intel iGPU only): exit 0 with no output — the bar
-# hides the module rather than showing N/A.
+# No supported GPU (e.g. Intel iGPU only): exit 0 with no output — the widget
+# leaves the GPU row blank rather than showing N/A.
 exit 0

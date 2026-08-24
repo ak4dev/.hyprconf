@@ -34,6 +34,15 @@ def _ini(root: Path, body: str) -> Path:
     return ini
 
 
+@pytest.fixture(autouse=True)
+def notices(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """What main() announced. notify() runs omarchy-notification-send when it
+    is on PATH, so it is replaced for every test, not per test."""
+    sent: list[str] = []
+    monkeypatch.setattr(ft, "notify", sent.append)
+    return sent
+
+
 # ---------------------------------------------------------------------------
 # Profile discovery
 # ---------------------------------------------------------------------------
@@ -306,6 +315,23 @@ def _home_with_theme_and_profile(tmp_path: Path) -> tuple[Path, Path]:
     return home, profile
 
 
+def _two_install_home(tmp_path: Path) -> tuple[Path, Path, Path]:
+    """A home whose profiles.ini carries two [Install…] sections — the package
+    and a Developer Edition, each naming its own profile."""
+    home, release = _home_with_theme_and_profile(tmp_path)
+    ff = release.parent
+    dev = ff / "dev.dev-edition-default"
+    dev.mkdir()
+    _ini(
+        ff,
+        "[Profile0]\nPath=abc.default-release\nIsRelative=1\n\n"
+        "[Profile1]\nPath=dev.dev-edition-default\nIsRelative=1\n\n"
+        "[InstallAAAA]\nDefault=abc.default-release\n\n"
+        "[InstallBBBB]\nDefault=dev.dev-edition-default\n",
+    )
+    return home, release, dev
+
+
 def test_apply_writes_stylesheet_and_prefs_idempotently(tmp_path: Path) -> None:
     _, profile = _home_with_theme_and_profile(tmp_path)
     palette = ft.read_palette(
@@ -323,48 +349,25 @@ def test_apply_writes_stylesheet_and_prefs_idempotently(tmp_path: Path) -> None:
     assert (profile / "user.js").read_text() == js
 
 
-def test_main_themes_every_default_profile_under_home(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    home, profile = _home_with_theme_and_profile(tmp_path)
-    monkeypatch.setenv("HOME", str(home))
-    notices: list[str] = []
-    monkeypatch.setattr(ft, "notify", notices.append)
-    assert ft.main([]) == 0
-    assert (profile / "chrome" / "userChrome.css").is_file()
-    out = capsys.readouterr().out
-    assert "firefox:" in out and "restart firefox" in out.lower()
-    # Firefox reads userChrome.css at startup only: the change is announced
-    # once, through Omarchy's notification command, and not on a no-op re-run.
-    assert notices == ["Restart firefox to apply the new theme"]
-    assert ft.main([]) == 0
-    assert len(notices) == 1
-
-
 def test_main_themes_each_installs_profile_and_announces_the_browser_once(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    notices: list[str],
 ) -> None:
-    home, release = _home_with_theme_and_profile(tmp_path)
-    ff = release.parent
-    dev = ff / "dev.dev-edition-default"
-    dev.mkdir()
-    _ini(
-        ff,
-        "[Profile0]\nPath=abc.default-release\nIsRelative=1\n\n"
-        "[Profile1]\nPath=dev.dev-edition-default\nIsRelative=1\n\n"
-        "[InstallAAAA]\nDefault=abc.default-release\n\n"
-        "[InstallBBBB]\nDefault=dev.dev-edition-default\n",
-    )
+    home, release, dev = _two_install_home(tmp_path)
     monkeypatch.setenv("HOME", str(home))
-    notices: list[str] = []
-    monkeypatch.setattr(ft, "notify", notices.append)
     assert ft.main([]) == 0
     for profile in (release, dev):
         assert (profile / "chrome" / "userChrome.css").is_file()
         assert "firefox-compact-dark@mozilla.org" in (profile / "user.js").read_text()
     out = capsys.readouterr().out
-    assert out.count("firefox: ") == 2
+    assert out.count("firefox: ") == 2 and "restart firefox" in out.lower()
+    # Firefox reads userChrome.css at startup only: the change is announced
+    # once, through Omarchy's notification command, and not on a no-op re-run.
     assert notices == ["Restart firefox to apply the new theme"]
+    assert ft.main([]) == 0
+    assert len(notices) == 1
 
 
 def test_main_without_a_theme_fails_and_without_a_profile_is_a_noop(
@@ -393,7 +396,6 @@ def test_status_reports_restart_state_from_prefs_js(
 ) -> None:
     home, profile = _home_with_theme_and_profile(tmp_path)
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setattr(ft, "notify", lambda _m: None)
     assert ft.main([]) == 0
     capsys.readouterr()
 
@@ -418,17 +420,7 @@ def test_status_reports_restart_state_from_prefs_js(
 def test_status_reports_every_installs_profile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    home, release = _home_with_theme_and_profile(tmp_path)
-    ff = release.parent
-    dev = ff / "dev.dev-edition-default"
-    dev.mkdir()
-    _ini(
-        ff,
-        "[Profile0]\nPath=abc.default-release\nIsRelative=1\n\n"
-        "[Profile1]\nPath=dev.dev-edition-default\nIsRelative=1\n\n"
-        "[InstallAAAA]\nDefault=abc.default-release\n\n"
-        "[InstallBBBB]\nDefault=dev.dev-edition-default\n",
-    )
+    home, release, dev = _two_install_home(tmp_path)
     monkeypatch.setenv("HOME", str(home))
     assert ft.main(["--status"]) == 0
     out = capsys.readouterr().out

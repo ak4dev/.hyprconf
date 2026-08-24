@@ -1,151 +1,165 @@
 """
 Integration tests for the omarchy → stable release pipeline.
 
-scripts/publish --dry-run is run end-to-end against an isolated clone: no
-Omarchy host, no network, and nothing in this checkout is pushed, tagged or
-mutated. The static invariants of the script live in tests/unit/test_release.py.
+scripts/publish runs end-to-end — the dry run and the real promotion — against
+a throwaway repository built here: a bare ``origin`` seeded with the script and
+the version file, and a clone of it on ``omarchy``. Nothing in this checkout is
+read through git, pushed, tagged or mutated, and no network is touched; the
+``make`` gates are a recording stub on PATH.
 """
 
 from __future__ import annotations
 
+import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
+PUBLISH = "scripts/publish"
+VERSION_FILE = "lib/hyprconf/__init__.py"
+VERSION_RE = re.compile(r'^__version__ = "(\d+)\.(\d+)\.(\d+)"$', re.M)
+# A git identity, so a fresh CI container's commits and tags need none configured.
+GIT_ENV = {
+    **os.environ,
+    "GIT_AUTHOR_NAME": "testuser",
+    "GIT_AUTHOR_EMAIL": "testuser@example.invalid",
+    "GIT_COMMITTER_NAME": "testuser",
+    "GIT_COMMITTER_EMAIL": "testuser@example.invalid",
+}
 
-# The branch scripts/publish promotes from (its WORK_BRANCH).
-WORK_BRANCH = "omarchy"
 
-
-def _git(*args: str, cwd: Path = REPO_ROOT) -> str:
+def _git(cwd: Path, *args: str) -> str:
     result = subprocess.run(
-        ["git", *args],
-        cwd=cwd,
-        capture_output=True,
-        text=True,
-        timeout=120,
+        ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=60, env=GIT_ENV
     )
     assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
     return result.stdout.strip()
 
 
-# ---------------------------------------------------------------------------
-# scripts/publish dry-run
-# ---------------------------------------------------------------------------
+def _version(path: Path) -> tuple[int, int, int]:
+    """The x.y.z in a version file, in the exact shape scripts/publish reads."""
+    match = VERSION_RE.search(path.read_text(encoding="utf-8"))
+    assert match, f'{path} has no `__version__ = "x.y.z"` line'
+    return tuple(int(n) for n in match.groups())  # type: ignore[return-value]
 
 
-def _on_work_branch_with_clean_tree() -> bool:
-    """Return True iff we are on the omarchy branch with an unmodified working tree."""
-    branch = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
+@pytest.fixture
+def clone(tmp_path: Path) -> Path:
+    """A clone on ``omarchy`` of a local bare origin that holds only
+    scripts/publish and the version file, copied from this checkout."""
+    seed = tmp_path / "seed"
+    for rel in (PUBLISH, VERSION_FILE):
+        (seed / rel).parent.mkdir(parents=True, exist_ok=True)
+        (seed / rel).write_bytes((REPO_ROOT / rel).read_bytes())
+    _git(seed, "init", "-q", "-b", "omarchy")
+    _git(seed, "add", "-A")
+    _git(seed, "commit", "-q", "-m", "seed")
+    _git(tmp_path, "clone", "-q", "--bare", str(seed), "origin.git")
+    _git(tmp_path, "clone", "-q", "--branch", "omarchy", "origin.git", "clone")
+    return tmp_path / "clone"
+
+
+def _publish(clone: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    """Run scripts/publish in the clone with a ``make`` stub first on PATH that
+    records its target in <clone>/../make-calls and succeeds."""
+    bins = clone.parent / "bins"
+    bins.mkdir(exist_ok=True)
+    make = bins / "make"
+    make.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$1" >> "$FAKE_CALLS"\n')
+    make.chmod(make.stat().st_mode | stat.S_IEXEC)
+    env = {
+        **GIT_ENV,
+        "PATH": f"{bins}:{os.environ['PATH']}",
+        "FAKE_CALLS": str(clone.parent / "make-calls"),
+    }
+    return subprocess.run(
+        ["bash", PUBLISH, *args], cwd=clone, capture_output=True, text=True, timeout=120, env=env
     )
-    if branch.stdout.strip() != WORK_BRANCH:
-        return False
-    status = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
-    return status.stdout.strip() == ""
+
+
+def _make_calls(clone: Path) -> list[str]:
+    calls = clone.parent / "make-calls"
+    return calls.read_text().splitlines() if calls.exists() else []
 
 
 def test_publish_help_describes_omarchy_to_stable() -> None:
     """``scripts/publish --help`` prints the usage header and exits 0 without touching git."""
     result = subprocess.run(
-        ["bash", "scripts/publish", "--help"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=30,
+        ["bash", PUBLISH, "--help"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stderr
     assert "--dry-run" in result.stdout
     assert "omarchy" in result.stdout and "stable" in result.stdout
-    assert "lib/hyprconf/__init__.py" in result.stdout
-    assert "archive" not in result.stdout.lower(), (
-        "help text still advertises the deleted release archive"
-    )
+    assert VERSION_FILE in result.stdout
 
 
-def test_publish_dry_run_succeeds(tmp_path: Path) -> None:
-    """scripts/publish --dry-run completes end-to-end, hermetically.
-
-    The pipeline runs against an isolated clone whose ``origin`` is the local
-    source repo, so its ``git fetch origin omarchy`` needs no network or remote
-    auth (a transient fetch failure against the real remote used to abort the
-    run and flake CI) and shares no ``.git`` with parallel xdist workers.
-
-    Flags used:
-      --dry-run       run the gates, skip branch/tag pushes
-      --skip-tests    skip the lint gates + test suite (already running it here)
-      --skip-tag      skip annotated tag creation
-    """
-    if not _on_work_branch_with_clean_tree():
-        pytest.skip(f"Not on {WORK_BRANCH} branch with a clean working tree")
-
-    # Clone the (omarchy, clean) source repo to an isolated tree. `git clone
-    # <path>` points the clone's origin at the local REPO_ROOT, so the publish's
-    # `git fetch origin omarchy` resolves locally — no network, no shared .git.
-    clone = tmp_path / "repo"
-    subprocess.run(
-        ["git", "clone", "--quiet", "--branch", WORK_BRANCH, str(REPO_ROOT), str(clone)],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-    result = subprocess.run(
-        [
-            "bash",
-            "scripts/publish",
-            "--dry-run",
-            "--skip-tests",
-            "--skip-tag",
-        ],
-        cwd=clone,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert result.returncode == 0, (
-        f"scripts/publish --dry-run failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    # The pipeline must emit the "Done" confirmation.
-    assert "Done" in result.stdout, f"Expected 'Done' in publish output:\n{result.stdout}"
-    # Nothing is built: the promoted branch is the release (no dist/ tarball).
-    assert not (clone / "dist").exists(), "--dry-run still wrote a dist/ archive"
-    # Dry-run must leave the clone clean: the bump is reverted, nothing committed.
-    status = _git("status", "--porcelain", cwd=clone)
-    assert status == "", f"--dry-run left the clone dirty:\n{status}"
-    assert _git("rev-parse", "HEAD", cwd=clone) == _git(
-        "rev-parse", f"origin/{WORK_BRANCH}", cwd=clone
-    )
+def test_publish_dry_run_runs_the_gates_and_pushes_nothing(clone: Path) -> None:
+    before = _version(clone / VERSION_FILE)
+    result = _publish(clone, "--dry-run")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Done" in result.stdout
+    # The CI gates, in CI's order, then nothing: the bump is reverted, no
+    # commit, no tag, no push.
+    assert _make_calls(clone) == ["lint", "shellcheck", "test"]
+    assert _version(clone / VERSION_FILE) == before
+    assert _git(clone, "status", "--porcelain") == ""
+    assert _git(clone, "rev-parse", "HEAD") == _git(clone, "rev-parse", "origin/omarchy")
+    assert _git(clone, "tag") == ""
+    assert _git(clone.parent / "origin.git", "branch", "--list", "stable") == ""
 
 
-def test_publish_script_updates_local_stable_branch() -> None:
-    """scripts/publish must update the local stable branch after pushing to origin.
+def test_publish_promotes_omarchy_to_stable(clone: Path) -> None:
+    """The real thing: bump, commit, push the bump to origin/omarchy, tag, push
+    HEAD to origin/stable, move the local stable branch too."""
+    major, minor, patch = _version(clone / VERSION_FILE)
+    result = _publish(clone)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _make_calls(clone) == ["lint", "shellcheck", "test"]
 
-    ``git push origin HEAD:stable`` alone updates the remote ref but leaves the
-    local ``stable`` branch at its old position, so ``stable`` and
-    ``origin/stable`` diverge after every release. The publish must run
-    ``git branch -f stable HEAD`` immediately after the push.
-    """
-    text = (REPO_ROOT / "scripts" / "publish").read_text()
-    # The fix must appear: force-move the local stable branch after the push.
-    assert "git branch -f" in text, (
-        "scripts/publish must run 'git branch -f <stable> HEAD' after pushing "
-        "to origin/stable to keep the local branch in sync"
-    )
-    # Specifically it must update the stable branch, not some other branch.
-    assert re.search(r'git branch -f[^"]*"?\$\{?STABLE_BRANCH\}?"?\s+HEAD', text), (
-        "scripts/publish must force-move the local stable branch to HEAD "
-        "after 'git push origin HEAD:stable'"
-    )
+    bumped = (major, minor, patch + 1)
+    tag = "v{}.{}.{}".format(*bumped)
+    assert _version(clone / VERSION_FILE) == bumped
+    assert _git(clone, "status", "--porcelain") == ""
+    head = _git(clone, "rev-parse", "HEAD")
+    assert _git(clone, "log", "-1", "--pretty=%s") == f"release: [{tag}] bump version"
+    origin = clone.parent / "origin.git"
+    assert _git(origin, "rev-parse", "refs/heads/omarchy") == head
+    assert _git(origin, "rev-parse", "refs/heads/stable") == head
+    assert _git(origin, "rev-list", "-n1", f"refs/tags/{tag}") == head
+    assert _git(clone, "rev-parse", "refs/heads/stable") == head
+    assert _git(clone, "cat-file", "-t", tag) == "tag", "the release tag is annotated"
+
+
+@pytest.mark.parametrize(
+    ("flag", "bump"),
+    [
+        ("--minor", lambda M, m, p: (M, m + 1, 0)),
+        ("--major", lambda M, m, p: (M + 1, 0, 0)),
+        ("--skip-bump", lambda M, m, p: (M, m, p)),
+    ],
+)
+def test_publish_bumps_the_requested_component(clone: Path, flag: str, bump) -> None:
+    before = _version(clone / VERSION_FILE)
+    result = _publish(clone, flag, "--skip-tests", "--skip-tag")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _make_calls(clone) == [], "--skip-tests skips every make gate"
+    assert _version(clone / VERSION_FILE) == bump(*before)
+    assert _git(clone, "tag") == "", "--skip-tag creates no tag"
+    origin = clone.parent / "origin.git"
+    assert _git(origin, "rev-parse", "refs/heads/stable") == _git(clone, "rev-parse", "HEAD")
+
+
+def test_publish_refuses_off_the_work_branch_or_with_a_dirty_tree(clone: Path) -> None:
+    (clone / "scratch").write_text("uncommitted\n")
+    result = _publish(clone, "--skip-tests")
+    assert result.returncode != 0 and "Uncommitted changes" in result.stderr
+    (clone / "scratch").unlink()
+
+    _git(clone, "checkout", "-q", "-b", "feature")
+    result = _publish(clone, "--skip-tests")
+    assert result.returncode != 0 and "Must be on the omarchy branch" in result.stderr
+    assert _git(clone.parent / "origin.git", "branch", "--list", "stable") == ""

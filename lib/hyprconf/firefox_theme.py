@@ -360,18 +360,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="report what is written where and whether Firefox has restarted since",
     )
-    parser.add_argument(
-        "--colors",
-        type=Path,
-        default=None,
-        help=f"colors.toml to read (default: ~/{COLORS_TOML_REL})",
-    )
     args = parser.parse_args(argv)
 
     home = Path(os.environ.get("HOME", Path.home()))
     if args.status:
         return status(home)
-    colors = args.colors or home / COLORS_TOML_REL
+    colors = home / COLORS_TOML_REL
     if not colors.is_file():
         print(f"hyprconf firefox theme: no {colors} — is a theme active?", file=sys.stderr)
         return 1

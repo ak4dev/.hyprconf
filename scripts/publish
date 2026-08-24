@@ -7,9 +7,9 @@ set -euo pipefail
 #   bash scripts/publish [options]
 #
 # Options:
-#   --patch         Bump the patch version (default: 3.1.15 → 3.1.16)
-#   --minor         Bump the minor version (3.1.15 → 3.2.0)
-#   --major         Bump the major version (3.1.15 → 4.0.0)
+#   --patch         Bump the patch component (default)
+#   --minor         Bump the minor component
+#   --major         Bump the major component
 #   --skip-bump     Skip automatic version bump (version must be pre-bumped manually)
 #   --skip-tests    Skip the lint gates and test suite (only for nested test-harness
 #                   calls — they must still pass before any real publish)
@@ -20,7 +20,8 @@ set -euo pipefail
 #   1. Verifies the omarchy working branch with a clean, up-to-date working tree
 #   2. Runs the CI lint gates (ruff + shellcheck)
 #   3. Runs the unit + integration suites via pytest
-#   4. Bumps the patch/minor/major version in lib/hyprconf/__init__.py and commits it
+#   4. Bumps the patch/minor/major version in lib/hyprconf/__init__.py, commits
+#      it and pushes the commit to origin/omarchy
 #   5. Creates an annotated version tag from hyprconf.__version__
 #   6. Promotes the working-branch HEAD to origin/stable and pushes the tag
 #
@@ -31,7 +32,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 # The overlay is developed on "omarchy" and released by promoting that HEAD to
-# "stable" (the branch install.sh clones). The former development branch is retired.
+# "stable" (the branch install.sh clones).
 WORK_BRANCH="omarchy"
 STABLE_BRANCH="stable"
 # Single source of truth for the version.
@@ -74,44 +75,21 @@ warn() { printf '%s  ! %s%s\n'        "$AM" "$1" "$RS"; }
 die()  { printf '%s  ✘ FATAL: %s%s\n' "$GL" "$1" "$RS" >&2; exit 1; }
 
 _read_version() {
-  python3 - "$VERSION_FILE_REL" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-match = re.search(r'__version__\s*=\s*"([^"]+)"', text)
-if not match:
-    raise SystemExit(f"Could not determine hyprconf version from {path}")
-print(match.group(1))
-PY
+  sed -nE 's/^__version__ = "([^"]+)"$/\1/p' "$VERSION_FILE_REL"
 }
 
+# _bump_version <patch|minor|major>: rewrite __version__ and print the new one.
 _bump_version() {
-  python3 - "$VERSION_FILE_REL" "$1" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-bump = sys.argv[2]
-text = path.read_text(encoding="utf-8")
-m = re.search(r'__version__\s*=\s*"(\d+)\.(\d+)\.(\d+)"', text)
-if not m:
-    raise SystemExit(f"Could not parse semver from {path}")
-major, minor, patch = int(m.group(1)), int(m.group(2)), int(m.group(3))
-if bump == "major":
-    major += 1; minor = 0; patch = 0
-elif bump == "minor":
-    minor += 1; patch = 0
-else:
-    patch += 1
-new_version = f"{major}.{minor}.{patch}"
-new_text = re.sub(r'(__version__\s*=\s*)"[^"]+"', f'\\1"{new_version}"', text)
-path.write_text(new_text, encoding="utf-8")
-print(new_version)
-PY
+  local M m p
+  IFS=. read -r M m p < <(_read_version) \
+    || die "Could not determine hyprconf version from $VERSION_FILE_REL"
+  case "$1" in
+    major) M=$((M + 1)); m=0; p=0 ;;
+    minor) m=$((m + 1)); p=0 ;;
+    *)     p=$((p + 1)) ;;
+  esac
+  sed -i -E "s/^(__version__ = )\"[^\"]+\"/\\1\"$M.$m.$p\"/" "$VERSION_FILE_REL"
+  echo "$M.$m.$p"
 }
 
 _tag_points_at_head() {

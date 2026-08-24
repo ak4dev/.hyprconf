@@ -2,7 +2,6 @@
   "policies": {
     "DisableTelemetry": true,
     "DisableFirefoxStudies": true,
-    "DisablePocket": true,
     "DisableFeedbackCommands": true,
     "OverrideFirstRunPage": "",
     "OverridePostUpdatePage": "",
@@ -27,42 +26,6 @@
         "Value": true,
         "Status": "default"
       },
-      "browser.tabs.verticalTabs": {
-        "Value": true,
-        "Status": "default"
-      },
-      "browser.tabs.verticalTabs.showPinnedTabs": {
-        "Value": true,
-        "Status": "default"
-      },
-      "browser.tabs.drawInTitlebar": {
-        "Value": true,
-        "Status": "default"
-      },
-      "toolkit.telemetry.unified": {
-        "Value": false,
-        "Status": "locked"
-      },
-      "toolkit.telemetry.archive.enabled": {
-        "Value": false,
-        "Status": "locked"
-      },
-      "toolkit.coverage.opt-out": {
-        "Value": true,
-        "Status": "locked"
-      },
-      "datareporting.healthreport.uploadEnabled": {
-        "Value": false,
-        "Status": "locked"
-      },
-      "datareporting.policy.dataSubmissionEnabled": {
-        "Value": false,
-        "Status": "locked"
-      },
-      "app.normandy.enabled": {
-        "Value": false,
-        "Status": "locked"
-      },
       "browser.discovery.enabled": {
         "Value": false,
         "Status": "locked"
@@ -85,14 +48,6 @@
       },
       "browser.tabs.crashReporting.sendReport": {
         "Value": false,
-        "Status": "default"
-      },
-      "browser.crashReports.unsubmittedCheck.autoSubmit2": {
-        "Value": false,
-        "Status": "default"
-      },
-      "privacy.trackingprotection.socialtracking.enabled": {
-        "Value": true,
         "Status": "default"
       },
       "toolkit.legacyUserProfileCustomizations.stylesheets": {

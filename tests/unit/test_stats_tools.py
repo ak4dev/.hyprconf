@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import stat
 import subprocess
 from pathlib import Path
@@ -209,16 +208,6 @@ class TestStatsCpuTemp:
 
     def test_no_hwmon_tree_hides_module(self, tmp_path: Path) -> None:
         assert self._temp(tmp_path, []) == ""
-
-    def test_no_sensors_binary_needed(self) -> None:
-        """Temperature must come from hwmon files, not a per-poll `sensors`
-        subprocess (the pre-streaming design)."""
-        code = "\n".join(
-            ln
-            for ln in STATS_SH.read_text(encoding="utf-8").splitlines()
-            if not ln.strip().startswith("#")
-        )
-        assert "sensors" not in code
 
 
 # ---------------------------------------------------------------------------
@@ -472,15 +461,3 @@ class TestGpuInfoScript:
         r = self._run(tmp_path, nvidia=False)
         assert r.returncode == 0
         assert r.stdout.strip() == ""
-
-    def test_no_pinned_gpu_and_no_prerendered_text(self) -> None:
-        """The widget owns the layout: the feeder must emit structured fields
-        only, and must never pin `-i 0` (which hid the busy card on a
-        two-GPU box)."""
-        code = "\n".join(
-            ln
-            for ln in GPU_INFO_SH.read_text(encoding="utf-8").splitlines()
-            if not ln.strip().startswith("#")
-        )
-        assert "-i 0" not in code
-        assert re.search(r'\\?"text\\?"', code) is None

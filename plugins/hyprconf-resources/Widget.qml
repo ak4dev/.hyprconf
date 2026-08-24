@@ -11,7 +11,10 @@
 //                        re-picked every sample, so an idle second card
 //                        never shadows the one doing the work
 // Both are installed onto PATH by install.sh (the convention Omarchy's own
-// plugins follow — none bundles its scripts; they shell out by name).
+// plugins follow — none bundles its scripts; they shell out by name). The bar
+// is built per monitor (Bar.qml's `Variants { model: Quickshell.screens }`),
+// so each bar surface runs its own pair of feeders — the same per-instance
+// Process pattern Omarchy's KeyboardLayout.qml and SystemUpdate.qml use.
 //
 // Every column has a FIXED width, measured once with TextMetrics from the
 // widest value it can show, so the line never shifts as a speed goes from
@@ -30,7 +33,6 @@
 // renders in the bar's foreground, matching Omarchy's own text widgets.
 
 import QtQuick
-import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
@@ -60,7 +62,6 @@ BarWidget {
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.fontFamily
   readonly property color textColor: root.bar ? root.bar.barForeground : Color.foreground
 
-  visible: true
   // Two lines of text in a 26px bar only fit if the line box is the glyph box.
   // Qt's default proportional line height adds ~20% leading per line, which at
   // caption size overflows the bar and clips the second line.
@@ -100,7 +101,8 @@ BarWidget {
 
   // A stream that produced output and then died is restarted (driver
   // hiccup / transient error); one that exits without ever producing
-  // output means "no such hardware" and stays hidden.
+  // output means "no such hardware" and is left alone — the GPU cells
+  // below stay blank (but sized, so the grid holds its shape).
   Process {
     id: gpuProc
     running: true

@@ -8,16 +8,18 @@ eval." and still exits 0, so the old form failed silently. `eval` answers "ok"
 on success and reports a real failure (exit 7), which the script surfaces.
 
 Everything runs against a fake hyprctl on PATH that serves canned getoption
-JSON and records every `eval` program it is handed.
+JSON and records every `eval` program it is handed — a `keyword` call records
+nothing, so it can never satisfy the expected-program assertions.
 """
 
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import textwrap
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).parent.parent.parent / "hypr" / "scripts" / "adjust-gaps"
 
@@ -74,8 +76,9 @@ def _run(
     fake.write_text(_fake_hyprctl(calls_file, json_in, json_out, eval_reply=eval_reply))
     fake.chmod(0o755)
 
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_dir}:{env['PATH']}"
+    # The fake first, then only /usr/bin and /bin (jq lives there) — never the
+    # host's PATH, where /usr/share/omarchy/bin would answer.
+    env = {"PATH": f"{fake_dir}:/usr/bin:/bin", "HOME": str(tmp_path)}
     proc = subprocess.run(
         ["bash", str(SCRIPT), direction], env=env, capture_output=True, text=True, timeout=30
     )
@@ -96,125 +99,66 @@ def _step(tmp_path: Path, direction: str, gaps_in: int, gaps_out: int, *, field:
     )
 
 
-# ---------------------------------------------------------------------------
-# Increase
-# ---------------------------------------------------------------------------
-
-
-def test_increase_by_step(tmp_path: Path) -> None:
-    proc, calls = _step(tmp_path, "+", 10, 20)
+@pytest.mark.parametrize(
+    ("direction", "gaps_in", "gaps_out", "exp_in", "exp_out", "field"),
+    [
+        ("+", 10, 20, 12, 22, "css"),
+        ("+", 0, 0, 2, 2, "css"),
+        ("+", 200, 300, 202, 302, "css"),  # no upper cap
+        ("-", 15, 25, 13, 23, "css"),
+        ("-", 1, 1, 0, 0, "css"),  # floors at 0, never negative
+        ("-", 0, 0, 0, 0, "css"),
+        ("-", 2, 2, 0, 0, "css"),  # a value equal to STEP lands exactly on zero
+        # Regression: `(( new < 0 )) && new=0` under set -e aborted the script
+        # whenever the value was already positive (false expression -> exit 1).
+        ("-", 20, 30, 18, 28, "css"),
+        # Older builds report the four-sided gap under "custom", not "css".
+        ("+", 10, 20, 12, 22, "custom"),
+    ],
+)
+def test_steps_both_gaps_together(
+    tmp_path: Path,
+    direction: str,
+    gaps_in: int,
+    gaps_out: int,
+    exp_in: int,
+    exp_out: int,
+    field: str,
+) -> None:
+    proc, calls = _step(tmp_path, direction, gaps_in, gaps_out, field=field)
     assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(12, 22)]
+    assert calls == [_expected(exp_in, exp_out)]
 
 
-def test_increase_from_zero(tmp_path: Path) -> None:
-    proc, calls = _step(tmp_path, "+", 0, 0)
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(2, 2)]
-
-
-def test_increase_large_values(tmp_path: Path) -> None:
-    """No upper cap — can grow well beyond typical values."""
-    proc, calls = _step(tmp_path, "+", 200, 300)
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(202, 302)]
-
-
-# ---------------------------------------------------------------------------
-# Decrease
-# ---------------------------------------------------------------------------
-
-
-def test_decrease_by_step(tmp_path: Path) -> None:
-    proc, calls = _step(tmp_path, "-", 15, 25)
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(13, 23)]
-
-
-def test_decrease_clamps_at_zero(tmp_path: Path) -> None:
-    """Decreasing below zero floors at 0, never negative."""
-    proc, calls = _step(tmp_path, "-", 1, 1)
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(0, 0)]
-
-
-def test_decrease_from_zero_stays_at_zero(tmp_path: Path) -> None:
-    proc, calls = _step(tmp_path, "-", 0, 0)
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(0, 0)]
-
-
-def test_decrease_exactly_step(tmp_path: Path) -> None:
-    """A value equal to STEP lands exactly on zero."""
-    proc, calls = _step(tmp_path, "-", 2, 2)
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(0, 0)]
-
-
-def test_decrease_positive_result_does_not_abort(tmp_path: Path) -> None:
-    """Regression: `(( new < 0 )) && new=0` under set -e aborted the script
-    whenever the value was already positive (false expression -> exit 1)."""
-    proc, calls = _step(tmp_path, "-", 20, 30)
-    assert proc.returncode == 0, "Script must not abort on a positive post-decrement value"
-    assert calls == [_expected(18, 28)]
-
-
-# ---------------------------------------------------------------------------
-# Reading the current value across hyprctl JSON shapes
-# ---------------------------------------------------------------------------
-
-
-def test_reads_the_pre_0_56_custom_field_too(tmp_path: Path) -> None:
-    """Older builds report the four-sided gap under "custom", not "css"."""
-    proc, calls = _step(tmp_path, "+", 10, 20, field="custom")
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(12, 22)]
-
-
-def test_increase_with_int_field_fallback(tmp_path: Path) -> None:
-    """A populated int field and no four-sided field: read the int."""
-    proc, calls = _run(
-        tmp_path,
-        "+",
-        json_in=json.dumps({"option": "general:gaps_in", "int": 8, "str": "", "set": True}),
-        json_out=json.dumps({"option": "general:gaps_out", "int": 15, "str": "", "set": True}),
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(10, 17)]
-
-
-def test_reads_custom_when_css_is_empty(tmp_path: Path) -> None:
-    """An empty "css" string counts as absent, so a populated "custom" still wins."""
-    proc, calls = _run(
-        tmp_path,
-        "+",
-        json_in=json.dumps({"option": "general:gaps_in", "int": 0, "css": "", "custom": "5 5 5 5"}),
-        json_out=json.dumps(
-            {"option": "general:gaps_out", "int": 0, "css": "", "custom": "9 9 9 9"}
+@pytest.mark.parametrize(
+    ("json_in", "json_out", "expected"),
+    [
+        # A populated int field and no four-sided field: read the int.
+        (
+            json.dumps({"option": "general:gaps_in", "int": 8, "str": "", "set": True}),
+            json.dumps({"option": "general:gaps_out", "int": 15, "str": "", "set": True}),
+            _expected(10, 17),
         ),
-    )
+        # An empty "css" string counts as absent, so a populated "custom" still wins.
+        (
+            json.dumps({"option": "general:gaps_in", "int": 0, "css": "", "custom": "5 5 5 5"}),
+            json.dumps({"option": "general:gaps_out", "int": 0, "css": "", "custom": "9 9 9 9"}),
+            _expected(7, 11),
+        ),
+        # Non-JSON getoption output (the plain-text format) must not crash: jq
+        # fails to parse it and the `|| echo 0` fallback wins.
+        ("option: general:gaps_in = 10", "option: general:gaps_out = 10", _expected(2, 2)),
+        # No output at all (hyprctl cannot reach the compositor) reads as 0.
+        ("", "", _expected(2, 2)),
+    ],
+    ids=["int-fallback", "empty-css", "non-json", "empty"],
+)
+def test_reads_every_hyprctl_json_shape(
+    tmp_path: Path, json_in: str, json_out: str, expected: str
+) -> None:
+    proc, calls = _run(tmp_path, "+", json_in=json_in, json_out=json_out)
     assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(7, 11)]
-
-
-def test_increase_with_broken_hyprctl_output_defaults_to_zero(tmp_path: Path) -> None:
-    """Non-JSON getoption output (the plain-text format) must not crash: jq
-    fails to parse it and the `|| echo 0` fallback wins."""
-    proc, calls = _run(
-        tmp_path,
-        "+",
-        json_in="option: general:gaps_in = 10",
-        json_out="option: general:gaps_out = 10",
-    )
-    assert proc.returncode == 0, f"Script crashed on broken hyprctl output.\nstderr: {proc.stderr}"
-    assert calls == [_expected(2, 2)]
-
-
-def test_increase_with_empty_hyprctl_output_defaults_to_zero(tmp_path: Path) -> None:
-    """No output at all (hyprctl cannot reach the compositor) reads as 0."""
-    proc, calls = _run(tmp_path, "+", json_in="", json_out="")
-    assert proc.returncode == 0, proc.stderr
-    assert calls == [_expected(2, 2)]
+    assert calls == [expected]
 
 
 def test_no_inline_python() -> None:
@@ -224,20 +168,6 @@ def test_no_inline_python() -> None:
     )
     assert "python" not in code
     assert "jq " in code
-
-
-# ---------------------------------------------------------------------------
-# The apply path
-# ---------------------------------------------------------------------------
-
-
-def test_never_uses_hyprctl_keyword() -> None:
-    """`hyprctl keyword` is a silent no-op under the Lua parser (exit 0)."""
-    code = "\n".join(
-        ln for ln in SCRIPT.read_text().splitlines() if not ln.lstrip().startswith("#")
-    )
-    assert "hyprctl keyword" not in code
-    assert "hyprctl eval" in code
 
 
 def test_a_rejected_eval_is_reported(tmp_path: Path) -> None:

@@ -79,14 +79,12 @@ one stock plugin it copies (and patches to tick seconds). The two sibling-manife
 widgets the overlay replaces are not copied at all: `plugins/hyprconf-workspaces/`
 and `plugins/hyprconf-active-window/` are the overlay's own QML, shipped with
 `omarchy.clonedFrom` already in their manifests and synced into
-`~/.config/omarchy/plugins/` on every run, so the shell swaps them into the
-stock slots the same way. The bar's `centerAnchor` in `shell.json` is a plain
-id with no clone resolution — after swapping `omarchy.clock` for
-`hyprconf.clock` the anchor must follow. A bar carrying both the stock widget
-and the copy (an upgrade from the `<username>.*` era) is healed by disabling
-and re-enabling the copy — the registry swaps a `clonedFrom` copy into the
-stock entry only at enable time — and `omarchy bar move`-ing it into the
-recorded stock slot when it lands elsewhere.
+`~/.config/omarchy/plugins/` on every run. Two contract facts drive the install
+order: the registry swaps a `clonedFrom` copy into the stock entry **at enable
+time** (`PluginRegistry.qml`, `setEnabled`), and the bar's `centerAnchor` in
+`shell.json` is a plain id with no clone resolution — after swapping
+`omarchy.clock` for `hyprconf.clock` the anchor must follow
+(`follow_center_anchor`).
 
 ## `BarWidget` (`qs.Ui`)
 
@@ -140,9 +138,10 @@ Timer { id: restartTimer; interval: 1000; onTriggered: gpuProc.running = true }
   `StdioCollector` collects whole output instead of lines.
 - Pattern used by `Widget.qml`: one long-lived JSON stream per feeder
   (`bin/hyprconf-stats`, `bin/hyprconf-gpu-info`, installed on `PATH` — the same
-  convention Omarchy's first-party plugins follow). A stream that produced
-  output and then died is restarted; one that exits without output means "no
-  such hardware" and stays hidden.
+  convention Omarchy's first-party plugins follow), one pair per bar surface
+  (the bar is built per monitor). A stream that produced output and then died
+  is restarted; one that exits without output means "no such hardware": its
+  cells stay blank but sized, and it is not restarted.
 - `SystemClock { precision: SystemClock.Seconds }` (`quickshell-core.qmltypes`:
   `Hours | Minutes | Seconds`) is the one-line patch `install.sh` applies to the
   `hyprconf.clock` copy — the stock clock samples at `Minutes`.
@@ -151,23 +150,14 @@ Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/Process/>
 
 ## CLI
 
-```bash
-omarchy plugin list [--json]                 # ids + enabled state
-omarchy plugin enable <id> [placement]       # e.g. --section right
-omarchy plugin disable <id>
-omarchy plugin clone <source-id> [--edit]    # ~/.config/omarchy/plugins/<username>.<id>
-omarchy plugin validate <plugin-folder>
-omarchy plugin add|remove|update …
-
-omarchy bar set <id> <key> <value> [--json] [placement]   # per-widget option (omarchy bar set hyprconf.clock format 'hh:mm:ss AP')
-omarchy bar put|move <id> [placement]        # placement: --section left|center|right, --after <id>, --index N
-omarchy bar position|transparent|use|reset|defaults
-
-omarchy-shell shell rescanPlugins            # discovery is async — wait for the id in `plugin list` before enabling
-omarchy-shell shell reloadConfig             # re-read shell.json (idle timeouts, bar layout)
-omarchy restart shell                        # install.sh does this once per run, only when a widget copy was (re)synced or re-seated
-omarchy-plugin-catalog                       # JSON: id, firstParty, sourceDir, manifestPath — resolve sources here, never a hard-coded path
-```
+`omarchy plugin --help` and `omarchy bar --help` are the CLI — read them live,
+never a copy. `omarchy-plugin-catalog` prints the JSON (`id`, `firstParty`,
+`sourceDir`, `manifestPath`) sources are resolved from — never a hard-coded
+path. Discovery after `omarchy-shell shell rescanPlugins` is asynchronous: wait
+for the id in `omarchy plugin list --json` before enabling (`activate_plugin_copy`);
+`omarchy-shell shell reloadConfig` re-reads `shell.json`; `install.sh` runs
+`omarchy restart shell` at most once per run, only when a widget's files were
+synced or the clock copy was made.
 
 **When adding a plugin API not covered here, add a concise example to this file**
 after verifying it against the installed qmltypes and shell sources.

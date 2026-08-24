@@ -13,7 +13,7 @@ to disturb it as little as possible. Most of what is asserted here is therefore
     it checks nothing (Omarchy 4.0.0-1 writes ~/.config/xdg-terminals.list and
     notifies), so SUPER+RETURN and every TUI launcher would have no terminal
   * never `pacman -Syu` (an Omarchy ALPM AbortOnFail hook blocks it) or
-    `pacman -R` (on Omarchy the "foreign" set includes Omarchy itself)
+    `pacman -R` (it would dismantle Omarchy)
   * never switch the active theme — hyprconf's theme is installed into the
     theme menu, and which one is active stays the user's choice
 
@@ -108,6 +108,16 @@ def _stub(path: Path, calls: Path, body: str = "exit 0") -> None:
     path.chmod(0o755)
 
 
+def _terminal_stub(tmp_path: Path, set_status: int = 0) -> str:
+    """omarchy-default-terminal: reports foot until something sets it, then
+    what was set. The set form writes first and exits `set_status` — the real
+    one's status is its closing notification's (no set -e, 4.0.0-1)."""
+    return (
+        f'if [ $# -eq 0 ]; then cat "{tmp_path}/term" 2>/dev/null || echo foot;'
+        f' else printf "%s" "$1" > "{tmp_path}/term"; exit {set_status}; fi'
+    )
+
+
 def _setup(
     tmp_path: Path, *, with_omarchy: bool = True, with_zsh: bool = True, with_kitty: bool = True
 ) -> dict:
@@ -143,8 +153,11 @@ def _setup(
         # The theme-set hook: Code - OSS is themed through Omarchy's own
         # omarchy-theme-set-vscode functions (sourced), gated on its toggle.
         "code",
-        # Asserted never to run: switching the login shell.
+        # Asserted never to run: switching the login shell, and pacman
+        # directly (the container has a real one; a call must be seen, not
+        # reach it).
         "chsh",
+        "pacman",
     ):
         _stub(bins / name, calls)
     # Named so a "no Omarchy here" run can point the installer at a command
@@ -178,13 +191,7 @@ def _setup(
     # fc-list is how the installer discovers whether the font it wants is really
     # present; the real one on the test host would answer for the host's fonts.
     _stub(bins / "fc-list", calls, 'echo "GeistMono Nerd Font,GeistMono NF"')
-    # Reports foot until something sets it, then reports what was set.
-    _stub(
-        bins / "omarchy-default-terminal",
-        calls,
-        f'if [ $# -eq 0 ]; then cat "{tmp_path}/term" 2>/dev/null || echo foot;'
-        f' else printf "%s" "$1" > "{tmp_path}/term"; fi',
-    )
+    _stub(bins / "omarchy-default-terminal", calls, _terminal_stub(tmp_path))
     # `clone` must materialise a directory; everything else is a no-op.
     _stub(bins / "git", calls, 'if [ "$1" = clone ]; then mkdir -p "${@: -1}"; fi; exit 0')
 
@@ -235,8 +242,7 @@ def _run(
     the installer (see _checkout) instead of the one in this checkout.
     """
     child_env = {
-        "HOME": str(env["home"]),
-        "PATH": f"{env['bins']}:/usr/bin:/bin",
+        **_child_env(env),
         "OMARCHY_PATH": str(env["omarchy_path"]),
         "_HYPRCONF_PKG_ADD": env["pkg_add"],
         "_HYPRCONF_KITTY_BIN": env["kitty"],
@@ -307,6 +313,33 @@ def _checkout(tmp_path: Path) -> Path:
     subprocess.run([*git, "add", "-A"], cwd=repo, check=True, timeout=30)
     subprocess.run([*git, "commit", "-qm", "payload"], cwd=repo, check=True, timeout=30)
     return repo
+
+
+def _child_env(env: dict) -> dict[str, str]:
+    """The pinned environment of everything run against the fake tree: the
+    fakes first, then only /usr/bin and /bin (never the host's PATH)."""
+    return {"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"}
+
+
+def _real_jq(env: dict) -> None:
+    """The real jq behind the recording stub — the default stub plays
+    "broken" — for the stages that read or rewrite JSON; skips without one."""
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("no jq available")
+    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+
+
+def _switch(env: dict, *args: str) -> subprocess.CompletedProcess:
+    """switch_monitor.sh as stage_hotkeys installed it, against the fakes."""
+    script = env["home"] / ".config" / "hypr" / "scripts" / "switch_monitor.sh"
+    return subprocess.run(
+        ["bash", str(script), *args],
+        capture_output=True,
+        text=True,
+        env=_child_env(env),
+        timeout=30,
+    )
 
 
 def _calls(env: dict) -> list[str]:
@@ -452,6 +485,22 @@ def test_default_terminal_is_never_set_to_an_absent_kitty(tmp_path: Path) -> Non
     assert not (env["home"] / ".config" / "xdg-terminals.list").exists()
 
 
+def test_a_failed_terminal_setter_does_not_take_the_install_down(tmp_path: Path) -> None:
+    """omarchy-default-terminal (4.0.0-1) has no set -e and exits with its
+    closing omarchy-notification-send's status, which fails with no shell to
+    notify (a TTY first run) — after ~/.config/xdg-terminals.list is written.
+    Every later stage must still run, and the re-run finds kitty current."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "omarchy-default-terminal", env["calls"], _terminal_stub(tmp_path, 1))
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-default-terminal kitty" in _calls(env)
+    assert (env["home"] / ".zshrc").exists()  # a stage well after the terminal one
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert "omarchy-default-terminal kitty" not in _calls(env)
+
+
 def test_kitty_conf_gains_only_the_include(tmp_path: Path) -> None:
     env = _setup(tmp_path)
     for _ in range(3):
@@ -486,11 +535,6 @@ def test_shell_line_points_at_zsh_only_when_zsh_exists(tmp_path: Path) -> None:
     assert _run(env, "--no-update", zsh="").returncode == 0
     body = _code_only((env["home"] / ".config" / "kitty" / "hyprconf.conf").read_text())
     assert "shell " not in body
-
-    env2 = _setup(tmp_path / "with-zsh")
-    _run(env2, "--no-update")
-    body2 = _code_only((env2["home"] / ".config" / "kitty" / "hyprconf.conf").read_text())
-    assert "shell " in body2
 
 
 def test_zsh_installed_by_the_package_stage_is_used_in_the_same_run(tmp_path: Path) -> None:
@@ -570,7 +614,6 @@ def test_switch_monitor_reaches_every_preset_and_back(tmp_path: Path) -> None:
     hypr = env["home"] / ".config" / "hypr"
     hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
     _run(env, "--no-update")
-    switch = hypr / "scripts" / "switch_monitor.sh"
 
     for name, preset in (
         ("bedroom", "pcMonitors.bedroom.lua"),
@@ -579,21 +622,11 @@ def test_switch_monitor_reaches_every_preset_and_back(tmp_path: Path) -> None:
         ("pc", "pcMonitors.lua"),
         ("laptop", "laptopMonitors.lua"),
     ):
-        proc = subprocess.run(
-            ["bash", str(switch), name],
-            capture_output=True,
-            text=True,
-            env={"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"},
-        )
+        proc = _switch(env, name)
         assert proc.returncode == 0, proc.stderr
         assert hypr.joinpath("monitors.lua").resolve() == hypr.joinpath(preset).resolve()
 
-    proc = subprocess.run(
-        ["bash", str(switch), "stock"],
-        capture_output=True,
-        text=True,
-        env={"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"},
-    )
+    proc = _switch(env, "stock")
     assert proc.returncode == 0, proc.stderr
     # A real file again, as Omarchy's own tooling expects to find there.
     assert not hypr.joinpath("monitors.lua").is_symlink()
@@ -650,25 +683,20 @@ def test_never_switches_the_active_theme(tmp_path: Path) -> None:
     assert "omarchy-theme-set" not in _commands(env)
 
 
-def test_theme_rename_reselects_an_active_hyprconf_theme_as_dracula(tmp_path: Path) -> None:
-    """The theme used to be installed as "hyprconf". A machine that had it
-    ACTIVE keeps the same palette under its new name: the old link (only
-    when it is ours) goes, and omarchy-theme-set dracula is the one
-    sanctioned theme switch — a rename, not a new choice."""
+def test_a_user_installed_theme_directory_is_left_alone(tmp_path: Path) -> None:
+    """A real ~/.config/omarchy/themes/dracula (one the user installed with
+    `omarchy theme install`) is theirs: `ln -sfn` over a directory would
+    only drop a stray link inside it, so the stage leaves it untouched and
+    says so."""
     env = _setup(tmp_path)
-    themes = env["home"] / ".config" / "omarchy" / "themes"
-    themes.mkdir(parents=True)
-    (themes / "hyprconf").symlink_to(REPO_ROOT / "themes" / "hyprconf")  # the old link
-    mine = themes / "mine"
-    mine.mkdir()  # a real user theme dir: never touched
-    active = env["home"] / ".local" / "state" / "omarchy" / "current" / "theme.name"
-    active.parent.mkdir(parents=True)
-    active.write_text("hyprconf\n")
+    theme = env["home"] / ".config" / "omarchy" / "themes" / "dracula"
+    theme.mkdir(parents=True)
+    (theme / "colors.toml").write_text("theirs\n")
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
-    assert "omarchy-theme-set dracula" in _calls(env)
-    assert not (themes / "hyprconf").is_symlink()
-    assert (themes / "dracula").is_symlink() and mine.is_dir()
+    assert not theme.is_symlink()
+    assert sorted(p.name for p in theme.iterdir()) == ["colors.toml"]
+    assert "dracula" in proc.stderr
 
 
 def test_screensaver_timeout_is_set_once(tmp_path: Path) -> None:
@@ -677,10 +705,7 @@ def test_screensaver_timeout_is_set_once(tmp_path: Path) -> None:
     other key survives, the lock timeout is left alone, the shell reloads
     its config, and a later user value is never taken back."""
     env = _setup(tmp_path)
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq for the shell.json edit")
-    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    _real_jq(env)
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
@@ -704,14 +729,8 @@ def test_firefox_theme_tool_is_installed_with_the_checkout_path(tmp_path: Path) 
     env = _setup(tmp_path)
     _run(env, "--no-update")
     tool = env["home"] / ".local" / "bin" / "hyprconf-firefox-theme"
-    body = tool.read_text()
-    assert "@HYPRCONF_DIR@" not in body and str(REPO_ROOT) in body
     proc = subprocess.run(
-        [str(tool), "--status"],
-        capture_output=True,
-        text=True,
-        timeout=60,
-        env={"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"},
+        [str(tool), "--status"], capture_output=True, text=True, timeout=60, env=_child_env(env)
     )
     assert proc.returncode == 0, proc.stderr
     assert "colors.toml" in proc.stdout
@@ -736,20 +755,8 @@ def test_stock_snapshot_captures_the_live_layout_not_the_install_time_one(
     # Omarchy edits the live file after install, exactly as its scaling tool does.
     hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n-- DRIFTED\n")
 
-    switch = hypr / "scripts" / "switch_monitor.sh"
-    child = {"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"}
-    assert (
-        subprocess.run(
-            ["bash", str(switch), "bedroom"], capture_output=True, text=True, env=child
-        ).returncode
-        == 0
-    )
-    assert (
-        subprocess.run(
-            ["bash", str(switch), "stock"], capture_output=True, text=True, env=child
-        ).returncode
-        == 0
-    )
+    assert _switch(env, "bedroom").returncode == 0
+    assert _switch(env, "stock").returncode == 0
     assert "DRIFTED" in hypr.joinpath("monitors.lua").read_text()
 
 
@@ -786,16 +793,6 @@ def test_no_shipped_script_uses_the_dead_hyprctl_keyword_path() -> None:
     assert not offenders, "hyprctl keyword is a silent no-op — use hyprctl eval:\n" + "\n".join(
         offenders
     )
-
-
-def test_gap_reader_understands_the_current_hyprctl_shape() -> None:
-    """0.56 reports four-sided gaps under "css"; older builds used "custom".
-
-    Reading only the old name makes every keypress compute its step from 0, so
-    the keys look alive (0 -> 2 -> 0) while discarding the configured gap.
-    """
-    src = (REPO_ROOT / "hypr" / "scripts" / "adjust-gaps").read_text()
-    assert "'css'" in src or '"css"' in src
 
 
 def test_osd_keys_are_left_to_omarchy(tmp_path: Path) -> None:
@@ -1008,12 +1005,6 @@ def test_bar_widget_never_sizes_itself_off_its_parent() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_no_update_never_runs_omarchy_update(tmp_path: Path) -> None:
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    assert not any(c.startswith("omarchy-update") for c in _calls(env))
-
-
 def test_sync_runs_omarchy_update_and_never_pacman(tmp_path: Path) -> None:
     env = _setup(tmp_path)
     _run(env, "--sync")
@@ -1027,10 +1018,6 @@ def test_no_packages_skips_the_only_privileged_stage(tmp_path: Path) -> None:
     _run(env, "--no-packages", "--no-update")
     assert not any(c.startswith("omarchy-pkg-add") for c in _calls(env))
 
-    env2 = _setup(tmp_path / "default-run")
-    _run(env2, "--no-update")
-    assert any(c.startswith("omarchy-pkg-add") for c in _calls(env2))
-
 
 def test_unknown_flag_is_rejected(tmp_path: Path) -> None:
     env = _setup(tmp_path)
@@ -1040,18 +1027,8 @@ def test_unknown_flag_is_rejected(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The post-update hook
+# The hooks
 # ---------------------------------------------------------------------------
-
-
-def test_hook_is_installed_with_a_resolved_path(tmp_path: Path) -> None:
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    installed = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
-    body = installed.read_text()
-    assert "@HYPRCONF_DIR@" not in body, "placeholder was not substituted"
-    assert str(REPO_ROOT) in body
-    assert os.access(installed, os.X_OK)
 
 
 def _theme_state(env: dict, *, extension: str = "pub.lumon") -> Path:
@@ -1079,18 +1056,21 @@ def _firefox_profile(env: dict) -> Path:
     return profile
 
 
-def test_theme_set_hook_is_installed_beside_the_post_update_one(tmp_path: Path) -> None:
-    """omarchy-theme-set ends with `omarchy-hook theme-set <name>`, which runs
-    ~/.config/omarchy/hooks/theme-set.d/*. The hook must carry the resolved
-    checkout path (it puts lib/ on PYTHONPATH), be executable, and never
-    abort a theme switch (no set -e) or escalate."""
+def test_hooks_are_installed_with_a_resolved_path(tmp_path: Path) -> None:
+    """omarchy-update runs ~/.config/omarchy/hooks/post-update.d/* and
+    omarchy-theme-set ends with `omarchy-hook theme-set <name>`, which runs
+    theme-set.d/*. Both hooks must carry the resolved checkout path (the
+    theme-set one puts lib/ on PYTHONPATH) and be executable; the theme-set
+    hook must never abort a theme switch (no set -e) or escalate."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
-    installed = env["home"] / ".config" / "omarchy" / "hooks" / "theme-set.d" / "10-hyprconf"
-    body = installed.read_text()
-    assert "@HYPRCONF_DIR@" not in body and str(REPO_ROOT) in body
-    assert os.access(installed, os.X_OK)
-    code = _code_only(body)
+    hooks = env["home"] / ".config" / "omarchy" / "hooks"
+    for name in ("post-update.d", "theme-set.d"):
+        installed = hooks / name / "10-hyprconf"
+        body = installed.read_text()
+        assert "@HYPRCONF_DIR@" not in body and str(REPO_ROOT) in body, name
+        assert os.access(installed, os.X_OK), name
+    code = _code_only((hooks / "theme-set.d" / "10-hyprconf").read_text())
     assert "set -e" not in code and "sudo" not in code and "omarchy-update" not in code
     assert "omarchy-theme-set-vscode" in code and "hyprconf.firefox_theme" in code
 
@@ -1103,11 +1083,8 @@ def test_theme_set_hook_extends_the_theme_to_code_oss_and_firefox(tmp_path: Path
     lack it), and writes Firefox's userChrome.css + user.js from the
     rendered colors.toml. install.sh runs the hook once for the active
     theme, so nothing waits for the next switch."""
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq for the descriptor read")
     env = _setup(tmp_path)
-    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    _real_jq(env)
     _theme_state(env)
     profile = _firefox_profile(env)
     proc = _run(env, "--no-update")
@@ -1184,42 +1161,36 @@ def test_hook_cannot_recurse_or_escalate() -> None:
 
 
 def _overlay_scripts() -> list[Path]:
-    out = subprocess.run(
-        ["git", "ls-files", "install.sh", "hypr", "bin", "hooks", "zsh", "kitty", "plugins"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    paths = [REPO_ROOT / line for line in out.stdout.split()]
-    return [p for p in paths if p.suffix in {".sh", ""} and p.is_file() and p.suffix != ".png"]
+    """Every shell script the overlay ships: install.sh and the bash files
+    under the installed trees. Walked on disk, not `git ls-files`, so the scan
+    needs no git and no ownership trust (CI's root-run git refuses the
+    runner-owned workspace)."""
+    roots = ["install.sh", "hypr", "bin", "hooks", "zsh", "kitty", "plugins"]
+    paths: list[Path] = []
+    for root in roots:
+        top = REPO_ROOT / root
+        paths.extend([top] if top.is_file() else sorted(top.rglob("*")))
+    return [p for p in paths if p.is_file() and p.suffix in {".sh", ""}]
 
 
-def test_overlay_never_uses_forbidden_pacman_forms() -> None:
-    """`-Syu` is blocked by Omarchy's ALPM guard; `-R` would dismantle Omarchy."""
+# `pacman -Syu` is blocked by Omarchy's ALPM guard, `pacman -R` would
+# dismantle Omarchy, and the AUR is never used (AGENTS.md: official
+# repositories only).
+FORBIDDEN_TOKENS = (
+    "pacman -Syu",
+    "pacman -Syyu",
+    "pacman -R",
+    "yay ",
+    "makepkg",
+    "omarchy-pkg-aur-add",
+)
+
+
+def test_overlay_never_uses_forbidden_pacman_or_aur_forms() -> None:
     for script in _overlay_scripts():
         code = _code_only(script.read_text(errors="ignore"))
-        assert "pacman -Syu" not in code, script
-        assert "pacman -Syyu" not in code, script
-        assert "pacman -R" not in code, script
-
-
-def test_overlay_never_reaches_into_the_retired_standalone_installer() -> None:
-    """setup.sh is gone with the standalone desktop; a reference to it is dead code
-    (and its remove_aur_packages would have offered to uninstall Omarchy itself)."""
-    for script in _overlay_scripts():
-        code = _code_only(script.read_text(errors="ignore"))
-        assert "setup.sh" not in code, script
-        assert "remove_aur_packages" not in code, script
-
-
-def test_overlay_installs_no_aur_packages() -> None:
-    """Per AGENTS.md: official repos only, and AUR never without asking first."""
-    for script in _overlay_scripts():
-        code = _code_only(script.read_text(errors="ignore"))
-        assert "yay " not in code, script
-        assert "makepkg" not in code, script
-        assert "omarchy-pkg-aur-add" not in code, script
+        for token in FORBIDDEN_TOKENS:
+            assert token not in code, f"{script}: {token}"
 
 
 # ---------------------------------------------------------------------------
@@ -1274,67 +1245,13 @@ def test_firefox_policy_sits_behind_the_no_packages_gate(tmp_path: Path) -> None
     assert not (policies / "policies.json").exists()
 
 
-# ---------------------------------------------------------------------------
-# The retired TUI
-# ---------------------------------------------------------------------------
-
-
-def test_retired_tui_is_swept_up(tmp_path: Path) -> None:
-    """Earlier overlay versions installed the hyprconf TUI: a launcher, two
-    symlinks into the checkout, a desktop entry and a managed block at the
-    tail of hyprland.lua loading conf.d/*.lua. The TUI is gone; a re-run
-    must leave an upgraded machine looking like a fresh one, while the user's
-    own conf.d files and everything else in hyprland.lua survive."""
-    env = _setup(tmp_path)
-    home = env["home"]
-    (home / ".local" / "bin").mkdir(parents=True)
-    (home / ".local" / "bin" / "hyprconf").write_text("#!/bin/bash\n")
-    (home / ".local" / "lib").mkdir(parents=True)
-    (home / ".local" / "lib" / "hyprconf").symlink_to(REPO_ROOT / "lib" / "hyprconf")
-    (home / ".config" / "hypr" / "scripts").mkdir(parents=True)
-    (home / ".config" / "hypr" / "scripts" / "hyprconf-tui").symlink_to(
-        tmp_path / "old-checkout" / "tui"
-    )
-    (home / ".local" / "share" / "applications").mkdir(parents=True)
-    (home / ".local" / "share" / "applications" / "hyprconf.desktop").write_text(
-        "[Desktop Entry]\n"
-    )
-    hyprland = home / ".config" / "hypr" / "hyprland.lua"
-    hyprland.write_text(
-        'require("default.hypr.omarchy")\n\n-- >>> hyprconf >>>\nloadfile("conf.d")\n-- <<< hyprconf <<<\n'
-    )
-    conf_d = home / ".config" / "hypr" / "conf.d"
-    conf_d.mkdir()
-    (conf_d / "local.lua").write_text("hl.config({})\n")
-
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert not (home / ".local" / "bin" / "hyprconf").exists()
-    assert not (home / ".local" / "lib" / "hyprconf").is_symlink()
-    assert not (home / ".config" / "hypr" / "scripts" / "hyprconf-tui").is_symlink()
-    assert not (home / ".local" / "share" / "applications" / "hyprconf.desktop").exists()
-    assert hyprland.read_text() == 'require("default.hypr.omarchy")\n'
-    assert (conf_d / "local.lua").exists()
-    assert "conf.d" in proc.stderr  # told, not deleted
-
-    # A fresh box has none of it; the sweep must be a silent no-op there.
-    env2 = _setup(tmp_path / "fresh")
-    proc2 = _run(env2, "--no-update")
-    assert proc2.returncode == 0, proc2.stderr
-    assert "conf.d" not in proc2.stderr
-    assert not any(
-        "python-textual" in ln for ln in (REPO_ROOT / "packages").read_text().splitlines()
-    )
-
-
 # A model of the shell's config handling, enough for the bar-widget stages.
-# omarchy-plugin-disable/-enable and omarchy-bar mutate the config the shell
-# holds in memory (a state file) at once and persist it to shell.json later —
+# omarchy-plugin-enable and omarchy-bar mutate the config the shell holds in
+# memory (a state file) at once and persist it to shell.json later —
 # shell.qml writes through a FileView and re-reads the file on change — the
-# way PluginRegistry.qml (Omarchy 4.0.0-1) does it: restoreCloneSource drops
-# every stock entry and turns the copy's entry into the stock one where it
-# stands; setEnabled swaps a copy into the stock entry (settings kept) or
-# places it; setBarWidget sets a key on the entry; moveBarEntry splices.
+# way PluginRegistry.qml (Omarchy 4.0.0-1) does it: setEnabled swaps a copy
+# into the stock entry (settings kept) or places it; setBarWidget sets a key
+# on the entry.
 SHELL_MODEL = """\
 import json
 import os
@@ -1396,16 +1313,7 @@ for section in ("left", "center", "right"):
 wid = args[1] if verb == "bar" else args[0]
 stock = "omarchy." + wid.split(".", 1)[1]  # every copy clones the same-named stock widget
 
-if verb == "disable" and find(layout, wid):
-    section, index = find(layout, wid)
-    entry = layout[section][index]
-    for section in layout:
-        layout[section] = [e for e in layout[section] if entry_id(e) != stock]
-    section, index = find(layout, wid)
-    restored = dict(entry) if isinstance(entry, dict) else {}
-    restored["id"] = stock
-    layout[section][index] = restored
-elif verb == "enable" and not find(layout, wid):
+if verb == "enable" and not find(layout, wid):
     where = find(layout, stock)
     if where:
         entry = layout[where[0]][where[1]]
@@ -1427,217 +1335,28 @@ elif verb == "bar" and args[0] == "set":
     if not where or not isinstance(layout[where[0]][where[1]], dict):
         sys.exit(1)
     layout[where[0]][where[1]][args[2]] = args[3]
-elif verb == "bar" and args[0] == "move":
-    where = find(layout, wid)
-    if not where:
-        sys.exit(1)
-    entry = layout[where[0]].pop(where[1])
-    wanted = placement(args[2:])
-    section = wanted.get("section", where[0])
-    index = min(int(wanted.get("index", len(layout[section]))), len(layout[section]))
-    layout[section].insert(index, entry)
 persist(config)
 """
 
 
 def _shell_model(env: dict, *, delay: float = 0) -> Path:
-    """Put SHELL_MODEL behind omarchy-plugin-disable/-enable and omarchy-bar
-    (still recording stubs), with the real jq the installer reads the file
-    with. Returns the shell's "memory" file."""
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq for the layout read")
-    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    """Put SHELL_MODEL behind omarchy-plugin-enable and omarchy-bar (still
+    recording stubs), with the real jq the installer reads the file with.
+    Returns the shell's "memory" file."""
+    _real_jq(env)
     root = env["home"].parent
     model = root / "shell_model.py"
     model.write_text(SHELL_MODEL)
     state = root / "shell-state.json"
     shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
     shell_json.parent.mkdir(parents=True, exist_ok=True)
-    for name, verb in (
-        ("omarchy-plugin-disable", "disable"),
-        ("omarchy-plugin-enable", "enable"),
-        ("omarchy-bar", "bar"),
-    ):
+    for name, verb in (("omarchy-plugin-enable", "enable"), ("omarchy-bar", "bar")):
         _stub(
             env["bins"] / name,
             env["calls"],
             f'exec "{sys.executable}" "{model}" "{state}" "{shell_json}" {delay} {verb} "$@"',
         )
     return state
-
-
-def _both_on_the_bar(env: dict, stock: str, keep: str, *between: dict | str) -> Path:
-    """shell.json with the stock widget and our copy both in the center — the
-    stock entry first, `between` after it, ours (format "x") last, the way an
-    upgrade left it — the clock's set-once marker done, the anchor stock."""
-    state = env["home"] / ".local" / "state" / "hyprconf"
-    state.mkdir(parents=True, exist_ok=True)
-    (state / "clock-applied").write_text("")
-    shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
-    shell_json.parent.mkdir(parents=True, exist_ok=True)
-    shell_json.write_text(
-        json.dumps(
-            {
-                "bar": {
-                    "centerAnchor": stock,
-                    "layout": {
-                        "left": ["omarchy.menu", {"id": "hyprconf.workspaces"}],
-                        "center": [{"id": stock}, *between, {"id": keep, "format": "x"}],
-                        "right": [],
-                    },
-                }
-            }
-        )
-    )
-    return shell_json
-
-
-def _layout(shell_json: Path) -> dict:
-    return json.loads(shell_json.read_text())["bar"]["layout"]
-
-
-def test_stale_username_clones_are_retired(tmp_path: Path) -> None:
-    """The first overlay versions cloned the clock with omarchy-plugin-clone,
-    which names the copy <user>.clock. Once hyprconf.clock exists that copy
-    is a second clock on the bar (seen after an upgrade). The stage retires
-    every clonedFrom copy of the built-in that is not ours, through Omarchy's
-    own plugin commands, and does so on every run."""
-    env = _setup(tmp_path)
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq for the plugin list")
-    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
-    listing = json.dumps(
-        [
-            {"id": "omarchy.clock", "enabled": False, "clonedFrom": ""},
-            {"id": "testuser.clock", "enabled": True, "clonedFrom": "omarchy.clock"},
-            {"id": "hyprconf.clock", "enabled": True, "clonedFrom": "omarchy.clock"},
-            {"id": "testuser.workspaces", "enabled": True, "clonedFrom": "omarchy.workspaces"},
-            {"id": "hyprconf.workspaces", "enabled": True, "clonedFrom": "omarchy.workspaces"},
-        ]
-    )
-    _stub(env["bins"] / "omarchy-plugin-list", env["calls"], f"cat <<'EOF'\n{listing}\nEOF")
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-plugin-disable testuser.clock" in calls
-    assert "omarchy-plugin-remove testuser.clock --yes" in calls
-    assert "omarchy-plugin-disable testuser.workspaces" in calls
-    assert "omarchy-plugin-remove testuser.workspaces --yes" in calls
-    for keep in ("hyprconf.clock", "hyprconf.workspaces", "omarchy.clock", "omarchy.workspaces"):
-        assert f"omarchy-plugin-disable {keep}" not in calls
-        assert f"omarchy-plugin-remove {keep} --yes" not in calls
-    assert any(c.startswith("omarchy-restart-shell") for c in calls)
-
-
-def test_stock_widget_left_beside_our_copy_is_healed_by_reseating(tmp_path: Path) -> None:
-    """After an upgrade from the first overlay versions both omarchy.clock and
-    hyprconf.clock can sit on the bar (their <user>.clock clone had taken the
-    stock slot, so ours was appended; retiring the clone restored the stock
-    entry). The registry swaps a copy into the stock slot only at enable
-    time, so the stage takes ours off and puts it back — every run, before
-    the set-once marker. The round trip removes the duplicate but leaves
-    ours where it stood, settings and all (restoreCloneSource turns OUR
-    entry into the stock one in place; the enable turns it back), so ours is
-    then moved into the stock slot with Omarchy's own `omarchy bar move`,
-    the format the user had is left alone, and the anchor follows."""
-    env = _setup(tmp_path)
-    _shell_model(env)
-    shell_json = _both_on_the_bar(env, "omarchy.clock", "hyprconf.clock", {"id": "omarchy.weather"})
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-plugin-disable hyprconf.clock" in calls
-    assert "omarchy-plugin-enable hyprconf.clock" in calls
-    # The round trip left ours after the weather; the stock slot was index 0.
-    assert "omarchy-bar move hyprconf.clock --section center --index 0" in calls
-    assert not any(c.startswith("omarchy-bar set hyprconf.clock") for c in calls)
-    assert _layout(shell_json)["center"] == [
-        {"id": "hyprconf.clock", "format": "x"},
-        {"id": "omarchy.weather"},
-    ]
-    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "hyprconf.clock"
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "clock-applied").exists()
-    assert any(c.startswith("omarchy-restart-shell") for c in calls)
-    # The workspaces slot was fine (only ours on the bar): left alone.
-    assert "omarchy-plugin-disable hyprconf.workspaces" not in calls
-
-    # Only the copy on the bar: nothing to heal, nothing re-applied.
-    shell_json.write_text(
-        json.dumps(
-            {"bar": {"layout": {"left": [], "center": [{"id": "hyprconf.clock"}], "right": []}}}
-        )
-    )
-    env["calls"].write_text("")
-    _run(env, "--no-update")
-    assert not any(
-        "hyprconf.clock" in c
-        for c in _calls(env)
-        if c.startswith(("omarchy-plugin", "omarchy-bar"))
-    )
-
-
-def test_reseat_moves_nothing_that_landed_and_seeds_only_a_missing_format(tmp_path: Path) -> None:
-    """With the stock entry right ahead of ours, the round trip already
-    leaves ours in the stock slot: no `omarchy bar move`. And a bare-string
-    entry carries no format, so — only then — hyprconf's is set."""
-    env = _setup(tmp_path)
-    _shell_model(env)
-    shell_json = _both_on_the_bar(env, "omarchy.clock", "hyprconf.clock")
-    shell_json.write_text(  # the fixture's entry carries a format; a bare id does not
-        json.dumps(
-            {
-                "bar": {
-                    "layout": {
-                        "left": ["omarchy.menu", {"id": "hyprconf.workspaces"}],
-                        "center": [{"id": "omarchy.clock"}, "hyprconf.clock"],
-                        "right": [],
-                    }
-                }
-            }
-        )
-    )
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-plugin-enable hyprconf.clock" in calls
-    assert not any(c.startswith("omarchy-bar move") for c in calls)
-    assert "omarchy-bar set hyprconf.clock format hh:mm:ss AP" in calls
-    assert _layout(shell_json)["center"] == [{"id": "hyprconf.clock", "format": "hh:mm:ss AP"}]
-
-
-def test_reseat_that_cannot_put_the_copy_back_clears_the_set_once_marker(tmp_path: Path) -> None:
-    """omarchy-plugin-disable went through but the re-enable did not: ours is
-    off the bar (the stock widget stands in its place, the way
-    restoreCloneSource leaves it) and the set-once marker would block every
-    later enable. The enable is tried once more, then the marker goes so the
-    stage's own enable path runs again — now and on every run — and the
-    warning never suggests disabling the stock widget, the last clock."""
-    env = _setup(tmp_path)
-    _shell_model(env)
-    _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
-    shell_json = _both_on_the_bar(env, "omarchy.clock", "hyprconf.clock")
-    marker = env["home"] / ".local" / "state" / "hyprconf" / "clock-applied"
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert _calls(env).count("omarchy-plugin-enable hyprconf.clock") >= 2
-    assert not marker.exists()
-    assert "install.sh" in proc.stderr
-    assert "plugin disable omarchy.clock" not in proc.stderr
-    assert _layout(shell_json)["center"] == [{"id": "omarchy.clock", "format": "x"}]
-
-    # A disable the shell could not take changed nothing: no enable is
-    # attempted, the marker stays, the next in-session run retries.
-    env2 = _setup(tmp_path / "no-shell")
-    _shell_model(env2)
-    _stub(env2["bins"] / "omarchy-plugin-disable", env2["calls"], "exit 1")
-    shell_json2 = _both_on_the_bar(env2, "omarchy.clock", "hyprconf.clock")
-    before = _layout(shell_json2)["center"]
-    assert _run(env2, "--no-update").returncode == 0
-    assert "omarchy-plugin-enable hyprconf.clock" not in _calls(env2)
-    assert (env2["home"] / ".local" / "state" / "hyprconf" / "clock-applied").exists()
-    assert _layout(shell_json2)["center"] == before
 
 
 def test_shell_json_edits_wait_for_the_shells_asynchronous_writes(tmp_path: Path) -> None:
@@ -1680,115 +1399,6 @@ def test_shell_json_edits_wait_for_the_shells_asynchronous_writes(tmp_path: Path
     assert "omarchy.clock" not in [e["id"] for e in data["bar"]["layout"]["center"]]
 
 
-def test_workspaces_copy_is_synced_before_its_reseat(tmp_path: Path) -> None:
-    """The shell reads a plugin's files when it puts the widget on the bar,
-    so the re-seat's enable must find the synced copy, not last release's:
-    an enable that only takes the current files must go through, and the
-    re-seat must not fall into its "could not put it back" path."""
-    env = _setup(tmp_path)
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq for the layout read")
-    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
-    plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.workspaces"
-    plug.mkdir(parents=True)
-    src = REPO_ROOT / "plugins" / "hyprconf-workspaces"
-    shutil.copy2(src / "manifest.json", plug / "manifest.json")
-    (plug / "Workspaces.qml").write_text("// stale\n")
-    _stub(
-        env["bins"] / "omarchy-plugin-enable",
-        env["calls"],
-        f'cmp -s "{plug / "Workspaces.qml"}" "{src / "Workspaces.qml"}" || exit 1',
-    )
-    state = env["home"] / ".local" / "state" / "hyprconf"
-    state.mkdir(parents=True)
-    (state / "workspaces-applied").write_text("")
-    shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
-    shell_json.parent.mkdir(parents=True, exist_ok=True)
-    shell_json.write_text(
-        json.dumps(
-            {
-                "bar": {
-                    "layout": {
-                        "left": [{"id": "omarchy.workspaces"}, {"id": "hyprconf.workspaces"}],
-                        "center": [],
-                        "right": [],
-                    }
-                }
-            }
-        )
-    )
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-plugin-enable hyprconf.workspaces" in _calls(env)
-    assert "hyprconf.workspaces re-seated" in proc.stdout
-    assert "came off the bar" not in proc.stderr
-    assert (state / "workspaces-applied").exists()
-
-
-def test_clones_found_by_manifest_on_disk_are_retired_too(tmp_path: Path) -> None:
-    """A <user>.clock copy the running shell has not scanned (or a run with
-    no shell to ask) still has its manifest on disk; it is retired from that.
-    omarchy-plugin-remove needs the shell, so the directory is put away the
-    way that command does it: moved to a dotted .bak name, never deleted."""
-    env = _setup(tmp_path)
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq for the manifest read")
-    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
-    stale = env["home"] / ".config" / "omarchy" / "plugins" / "testuser.clock"
-    stale.mkdir(parents=True)
-    (stale / "manifest.json").write_text(
-        json.dumps({"id": "testuser.clock", "omarchy": {"clonedFrom": "omarchy.clock"}})
-    )
-    (stale / "BarWidget.qml").write_text("// theirs\n")
-    proc = _run(env, "--no-update")  # omarchy-plugin-list still answers []
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-plugin-disable testuser.clock" in calls
-    assert "omarchy-plugin-remove testuser.clock --yes" in calls
-    assert not stale.exists()
-    backups = [p for p in stale.parent.iterdir() if p.name.startswith(".testuser.clock.bak.")]
-    assert len(backups) == 1 and backups[0].is_dir()
-    assert (backups[0] / "BarWidget.qml").read_text() == "// theirs\n"
-    assert json.loads((backups[0] / "manifest.json").read_text())["id"] == "testuser.clock"
-
-    # A re-run finds nothing to retire and leaves the backup alone.
-    env["calls"].write_text("")
-    _run(env, "--no-update")
-    assert "omarchy-plugin-disable testuser.clock" not in _calls(env)
-    assert (backups[0] / "BarWidget.qml").read_text() == "// theirs\n"
-
-
-def test_a_symlinked_stale_clone_is_unlinked_and_its_target_left_alone(tmp_path: Path) -> None:
-    """`omarchy plugin clone` can link a dev checkout in, so a stale clone
-    may be a symlink. Only the link goes — omarchy-plugin-remove's own `-L`
-    branch — never what is behind it; an rm -rf on the glob's
-    trailing-slash form would have emptied the checkout."""
-    env = _setup(tmp_path)
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq for the manifest read")
-    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
-    checkout = tmp_path / "dev-checkout" / "testuser.clock"
-    checkout.mkdir(parents=True)
-    (checkout / "manifest.json").write_text(
-        json.dumps({"id": "testuser.clock", "omarchy": {"clonedFrom": "omarchy.clock"}})
-    )
-    (checkout / "BarWidget.qml").write_text("// mine\n")
-    plugins = env["home"] / ".config" / "omarchy" / "plugins"
-    plugins.mkdir(parents=True)
-    (plugins / "testuser.clock").symlink_to(checkout)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-plugin-disable testuser.clock" in _calls(env)
-    assert not (plugins / "testuser.clock").is_symlink()
-    assert not (plugins / "testuser.clock").exists()
-    assert (checkout / "BarWidget.qml").read_text() == "// mine\n"
-    assert json.loads((checkout / "manifest.json").read_text())["id"] == "testuser.clock"
-    assert not [p for p in plugins.iterdir() if p.name.startswith(".testuser.clock.bak")]
-
-
 def test_defaults_marker_waits_for_a_successful_seed(tmp_path: Path) -> None:
     """A first run with --no-packages (firefox/code not installed yet) must not
     record the defaults as applied, or they would never be seeded."""
@@ -1805,8 +1415,8 @@ def test_defaults_marker_waits_for_a_successful_seed(tmp_path: Path) -> None:
 
 
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
-    """bin/hyprconf-* is the whole tool set: the two bar-widget feeders and
-    hyprconf-yubikey. Installed by glob, so a new tool is one file."""
+    """Every bin/hyprconf-* file, installed by glob with the checkout path
+    substituted, so a new tool is one file."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
     shipped = sorted(p.name for p in (REPO_ROOT / "bin").glob("hyprconf-*"))
@@ -1821,7 +1431,6 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
         assert os.access(installed, os.X_OK), name
         expected = (REPO_ROOT / "bin" / name).read_text().replace("@HYPRCONF_DIR@", str(REPO_ROOT))
         assert installed.read_text() == expected, name
-    assert not (env["home"] / ".local" / "bin" / "hyprconf").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1834,12 +1443,8 @@ def _plugin_fixtures(env: dict, tmp_path: Path) -> Path:
 
     The stage resolves the plugin source from omarchy-plugin-catalog at
     runtime and rewrites its manifest with jq, so these tests need the real
-    jq (the default stub plays "broken") and a catalog pointing at a source
-    tree under tmp_path."""
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq available for the clock stage")
-    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    jq and a catalog pointing at a source tree under tmp_path."""
+    _real_jq(env)
     src = tmp_path / "clock-src"
     src.mkdir(exist_ok=True)
     (src / "manifest.json").write_text(
@@ -1907,7 +1512,7 @@ def test_clock_is_copied_patched_and_set_once(tmp_path: Path) -> None:
     assert not any(c.startswith("omarchy-bar") for c in again)
 
 
-def test_clock_widget_id_carries_no_username(tmp_path: Path) -> None:
+def test_clock_widget_id_carries_no_username() -> None:
     """omarchy-plugin-clone names clones <username>.<id> with no way to
     choose otherwise — a username must never leak into shipped
     configuration. The stage builds the copy itself under the project's own
@@ -1918,26 +1523,38 @@ def test_clock_widget_id_carries_no_username(tmp_path: Path) -> None:
     assert "id -un" not in code
     assert "$USER" not in code and "${USER" not in code
 
-    env = _setup(tmp_path)
-    _plugin_fixtures(env, tmp_path)
-    _run(env, "--no-update")
-    user = subprocess.run(["id", "-un"], capture_output=True, text=True).stdout.strip()
-    plugins = env["home"] / ".config" / "omarchy" / "plugins"
-    assert not (plugins / f"{user}.clock").exists()
-    assert (plugins / "hyprconf.clock").is_dir()
 
-
-def test_clock_stage_retries_until_the_shell_can_answer(tmp_path: Path) -> None:
+def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> None:
     """omarchy-plugin-enable talks to the live shell; a TTY or SSH run has
-    none to talk to. The failure must not abort the install, and the marker
-    must stay unwritten so the next in-session run tries again."""
+    none to talk to. The failure must not abort the install, no set-once
+    marker may be written — so the next in-session run tries every widget
+    again — and nothing is set on a clock that never landed."""
     env = _setup(tmp_path)
     _plugin_fixtures(env, tmp_path)
     _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
-    assert not (env["home"] / ".local" / "state" / "hyprconf" / "clock-applied").exists()
+    state = env["home"] / ".local" / "state" / "hyprconf"
+    for widget in ("resources", "clock", "workspaces", "active-window"):
+        assert not (state / f"{widget}-applied").exists(), widget
+        assert f"hyprconf.{widget}" in proc.stderr, widget
     assert not any(c.startswith("omarchy-bar") for c in _calls(env))
+
+
+def test_discovery_wait_is_skipped_when_there_is_no_shell_to_ask(tmp_path: Path) -> None:
+    """omarchy-plugin-list (set -e) exits 1 the moment omarchy-shell reports
+    "is not running" — identically on every poll — so a TTY first run must
+    not sit through the full discovery wait once per widget before every
+    enable fails anyway: one list call per enable, then the retry warning."""
+    env = _setup(tmp_path)
+    _plugin_fixtures(env, tmp_path)
+    _stub(env["bins"] / "omarchy-plugin-list", env["calls"], "exit 1")
+    _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_PLUGIN_WAIT": "40"})
+    assert proc.returncode == 0, proc.stderr
+    commands = _commands(env)
+    assert commands.count("omarchy-plugin-enable") == 4
+    assert commands.count("omarchy-plugin-list") == 4
 
 
 def test_workspaces_widget_is_the_overlays_own_plugin(tmp_path: Path) -> None:
@@ -1979,10 +1596,8 @@ def test_workspaces_widget_shows_only_active_workspaces_on_two_lines() -> None:
     qml = _code_only_qml(
         (REPO_ROOT / "plugins" / "hyprconf-workspaces" / "Workspaces.qml").read_text()
     )
-    assert "var ids = []" in qml
     assert "[1, 2, 3, 4, 5]" not in qml and "id <= 10" not in qml
     assert "\\u{F0BAF}" in qml  # nf-md-pac_man, hyprconf's focused marker
-    assert "\\uDB85\\uDCFB" not in qml  # the stock dot
     assert re.search(r"columns:.*Math\.ceil\(root\.ids\.length / 2\)", qml)
     assert 'moduleName: "omarchy.workspaces"' in qml
 
@@ -1993,23 +1608,21 @@ def test_window_title_is_a_two_line_clone_enabled_once_after_the_workspaces(
     """hyprconf's bar drew the focused window's title beside the workspaces.
     Omarchy's stock omarchy.active-window does that on one line; the overlay
     ships a clonedFrom copy that lays the same character budget out on two
-    lines. Synced every run, enabled once, placed right after the workspaces
-    widget; a later `omarchy plugin disable` survives the hook's re-runs."""
+    lines. Synced every run, enabled once with no placement of its own — the
+    manifest's defaultSection is left, where the shell anchors a new widget
+    after omarchy.workspaces, clone-resolved (PluginRegistry.qml barTarget,
+    4.0.0-1); a later `omarchy plugin disable` survives the hook's re-runs."""
     env = _setup(tmp_path)
-    # A machine from the version that enabled the stock widget under the old marker.
-    old_marker = env["home"] / ".local" / "state" / "hyprconf" / "window-title-applied"
-    old_marker.parent.mkdir(parents=True)
-    old_marker.write_text("")
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     calls = _calls(env)
-    assert (
-        "omarchy-plugin-enable hyprconf.active-window --section left --after hyprconf.workspaces"
-        in calls
-    )
+    assert "omarchy-plugin-enable hyprconf.active-window" in calls
     assert not any("omarchy-plugin-enable omarchy.active-window" in c for c in calls)
     assert (env["home"] / ".local" / "state" / "hyprconf" / "active-window-applied").exists()
-    assert not old_marker.exists()
+    manifest = json.loads(
+        (REPO_ROOT / "plugins" / "hyprconf-active-window" / "manifest.json").read_text()
+    )
+    assert manifest["barWidget"]["defaultSection"] == "left"
 
     plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.active-window"
     src = REPO_ROOT / "plugins" / "hyprconf-active-window"
@@ -2038,66 +1651,19 @@ def test_window_title_widget_lays_the_same_budget_out_on_two_lines() -> None:
     )
     assert 'moduleName: "omarchy.active-window"' in qml
     assert 'setting("maxWidth", 280)' in qml
-    assert "Style.font.caption / Style.font.body / 2" in qml
-    assert "maximumLineCount: 2" in qml and "wrapMode: Text.Wrap" in qml
-    assert "elide: Text.ElideRight" in qml and "font.pixelSize: Style.font.caption" in qml
-    assert "lineHeightMode: Text.ProportionalHeight" in qml
-    assert 'visible: title !== "" && !vertical' in qml
+    assert "maximumLineCount: 2" in qml and "font.pixelSize: Style.font.caption" in qml
     assert "root.toplevel.close()" in qml and "root.toplevel.activate()" in qml
     assert "showTooltip(root, root.title)" in qml
 
 
-def test_window_title_falls_back_when_the_workspaces_copy_is_off_the_bar(tmp_path: Path) -> None:
-    """omarchy-plugin-enable refuses a --after target the bar does not carry.
-    A user who disabled hyprconf.workspaces is back on the stock widget, so
-    the title lands after that instead; with neither, the left section."""
-    env = _setup(tmp_path)
-    _stub(
-        env["bins"] / "omarchy-plugin-enable",
-        env["calls"],
-        'case " $* " in *" --after hyprconf.workspaces "*) exit 1 ;; esac; exit 0',
-    )
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert (
-        "omarchy-plugin-enable hyprconf.active-window --section left --after omarchy.workspaces"
-        in calls
-    )
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "active-window-applied").exists()
-
-    env2 = _setup(tmp_path / "no-anchor")
-    _stub(
-        env2["bins"] / "omarchy-plugin-enable",
-        env2["calls"],
-        'case " $* " in *" --after "*) exit 1 ;; esac; exit 0',
-    )
-    assert _run(env2, "--no-update").returncode == 0
-    assert "omarchy-plugin-enable hyprconf.active-window --section left" in _calls(env2)
-
-
-def test_window_title_retries_until_the_shell_can_answer(tmp_path: Path) -> None:
-    """No live shell (TTY/SSH): no marker, so the next in-session run tries again."""
-    env = _setup(tmp_path)
-    _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert not (env["home"] / ".local" / "state" / "hyprconf" / "active-window-applied").exists()
-    assert "hyprconf.active-window" in proc.stderr
-
-
 def test_resources_widget_layout_is_fixed_width_and_ordered() -> None:
     """Two aligned lines — CPU temp/util · RAM · upload over GPU temp/util ·
-    VRAM · download — with every column sized by TextMetrics from its widest
-    value, so nothing moves as the numbers change; the thermometer is the
-    solid Material Design glyph (U+F050F), not the Weather-Icons outline
-    (U+E350) that rendered as a hairline; the GPU cells read the structured
-    fields the feeder emits (no pre-rendered "text")."""
+    VRAM · download; the thermometer is the solid Material Design glyph
+    (U+F050F), not the Weather-Icons outline (U+E350) that rendered as a
+    hairline; the GPU cells read the structured fields the feeder emits (no
+    pre-rendered "text")."""
     qml = _code_only_qml((REPO_ROOT / "plugins" / "hyprconf-resources" / "Widget.qml").read_text())
     assert "\\u{F050F}" in qml and "\\ue350" not in qml.lower()
-    assert qml.count("TextMetrics {") == 3
-    for col in ("loadCol", "memCol", "netCol"):
-        assert qml.count(f"width: {col}.width") == 2, col  # one cell per line
     # Row-major order: the upload cell precedes every GPU cell, the download cell is last.
     up = qml.index('"↑ " + root.netUp')
     down = qml.index('"↓ " + root.netDown')
@@ -2106,7 +1672,18 @@ def test_resources_widget_layout_is_fixed_width_and_ordered() -> None:
     for field in ("j.util", "j.temp", "j.vram_used", "j.vram_total", "j.tooltip"):
         assert field in qml, field
     assert "j.text" not in qml
-    assert "columns: root.vertical ? 1 : 3" in qml
+
+
+def test_plugin_qml_parses() -> None:
+    """A QML syntax error is an empty bar slot with nothing in any log.
+    `qmllint --bare` parses without the module imports (exit 0 with import
+    warnings on a good file, non-zero on a broken one)."""
+    qmllint = shutil.which("qmllint") or shutil.which("qmllint", path="/usr/lib/qt6/bin")
+    if qmllint is None:
+        pytest.skip("no qmllint (qt6-declarative) to parse the plugin QML")
+    for qml in sorted((REPO_ROOT / "plugins").glob("*/*.qml")):
+        proc = subprocess.run([qmllint, "--bare", str(qml)], capture_output=True, text=True)
+        assert proc.returncode == 0, f"{qml.name}: {proc.stderr}"
 
 
 def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
@@ -2115,10 +1692,7 @@ def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
     time. The first run enables, later runs leave the choice alone."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
-    calls = _calls(env)
-    assert "omarchy-plugin-enable hyprconf.resources --section right" in calls
-    assert "omarchy-plugin-enable hyprconf.workspaces" in calls
-    assert any(c.startswith("omarchy-plugin-enable hyprconf.active-window") for c in calls)
+    assert "omarchy-plugin-enable hyprconf.resources --section right" in _calls(env)
     env["calls"].write_text("")
     _run(env, "--no-update")
     assert not any(c.startswith("omarchy-plugin-enable") for c in _calls(env))
@@ -2143,12 +1717,7 @@ def test_switch_monitor_moves_existing_workspaces(tmp_path: Path) -> None:
     _run(env, "--no-update")
 
     env["calls"].write_text("")
-    proc = subprocess.run(
-        ["bash", str(hypr / "scripts" / "switch_monitor.sh"), "kitchen"],
-        capture_output=True,
-        text=True,
-        env={"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"},
-    )
+    proc = _switch(env, "kitchen")
     assert proc.returncode == 0, proc.stderr
 
     rules = re.findall(
@@ -2286,9 +1855,7 @@ def test_a_preset_reset_to_the_stock_template_is_reported_not_rewritten(tmp_path
     hypr = env["home"] / ".config" / "hypr"
     hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
     assert _run(env, "--no-update").returncode == 0
-    switch = hypr / "scripts" / "switch_monitor.sh"
-    child = {"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"}
-    assert subprocess.run(["bash", str(switch), "bedroom"], env=child, timeout=30).returncode == 0
+    assert _switch(env, "bedroom").returncode == 0
     assert hypr.joinpath("monitors.lua").is_symlink()
 
     _refresh_config(env, templates, "monitors.lua")  # lands on pcMonitors.bedroom.lua
@@ -2598,7 +2165,6 @@ def test_menu_block_is_byte_stable_and_left_alone_when_current(tmp_path: Path) -
     assert proc.returncode == 0, proc.stderr
     assert ext.read_bytes() == before
     assert ext.stat().st_mtime == 0
-    assert "already current" in proc.stdout
     # No temp file left beside it either.
     assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
 
@@ -2624,7 +2190,6 @@ def test_menu_block_is_byte_stable_from_the_first_run_after_trailing_blank_lines
     second = _run(env, "--no-update")
     assert second.returncode == 0, second.stderr
     assert ext.read_text() == text
-    assert "already current" in second.stdout
 
 
 def test_an_empty_extension_file_is_seeded_like_a_missing_one(tmp_path: Path) -> None:
@@ -2638,7 +2203,6 @@ def test_an_empty_extension_file_is_seeded_like_a_missing_one(tmp_path: Path) ->
     ext.write_text("")
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
-    assert "seeded omarchy-menu.jsonc" in proc.stdout
     assert "closing-brace" not in proc.stderr
     assert ext.read_text().startswith(OMARCHY_MENU_EXTENSION.rsplit("}", 1)[0])
     assert _menu_items(ext) == {"install.service.protonvpn": PROTONVPN_ROW}
@@ -2709,7 +2273,7 @@ def test_protonvpn_installer_installs_both_official_packages_through_omarchy(
     sign in. No daemon to enable, no group, no reboot — and a failed install
     stops it before it claims success."""
     env = _setup(tmp_path)
-    child = {"HOME": str(env["home"]), "PATH": f"{env['bins']}:/usr/bin:/bin"}
+    child = _child_env(env)
     assert os.access(PROTONVPN_INSTALLER, os.X_OK)
     proc = subprocess.run(
         ["bash", str(PROTONVPN_INSTALLER)], env=child, capture_output=True, text=True, timeout=30

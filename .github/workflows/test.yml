@@ -27,11 +27,6 @@ jobs:
       - name: Install toolchain
         run: pacman -Syu --noconfirm --needed git make ruff shellcheck
       - uses: actions/checkout@v4
-      # Without this, git refuses repo ops (root container vs checkout uid) and
-      # `make shellcheck`'s `git ls-files` yields nothing — shellcheck would
-      # then pass vacuously, checking zero scripts.
-      - name: Trust the workspace for git
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - name: ShellCheck (all bash scripts)
         run: make shellcheck
       - name: Ruff (lint + format check)
@@ -48,16 +43,15 @@ jobs:
       # diffutils: install.sh compares files with `cmp -s` (a test stub does
       # too); Omarchy has it through mkinitcpio, the bare container does not.
       # lua: luac parses the hypr/*.lua overrides, which would otherwise skip.
+      # qt6-declarative: qmllint parses the plugin QML
+      # (test_plugin_qml_parses), which would otherwise skip — Arch keeps it
+      # in /usr/lib/qt6/bin, where the test looks.
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm --needed git make python \
-            python-pytest python-pytest-xdist jq shellcheck diffutils lua
+            python-pytest python-pytest-xdist jq shellcheck diffutils lua \
+            qt6-declarative
       - uses: actions/checkout@v4
-      # The container runs as root but the checkout is owned by another uid, so
-      # git refuses repo operations (e.g. the publish --dry-run clone) with
-      # "dubious ownership". Trust the workspace.
-      - name: Trust the workspace for git
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       # Same target scripts/publish gates on, so CI and a release run identically.
       - name: Run unit + integration
         run: make test

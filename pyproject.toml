@@ -18,8 +18,3 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 ignore = ["E501"]
-
-[tool.ruff.lint.per-file-ignores]
-# Tests legitimately bootstrap sys.path before importing (E402) and use short
-# loop/lambda vars like `l` (E741); neither warrants churn in test code.
-"tests/**" = ["E402", "E741"]

@@ -35,7 +35,10 @@ typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION=$''
 [ -r /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ] &&
   source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
 
-alias hyprsync='bash ~/.hyprconf/install.sh --sync'
+# The checkout is wherever ~/.p10k.zsh — linked out of it by the same install
+# stage that writes this block — points, so a relocated one (HYPRCONF_DIR)
+# needs no path baked in here.
+alias hyprsync='bash "$(dirname "$(dirname "$(readlink -f "$HOME/.p10k.zsh")")")/install.sh" --sync'
 
 # Shell greeting, as hyprconf's own ~/.zshrc has always opened with. The
 # layout lives in fastfetch/config.jsonc, linked to

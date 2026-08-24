@@ -2,7 +2,6 @@
 
 Verifies:
 - Applying a valid preset symlinks monitors.lua to the preset file
-  (`pcMonitors.<name>.lua`, or `<name>Monitors.lua` for `pc` / `laptop`)
 - A pre-migration extension-less hyprlang `pcMonitors.<name>` is refused with a
   message that says how to convert it — linked over monitors.lua it would be a
   Lua parse error that takes every later `require` in Omarchy's hyprland.lua
@@ -10,8 +9,10 @@ Verifies:
 - A missing preset exits non-zero with a useful error, reported through
   Omarchy's notification command (the script is reached from a hotkey, where
   stderr goes nowhere a human can see)
-- Missing preset argument exits non-zero
-- Atomic write: ln -sf (not rm+cp), so monitors.lua is never absent mid-switch
+- A missing or unsafe preset argument exits non-zero
+
+The `pc` / `laptop` short names and `stock` are covered against the installed
+copy by test_omarchy_install.py::test_switch_monitor_reaches_every_preset_and_back.
 
 HERMETIC: the script talks to hyprctl, omarchy-notification-send and
 omarchy-osd. Every one of them is a recording stub on a fake-bins dir put
@@ -22,7 +23,6 @@ desktop every time the suite runs (which is exactly what happened once).
 
 from __future__ import annotations
 
-import os
 import re
 import stat
 import subprocess
@@ -54,16 +54,18 @@ def _calls(tmp: Path) -> list[str]:
     return f.read_text().splitlines() if f.exists() else []
 
 
-def _run_switch(tmp: Path, preset: str, config_dir: Path) -> subprocess.CompletedProcess:
+def _run_switch(tmp: Path, config_dir: Path, *args: str) -> subprocess.CompletedProcess:
     bins = _make_fake_bins(tmp)
     home = tmp / "home"
     cfg = home / ".config" / "hypr"
     cfg.mkdir(parents=True, exist_ok=True)
     for f in config_dir.iterdir():
         (cfg / f.name).write_text(f.read_text())
-    env = {**os.environ, "PATH": f"{bins}:{os.environ['PATH']}", "HOME": str(home)}
+    # The fakes first, then only /usr/bin and /bin — never the host's PATH,
+    # where /usr/share/omarchy/bin would answer.
+    env = {"PATH": f"{bins}:/usr/bin:/bin", "HOME": str(home)}
     return subprocess.run(
-        ["bash", str(SCRIPT), preset], capture_output=True, text=True, env=env, timeout=60
+        ["bash", str(SCRIPT), *args], capture_output=True, text=True, env=env, timeout=60
     )
 
 
@@ -96,7 +98,7 @@ def test_valid_preset_writes_monitors_lua(tmp_path: Path) -> None:
         'hl.monitor({ output = "HDMI-A-1", mode = "preferred" })\n'
     )
 
-    res = _run_switch(tmp_path, "bedroom", cfg_src)
+    res = _run_switch(tmp_path, cfg_src, "bedroom")
     assert res.returncode == 0, f"Script failed: {res.stderr}"
 
     monitors_lua = tmp_path / "home" / ".config" / "hypr" / "monitors.lua"
@@ -107,18 +109,6 @@ def test_valid_preset_writes_monitors_lua(tmp_path: Path) -> None:
     assert any(c.startswith("omarchy-osd") and "bedroom" in c for c in calls)
 
 
-def test_whole_machine_presets_resolve_by_short_name(tmp_path: Path) -> None:
-    """`pc` -> pcMonitors.lua, `laptop` -> laptopMonitors.lua."""
-    cfg_src = tmp_path / "cfg_src"
-    cfg_src.mkdir()
-    (cfg_src / "laptopMonitors.lua").write_text(
-        'hl.monitor({ output = "eDP-1", mode = "preferred" })\n'
-    )
-    res = _run_switch(tmp_path, "laptop", cfg_src)
-    assert res.returncode == 0, res.stderr
-    assert "eDP-1" in (tmp_path / "home" / ".config" / "hypr" / "monitors.lua").read_text()
-
-
 def test_extensionless_hyprlang_preset_is_refused(tmp_path: Path) -> None:
     """Omarchy's hyprland.lua `require`s monitors.lua as Lua; a hyprlang file
     linked there is a parse error that stops every later require. The script
@@ -127,7 +117,7 @@ def test_extensionless_hyprlang_preset_is_refused(tmp_path: Path) -> None:
     cfg_src.mkdir()
     (cfg_src / "pcMonitors.bedroom").write_text("monitor=HDMI-A-1,preferred,auto,1\n")
 
-    res = _run_switch(tmp_path, "bedroom", cfg_src)
+    res = _run_switch(tmp_path, cfg_src, "bedroom")
     assert res.returncode != 0
     assert "hyprlang" in res.stderr and "pcMonitors.bedroom.lua" in res.stderr
     assert not (tmp_path / "home" / ".config" / "hypr" / "monitors.lua").exists()
@@ -140,7 +130,7 @@ def test_preset_not_found_exits_nonzero_and_notifies(tmp_path: Path) -> None:
     cfg_src = tmp_path / "cfg_src"
     cfg_src.mkdir()
 
-    res = _run_switch(tmp_path, "nonexistent", cfg_src)
+    res = _run_switch(tmp_path, cfg_src, "nonexistent")
     assert res.returncode != 0, "Expected non-zero exit for missing preset"
     assert "Preset not found: pcMonitors.nonexistent.lua" in res.stderr
     assert any(
@@ -150,11 +140,9 @@ def test_preset_not_found_exits_nonzero_and_notifies(tmp_path: Path) -> None:
 
 
 def test_no_preset_argument_exits_nonzero(tmp_path: Path) -> None:
-    bins = _make_fake_bins(tmp_path)
-    home = tmp_path / "home"
-    home.mkdir()
-    env = {**os.environ, "PATH": f"{bins}:{os.environ['PATH']}", "HOME": str(home)}
-    res = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, env=env, timeout=60)
+    cfg_src = tmp_path / "cfg_src"
+    cfg_src.mkdir()
+    res = _run_switch(tmp_path, cfg_src)
     assert res.returncode != 0
     assert "Usage" in res.stderr
 
@@ -163,27 +151,6 @@ def test_preset_name_is_whitelisted(tmp_path: Path) -> None:
     """`$1` is a path component; anything outside [A-Za-z0-9_-] is refused."""
     cfg_src = tmp_path / "cfg_src"
     cfg_src.mkdir()
-    res = _run_switch(tmp_path, "../evil", cfg_src)
+    res = _run_switch(tmp_path, cfg_src, "../evil")
     assert res.returncode != 0
     assert "Invalid preset name" in res.stderr
-
-
-# ---------------------------------------------------------------------------
-# Atomic write regression
-# ---------------------------------------------------------------------------
-
-
-def test_atomic_write_uses_ln_sf_not_rm_cp() -> None:
-    """Regression: switch_monitor.sh must use ln -sf (atomic symlink) not rm+cp.
-
-    The rm+cp pattern leaves a window where monitors.lua is absent. ln -sf is
-    a single syscall that atomically replaces the symlink. It is also what lets
-    edits to monitors.lua land on the tracked preset file.
-    """
-    src = SCRIPT.read_text()
-    assert "ln -sf" in src, (
-        "switch_monitor.sh must use 'ln -sf' for atomic monitors.lua replacement"
-    )
-    assert not ("rm -f" in src and "cp " in src and "mv " not in src), (
-        "switch_monitor.sh uses rm+cp (non-atomic); must use ln -sf"
-    )

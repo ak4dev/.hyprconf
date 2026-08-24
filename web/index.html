@@ -53,7 +53,6 @@
           linear-gradient(rgba(0, 229, 160, 0.028) 1px, transparent 1px),
           linear-gradient(90deg, rgba(0, 229, 160, 0.028) 1px, transparent 1px);
         background-size: 100% 100%, 100% 100%, 44px 44px, 44px 44px;
-        background-attachment: fixed;
       }
       /* Thin accent "bus" across the very top of the page. */
       body::before {
@@ -126,10 +125,8 @@
       .feat {
         background: var(--bg);
         padding: 1.3rem 1.4rem;
-        transition: background 0.18s ease;
       }
-      .feat:hover { background: var(--panel); }
-      .feat h3 {
+      .feat h2 {
         display: flex;
         align-items: center;
         gap: 0.65rem;
@@ -195,7 +192,8 @@
       .terminal pre {
         margin: 0;
         padding: 1.1rem 1.2rem;
-        overflow-x: auto;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
         font-family: var(--mono);
         font-size: 0.98rem;
         color: var(--fg-bright);
@@ -252,13 +250,25 @@
       }
       .disclaimer strong { color: var(--fg); font-weight: 600; }
 
+      /* ── Screenshot ───────────────────────────────────────────────────── */
+      .shot {
+        display: block;
+        width: 100%;
+        height: auto;
+        margin-top: 2.5rem;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: 0 30px 70px -35px rgba(0, 229, 160, 0.22),
+          0 20px 50px -30px rgba(0, 0, 0, 0.8);
+      }
+
       @media (max-width: 560px) {
         .wrap { padding-top: 3.25rem; }
         .brand { font-size: 2.15rem; }
         .features { grid-template-columns: 1fr; }
       }
       @media (prefers-reduced-motion: reduce) {
-        .btn, .btn .chev, .feat { transition: none; }
+        .btn, .btn .chev { transition: none; }
         .btn:hover { transform: none; }
       }
     </style>
@@ -287,7 +297,7 @@
 
       <section class="features" aria-label="Highlights">
         <div class="feat">
-          <h3><span class="node"></span>One command</h3>
+          <h2><span class="node"></span>One command</h2>
           <p>
             <code>bash &lt;(curl -fsSL hyprconf.sh)</code> clones to
             <code>~/.hyprconf</code> and applies every stage. Re-running it is
@@ -296,7 +306,7 @@
           </p>
         </div>
         <div class="feat">
-          <h3><span class="node"></span>Bar widgets</h3>
+          <h2><span class="node"></span>Bar widgets</h2>
           <p>
             Omarchy shell plugins: a clock that ticks seconds, only the
             workspaces in use on two lines with a Pac-Man on the focused one,
@@ -305,14 +315,14 @@
           </p>
         </div>
         <div class="feat">
-          <h3><span class="node"></span>Theme reach</h3>
+          <h2><span class="node"></span>Theme reach</h2>
           <p>
             A Dracula theme in Omarchy's theme menu, and every
             <code>omarchy theme set</code> also lands in Firefox and Code - OSS.
           </p>
         </div>
         <div class="feat">
-          <h3><span class="node"></span>Keys and VPN</h3>
+          <h2><span class="node"></span>Keys and VPN</h2>
           <p>
             <code>hyprconf-yubikey</code> unlocks the LUKS root with a FIDO2
             key at boot. Proton VPN installs from Omarchy's Install → Service
@@ -332,7 +342,7 @@
           <span class="tdot a"></span><span class="tdot b"></span><span class="tdot c"></span>
           <span class="term-title">install</span>
         </div>
-        <pre><code><span class="prompt">$</span>bash &lt;(curl -fsSL hyprconf.sh)</code></pre>
+        <pre><code><span class="prompt" aria-hidden="true">$</span>bash &lt;(curl -fsSL hyprconf.sh)</code></pre>
       </div>
       <p class="term-note">Requires a running Omarchy install.</p>
 
@@ -354,6 +364,18 @@
         and inspiration. Fork it, take what's useful. Offered as-is — feature
         requests and issues may not be taken.
       </p>
+
+      <!-- Placeholder (assets/screenshot.svg) until a desktop capture exists;
+           the real capture replaces this object under the same src and S3
+           key, so nothing else here or in the README moves. -->
+      <img
+        class="shot"
+        src="./screenshot.svg"
+        alt="Placeholder — a desktop screenshot is coming soon"
+        width="1600"
+        height="900"
+        loading="lazy"
+      />
     </main>
   </body>
 </html>

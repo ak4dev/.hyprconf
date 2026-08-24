@@ -60,11 +60,7 @@ fi
 
 # Preset resolution, in order:
 #   pcMonitors.<name>.lua  — the named presets (bedroom, kitchen, K)
-#   <name>Monitors.lua     — hyprconf's two whole-machine presets, reached as
-#                            `pc` and `laptop`. hyprconf's retired standalone setup picked
-#                            between them by chassis detection at install time;
-#                            the overlay never touches the active layout, so
-#                            they are selected by name here instead.
+#   <name>Monitors.lua     — the two whole-machine presets, `pc` and `laptop`
 # Lua only. An extension-less hyprlang `pcMonitors.<name>` from before the
 # 0.56 migration is refused rather than linked: Omarchy's hyprland.lua
 # `require`s monitors.lua as Lua, so a hyprlang file there is a parse error

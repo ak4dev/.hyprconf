@@ -1,26 +1,9 @@
--- hyprconf look'n'feel overlay for Omarchy.
---
--- Ported from the hyprland.lua of hyprconf's retired standalone desktop (its LOOK
--- AND FEEL section) into Omarchy's ~/.config/hypr/looknfeel.lua override point
--- — loaded after Omarchy's defaults, so this states only where hyprconf and
--- Omarchy actually differ. Every value below was diffed against
--- /usr/share/omarchy/default/hypr/looknfeel.lua.
---
--- Deliberately NOT ported:
---   * general.col.active_border / inactive_border. Under hyprconf these are
---     rewritten per theme by switch_theme.py (theme-colors.lua); under Omarchy
---     the active theme owns them. Pinning hyprconf's gradient here would
---     freeze the borders on one palette and fight every theme switch.
---   * The quickshell layer rules (bar / popouts / OSD / corners blur) and the
---     theme-switcher window rule: both name programs this overlay does not
---     install — Omarchy has its own shell and theme menu.
---   * xwayland.force_zero_scaling — Omarchy already sets it (default/hypr/envs.lua).
---   * master.new_status = "master", general.border_size = 2,
---     general.resize_on_border, general.allow_tearing, general.layout,
---     dwindle.preserve_split and the animation curves: identical in both, so
---     restating them would only create drift when Omarchy retunes a default.
---   * The commented-out "smart gaps" workspace rules, which hyprconf ships
---     commented out too.
+-- hyprconf look'n'feel overlay for Omarchy: loaded after Omarchy's defaults
+-- (/usr/share/omarchy/default/hypr/looknfeel.lua), so this states only where
+-- hyprconf differs — restating a value Omarchy already sets would drift the
+-- moment it retunes the default. Left to Omarchy on purpose: the border
+-- colours (the active theme owns them) and xwayland.force_zero_scaling
+-- (default/hypr/envs.lua).
 
 hl.config({
   general = {
@@ -37,8 +20,7 @@ hl.config({
     rounding = 1,
     rounding_power = 3,
 
-    -- Transparency of focused vs unfocused windows.
-    active_opacity = 1,
+    -- Unfocused windows are translucent (Omarchy: opaque).
     inactive_opacity = 0.8,
 
     -- Both off in Omarchy's defaults.

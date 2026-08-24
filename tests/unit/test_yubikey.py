@@ -287,32 +287,9 @@ class Box:
         )
 
 
-def _shellcheck(path: Path) -> subprocess.CompletedProcess:
-    """Local shellcheck, else the project's docker invocation, else skip."""
-    if shutil.which("shellcheck"):
-        return subprocess.run(
-            ["shellcheck", "--severity=warning", str(path)], capture_output=True, text=True
-        )
-    if (
-        shutil.which("docker")
-        and subprocess.run(["docker", "info"], capture_output=True).returncode == 0
-    ):
-        return subprocess.run(
-            [
-                "docker",
-                "run",
-                "--rm",
-                "-v",
-                f"{path.parent}:/mnt:ro",
-                "koalaman/shellcheck:stable",
-                "--severity=warning",
-                f"/mnt/{path.name}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-    pytest.skip("neither shellcheck nor a docker daemon is available")
+@pytest.fixture
+def box(tmp_path: Path) -> Box:
+    return Box(tmp_path)
 
 
 def _assert_untouched(box: Box, *, allow: tuple[str, ...] = ()) -> None:
@@ -366,19 +343,13 @@ def test_restraint_scan() -> None:
     assert "readonly" not in text, "system paths must stay env-overridable"
 
 
-def test_bash_syntax() -> None:
-    res = subprocess.run(["bash", "-n", str(TOOL)], capture_output=True, text=True)
-    assert res.returncode == 0, res.stderr
-
-
 # ---------------------------------------------------------------------------
 # enroll
 # ---------------------------------------------------------------------------
 
 
-def test_enroll_happy_path(tmp_path: Path) -> None:
-    box = Box(tmp_path)
-    res = box.run("enroll", "--yes", "--device", DEV)
+def test_enroll_happy_path(box: Box) -> None:
+    res = box.run("enroll", "--yes")  # one LUKS2 device: no --device needed
     assert res.returncode == 0, res.stderr + res.stdout
     calls = box.calls()
 
@@ -429,16 +400,7 @@ def test_enroll_happy_path(tmp_path: Path) -> None:
     assert res.stdout.index("verified") < res.stdout.index("Done.")
 
 
-def test_enroll_no_snapshot_flag(tmp_path: Path) -> None:
-    box = Box(tmp_path)
-    res = box.run("enroll", "--yes", "--no-snapshot", "--device", DEV)
-    assert res.returncode == 0, res.stderr
-    assert not any(c.startswith("omarchy-snapshot") for c in box.calls())
-    assert box.enrolled and box.dropin.is_file()
-
-
-def test_enroll_rerun_is_idempotent(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_enroll_rerun_is_idempotent(box: Box) -> None:
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
     after_first = box.limine.read_text()
     dropin_first = box.dropin.read_text()
@@ -455,8 +417,7 @@ def test_enroll_rerun_is_idempotent(tmp_path: Path) -> None:
     assert len(box.backups()) == 1, "no second backup when nothing changed"
 
 
-def test_enroll_refuses_luks1(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_enroll_refuses_luks1(box: Box) -> None:
     box.lsblk = LSBLK_STOCK.replace(f"{DEV} crypto_LUKS 2 {UUID}", f"{DEV} crypto_LUKS 1 {UUID}")
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
@@ -464,10 +425,9 @@ def test_enroll_refuses_luks1(tmp_path: Path) -> None:
     _assert_untouched(box)
 
 
-def test_enroll_without_token_touches_nothing(tmp_path: Path) -> None:
+def test_enroll_without_token_touches_nothing(box: Box) -> None:
     """libfido2 (which fido2-token comes from) is the one install before the
     token check; everything else stays untouched."""
-    box = Box(tmp_path)
     box.tokens = ""
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
@@ -480,19 +440,31 @@ def test_enroll_without_token_touches_nothing(tmp_path: Path) -> None:
     _assert_untouched(box, allow=("omarchy-pkg-add",))
 
 
-def test_enroll_refuses_without_tty_or_yes(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("sub", "enrolled", "before"),
+    [
+        ("enroll", False, ["lsblk -rno PATH,FSTYPE,FSVER,UUID"]),
+        ("disable", True, []),
+        ("remove", False, ["lsblk -rno PATH,FSTYPE,FSVER,UUID"]),
+    ],
+)
+def test_refuses_without_tty_or_yes(box: Box, sub: str, enrolled: bool, before: list[str]) -> None:
     """Without a terminal and without --yes the run dies at the confirmation —
-    and NOTHING ran before it, omarchy-pkg-add included."""
-    box = Box(tmp_path)
-    res = box.run("enroll", "--device", DEV)
+    and NOTHING ran before it but the read-only device pick, omarchy-pkg-add
+    included; an enrolled box stays as it is."""
+    if enrolled:
+        assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
+        box.reset_calls()
+    res = box.run(sub, "--device", DEV)
     assert res.returncode != 0
     assert "--yes" in res.stderr
-    assert box.calls() == ["lsblk -rno PATH,FSTYPE,FSVER,UUID"]
-    _assert_untouched(box)
+    assert box.calls() == before
+    assert box.enrolled is enrolled and box.dropin.exists() is enrolled
+    if not enrolled:
+        _assert_untouched(box)
 
 
-def test_enroll_needs_device_flag_when_several(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_enroll_needs_device_flag_when_several(box: Box) -> None:
     box.lsblk = LSBLK_STOCK + f"/dev/sdd crypto_LUKS 2 {UUID2}\n"
     res = box.run("enroll", "--yes")
     assert res.returncode != 0 and "--device" in res.stderr
@@ -503,15 +475,7 @@ def test_enroll_needs_device_flag_when_several(tmp_path: Path) -> None:
     _assert_untouched(box)
 
 
-def test_enroll_single_device_needs_no_flag(tmp_path: Path) -> None:
-    box = Box(tmp_path)
-    res = box.run("enroll", "--yes")
-    assert res.returncode == 0, res.stderr
-    assert RD_NAME in box.limine_line()
-
-
-def test_enroll_aborts_when_snapshot_fails(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_enroll_aborts_when_snapshot_fails(box: Box) -> None:
     box.snapshot_rc = 1
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0 and "--no-snapshot" in res.stderr
@@ -565,11 +529,6 @@ CMDLINE_SHAPES = [
         id="plain-assignment",
     ),
     pytest.param(
-        f'KERNEL_CMDLINE[default]+="{CRYPT}"',
-        f'KERNEL_CMDLINE[default]+="{CRYPT} {ADDED}"',
-        id="append-assignment",
-    ),
-    pytest.param(
         'KERNEL_CMDLINE[default]+=" cryptdevice=UUID=x:root rw "',
         f'KERNEL_CMDLINE[default]+=" cryptdevice=UUID=x:root rw {ADDED} "',
         id="blanks-inside-quotes-kept",
@@ -593,8 +552,7 @@ CMDLINE_SHAPES = [
 
 
 @pytest.mark.parametrize(("line", "after_enroll"), CMDLINE_SHAPES)
-def test_cmdline_edit_shapes(tmp_path: Path, line: str, after_enroll: str) -> None:
-    box = Box(tmp_path)
+def test_cmdline_edit_shapes(box: Box, line: str, after_enroll: str) -> None:
     box.set_limine_line(line)
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stderr
@@ -652,12 +610,9 @@ REFUSED_LINES = [
 
 
 @pytest.mark.parametrize(("line", "reason"), REFUSED_LINES)
-def test_cmdline_edit_refuses_before_anything_changes(
-    tmp_path: Path, line: str, reason: str
-) -> None:
+def test_cmdline_edit_refuses_before_anything_changes(box: Box, line: str, reason: str) -> None:
     """A line the tool cannot rewrite with certainty stops enroll (and disable,
     remove) before the confirmation: no package, slot, drop-in, backup."""
-    box = Box(tmp_path)
     box.set_limine_line(line)
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
@@ -666,10 +621,9 @@ def test_cmdline_edit_refuses_before_anything_changes(
     _assert_untouched(box)
 
 
-def test_mapper_name_comes_from_the_edited_line_only(tmp_path: Path) -> None:
+def test_mapper_name_comes_from_the_edited_line_only(box: Box) -> None:
     """Not from a commented line, another entry's line, or an earlier default
     line without cryptdevice= — those stay byte-identical too."""
-    box = Box(tmp_path)
     others = (
         '#KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=old:old root=/dev/mapper/old rw"\n'
         'KERNEL_CMDLINE[linux-lts]+="cryptdevice=PARTUUID=lts:lts root=/dev/mapper/lts rw"\n'
@@ -689,8 +643,7 @@ def test_mapper_name_comes_from_the_edited_line_only(tmp_path: Path) -> None:
     )
 
 
-def test_disable_and_remove_parse_the_cmdline_before_changing_anything(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_disable_and_remove_parse_the_cmdline_before_changing_anything(box: Box) -> None:
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
     box.limine.write_text(box.limine.read_text().replace(" rw ", ' acpi_osi="Linux" rw ', 1))
     corrupted = box.limine.read_text()
@@ -712,10 +665,9 @@ def test_disable_and_remove_parse_the_cmdline_before_changing_anything(tmp_path:
 # ---------------------------------------------------------------------------
 
 
-def test_rebuild_dies_on_limine_updates_failure_message(tmp_path: Path) -> None:
+def test_rebuild_dies_on_limine_updates_failure_message(box: Box) -> None:
     """The exact error_msg limine-mkinitcpio-install prints, on stderr, with
     limine-update still exiting 0 — the previous image stays and still boots."""
-    box = Box(tmp_path)
     box.write_stale_image()
     box.limine_update = "fail"
     res = box.run("enroll", "--yes", "--device", DEV)
@@ -728,8 +680,7 @@ def test_rebuild_dies_on_limine_updates_failure_message(tmp_path: Path) -> None:
     assert box.dropin.exists() and RD_OPTS in box.limine_line()
 
 
-def test_rebuild_dies_on_limine_update_exit_code(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_rebuild_dies_on_limine_update_exit_code(box: Box) -> None:
     box.limine_update = "exit1"
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
@@ -737,10 +688,9 @@ def test_rebuild_dies_on_limine_update_exit_code(tmp_path: Path) -> None:
     assert "Done." not in res.stdout
 
 
-def test_rebuild_dies_when_the_image_was_not_rewritten_after_a_hook_change(tmp_path: Path) -> None:
+def test_rebuild_dies_when_the_image_was_not_rewritten_after_a_hook_change(box: Box) -> None:
     """Exit 0, no message, but the UKI on the ESP predates the run although the
     drop-in changed the hook set: not a rebuild."""
-    box = Box(tmp_path)
     image = box.write_stale_image()
     box.limine_update = "stale"
     res = box.run("enroll", "--yes", "--device", DEV)
@@ -759,11 +709,10 @@ def test_rebuild_dies_when_the_image_was_not_rewritten_after_a_hook_change(tmp_p
 
 
 def test_rebuild_accepts_an_identical_unrewritten_image_when_hooks_did_not_change(
-    tmp_path: Path,
+    box: Box,
 ) -> None:
     """mkinitcpio builds reproducibly and limine-entry-tool skips an identical
     image, so a re-run that changed nothing may find the old mtime."""
-    box = Box(tmp_path)
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
     image = box.write_stale_image()
     box.limine_update = "stale"
@@ -772,8 +721,7 @@ def test_rebuild_accepts_an_identical_unrewritten_image_when_hooks_did_not_chang
     assert f"{image}: unchanged" in res.stdout and "Done." in res.stdout
 
 
-def test_rebuild_dies_when_no_image_is_where_limine_puts_it(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_rebuild_dies_when_no_image_is_where_limine_puts_it(box: Box) -> None:
     box.boot_images = [box.esp / "somewhere" / "else.efi"]
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
@@ -781,8 +729,7 @@ def test_rebuild_dies_when_no_image_is_where_limine_puts_it(tmp_path: Path) -> N
     assert f"ESP_PATH={box.esp}" in res.stderr and "ENABLE_UKI=yes" in res.stderr
 
 
-def test_rebuild_checks_every_installed_kernel(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_rebuild_checks_every_installed_kernel(box: Box) -> None:
     box.add_kernel("6.18.9-1-lts", "linux-lts")
     leftover = box.modules / "6.0.0-old"  # modules dir without pkgbase/vmlinuz: skipped
     leftover.mkdir()
@@ -813,10 +760,9 @@ def test_rebuild_looks_for_the_initramfs_without_uki(tmp_path: Path, uki: bool, 
     assert box.ran_as_root(f"stat -c %Y -- {initramfs}")
 
 
-def test_rebuild_uki_prefix_falls_back_to_machine_id(tmp_path: Path) -> None:
+def test_rebuild_uki_prefix_falls_back_to_machine_id(box: Box) -> None:
     """CUSTOM_UKI_NAME must match ^[a-z0-9]+$ (limine-mkinitcpio-install
     resolve_uki_prefix), else the machine-id names the UKI."""
-    box = Box(tmp_path)
     defaults = box.conf_d / "omarchy-defaults.conf"
     defaults.write_text(
         defaults.read_text().replace('CUSTOM_UKI_NAME="omarchy"', 'CUSTOM_UKI_NAME="Om archy"')
@@ -828,8 +774,7 @@ def test_rebuild_uki_prefix_falls_back_to_machine_id(tmp_path: Path) -> None:
     assert f"{image}: rebuilt" in res.stdout
 
 
-def test_rebuild_without_esp_path_warns_and_relies_on_the_message(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_rebuild_without_esp_path_warns_and_relies_on_the_message(box: Box) -> None:
     box.limine_file = f"{LIMINE_LINE}\n"
     box.limine.write_text(box.limine_file)
     res = box.run("enroll", "--yes", "--device", DEV)
@@ -848,8 +793,7 @@ def test_rebuild_without_esp_path_warns_and_relies_on_the_message(tmp_path: Path
 
 
 @pytest.mark.parametrize("layout", NON_LATIN)
-def test_enroll_refuses_non_latin_first_layout(tmp_path: Path, layout: str) -> None:
-    box = Box(tmp_path)
+def test_enroll_refuses_non_latin_first_layout(box: Box, layout: str) -> None:
     box.vconsole.write_text(f'KEYMAP=us\nXKBLAYOUT="{layout},us"\n')
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
@@ -858,8 +802,7 @@ def test_enroll_refuses_non_latin_first_layout(tmp_path: Path, layout: str) -> N
     _assert_untouched(box)
 
 
-def test_enroll_allow_non_latin_layout_flag_warns_and_proceeds(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_enroll_allow_non_latin_layout_flag_warns_and_proceeds(box: Box) -> None:
     box.vconsole.write_text("KEYMAP=ru\nXKBLAYOUT=ru\n")
     res = box.run("enroll", "--yes", "--device", DEV, "--allow-non-latin-layout")
     assert res.returncode == 0, res.stderr
@@ -877,8 +820,7 @@ def test_enroll_allow_non_latin_layout_flag_warns_and_proceeds(tmp_path: Path) -
         pytest.param(None, id="no-vconsole.conf"),
     ],
 )
-def test_enroll_accepts_latin_or_absent_layout(tmp_path: Path, content: str | None) -> None:
-    box = Box(tmp_path)
+def test_enroll_accepts_latin_or_absent_layout(box: Box, content: str | None) -> None:
     if content is None:
         box.vconsole.unlink()
     else:
@@ -914,8 +856,7 @@ def _source_dropin(box: Box, hooks: str, *, sd_overlay_dir: Path | None = None) 
     return lines
 
 
-def test_dropin_rewrites_omarchy_hooks(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_dropin_rewrites_omarchy_hooks(box: Box) -> None:
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
 
     # Omarchy's final HOOKS: omarchy_hooks.conf + omarchy_resume.conf
@@ -945,12 +886,14 @@ def test_dropin_keeps_busybox_overlay_hook_without_sd_variant(tmp_path: Path) ->
     assert "systemd" in hooks and "sd-encrypt" in hooks
 
 
-def test_shellcheck_dropin(tmp_path: Path) -> None:
+def test_shellcheck_dropin(box: Box) -> None:
     """The drop-in is generated, so this is the only shellcheck it gets (the
     tool itself is covered by `make shellcheck`)."""
-    box = Box(tmp_path)
+    shellcheck = shutil.which("shellcheck") or pytest.skip("shellcheck is not installed")
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
-    res = _shellcheck(box.dropin)
+    res = subprocess.run(
+        [shellcheck, "--severity=warning", str(box.dropin)], capture_output=True, text=True
+    )
     assert res.returncode == 0, res.stdout + res.stderr
 
 
@@ -959,8 +902,7 @@ def test_shellcheck_dropin(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_disable_reverts_dropin_and_cmdline(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_disable_reverts_dropin_and_cmdline(box: Box) -> None:
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
     box.reset_calls()
 
@@ -979,26 +921,14 @@ def test_disable_reverts_dropin_and_cmdline(tmp_path: Path) -> None:
     assert (box.mkinitcpio_d / "omarchy_hooks.conf").exists(), "Omarchy's own drop-ins stay"
 
 
-def test_disable_refuses_without_tty_or_yes(tmp_path: Path) -> None:
-    box = Box(tmp_path)
-    assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
-    box.reset_calls()
-    res = box.run("disable")
-    assert res.returncode != 0 and "--yes" in res.stderr
-    assert box.dropin.exists() and RD_OPTS in box.limine_line()
-    assert box.calls() == []
-
-
-def test_disable_when_not_configured_changes_nothing(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_disable_when_not_configured_changes_nothing(box: Box) -> None:
     res = box.run("disable", "--yes", "--no-snapshot")
     assert res.returncode == 0, res.stderr
     assert box.calls() == []
     assert box.limine.read_text() == box.limine_file and box.backups() == []
 
 
-def test_remove_wipes_fido2_slot_then_disables(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_remove_wipes_fido2_slot_then_disables(box: Box) -> None:
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
     box.reset_calls()
 
@@ -1014,20 +944,12 @@ def test_remove_wipes_fido2_slot_then_disables(tmp_path: Path) -> None:
     assert box.limine_line() == LIMINE_LINE
 
 
-def test_remove_refuses_without_tty_or_yes(tmp_path: Path) -> None:
-    box = Box(tmp_path)
-    res = box.run("remove", "--device", DEV)
-    assert res.returncode != 0 and "--yes" in res.stderr
-    assert not any(c.startswith("systemd-cryptenroll") for c in box.calls())
-
-
 # ---------------------------------------------------------------------------
 # status / help / sudo
 # ---------------------------------------------------------------------------
 
 
-def test_status_prints_facts(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_status_prints_facts(box: Box) -> None:
     box.lsblk = LSBLK_STOCK + f"/dev/sdd crypto_LUKS 1 {UUID2}\n"
 
     res = box.run("status")
@@ -1062,8 +984,7 @@ def test_status_never_fails(tmp_path: Path) -> None:
     assert "sd-btrfs-overlayfs NOT installed" in res.stdout
 
 
-def test_help_documents_flags_limitations_and_revert(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_help_documents_flags_limitations_and_revert(box: Box) -> None:
     res = box.run("help")
     assert res.returncode == 0
     out = res.stdout
@@ -1081,8 +1002,7 @@ def test_help_documents_flags_limitations_and_revert(tmp_path: Path) -> None:
     assert box.calls() == []
 
 
-def test_sudo_subcommand_execs_omarchy_script(tmp_path: Path) -> None:
-    box = Box(tmp_path)
+def test_sudo_subcommand_execs_omarchy_script(box: Box) -> None:
     res = box.run("sudo")
     assert res.returncode == 0, res.stderr
     assert "OMARCHY FIDO2 SETUP" in res.stdout

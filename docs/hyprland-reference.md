@@ -17,8 +17,7 @@
 6. [Input & Gestures](#input--gestures)
 7. [Window Rules](#window-rules)
 8. [Workspace Rules](#workspace-rules)
-9. [Color Format](#color-format)
-10. [Runtime: hyprctl on 0.56](#runtime-hyprctl-on-056)
+9. [Runtime: hyprctl on 0.56](#runtime-hyprctl-on-056)
 
 ---
 
@@ -40,8 +39,9 @@ hl.config({
 })
 
 -- Include another module (dots become path separators — "hypr.bindings" is
--- ~/.config/hypr/bindings.lua). A directory whose NAME contains a dot cannot
--- be require()d; loadfile() a path instead.
+-- ~/.config/hypr/bindings.lua). A module whose FILE name contains a dot
+-- (pcMonitors.bedroom.lua) cannot be require()d, which is why
+-- switch_monitor.sh symlinks a preset over monitors.lua instead.
 require("hypr.bindings")
 ```
 
@@ -152,32 +152,17 @@ o.bind(keys, description, dispatcher, options)
 -- hl.dsp.exec_cmd(dispatcher).
 ```
 
-`hypr/bindings.lua`'s own helpers:
+`hypr/bindings.lua`'s own helpers (see the file):
 
 ```lua
-local mainMod = "SUPER"
-
-local function rebind(keys, description, dispatcher, options)
-  hl.unbind(keys)                                   -- Hyprland does not replace on re-bind: both would fire
-  o.bind(keys, description, dispatcher, options)
-end
-
--- Omarchy declares digits and -/= by KEYCODE (o.bind("SUPER + SHIFT + code:20", …)),
--- which hl.unbind of the keysym does not match — clear those explicitly.
-local KEYCODE = { ["1"] = 10, ["2"] = 11, ["4"] = 13, ["5"] = 14, ["6"] = 15,
-                  ["7"] = 16, ["8"] = 17, ["9"] = 18, ["0"] = 19, minus = 20, equal = 21 }
-local function unbind_keycode(mods, key)
-  local code = KEYCODE[key]
-  if code then hl.unbind(mods .. " + code:" .. code) end
-end
-
-rebind(mainMod .. " + T", "Terminal", hl.dsp.exec_cmd("omarchy-launch-terminal"))
-rebind(mainMod .. " + SHIFT + right", "Expand window right", hl.dsp.window.resize({ x = 40, y = 0 }), { repeating = true })
-rebind(mainMod .. " + mouse:272", "Move window", hl.dsp.window.drag(), { mouse = true })
-unbind_keycode(mainMod .. " + SHIFT", "4")
-hl.unbind(mainMod .. " + SHIFT + 4")
-o.bind(mainMod .. " + SHIFT + 4", "Screenshot region", "omarchy-capture-screenshot region")
+rebind(keys, description, dispatcher, options)   -- hl.unbind(keys), then o.bind(...)
+unbind_keycode(mods, key)                        -- hl.unbind(mods .. " + code:N") for the digits and -/=
+                                                 -- Omarchy binds by keycode (KEYCODE table)
 ```
+
+Key forms in use there: `mainMod .. " + T"`, `" + SHIFT + F1"`, `" + mouse:272"`
+(with `{ mouse = true }`), `" + mouse_down"` / `" + mouse_up"` (scroll), and
+`{ repeating = true }` for the resize keys.
 
 ### Common dispatchers (`hl.dsp.*`)
 
@@ -204,30 +189,19 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Binds/>
 
 ## Look & Feel
 
-What `hypr/looknfeel.lua` sets (deltas only — see its header for what was
-deliberately left to Omarchy: border colours, `border_size`, layout, curves):
+`hypr/looknfeel.lua` states deltas only (the values and the reasoning are in
+the file; the delta table is in `README.md`). The forms it uses:
 
 ```lua
-hl.config({
-    general = { gaps_in = 3, gaps_out = 3 },
-    decoration = {
-        rounding = 1, rounding_power = 3,
-        active_opacity = 1, inactive_opacity = 0.8,
-        shadow = { enabled = true, range = 4, render_power = 3, color = "rgba(1a1a1aee)" },
-        blur   = { enabled = true, size = 3, passes = 4, vibrancy = 0.1696 },
-    },
-})
-
--- hl.animation({ leaf = TYPE, enabled = ENABLED, speed = SPEED, bezier = CURVE[, style = STYLE] })
-hl.animation({ leaf = "windows",       enabled = true, speed = 4.79, bezier = "easeOutQuint" })
-hl.animation({ leaf = "workspaces",    enabled = true, speed = 1.94, bezier = "almostLinear", style = "fade" })
-hl.animation({ leaf = "workspacesIn",  enabled = true, speed = 1.21, bezier = "almostLinear", style = "fade" })
-hl.animation({ leaf = "workspacesOut", enabled = true, speed = 1.94, bezier = "almostLinear", style = "fade" })
-
-hl.config({
-    dwindle = { force_split = 0, precise_mouse_move = true, smart_split = true },
-    misc    = { force_default_wallpaper = 0 },
-})
+hl.config({ general = { gaps_in = N, gaps_out = N },
+            decoration = { rounding = N, rounding_power = N, inactive_opacity = X,
+                           shadow = { enabled, range, render_power, color = "rgba(RRGGBBAA)" },
+                           blur = { enabled, size, passes, vibrancy } },
+            dwindle = { force_split = N, precise_mouse_move = B, smart_split = B },
+            misc = { force_default_wallpaper = N } })
+hl.animation({ leaf = TYPE, enabled = B, speed = X, bezier = CURVE[, style = STYLE] })
+o.window("class", { tile = true })                                -- Omarchy's window-rule helper
+o.window({ class = "steam", title = "Friends List" }, { float = true })
 ```
 
 - Animation leaves: `global`, `windows`, `windowsIn`, `windowsOut`, `border`,
@@ -245,38 +219,20 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/>,
 
 ## Input & Gestures
 
-What `hypr/input.lua` sets. Keyboard layout (`kb_layout` …) is deliberately left
-to Omarchy, which derives it from `/etc/vconsole.conf`.
+`hypr/input.lua` states deltas only (see the file). Keyboard layout
+(`kb_layout` …) is deliberately left to Omarchy, which derives it from
+`/etc/vconsole.conf`. The forms:
 
 ```lua
-hl.config({
-    input = {
-        natural_scroll = true,
-        touchpad = { natural_scroll = true },
-    },
-})
-
--- Since 0.51 there is no workspace_swipe master toggle; the gesture must be
--- declared or swiping does nothing. Directions: swipe/horizontal/vertical/
--- left/right/up/down/pinch/pinchin/pinchout. Actions: workspace, move, resize,
--- special, close, fullscreen, float, cursorZoom, scroll_move, unset.
-hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
-
-hl.config({
-    gestures = {
-        workspace_swipe_invert = true,
-        workspace_swipe_distance = 300,
-        workspace_swipe_min_speed_to_force = 15,
-        workspace_swipe_cancel_ratio = 0.5,
-        workspace_swipe_create_new = true,
-        workspace_swipe_direction_lock = true,
-        workspace_swipe_direction_lock_threshold = 10,
-        workspace_swipe_forever = true,
-    },
-})
-
--- Per-device overrides (name from `hyprctl devices`)
-hl.device({ name = "some-mouse", sensitivity = -0.5 })
+hl.config({ input = { natural_scroll = B, touchpad = { natural_scroll = B } },
+            gestures = { workspace_swipe_* = … } })
+-- Since 0.51 there is no workspace_swipe master toggle: the gesture must be
+-- declared or the gestures.* tuning applies to nothing.
+hl.gesture({ fingers = N, direction = DIR, action = ACTION })
+--   DIR:    swipe/horizontal/vertical/left/right/up/down/pinch/pinchin/pinchout
+--   ACTION: workspace, move, resize, special, close, fullscreen, float,
+--           cursorZoom, scroll_move, unset
+hl.device({ name = "some-mouse", sensitivity = -0.5 })   -- per device, name from `hyprctl devices`
 ```
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/#input>
@@ -325,21 +281,6 @@ stay where they were, which is why `switch_monitor.sh` dispatches
 `hl.dsp.workspace.move` for each rule.
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/>
-
----
-
-## Color Format
-
-`rgba(RRGGBBAA)` hex strings, as plain quoted Lua strings:
-
-```lua
-"rgba(1a1a1aee)"   -- R=1a G=1a B=1a A=ee
-"rgba(00000000)"   -- fully transparent
-col = { active_border = { colors = { "rgba(33ccffee)", "rgba(00ff99ee)" }, angle = 45 } }
-col = { active_border = "rgba(33ccffee) rgba(00ff99ee) 45deg" }   -- equivalent
-```
-
-(Border colours are not set by this overlay — the active Omarchy theme owns them.)
 
 ---
 

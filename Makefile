@@ -22,10 +22,11 @@ test-integration: ## Run integration tests in parallel
 test-seq: ## Run all tests sequentially (clearer output)
 	pytest tests/unit/ tests/integration/ -q
 
-shellcheck: ## Run shellcheck on all bash scripts (severity=warning)
-	@git ls-files -z | while IFS= read -r -d '' f; do \
-	    [ -f "$$f" ] && head -n1 "$$f" | grep -q bash && printf '%s\0' "$$f"; \
-	done | xargs -0 -r shellcheck --severity=warning
+shellcheck: ## Run shellcheck on every bash script in the tree (severity=warning)
+	@files=$$(find . -path ./.git -prune -o -type f -print | while IFS= read -r f; do \
+	    head -n1 "$$f" | grep -q bash && printf '%s\n' "$$f"; done); \
+	[ -n "$$files" ] || { echo "shellcheck: no bash scripts found" >&2; exit 1; }; \
+	printf '%s\n' "$$files" | xargs -d '\n' shellcheck --severity=warning
 	@echo "shellcheck: clean"
 
 lint: ## Run ruff lint + format check on all Python (the CI gate)
