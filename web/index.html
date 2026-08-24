@@ -73,17 +73,18 @@
         margin: 0 0 0.5rem;
       }
       .sep { color: var(--accent); opacity: 0.7; padding: 0 0.2rem; }
-      /* 52 columns at ~0.6em per glyph: the clamp keeps it inside the column
-         from 320px up and caps it on wide screens; a wider font scrolls the
-         pre, never the page. */
+      /* The banner is an SVG: its text scales with the viewBox, so it fits
+         any width and can never overflow or scroll. */
       .logo {
+        display: block;
+        width: min(100%, 588px);
+        height: auto;
         margin: 0;
-        overflow-x: auto;
+        overflow: visible;
         font-family: var(--mono);
-        font-size: clamp(0.5rem, 2.3vw, 1.05rem);
-        line-height: 1.15;
-        color: var(--accent);
-        text-shadow: 0 0 14px rgba(0, 229, 160, 0.45);
+        font-size: 18px;
+        fill: var(--accent);
+        filter: drop-shadow(0 0 6px rgba(0, 229, 160, 0.45));
       }
       h1 {
         margin: 0.35rem 0 0.5rem;
@@ -112,10 +113,8 @@
         font-size: 0.74rem;
         color: var(--fg-dim);
       }
-      .tdot { width: 9px; height: 9px; border-radius: 50%; }
-      .tdot.a { background: var(--accent); box-shadow: 0 0 7px rgba(0, 229, 160, 0.6); }
-      .tdot.b { background: var(--cyan); box-shadow: 0 0 7px rgba(0, 212, 255, 0.5); }
-      .tdot.c { background: var(--line); margin-right: 0.3rem; }
+      /* A dwindle-tiled screen, the Hyprland layout, in place of window dots. */
+      .tiles { width: 22px; height: 14px; fill: rgba(0, 229, 160, 0.12); stroke: var(--accent); stroke-width: 1; }
       .terminal pre {
         margin: 0;
         padding: 0.8rem 1rem;
@@ -128,11 +127,11 @@
       .prompt { color: var(--accent); user-select: none; margin-right: 0.5rem; }
       .row {
         display: flex;
+        flex-direction: column;
         align-items: center;
-        justify-content: space-between;
-        gap: 0.75rem 1rem;
-        flex-wrap: wrap;
-        margin: 0.55rem 0 1.1rem;
+        gap: 0.55rem;
+        margin: 0.65rem 0 1.1rem;
+        text-align: center;
       }
       .note { margin: 0; font-family: var(--mono); font-size: 0.78rem; color: var(--fg-dim); }
       .btn {
@@ -223,12 +222,14 @@
   <body>
     <main class="wrap">
       <p class="kicker">Omarchy <span class="sep">·</span> Hyprland <span class="sep">·</span> Arch Linux</p>
-      <pre class="logo" role="img" aria-label=".hyprconf">         _                                        __
-        | |__  _   _ _ __  _ __ ___ ___  _ __  / _|
-        | '_ \| | | | '_ \| '__/ __/ _ \| '_ \| |_
-       _| | | | |_| | |_) | | | (_| (_) | | | |  _|
-     (_)|_| |_|\__, | .__/|_|  \___\___/|_| |_||_|
-               |___/|_|</pre>
+      <svg class="logo" viewBox="0 0 588 150" role="img" aria-label=".hyprconf">
+        <text x="4" y="18" xml:space="preserve">         _                                        __</text>
+        <text x="4" y="42" xml:space="preserve">        | |__  _   _ _ __  _ __ ___ ___  _ __  / _|</text>
+        <text x="4" y="66" xml:space="preserve">        | '_ \| | | | '_ \| '__/ __/ _ \| '_ \| |_</text>
+        <text x="4" y="90" xml:space="preserve">       _| | | | |_| | |_) | | | (_| (_) | | | |  _|</text>
+        <text x="4" y="114" xml:space="preserve">     (_)|_| |_|\__, | .__/|_|  \___\___/|_| |_||_|</text>
+        <text x="4" y="138" xml:space="preserve">               |___/|_|</text>
+      </svg>
       <h1>An overlay for Omarchy</h1>
       <p class="lead">
         One command layers hyprconf's hotkeys, look'n'feel, monitor presets, bar
@@ -239,7 +240,8 @@
 
       <div class="terminal">
         <div class="term-head" aria-hidden="true">
-          <span class="tdot a"></span><span class="tdot b"></span><span class="tdot c"></span>install
+          <svg class="tiles" viewBox="0 0 22 14"><rect x="0.5" y="0.5" width="12" height="13" rx="1.5"/><rect x="14.5" y="0.5" width="7" height="6" rx="1.5"/><rect x="14.5" y="7.5" width="7" height="6" rx="1.5"/></svg>
+          user@omarchy:~
         </div>
         <pre><code><span class="prompt" aria-hidden="true">$</span>bash &lt;(curl -fsSL hyprconf.sh)</code></pre>
       </div>
