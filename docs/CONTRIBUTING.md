@@ -53,7 +53,7 @@ bind every change.
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
 ├── kitty/hyprconf.conf         # kitty include
 ├── fastfetch/config.jsonc      # Greeting layout
-├── hooks/post-update.d/10-hyprconf   # Omarchy post-update hook
+├── hooks/{post-update,theme-set}.d/10-hyprconf   # Omarchy post-update hook
 ├── infra/firefox/policies.json # System Firefox privacy policy
 │
 ├── tests/                      # Tiers 1-3 (see below)

@@ -100,6 +100,9 @@ def _setup(tmp_path: Path, *, with_omarchy: bool = True, with_zsh: bool = True) 
         # desktop every time the suite runs.
         "omarchy-notification-send",
         "omarchy-osd",
+        # The theme-set hook: Code - OSS is themed through Omarchy's own
+        # omarchy-theme-set-vscode functions (sourced), gated on its toggle.
+        "code",
         # Asserted never to run: the GUI path out of omarchy-default-terminal.
         "omarchy-launch-floating-terminal-with-presentation",
         # Asserted never to run: switching the login shell.
@@ -117,6 +120,18 @@ def _setup(tmp_path: Path, *, with_omarchy: bool = True, with_zsh: bool = True) 
     # No plugin is enabled yet, so the jq guard must fall through to enable.
     _stub(bins / "omarchy-plugin-list", calls, 'echo "[]"')
     _stub(bins / "jq", calls, "exit 1")
+    # Toggles are off unless a test says otherwise (exit 1 = not enabled).
+    _stub(bins / "omarchy-toggle-enabled", calls, "exit 1")
+    # Sourced by the theme-set hook for its set_theme; the fake records
+    # the arguments and the descriptor path it would have read.
+    _stub(
+        bins / "omarchy-theme-set-vscode",
+        calls,
+        'VS_CODE_THEME_DESCRIPTOR="$HOME/.local/state/omarchy/current/theme/vscode.json"\n'
+        'set_theme() { printf \'%s\\n\' "set_theme $* descriptor=${VS_CODE_THEME_DESCRIPTOR##*/}" >> "'
+        + str(calls)
+        + '"; }',
+    )
     # fc-list is how the installer discovers whether the font it wants is really
     # present; the real one on the test host would answer for the host's fonts.
     _stub(bins / "fc-list", calls, 'echo "GeistMono Nerd Font,GeistMono NF"')
@@ -900,6 +915,117 @@ def test_hook_is_installed_with_a_resolved_path(tmp_path: Path) -> None:
     assert "@HYPRCONF_DIR@" not in body, "placeholder was not substituted"
     assert str(REPO_ROOT) in body
     assert os.access(installed, os.X_OK)
+
+
+def _theme_state(env: dict, *, extension: str = "pub.lumon") -> Path:
+    """An active Omarchy theme as omarchy-theme-set leaves it: theme.name plus
+    the rendered colors.toml and the VS Code descriptor."""
+    theme = env["home"] / ".local" / "state" / "omarchy" / "current" / "theme"
+    theme.mkdir(parents=True, exist_ok=True)
+    (theme.parent / "theme.name").write_text("lumon\n")
+    (theme / "colors.toml").write_text(
+        'mode = "dark"\nbackground = "#16242d"\nforeground = "#d6e2ee"\naccent = "#8bc9eb"\n'
+        'dark_background = "#101b21"\nlighter_background = "#1b2d40"\n'
+    )
+    (theme / "vscode.json").write_text(json.dumps({"name": "Lumon", "extension": extension}))
+    return theme
+
+
+def _firefox_profile(env: dict) -> Path:
+    ff = env["home"] / ".config" / "mozilla" / "firefox"
+    profile = ff / "abc.default-release"
+    profile.mkdir(parents=True, exist_ok=True)
+    (ff / "profiles.ini").write_text(
+        "[Profile0]\nName=default-release\nIsRelative=1\nPath=abc.default-release\n"
+        "[Install4F96]\nDefault=abc.default-release\n"
+    )
+    return profile
+
+
+def test_theme_set_hook_is_installed_beside_the_post_update_one(tmp_path: Path) -> None:
+    """omarchy-theme-set ends with `omarchy-hook theme-set <name>`, which runs
+    ~/.config/omarchy/hooks/theme-set.d/*. The hook must carry the resolved
+    checkout path (it puts lib/ on PYTHONPATH), be executable, and never
+    abort a theme switch (no set -e) or escalate."""
+    env = _setup(tmp_path)
+    _run(env, "--no-update")
+    installed = env["home"] / ".config" / "omarchy" / "hooks" / "theme-set.d" / "10-hyprconf"
+    body = installed.read_text()
+    assert "@HYPRCONF_DIR@" not in body and str(REPO_ROOT) in body
+    assert os.access(installed, os.X_OK)
+    code = _code_only(body)
+    assert "set -e" not in code and "sudo" not in code and "omarchy-update" not in code
+    assert "omarchy-theme-set-vscode" in code and "hyprconf.firefox_theme" in code
+
+
+def test_theme_set_hook_extends_the_theme_to_code_oss_and_firefox(tmp_path: Path) -> None:
+    """Omarchy themes VS Code by the Microsoft build's paths; Arch's `code` is
+    Code - OSS (~/.config/Code - OSS, ~/.vscode-oss). The hook reuses
+    Omarchy's own set_theme with those paths, falls back to the generated
+    theme when the descriptor's extension is not installed (Open VSX may
+    lack it), and writes Firefox's userChrome.css + user.js from the
+    rendered colors.toml. install.sh runs the hook once for the active
+    theme, so nothing waits for the next switch."""
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("no jq for the descriptor read")
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
+    _theme_state(env)
+    profile = _firefox_profile(env)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+
+    home = env["home"]
+    calls = _calls(env)
+    settings = f"{home}/.config/Code - OSS/User/settings.json"
+    assert (
+        f"set_theme code {settings} {home}/.vscode-oss/extensions descriptor=vscode.json" in calls
+    )
+    # `code --list-extensions` (stub) lists nothing -> the generated-theme fallback.
+    assert (
+        f"set_theme code {settings} {home}/.vscode-oss/extensions descriptor=.no-descriptor"
+        in calls
+    )
+    assert "Open VSX" in proc.stderr
+
+    css = (profile / "chrome" / "userChrome.css").read_text()
+    assert "--toolbar-bgcolor: #16242d !important;" in css
+    js = (profile / "user.js").read_text()
+    assert 'user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);' in js
+    assert 'user_pref("ui.systemUsesDarkTheme", 1);' in js
+
+    # Idempotent: a second run (the post-update hook's) changes nothing.
+    before = _tree_hash(profile)
+    _run(env, "--no-update")
+    assert _tree_hash(profile) == before
+
+
+def test_theme_set_hook_honours_omarchys_vscode_toggle(tmp_path: Path) -> None:
+    """`omarchy toggle skip-vscode-theme-changes` is how Omarchy's own script
+    is told to leave VS Code alone; the Code - OSS bridge must obey it too."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "omarchy-toggle-enabled", env["calls"], "exit 0")
+    _theme_state(env)
+    _firefox_profile(env)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not any(c.startswith("set_theme") for c in _calls(env))
+    # Firefox is independent of that toggle.
+    assert (
+        env["home"] / ".config" / "mozilla" / "firefox" / "abc.default-release" / "user.js"
+    ).exists()
+
+
+def test_theme_stage_is_a_noop_without_an_active_theme(tmp_path: Path) -> None:
+    env = _setup(tmp_path)
+    _firefox_profile(env)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not (
+        env["home"] / ".config" / "mozilla" / "firefox" / "abc.default-release" / "user.js"
+    ).exists()
+    assert not any(c.startswith("set_theme") for c in _calls(env))
 
 
 def test_hook_cannot_recurse_or_escalate() -> None:

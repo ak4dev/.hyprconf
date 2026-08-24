@@ -874,12 +874,35 @@ stage_shell() {
     write_managed_block "$_HYPRCONF_ZSHRC" "$HERE/zsh/zshrc.block"
 }
 
+# Every hook the overlay ships, hooks/<name>.d/<file>, into the matching
+# ~/.config/omarchy/hooks/<name>.d/ — the directories omarchy-hook runs
+# (post-update from omarchy-update, theme-set from omarchy-theme-set).
 stage_hooks() {
-    log "Omarchy post-update hook"
-    local dir="$_HYPRCONF_CONFIG/omarchy/hooks/post-update.d"
-    mkdir -p "$dir"
-    sed "s|@HYPRCONF_DIR@|$REPO_ROOT|g" "$HERE/hooks/post-update.d/10-hyprconf" > "$dir/10-hyprconf"
-    chmod 755 "$dir/10-hyprconf"
+    log "Omarchy hooks (post-update, theme-set)"
+    local src dir
+    for src in "$HERE"/hooks/*.d/*; do
+        dir="$_HYPRCONF_CONFIG/omarchy/hooks/$(basename "$(dirname "$src")")"
+        mkdir -p "$dir"
+        sed "s|@HYPRCONF_DIR@|$REPO_ROOT|g" "$src" > "$dir/$(basename "$src")"
+        chmod 755 "$dir/$(basename "$src")"
+    done
+}
+
+# Extend the ACTIVE theme to Firefox and Code - OSS now, not only on the
+# next `omarchy theme set`: the theme-set hook just installed is run once,
+# the way omarchy-theme-set runs it (`omarchy-hook theme-set <name>` after
+# its own fan-out). Not set-once — the hook is idempotent and cheap, and a
+# re-run keeps both apps in step with a theme switched while the overlay
+# was not installed.
+stage_theme_apps() {
+    log "Theme into Firefox and VS Code (theme-set hook)"
+    local hook="$_HYPRCONF_CONFIG/omarchy/hooks/theme-set.d/10-hyprconf"
+    local name="$_HYPRCONF_STATE/omarchy/current/theme.name"
+    if [[ ! -r $name ]]; then
+        info "no active theme yet — applies on the next omarchy theme set"
+        return 0
+    fi
+    bash "$hook" "$(cat "$name")" || warn "theme-set hook failed — see the messages above"
 }
 
 stage_update() {
@@ -927,6 +950,7 @@ main() {
     fi
     stage_shell
     stage_hooks
+    stage_theme_apps
     hyprctl reload >/dev/null 2>&1 || true
     if (( do_update )); then stage_update; fi
 

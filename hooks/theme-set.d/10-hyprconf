@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Extend an Omarchy theme change to the two apps Omarchy's own fan-out leaves
+# out on this kind of box: Arch's `code` (Code - OSS) and Firefox.
+#
+# Installed to ~/.config/omarchy/hooks/theme-set.d/ — the directory
+# omarchy-theme-set hands to `omarchy-hook theme-set <name>` right after its
+# own post-theme commands (bin/omarchy-theme-set, Omarchy 4.0.0-1). It also
+# runs once from install.sh so the active theme lands without a switch.
+#
+# @HYPRCONF_DIR@ is substituted with the real checkout path at install time.
+#
+# No `set -e` / `set -u`: omarchy-hook reports a failing hook but must never
+# abort a theme switch, and the Omarchy script sourced below is not written
+# for -u. Every branch degrades to a message on stderr.
+set -o pipefail
+
+readonly HYPRCONF_DIR="@HYPRCONF_DIR@"
+theme_state="$HOME/.local/state/omarchy/current/theme"
+
+note() { printf 'hyprconf theme-set hook: %s\n' "$*" >&2; }
+
+# --- VS Code: Arch's `code` package is Code - OSS ---------------------------
+#
+# omarchy-theme-set-vscode already renders the theme and applies it to VS Code
+# (Microsoft build), Insiders, VSCodium and Cursor — each by its own config
+# tree. Arch's official `code` is Code - OSS: the same `code` binary, but it
+# reads ~/.config/Code - OSS/User/settings.json and ~/.vscode-oss/extensions,
+# paths Omarchy's script maps to `codium`. So Omarchy's write lands in
+# ~/.config/Code/User (the Microsoft build's tree) and Code - OSS never sees
+# it. Nothing is re-implemented: Omarchy's own `set_theme` is reused with
+# Code - OSS's paths. Sourcing the script defines the function and re-runs
+# its tail — idempotent for the editors it already handled a moment ago.
+# The same toggle Omarchy honours (`omarchy toggle skip-vscode-theme-changes`)
+# turns this off too.
+theme_code_oss() {
+  local script
+  script="$(command -v omarchy-theme-set-vscode 2>/dev/null)" || return 0
+  command -v code >/dev/null 2>&1 || return 0
+  omarchy-toggle-enabled skip-vscode-theme-changes 2>/dev/null && return 0
+
+  # shellcheck disable=SC1090
+  source "$script" >/dev/null 2>&1 || true
+  if ! declare -F set_theme >/dev/null; then
+    note "omarchy-theme-set-vscode no longer defines set_theme — Code - OSS not themed"
+    return 0
+  fi
+
+  local settings="$HOME/.config/Code - OSS/User/settings.json"
+  local extensions="$HOME/.vscode-oss/extensions"
+  set_theme code "$settings" "$extensions" || note "Code - OSS: set_theme failed"
+
+  # A theme whose descriptor names a Marketplace extension installs it with
+  # `code --install-extension`, which on Code - OSS goes through Open VSX. When
+  # Open VSX lacks it, settings.json now names a theme the editor does not
+  # have. Fall back to Omarchy's generated theme: hide the descriptor and let
+  # set_theme take its own generated-extension branch.
+  local descriptor="${VS_CODE_THEME_DESCRIPTOR:-$theme_state/vscode.json}"
+  local extension=""
+  [[ -f $descriptor ]] && extension="$(jq -r '.extension // empty' "$descriptor" 2>/dev/null)"
+  if [[ -n $extension ]] && ! code --list-extensions 2>/dev/null | grep -Fxq "$extension"; then
+    note "Code - OSS: $extension is not installed (Open VSX) — using Omarchy's generated theme"
+    VS_CODE_THEME_DESCRIPTOR="$theme_state/.no-descriptor" \
+      set_theme code "$settings" "$extensions" || note "Code - OSS: generated-theme fallback failed"
+  fi
+}
+
+# --- Firefox / LibreWolf -----------------------------------------------------
+#
+# Omarchy themes Chromium-family browsers only (omarchy-theme-set-browser:
+# a managed-policy BrowserThemeColor for chromium/chrome/edge/brave). The
+# Firefox side is the overlay's own, tested Python — lib/hyprconf/firefox_theme.py
+# — reading the colors.toml Omarchy renders for the active theme. Firefox
+# picks userChrome.css up at its next start.
+theme_firefox() {
+  [[ -f $theme_state/colors.toml ]] || return 0
+  PYTHONPATH="$HYPRCONF_DIR/lib${PYTHONPATH:+:$PYTHONPATH}" \
+    python3 -m hyprconf.firefox_theme || note "Firefox theming failed"
+}
+
+theme_code_oss
+theme_firefox
+exit 0

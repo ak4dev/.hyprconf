@@ -80,7 +80,8 @@ bash install.sh
 | workspaces | `hyprconf.workspaces`: the overlay's own workspaces widget — only workspaces that exist, on two lines, Pac-Man on the focused one | `plugins/hyprconf-workspaces/` synced on every run (a `clonedFrom` copy the shell swaps into the stock widget's slot); enabled **once** |
 | window_title | The focused window's title after the workspaces — Omarchy's own `omarchy.active-window` widget, nothing shipped | `omarchy-plugin-enable omarchy.active-window --section left --after hyprconf.workspaces`, **once** |
 | shell | Oh My Zsh + Powerlevel10k cloned into `~/.oh-my-zsh`; `~/.p10k.zsh` → `zsh/.p10k.zsh`; managed block in `~/.zshrc` | Plain `git clone`, no `chsh` |
-| hooks | `~/.config/omarchy/hooks/post-update.d/10-hyprconf` | Re-runs `install.sh --no-update --no-packages` after every `omarchy-update` |
+| hooks | `~/.config/omarchy/hooks/post-update.d/10-hyprconf` and `theme-set.d/10-hyprconf` | The first re-runs `install.sh --no-update --no-packages` after every `omarchy-update`; the second extends every `omarchy theme set` to Firefox and Code - OSS (below) |
+| theme_apps | Firefox `userChrome.css`/`user.js` and Code - OSS settings match the **active** theme right away | Runs the theme-set hook once for `~/.local/state/omarchy/current/theme.name`; a no-op with no active theme |
 | *(end)* | `hyprctl reload`; with `--sync`, `omarchy-update` | |
 
 ### What it deliberately leaves alone
@@ -260,6 +261,17 @@ From `packages`, installed via `omarchy-pkg-add` — **official repositories onl
 ## zsh
 
 The `~/.zshrc` managed block (`# >>> hyprconf >>>` … `# <<< hyprconf <<<`, source `zsh/zshrc.block`) sources Omarchy's `default/bash/{env-bootstrap,envs,aliases}`, initialises `zoxide` (Omarchy aliases `cd` to it), loads Oh My Zsh with the `powerlevel10k` theme and `~/.p10k.zsh`, `zsh-autosuggestions`, the `hyprsync` alias, a `fastfetch` greeting, and `zsh-syntax-highlighting` last. Everything outside the markers is preserved.
+
+## Theme → Firefox and VS Code
+
+Omarchy's `omarchy theme set` fans the theme out to kitty, btop, VS Code (Microsoft build, Insiders, VSCodium, Cursor) and Chromium-family browsers — not to Arch's `code` package (Code - OSS reads `~/.config/Code - OSS/User/settings.json` and `~/.vscode-oss/extensions`, which Omarchy maps to `codium`) and not to Firefox at all (`omarchy-theme-set-browser` writes a Chromium policy colour). The overlay's `theme-set.d/10-hyprconf` hook runs after every theme switch (Omarchy calls `omarchy-hook theme-set <name>` at the end of `omarchy-theme-set`) and closes both gaps:
+
+| App | How | Notes |
+|---|---|---|
+| Code - OSS (`code`) | Omarchy's own `set_theme` from `omarchy-theme-set-vscode`, re-run with Code - OSS's paths | Live. A theme whose extension is not on Open VSX falls back to Omarchy's generated **Omarchy** theme. `omarchy toggle skip-vscode-theme-changes` turns it off, as for Omarchy's own editors |
+| Firefox / LibreWolf | `lib/hyprconf/firefox_theme.py` writes `chrome/userChrome.css` (Firefox's `--lwt-*`/`--toolbar-*` theme variables, from Omarchy's rendered `colors.toml`) and merges four prefs into `user.js` (stylesheet loading, `ui.systemUsesDarkTheme`, light/dark chrome+content) in the default profile | Takes effect on the next Firefox start — Firefox reads `userChrome.css` only at startup. Nothing else in `user.js` is touched |
+
+Undo: delete `~/.config/omarchy/hooks/theme-set.d/10-hyprconf`, the profile's `chrome/userChrome.css`, and the four `user_pref` lines it added; run `omarchy theme set` again for VS Code.
 
 ## Reverting to stock
 
