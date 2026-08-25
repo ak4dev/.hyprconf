@@ -163,9 +163,10 @@ unbind_keycode(mods, key)                        -- hl.unbind(mods .. " + code:N
                                                  -- Omarchy binds by keycode (KEYCODE table)
 ```
 
-Key forms in use there: `mainMod .. " + T"`, `" + SHIFT + F1"`, `" + mouse:272"`
-(with `{ mouse = true }`), `" + mouse_down"` / `" + mouse_up"` (scroll), and
-`{ repeating = true }` for the resize keys.
+Key forms in use there: `mainMod .. " + T"`, `" + SHIFT + F1"`, `" + SHIFT + equal"`,
+and `{ repeating = true }` for the resize keys. The mouse forms (`" + mouse:272"`
+with `{ mouse = true }`, `" + mouse_down"` / `" + mouse_up"`) are Omarchy's own
+binds in `tiling.lua` and are not restated.
 
 ### Common dispatchers (`hl.dsp.*`)
 

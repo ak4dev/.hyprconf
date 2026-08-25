@@ -7,9 +7,9 @@
 //
 // Three things differ from stock (shell/plugins/bar/widgets/Workspaces.qml):
 //   * Only workspaces that EXIST are shown — occupied ones plus the focused
-//     one, which Hyprland always keeps alive — the way hyprconf's own bar has
-//     always behaved. Stock hardcodes pills 1-5 whether they exist or not,
-//     caps ids at 10, and reads no settings at all (`omarchy bar set
+//     one, which Hyprland always keeps alive. Stock hardcodes pills 1-5
+//     whether they exist or not, caps ids at 10, and reads no settings at all
+//     (`omarchy bar set
 //     omarchy.workspaces …` has no key that changes this), so a copy is the
 //     only seam.
 //   * Two stacked lines, like hyprconf.resources beside it: Omarchy's bar is

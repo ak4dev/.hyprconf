@@ -1,9 +1,8 @@
 mode = "dark"
 
-# Values below come from the dracula.json of hyprconf's retired standalone theme
-# switcher (hyprconf's live theme) plus the published Dracula ANSI-16 terminal spec
-# (spec.draculatheme.com) for slots hyprconf's theme JSON doesn't carry
-# (selection/current-line, blue, magenta, brown, bright_*).
+# The Dracula palette (draculatheme.com); selection/current-line, blue,
+# magenta, brown, darker_background and bright_* follow its ANSI-16 terminal
+# spec (spec.draculatheme.com).
 accent = "#8be9fd"
 selection = "#44475a"
 muted = "#6272a4"

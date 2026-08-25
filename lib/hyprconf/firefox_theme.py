@@ -58,12 +58,6 @@ RENDERED_NAME = "userChrome.css"
 THEME_ID_DARK = "firefox-compact-dark@mozilla.org"
 THEME_ID_LIGHT = "firefox-compact-light@mozilla.org"
 
-# Prefs earlier hyprconf releases wrote and no longer manage. Firefox derives
-# both from the active theme, so a stale copy left in user.js would win over
-# the theme at every start (a light theme with dark toolbars). merge_user_js
-# removes them; nothing else in Omarchy writes them.
-RETIRED_PREFS = frozenset({"browser.theme.content-theme", "browser.theme.toolbar-theme"})
-
 # The template's own declaration of the mode Omarchy resolved for the theme
 # (``{{ mode }}``: bin/omarchy-theme-color:120-135 — the colors.toml ``mode``
 # key, the legacy ``theme_type`` key, a ``light.mode`` file beside it, then
@@ -188,9 +182,9 @@ def merge_user_js(path: Path, prefs: dict[str, object]) -> bool:
     """Rewrite the managed prefs in *path*, keeping every other line as it is.
 
     A managed pref already present is rewritten in place, its inline comment
-    kept; later duplicates go; prefs not yet there are appended; a pref in
-    RETIRED_PREFS (managed by an earlier release) is dropped. The file's own
-    line ending (LF or CRLF) is preserved. Returns True when the file changed.
+    kept; later duplicates go; prefs not yet there are appended. The file's
+    own line ending (LF or CRLF) is preserved. Returns True when the file
+    changed.
     """
     raw = _read_raw(path) if path.exists() else ""
     newline = "\r\n" if "\r\n" in raw else "\n"
@@ -199,8 +193,6 @@ def merge_user_js(path: Path, prefs: dict[str, object]) -> bool:
     for line in raw.splitlines():
         m = _PREF_RE.match(line)
         key = m.group("key") if m else None
-        if key in RETIRED_PREFS:
-            continue
         if key not in prefs:
             kept.append(line)
         elif key in pending:

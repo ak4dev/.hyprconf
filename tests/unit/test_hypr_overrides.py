@@ -2,13 +2,18 @@
 
 These files are symlinked over Omarchy's own override points and loaded after
 its defaults, so they can only ever STATE deltas — and each delta this repo
-promises must actually be in the file it says it is in.
+promises must actually be in the file it says it is in. They are also the
+live config (AGENTS.md › Live files): every one must parse.
 """
 
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HYPR = REPO_ROOT / "hypr"
@@ -20,6 +25,22 @@ def _code(path: Path) -> str:
         for ln in path.read_text(encoding="utf-8").splitlines()
         if not ln.lstrip().startswith("--")
     )
+
+
+def test_hypr_overrides_parse_as_lua() -> None:
+    """A syntax error here is a broken desktop, not a failed test run."""
+    luac = shutil.which("luac") or shutil.which("luac5.4")
+    if luac is None:
+        pytest.skip("no luac available to parse the Hyprland Lua config")
+    for lua in sorted(HYPR.glob("*.lua")):
+        proc = subprocess.run([luac, "-p", str(lua)], capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stderr
+
+
+def test_natural_scroll_is_the_default() -> None:
+    """Omarchy ships natural_scroll off for the mouse and off for the touchpad;
+    input.lua turns both on (README › input.lua)."""
+    assert _code(HYPR / "input.lua").count("natural_scroll = true") == 2
 
 
 def test_steam_is_tiled_like_everything_else() -> None:
@@ -71,13 +92,52 @@ def test_bindings_never_restate_omarchys_own_binds() -> None:
     assert '" + SHIFT + left"' in binds
 
 
-def test_launchers_use_omarchys_own_idiom() -> None:
+def test_osd_keys_are_left_to_omarchy() -> None:
+    """Volume, brightness and media keys stay on Omarchy's own binds: its
+    commands end by calling omarchy-osd, so a rebind — or an unbind — changes
+    the level with no on-screen indicator. Matched on code, not on the
+    comments that name the keys."""
+    code = _code(HYPR / "bindings.lua")
+    for key in (
+        "XF86AudioRaiseVolume",
+        "XF86AudioLowerVolume",
+        "XF86AudioMute",
+        "XF86AudioMicMute",
+        "XF86MonBrightnessUp",
+        "XF86MonBrightnessDown",
+        "XF86AudioNext",
+        "XF86AudioPrev",
+        "XF86AudioPlay",
+        "XF86AudioPause",
+    ):
+        assert key not in code, f"{key} must be left to Omarchy (it drives the OSD)"
+
+
+def test_every_binding_carries_a_description() -> None:
+    """A description is what puts a key in Omarchy's SUPER+K keybindings
+    menu: hl.bind records none, o.bind (and the rebind helper over it) does.
+    The description is a literal string, so a top-level bind call whose
+    second argument is not one has dropped it (the helper's own forwarding
+    call is indented)."""
+    code = _code(HYPR / "bindings.lua")
+    assert not re.search(r"\bhl\.bind\s*\(", code), "use rebind()/o.bind: the menu lists those"
+    calls = [ln for ln in code.splitlines() if re.match(r"(rebind|o\.bind)\(", ln)]
+    assert calls
+    for ln in calls:
+        assert re.match(r'(rebind|o\.bind)\(.*?,\s*"[^"]+"\s*,', ln), f"no description: {ln}"
+
+
+def test_app_keys_use_omarchys_launcher_idiom() -> None:
     """`{ omarchy = "terminal" }` is how Omarchy's own bindings name
     omarchy-launch-terminal (default/hypr/helpers.lua command_from,
-    bindings/applications.lua); the four app keys use it rather than
-    spelling the launcher out."""
+    bindings/applications.lua): the four app keys use it — never the launcher
+    spelled out, never an app binary, which would pin a choice Omarchy's own
+    `omarchy default <kind>` cannot move and skip uwsm-app scoping."""
     binds = _binds(HYPR / "bindings.lua")
     for key, launcher in (("T", "terminal"), ("F", "browser"), ("C", "editor"), ("E", "nautilus")):
         line = next(ln for ln in binds if f'" + {key}"' in ln)
         assert f'{{ omarchy = "{launcher}" }}' in line, line
-    assert not any("omarchy-launch-" in ln for ln in binds)
+    rest = re.sub(r'\{ omarchy = "[a-z-]+" \}', "", "\n".join(binds))
+    assert "omarchy-launch-" not in rest
+    for binary in ('"firefox"', '"nautilus"', '"code"', '"kitty"', '"dolphin"'):
+        assert binary not in rest, f"{binary} is an Omarchy default, not a keymap constant"

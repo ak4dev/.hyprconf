@@ -20,7 +20,7 @@
 # lib/hyprconf/firefox_theme.py — copies it into each profile and merges the
 # user.js prefs; Firefox picks both up at its next start. No skip toggle:
 # Omarchy's are `skip-{vscode,vscode-insiders,codium,cursor}-theme-changes`
-# only (`grep -rho 'omarchy-toggle-enabled [a-z-]*' /usr/share/omarchy/bin`).
+# only (`grep -Rho 'omarchy-toggle-enabled [a-z-]*' /usr/share/omarchy/bin`).
 #
 # @HYPRCONF_DIR@ is substituted with the real checkout path at install time.
 #

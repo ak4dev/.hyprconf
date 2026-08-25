@@ -1,15 +1,8 @@
-# Tool config only: nothing packages or pip-installs the repo (AGENTS.md,
-# Layout), and CI takes pytest from pacman.
+# Tool config only: nothing packages or pip-installs the repo (AGENTS.md ›
+# What hyprconf is), and CI takes pytest from pacman.
 [tool.pytest.ini_options]
 pythonpath = ["lib"]
 testpaths  = ["tests"]
-
-[tool.coverage.run]
-source = ["hyprconf"]
-omit   = ["tests/*"]
-
-[tool.coverage.report]
-show_missing = true
 
 [tool.ruff]
 line-length = 100

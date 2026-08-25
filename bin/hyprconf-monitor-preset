@@ -75,15 +75,8 @@ fi
 # Preset resolution, in order:
 #   pcMonitors.<name>.lua  — the named presets (bedroom, kitchen, K)
 #   <name>Monitors.lua     — the two whole-machine presets, `pc` and `laptop`
-# Lua only. An extension-less hyprlang `pcMonitors.<name>` from before the
-# 0.56 migration is refused rather than copied: the toggles directory is
-# require()d as Lua, so a hyprlang file there is a parse error that stops the
-# rest of Omarchy's toggles (and the workspace-layouts module after them).
 SOURCE="$CONFIG_DIR/pcMonitors.$1.lua"
 [[ -f "$SOURCE" ]] || SOURCE="$CONFIG_DIR/${1}Monitors.lua"
-if [[ ! -f "$SOURCE" && -f "$CONFIG_DIR/pcMonitors.$1" ]]; then
-    log_die "pcMonitors.$1 is a hyprlang preset; convert it to pcMonitors.$1.lua (hl.monitor) first"
-fi
 [[ -f "$SOURCE" ]] || log_die "Preset not found: pcMonitors.$1.lua"
 
 log_step "Switching monitor config to: $1"
@@ -101,8 +94,8 @@ hyprctl reload
 # Workspace rules only place FUTURE workspaces: on a reload Hyprland leaves
 # every existing workspace on whatever monitor it already occupies (only a
 # disabled output's orphans get rehomed, and to an arbitrary survivor). So a
-# preset switch used to enable the right outputs while workspaces 1-6 stayed
-# where the last layout had them. Walk the preset's own workspace rules and
+# bare reload enables the right outputs while workspaces 1-6 stay where the
+# last layout had them. Walk the preset's own workspace rules and
 # move each one explicitly. `hl.dsp.workspace.move` is the Lua-parser dispatch
 # form (verified on Hyprland 0.56.2: `hyprctl dispatch 'hl.dsp.workspace.move({
 # workspace = 7, monitor = "HDMI-A-2" })'` answers ok); a rule naming an output
@@ -112,9 +105,9 @@ while IFS=$'\t' read -r ws mon; do
         >/dev/null 2>&1 || true
 done < <(sed -nE 's/.*hl\.workspace_rule\(\{ *workspace *= *"([0-9]+)".*monitor *= *"([^"]+)".*/\1\t\2/p' "$SOURCE")
 
-# An output flipping disabled→enabled through this same reload path can hit
-# the identical failed-CRTC-restore bug documented in hyprland-wake-restore
-# (aquamarine/nvidia-open: ATOMIC modeset commit rejected with EINVAL) —
+# An output flipping disabled→enabled through this same reload path can hit a
+# failed-CRTC-restore bug (aquamarine/nvidia-open: ATOMIC modeset commit
+# rejected with EINVAL) —
 # Hyprland's config believes the panel is on, but the physical display never
 # got a real modeset and stays dark until unplug/replug forces a fresh HPD
 # probe. Verify against the kernel's own connector state and force a dpms

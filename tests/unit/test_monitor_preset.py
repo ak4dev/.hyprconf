@@ -7,9 +7,6 @@ Verifies:
   so its hl.monitor calls win) and reloads; ~/.config/hypr/monitors.lua is
   never touched
 - `stock` removes the toggle file and reloads, idempotently
-- A pre-migration extension-less hyprlang `pcMonitors.<name>` is refused with a
-  message that says how to convert it — copied into the toggles directory it
-  would be a Lua parse error that takes the rest of Omarchy's toggles down
 - A missing preset exits non-zero with a useful error, reported through
   Omarchy's notification command (the tool is reached from a hotkey, where
   stderr goes nowhere a human can see)
@@ -22,7 +19,7 @@ HERMETIC: the tool talks to hyprctl, omarchy-notification-send and
 omarchy-osd. Every one of them is a recording stub on a fake-bins dir put
 FIRST on PATH — the real ones would reload the developer's compositor, move
 their workspaces, and put a critical "Preset not found" notification on their
-desktop every time the suite runs (which is exactly what happened once).
+desktop every time the suite runs.
 """
 
 from __future__ import annotations
@@ -111,7 +108,9 @@ def test_valid_preset_is_copied_to_the_toggles_file_and_monitors_lua_is_untouche
 ) -> None:
     """The preset lands as a COPY in Omarchy's toggles directory — never a
     link, so nothing Omarchy does to that directory reaches the preset —
-    and Omarchy's own monitors.lua is left exactly as it was."""
+    and Omarchy's own monitors.lua is left exactly as it was — Omarchy keeps
+    writing to it (omarchy-hyprland-monitor-scaling seds the scale lines in
+    place), so the tool never replaces it."""
     cfg_src = _cfg(
         tmp_path, **{"pcMonitors.bedroom.lua": PRESET, "monitors.lua": "-- omarchy auto\n"}
     )
@@ -145,9 +144,11 @@ def test_a_preset_edit_is_what_the_next_switch_applies(tmp_path: Path) -> None:
 
 def test_stock_removes_the_toggle_and_reloads(tmp_path: Path) -> None:
     """`stock` is the toggle's off: the file goes, Hyprland reloads, and
-    Omarchy's monitors.lua is the only layout left. Idempotent — a second
-    `stock` with nothing to remove still reloads and reports."""
-    cfg_src = _cfg(tmp_path, **{"pcMonitors.bedroom.lua": PRESET})
+    Omarchy's monitors.lua — untouched — is the only layout left. Idempotent
+    — a second `stock` with nothing to remove still reloads and reports."""
+    cfg_src = _cfg(
+        tmp_path, **{"pcMonitors.bedroom.lua": PRESET, "monitors.lua": "-- omarchy auto\n"}
+    )
     assert _run(tmp_path, cfg_src, "bedroom").returncode == 0
     toggle = tmp_path / "home" / TOGGLE
     assert toggle.exists()
@@ -155,25 +156,15 @@ def test_stock_removes_the_toggle_and_reloads(tmp_path: Path) -> None:
     res = _run(tmp_path, cfg_src, "stock")
     assert res.returncode == 0, res.stderr
     assert not toggle.exists()
+    assert (
+        tmp_path / "home" / ".config" / "hypr" / "monitors.lua"
+    ).read_text() == "-- omarchy auto\n"
     assert _calls(tmp_path).count("hyprctl reload") == 2
     assert any(c.startswith("omarchy-osd") and "stock" in c for c in _calls(tmp_path))
 
     res = _run(tmp_path, cfg_src, "omarchy")  # the alias, with nothing to remove
     assert res.returncode == 0, res.stderr
     assert _calls(tmp_path).count("hyprctl reload") == 3
-
-
-def test_extensionless_hyprlang_preset_is_refused(tmp_path: Path) -> None:
-    """The toggles directory is require()d as Lua; a hyprlang file copied
-    there is a parse error that stops the rest of Omarchy's toggles. The
-    tool must refuse it and say how to convert, rather than copy it."""
-    cfg_src = _cfg(tmp_path, **{"pcMonitors.bedroom": "monitor=HDMI-A-1,preferred,auto,1\n"})
-
-    res = _run(tmp_path, cfg_src, "bedroom")
-    assert res.returncode != 0
-    assert "hyprlang" in res.stderr and "pcMonitors.bedroom.lua" in res.stderr
-    assert not (tmp_path / "home" / TOGGLE).exists()
-    assert "hyprctl reload" not in _calls(tmp_path)
 
 
 def test_preset_not_found_exits_nonzero_and_notifies(tmp_path: Path) -> None:

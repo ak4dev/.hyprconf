@@ -18,8 +18,8 @@ import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-GPU_INFO_SH = REPO_ROOT / "bin" / "hyprconf-gpu-info"
-STATS_SH = REPO_ROOT / "bin" / "hyprconf-stats"
+GPU_INFO = REPO_ROOT / "bin" / "hyprconf-gpu-info"
+STATS = REPO_ROOT / "bin" / "hyprconf-stats"
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ def _fake_hwmon(tmp_path: Path, sensors: list[tuple[str, str]]) -> Path:
 
 
 # ---------------------------------------------------------------------------
-# stats.sh (streaming cpu/mem/net/temp sampler)
+# hyprconf-stats (streaming cpu/mem/net/temp sampler)
 # ---------------------------------------------------------------------------
 
 PROC_STAT = "cpu  100 0 100 800 0 0 0 0 0 0\n"
@@ -78,31 +78,38 @@ def _run_stats(
     tmp_path: Path,
     net_root: Path,
     *,
-    default_route_dev: str | None = "wlan0",
+    route_dev: str | None = "wlan0",
     route_line: str | None = None,
     iterations: int = 2,
     hwmon_root: Path | None = None,
 ) -> list[dict]:
-    """Run stats.sh hermetically for N samples and parse its JSON lines.
+    """Run hyprconf-stats hermetically for N samples and parse its JSON lines.
 
-    `route_line` overrides the fake `ip route show default` output verbatim
-    (for route shapes beyond the standard `via <gw> dev <iface>` form).
+    The fake `ip route show default` names `route_dev` (`route_line` replaces
+    the printed line verbatim, for shapes beyond `via <gw> dev <iface>`) and
+    on every call advances that interface's counters by 5000 rx / 1000 tx
+    bytes: a sample fed from it reads 5.0kB/s down and 1.0kB/s up, one fed
+    from any other (static) interface reads 0B/s, so the rate says which
+    interface the feeder read. `route_dev=None` prints no route.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    if route_line is not None:
-        route = f'echo "{route_line}"\n'
-    elif default_route_dev:
-        route = f'echo "default via 192.168.1.1 dev {default_route_dev} proto dhcp"\n'
-    else:
-        route = "exit 0\n"
-    _write_exe(bin_dir / "ip", "#!/usr/bin/env bash\n" + route)
+    ip = "#!/usr/bin/env bash\n"
+    if route_dev is not None:
+        stats = net_root / route_dev / "statistics"
+        route_line = route_line or f"default via 192.168.1.1 dev {route_dev} proto dhcp"
+        ip += (
+            f'read -r n < "{stats}/rx_bytes" && echo $((n + 5000)) > "{stats}/rx_bytes"\n'
+            f'read -r n < "{stats}/tx_bytes" && echo $((n + 1000)) > "{stats}/tx_bytes"\n'
+            f'echo "{route_line}"\n'
+        )
+    _write_exe(bin_dir / "ip", ip)
     stat_f = tmp_path / "proc_stat"
     stat_f.write_text(PROC_STAT)
     mem_f = tmp_path / "meminfo"
     mem_f.write_text(PROC_MEMINFO)
     r = subprocess.run(
-        ["bash", str(STATS_SH)],
+        ["bash", str(STATS)],
         capture_output=True,
         text=True,
         timeout=30,
@@ -127,38 +134,39 @@ class TestStatsScript:
         lines = _run_stats(tmp_path, _fake_net(tmp_path), iterations=2)
         assert len(lines) == 2
         for payload in lines:
-            assert set(payload) == {"cpu", "mem", "net", "down", "up", "temp"}
+            assert set(payload) == {"cpu", "mem", "down", "up", "temp"}
             assert isinstance(payload["cpu"], int)
         assert lines[0]["mem"] == "16.0/32.0G"  # MemTotal-MemAvailable, GiB
 
     def test_ethernet_precedence_over_wifi_default_route(self, tmp_path: Path) -> None:
         """A wired link that is up must win over the (wifi) default route.
 
-        Regression: `$(<file 2>/dev/null)` captures "" on bash 5.3, which made
-        the operstate check silently never match, disabling this feature.
+        `$(< file 2>/dev/null)` is empty on Bash 5.3 (AGENTS.md › Known
+        quirks): read that way, the operstate check never matches and the
+        rates come from wlan0.
         """
         net = _fake_net(tmp_path, wired_up=True)
-        payload = _run_stats(tmp_path, net, default_route_dev="wlan0", iterations=1)[0]
-        assert payload["net"] == "eth"
+        payload = _run_stats(tmp_path, net, route_dev="wlan0", iterations=1)[0]
+        assert payload["down"] == "0B/s"  # eth0's static counters
+        assert (net / "wlan0/statistics/rx_bytes").read_text() == "5000\n"  # ip never ran
 
     def test_wifi_fallback_when_no_wired_link(self, tmp_path: Path) -> None:
         net = _fake_net(tmp_path, wired_up=False)
-        payload = _run_stats(tmp_path, net, default_route_dev="wlan0", iterations=1)[0]
-        assert payload["net"] == "wifi"
+        payload = _run_stats(tmp_path, net, route_dev="wlan0", iterations=1)[0]
+        assert (payload["down"], payload["up"]) == ("5.0kB/s", "1.0kB/s")
 
-    def test_off_when_no_interfaces_and_no_route(self, tmp_path: Path) -> None:
+    def test_no_interface_and_no_route_reads_zero(self, tmp_path: Path) -> None:
         net = tmp_path / "net"
         (net / "lo").mkdir(parents=True)
-        payload = _run_stats(tmp_path, net, default_route_dev=None, iterations=1)[0]
-        assert payload["net"] == "off"
-        assert payload["down"] == "0B/s"
+        payload = _run_stats(tmp_path, net, route_dev=None, iterations=1)[0]
+        assert (payload["down"], payload["up"]) == ("0B/s", "0B/s")
 
     def test_vpn_tunnel_default_route_without_gateway(self, tmp_path: Path) -> None:
         """WireGuard/OpenVPN default routes have no gateway hop — `ip route
         show default` prints `default dev wg0 scope link`, not `default via
         <gw> dev wg0 ...`. The interface must be parsed as the token after
-        `dev`: a fixed `$5` parse reads "link" here, and the bar showed
-        "Disconnected" while the VPN carried all traffic.
+        `dev`: a fixed `$5` parse reads "link" here, and the rates froze at
+        0B/s while the VPN carried all traffic.
         """
         net = _fake_net(tmp_path, wired_up=False, wifi=False)
         wg = net / "wg0"
@@ -168,15 +176,14 @@ class TestStatsScript:
         (wg / "operstate").write_text("unknown\n")
         (wg / "statistics" / "rx_bytes").write_text("7000\n")
         (wg / "statistics" / "tx_bytes").write_text("8000\n")
-        payload = _run_stats(tmp_path, net, route_line="default dev wg0 scope link", iterations=1)[
-            0
-        ]
-        assert payload["net"] == "eth"  # non-wifi iface renders the wired icon
-        assert payload["down"] == "0B/s"
+        payload = _run_stats(
+            tmp_path, net, route_dev="wg0", route_line="default dev wg0 scope link", iterations=1
+        )[0]
+        assert payload["down"] == "5.0kB/s"
 
 
 # ---------------------------------------------------------------------------
-# stats.sh cpu temperature (hwmon, resolved once — replaced cpu_temp.sh)
+# hyprconf-stats cpu temperature (hwmon, resolved once)
 # ---------------------------------------------------------------------------
 
 
@@ -185,9 +192,7 @@ class TestStatsCpuTemp:
         hwmon = _fake_hwmon(tmp_path, sensors)
         net = tmp_path / "net"
         (net / "lo").mkdir(parents=True)
-        payload = _run_stats(tmp_path, net, default_route_dev=None, iterations=1, hwmon_root=hwmon)[
-            0
-        ]
+        payload = _run_stats(tmp_path, net, route_dev=None, iterations=1, hwmon_root=hwmon)[0]
         return payload["temp"]
 
     def test_amd_tctl_wins_over_tdie(self, tmp_path: Path) -> None:
@@ -278,7 +283,7 @@ class TestGpuInfoScript:
             **(env or {}),
         }
         return subprocess.run(
-            ["bash", str(GPU_INFO_SH)],
+            ["bash", str(GPU_INFO)],
             capture_output=True,
             text=True,
             timeout=30,

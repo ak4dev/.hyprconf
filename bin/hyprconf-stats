@@ -2,6 +2,10 @@
 # Streaming cpu / memory / network stats for the quickshell bar: one JSON
 # line per second on stdout. Long-lived so counters can be diffed in-process
 # instead of re-forking a sampler every poll.
+#
+# No `set -e`: a long-lived sampler must outlive a read that fails when a
+# sensor or interface vanishes between ticks; no pipeline's status is tested,
+# so pipefail would change nothing.
 set -u
 # bash's loadable sleep builtin (package bash) saves the exec of /usr/bin/sleep
 # every tick; the external one stays in use where the loadable is missing.
@@ -28,7 +32,7 @@ human() {
     fi
 }
 
-# kB -> GiB with one decimal, matching waybar's {used:0.1f}.
+# kB -> GiB with one decimal.
 gib() {
     local g10=$(( ($1 * 10 + 524288) / 1048576 ))
     printf '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
@@ -36,10 +40,8 @@ gib() {
 
 # ---- cpu temperature source, resolved ONCE (no per-tick probe after this).
 # hwmon exposes the same sensors as `sensors`(1) as plain files: tempN_label +
-# tempN_input (millidegrees). Label priority mirrors the old cpu_temp.sh
-# probe order: AMD k10temp Tctl > Tdie, then Intel coretemp package > core.
-# This replaced the separate 2s cpu_temp.sh ScriptModule, whose bash+sensors
-# spawn cost ~28 ms per poll.
+# tempN_input (millidegrees). Label priority: AMD k10temp Tctl > Tdie, then
+# Intel coretemp package > core.
 temp_input="" _rank=99
 for _lbl in "$HYPRCONF_STATS_HWMON_ROOT"/hwmon*/temp*_label; do
     [[ -r $_lbl ]] || continue
@@ -72,7 +74,7 @@ while :; do
     (( dtotal > 0 )) && cpu=$(( (100 * (dtotal - didle) + dtotal / 2) / dtotal ))
     prev_total=$total prev_idle=$idle_all
 
-    # ---- memory: used = MemTotal - MemAvailable (same as waybar)
+    # ---- memory: used = MemTotal - MemAvailable
     mem_total=0 mem_avail=0
     while read -r key val _; do
         case $key in
@@ -82,10 +84,10 @@ while :; do
     done < "$HYPRCONF_STATS_PROC_MEMINFO"
     mem="$(gib $(( mem_total - mem_avail )))/$(gib "$mem_total")G"
 
-    # ---- network. Ethernet takes precedence: if any wired interface has a
-    # link up, show it (icon + rates); otherwise fall back to the default-
-    # route interface (Wi-Fi / other).
-    iface="" net=off
+    # ---- network. Ethernet takes precedence: the counters come from the
+    # first wired interface with a link up, else from the default-route
+    # interface (Wi-Fi / other).
+    iface=""
     for _d in "$HYPRCONF_STATS_NET_ROOT"/*; do
         _n=${_d##*/}
         [[ $_n == lo ]] && continue
@@ -96,7 +98,7 @@ while :; do
         _op=""
         [[ -r $_d/operstate ]] && read -r _op < "$_d/operstate"
         if [[ $_op == up ]]; then
-            iface=$_n net=eth
+            iface=$_n
             break
         fi
     done
@@ -104,19 +106,14 @@ while :; do
         # The iface is the token after "dev", NOT a fixed field: gateway-less
         # default routes (WireGuard/OpenVPN tunnels — "default dev wg0 scope
         # link") carry no "via <gw>", which shifts a $5-based parse onto
-        # "scope"/"link" and made the bar claim "Disconnected" mid-VPN.
+        # "scope"/"link" and froze the rates at 0B/s mid-VPN.
         iface=$(ip route show default 2>/dev/null \
             | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')
-        if [[ -n $iface ]]; then
-            [[ -d $HYPRCONF_STATS_NET_ROOT/$iface/wireless ]] && net=wifi || net=eth
-        fi
     fi
     rx=0 tx=0
     if [[ -n $iface && -r $HYPRCONF_STATS_NET_ROOT/$iface/statistics/rx_bytes ]]; then
         read -r rx < "$HYPRCONF_STATS_NET_ROOT/$iface/statistics/rx_bytes"
         read -r tx < "$HYPRCONF_STATS_NET_ROOT/$iface/statistics/tx_bytes"
-    else
-        net=off
     fi
     drx=$(( rx - prev_rx )) dtx=$(( tx - prev_tx ))
     (( drx < 0 )) && drx=0
@@ -137,8 +134,8 @@ while :; do
     else
         human "$drx" down
         human "$dtx" up
-        printf '{"cpu":%d,"mem":"%s","net":"%s","down":"%s","up":"%s","temp":"%s"}\n' \
-            "$cpu" "$mem" "$net" "$down" "$up" "$temp"
+        printf '{"cpu":%d,"mem":"%s","down":"%s","up":"%s","temp":"%s"}\n' \
+            "$cpu" "$mem" "$down" "$up" "$temp"
         if (( HYPRCONF_STATS_ITERATIONS > 0 && ++iter >= HYPRCONF_STATS_ITERATIONS )); then
             exit 0
         fi

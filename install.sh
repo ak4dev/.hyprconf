@@ -24,20 +24,18 @@
 # needs sudo.
 set -euo pipefail
 
-# The installer lives at the repository root, so the two are the same
-# directory; both names are kept because they read differently ($HERE for
-# shipped data files beside this script, $REPO_ROOT for git and the hook).
-# ${BASH_SOURCE[0]} is /dev/fd/NN under `bash <(curl …)` and unset under
-# `curl … | bash` (hence the $0 fallback, for set -u); either way no payload
-# sits beside it and main() hands over to bootstrap.
+# The checkout: the installer lives at the repository root. ${BASH_SOURCE[0]}
+# is /dev/fd/NN under `bash <(curl …)` and unset under `curl … | bash` (hence
+# the $0 fallback, for set -u); either way no payload sits beside it and
+# main() hands over to bootstrap.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
-REPO_ROOT="$HERE"
 
 # Everything under $HOME is reached through $HOME itself, which the hermetic
 # test suite relocates; the seams below name what lies outside it — binaries
 # and system paths — so the suite can point them at fakes. Never readonly —
-# see the testing rules in AGENTS.md.
-: "${_HYPRCONF_OMARCHY_PATH:=${OMARCHY_PATH:-/usr/share/omarchy}}"
+# see the testing rules in AGENTS.md. OMARCHY_PATH is Omarchy's own variable
+# (default/bash/env-bootstrap), with Omarchy's own fallback.
+: "${OMARCHY_PATH:=/usr/share/omarchy}"
 # Omarchy's package front-end. A name, not a path, and overridable for the same
 # reason as the zsh lookup below: on a real Omarchy box /usr/bin/omarchy-pkg-add
 # is always on PATH, so a test asserting the "this is not Omarchy" refusal has
@@ -122,8 +120,8 @@ done
 # the base system; run against a hand-built Hyprland desktop it would fight
 # that machine's own configuration.
 preflight() {
-    [[ -d $_HYPRCONF_OMARCHY_PATH ]] ||
-        die "no Omarchy found at $_HYPRCONF_OMARCHY_PATH — this overlay installs on top of Omarchy."
+    [[ -d $OMARCHY_PATH ]] ||
+        die "no Omarchy found at $OMARCHY_PATH — this overlay installs on top of Omarchy."
     command -v "$_HYPRCONF_PKG_ADD" >/dev/null 2>&1 ||
         die "$_HYPRCONF_PKG_ADD not on PATH — this overlay installs on top of Omarchy."
 }
@@ -174,7 +172,7 @@ show_banner() {
     [[ -t 1 || -n $_HYPRCONF_ASSUME_TTY ]] || return 0
     local branch="${1:-}"
     [[ -n $branch ]] ||
-        branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+        branch="$(git -C "$HERE" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
     banner "${branch:-unknown}"
 }
 
@@ -258,15 +256,15 @@ strip_managed_block() {
 restore_clobbered_override() {
     local name="$1"
     local ours="$HERE/hypr/$name"
-    local stock="$_HYPRCONF_OMARCHY_PATH/config/hypr/$name"
+    local stock="$OMARCHY_PATH/config/hypr/$name"
     [[ -f $ours && -f $stock ]] || return 0
     cmp -s "$ours" "$stock" || return 0
-    if git -C "$REPO_ROOT" checkout -q -- "hypr/$name" 2>/dev/null && ! cmp -s "$ours" "$stock"; then
+    if git -C "$HERE" checkout -q -- "hypr/$name" 2>/dev/null && ! cmp -s "$ours" "$stock"; then
         warn "hypr/$name in the checkout had been replaced by Omarchy's stock template" \
              "(omarchy refresh writes through the symlink) — restored it from git"
     else
         warn "hypr/$name in the checkout is Omarchy's stock template and could not be" \
-             "restored from git — see: git -C $REPO_ROOT status"
+             "restored from git — see: git -C $HERE status"
     fi
 }
 
@@ -308,7 +306,7 @@ resolve_zsh() {
 
 stage_pull() {
     log "Updating the hyprconf checkout"
-    if ! git -C "$REPO_ROOT" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
+    if ! git -C "$HERE" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
         info "no upstream configured — skipping pull"
         return 0
     fi
@@ -320,7 +318,7 @@ stage_pull() {
     # bash has already read it. The data files every later stage reads (the
     # package list, the zshrc block, bindings.lua) ARE re-read fresh, so only
     # this file's own logic is a version behind. Re-run to pick that up.
-    git -C "$REPO_ROOT" pull --ff-only ||
+    git -C "$HERE" pull --ff-only ||
         die "git pull failed (diverged history?) — resolve it and re-run"
 }
 
@@ -364,14 +362,9 @@ stage_packages() {
 # where a hung prompt would stall the whole update.
 stage_firefox() {
     log "Firefox: Omarchy's installer, plus hyprconf's policy"
-    local src="$REPO_ROOT/infra/firefox/policies.json"
+    local src="$HERE/infra/firefox/policies.json"
     local dst="$_HYPRCONF_FIREFOX_POLICIES/policies.json"
-    local theirs="$_HYPRCONF_OMARCHY_PATH/default/firefox/policies.json"
-    if [[ ! -f $src ]]; then
-        warn "policies source not found ($src) — skipping"
-        return 0
-    fi
-
+    local theirs="$OMARCHY_PATH/default/firefox/policies.json"
     local merged
     merged="$(mktemp)"
     local -a layers=()
@@ -420,10 +413,10 @@ stage_firefox() {
 # ~/.vscode/argv.json (gnome-libsecret), update.mode none in
 # ~/.config/Code/User/settings.json, omarchy-theme-set-vscode, and one
 # `setsid uwsm-app -- gtk-launch code`: it opens VS Code once when it is
-# done, by design, and its exit status is that launch's (no set -e), so the
-# result is read back with omarchy-pkg-present. Arch's `code` (Code - OSS,
-# what v4.0.0–v4.2.0 installed) conflicts with it (pacman -Si
-# visual-studio-code-bin: Conflicts With: code) and omarchy-pkg-add is
+# done, by design, and exits 0 whatever happened (no set -e; the launch is
+# backgrounded), so the result is read back with omarchy-pkg-present. Arch's
+# `code` (Code - OSS, what v4.0.0–v4.2.0 installed) conflicts with it (pacman
+# -Si visual-studio-code-bin: Conflicts With: code) and omarchy-pkg-add is
 # `pacman -S --noconfirm --needed`, which a conflict fails — so Code - OSS
 # goes first, through Omarchy's own remover: omarchy-pkg-drop removes only
 # names `pacman -Qq` lists, with --noconfirm, under sudo. Behind the
@@ -533,6 +526,8 @@ stage_theme() {
     # omarchy-theme-set (Omarchy 4.0.0-1) only needs `-d $USER_THEMES_PATH/<name>`
     # to hold and then `cp -r`s the directory's contents into the staged
     # theme — both follow a symlink, so nothing distinguishes it from a copy.
+    # omarchy-theme-update skips a link (`[[ ! -L ${dir%/} ]]` before its
+    # `git pull`), so `omarchy theme update` never pulls into the checkout.
     ln -sfn "$HERE/themes/dracula" "$link"
 
     # Installed, never activated. Which theme is active is the user's choice,
@@ -540,21 +535,15 @@ stage_theme() {
     # update — must not take it away from them. (`omarchy-theme-set` is no
     # cheap no-op either: it rebuilds the staged theme, swaps symlinks and fans
     # out ~15 restart/retint commands.)
-    local active="$HOME/.local/state/omarchy/current/theme.name"
-    local name=""
-    [[ -r $active ]] && name="$(cat "$active")"
-    if [[ $name == dracula ]]; then
-        info "already the active theme"
-    else
-        info "available in Omarchy's theme menu (SUPER+SHIFT+CTRL+SPACE) — the active theme is left as it is"
-    fi
+    info "available in Omarchy's theme menu (SUPER+SHIFT+CTRL+SPACE) — the active theme is left as it is"
 }
 
 # Omarchy's screensaver starts after 150 s (config/omarchy/shell.json,
-# idle.screensaver); hyprconf's desktop waited a quarter of an hour. Set
+# idle.screensaver); the overlay's timeout is 900 s. Set
 # ONCE — shell.json is the user's file (Omarchy's manual, Dotfiles), and a
 # timeout changed later must stay theirs. Omarchy 4.0.0-1 ships no command
-# for these keys (grep -rl screensaver /usr/share/omarchy/bin finds none;
+# for these keys (`omarchy commands --json` has no route for the timeout and
+# `grep -Rl idle.screensaver /usr/share/omarchy/bin` finds nothing;
 # omarchy-shell-config is a sourced helper, omarchy:hidden=true), so the file
 # is edited the way that helper's commit() does it: jq over the user file —
 # or the shipped defaults when there is none yet — an atomic move, then
@@ -567,13 +556,9 @@ stage_idle() {
         info "already applied once — the timeouts are yours now"
         return 0
     fi
-    command -v jq >/dev/null 2>&1 || {
-        warn "jq not available — will retry on the next run"
-        return 0
-    }
     local json="$HOME/.config/omarchy/shell.json" src
     src="$json"
-    [[ -s $json ]] || src="$_HYPRCONF_OMARCHY_PATH/config/omarchy/shell.json"
+    [[ -s $json ]] || src="$OMARCHY_PATH/config/omarchy/shell.json"
     if [[ ! -f $src ]]; then
         warn "no shell.json to edit ($src) — will retry on the next run"
         return 0
@@ -586,8 +571,7 @@ stage_idle() {
         warn "could not edit $json — will retry on the next run"
         return 0
     fi
-    omarchy-shell shell reloadConfig >/dev/null 2>&1 ||
-        omarchy-shell -q shell rescanPlugins >/dev/null 2>&1 || true
+    omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
     mkdir -p "$(dirname "$marker")"
     : > "$marker"
     info "idle.screensaver = 900 s (edit ~/.config/omarchy/shell.json to change it; lock stays as it is)"
@@ -637,8 +621,7 @@ stage_defaults() {
 # keyed to the ACTIVE theme: that theme's own backgrounds/, and
 # ~/.config/omarchy/backgrounds/<theme>/ (omarchy-theme-bg-next and
 # omarchy-theme-bg-switcher agree on this). A wallpaper filed anywhere else is
-# invisible — which is why hyprconf's gruvbox shot, sitting in hyprconf's own
-# theme directory, never appeared while any other theme was active.
+# invisible.
 #
 # The hyprconf theme's own background (dracula) is NOT here: it ships inside
 # the theme, where Omarchy already finds it.
@@ -672,7 +655,7 @@ stage_backgrounds() {
 # Which font is running is a user-facing choice, and this installer re-runs
 # after every Omarchy update via the post-update hook — without the marker, a
 # font the user picked later would be silently reverted to ours on the next
-# update, exactly the way the theme used to be taken back.
+# update.
 stage_font() {
     log "Font: Geist Mono Nerd Font"
     local marker="$HOME/.local/state/hyprconf/font-applied"
@@ -775,7 +758,7 @@ stage_monitors() {
 migrate_monitors_symlink() {
     local active="$HOME/.config/hypr/monitors.lua"
     local toggle="$HOME/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua"
-    local template="$_HYPRCONF_OMARCHY_PATH/config/hypr/monitors.lua"
+    local template="$OMARCHY_PATH/config/hypr/monitors.lua"
     [[ -L $active ]] || return 0
     local preset restore target
     preset="$(readlink -f "$active" 2>/dev/null || true)"
@@ -809,8 +792,7 @@ stage_fastfetch() {
     # fastfetch reads ~/.config/fastfetch/config.jsonc first, its documented
     # per-user override, so hyprconf's layout is linked there and Omarchy's
     # file is left untouched. A user config already at that path is backed
-    # up first. ~/.zshrc runs it as the shell greeting, exactly as hyprconf's
-    # own .zshrc always has.
+    # up first. ~/.zshrc runs it as the shell greeting.
     local dir="$HOME/.config/fastfetch"
     local target="$dir/config.jsonc"
     mkdir -p "$dir"
@@ -829,7 +811,7 @@ stage_bin() {
     # is substituted the way the hooks get it, for the tools that need the
     # checkout (the Python lib).
     for f in "$HERE"/bin/hyprconf-*; do
-        sed "s|@HYPRCONF_DIR@|$REPO_ROOT|g" "$f" > "$HOME/.local/bin/${f##*/}"
+        sed "s|@HYPRCONF_DIR@|$HERE|g" "$f" > "$HOME/.local/bin/${f##*/}"
         chmod 755 "$HOME/.local/bin/${f##*/}"
     done
     case ":$PATH:" in
@@ -885,7 +867,7 @@ stage_vulkan_gpu() {
 stage_menu() {
     log "Omarchy menu: Proton VPN installer (Install > Service)"
     local file="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
-    local template="$_HYPRCONF_OMARCHY_PATH/config/omarchy/extensions/omarchy-menu.jsonc"
+    local template="$OMARCHY_PATH/config/omarchy/extensions/omarchy-menu.jsonc"
     local begin='  // >>> hyprconf >>>' end='  // <<< hyprconf <<<'
     local entry='  "install.service.protonvpn": {"icon":"󰦝","label":"Proton VPN","when":"! omarchy-pkg-present proton-vpn-gtk-app","action":"omarchy-launch-floating-terminal-with-presentation hyprconf-install-service-protonvpn"},'
 
@@ -1024,17 +1006,13 @@ copy_builtin_plugin() {
 # omarchy-shell reports "is not running"): a TTY run has nothing to wait for.
 activate_plugin_copy() {
     local id="$1" _attempt list
-    shift
     omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
     for (( _attempt = 0; _attempt < _HYPRCONF_PLUGIN_WAIT; _attempt++ )); do
         list="$(omarchy-plugin-list --json 2>/dev/null)" || break
         jq -e --arg id "$id" 'any(.[]; .id == $id)' <<<"$list" >/dev/null 2>&1 && break
         sleep 0.05
     done
-    # A clonedFrom copy takes the stock widget's own slot; anything else
-    # needs telling where to land — the rest of the arguments are
-    # omarchy-plugin-enable's own placement flags (--section/--after/…).
-    omarchy-plugin-enable "$id" "$@" >/dev/null 2>&1
+    omarchy-plugin-enable "$id" >/dev/null 2>&1
 }
 
 # Make the running shell pick changed plugin files up: `omarchy-shell shell
@@ -1081,12 +1059,11 @@ sync_plugin_dir() {
 # the marker unwritten so the next in-session run tries again.
 enable_plugin_once() {
     local id="$1" marker="$HOME/.local/state/hyprconf/$2"
-    shift 2
     if [[ -e $marker ]]; then
         info "enabled once already — \`omarchy plugin disable $id\` sticks"
         return 0
     fi
-    if activate_plugin_copy "$id" "$@"; then
+    if activate_plugin_copy "$id"; then
         mkdir -p "$(dirname "$marker")"
         : > "$marker"
         info "enabled (back to stock with: omarchy plugin disable $id)"
@@ -1173,13 +1150,6 @@ stage_clock() {
         info "already applied once — the clock is yours now"
         return 0
     fi
-    # jq drives the catalog lookup and the manifest rewrite. Omarchy ships
-    # it; if it is somehow absent, retry rather than half-apply.
-    command -v jq >/dev/null 2>&1 || {
-        warn "jq not available — will retry on the next run"
-        return 0
-    }
-
     local id="hyprconf.clock"
     local dir="$HOME/.config/omarchy/plugins/$id"
     copy_builtin_plugin omarchy.clock "$id" "hyprconf Clock" || {
@@ -1207,29 +1177,29 @@ stage_clock() {
     info "seconds tick via the $id widget (back to stock with: omarchy plugin disable $id)"
 }
 
-# Only ACTIVE workspaces on the bar, on two lines, Pac-Man on the focused one
-# — the way hyprconf's own bar always behaved. The stock widget hardcodes
-# pills 1-5 whether they exist or not, caps ids at 10 (bar/widgets/
-# Workspaces.qml, workspaceIds(): "var ids = [1, 2, 3, 4, 5]"), and honors NO
-# settings — `omarchy bar set omarchy.workspaces …` writes keys the widget
-# never reads — so the overlay ships its own widget (plugins/hyprconf-
-# workspaces, header comment there) as a clonedFrom copy: the shell swaps it
-# into the stock widget's slot and routes the stock IPC to it, and `omarchy
-# plugin disable hyprconf.workspaces` restores the stock widget.
+# Only ACTIVE workspaces on the bar, on two lines, Pac-Man on the focused
+# one. The stock widget hardcodes pills 1-5 whether they exist or not, caps
+# ids at 10 (bar/widgets/Workspaces.qml, workspaceIds(): "var ids = [1, 2, 3,
+# 4, 5]"), and honors NO settings — `omarchy bar set omarchy.workspaces …`
+# writes keys the widget never reads — so the overlay ships its own widget
+# (plugins/hyprconf-workspaces, header comment there) as a clonedFrom copy:
+# the shell swaps it into the stock widget's slot and routes the stock IPC to
+# it, and `omarchy plugin disable hyprconf.workspaces` restores the stock
+# widget.
 stage_workspaces() {
     log "Bar workspaces: only active workspaces, two lines (hyprconf.workspaces)"
     sync_plugin_dir hyprconf-workspaces hyprconf.workspaces
     enable_plugin_once hyprconf.workspaces workspaces-applied
 }
 
-# The focused window's title beside the workspaces, as hyprconf's own bar
-# drew it — on TWO lines. Omarchy's stock omarchy.active-window widget is
-# the same thing on one line (elided title, tooltip with the full one, click
-# focuses, middle-click closes) and reads one setting, maxWidth, so the
-# two-line version is the overlay's own copy (plugins/hyprconf-active-window,
-# header comment there): clonedFrom the stock widget, so the shell swaps it
-# into the stock widget's slot and routes the stock IPC to it, and `omarchy
-# plugin disable hyprconf.active-window` restores stock. Synced every run,
+# The focused window's title beside the workspaces, on TWO lines. Omarchy's
+# stock omarchy.active-window widget is the same thing on one line (elided
+# title, tooltip with the full one, click focuses, middle-click closes) and
+# reads one setting, maxWidth, so the two-line version is the overlay's own
+# copy (plugins/hyprconf-active-window, header comment there): clonedFrom the
+# stock widget, so the shell swaps it into the stock widget's slot and routes
+# the stock IPC to it, and `omarchy plugin disable hyprconf.active-window`
+# restores stock. Synced every run,
 # enabled ONCE with no placement of its own: the manifest's defaultSection
 # is left, and the shell anchors a left-section widget right after
 # omarchy.workspaces — resolved to hyprconf.workspaces while that copy is on
@@ -1289,7 +1259,7 @@ stage_hooks() {
         type="$(basename "$(dirname "$src")")"
         type="${type%.d}"
         file="$tmp/${src##*/}"
-        sed "s|@HYPRCONF_DIR@|$REPO_ROOT|g" "$src" > "$file"
+        sed "s|@HYPRCONF_DIR@|$HERE|g" "$src" > "$file"
         if command -v omarchy-hook-install >/dev/null 2>&1; then
             omarchy-hook-install "$type" "$file" >/dev/null ||
                 warn "omarchy-hook-install $type ${src##*/} failed"
@@ -1384,11 +1354,9 @@ main() {
     [[ -d $HERE/hypr && -f $HERE/packages ]] || bootstrap "${orig_args[@]}"
     show_banner
     preflight
-    if (( do_pull ));     then stage_pull; fi
-    if (( do_packages )); then stage_packages; fi
-    # Firefox (Omarchy's installer + the policy) and VS Code sit behind the
-    # same gate — sudo, all of them.
-    if (( do_packages )); then stage_firefox; stage_editor; fi
+    if (( do_pull )); then stage_pull; fi
+    # Everything that needs sudo: packages, Firefox (+ the policy), VS Code.
+    if (( do_packages )); then stage_packages; stage_firefox; stage_editor; fi
     # After the package stage, never before it — see resolve_zsh.
     resolve_zsh
     stage_terminal

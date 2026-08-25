@@ -4,7 +4,7 @@
   "name": "Resource Usage",
   "version": "1.0.0",
   "author": "hyprconf",
-  "description": "CPU/temp/memory/GPU/network readout, ported from hyprconf's quickshell bar",
+  "description": "CPU/temp/memory/GPU/network readout",
   "kinds": [
     "bar-widget"
   ],

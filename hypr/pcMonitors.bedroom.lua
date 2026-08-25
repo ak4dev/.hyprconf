@@ -1,4 +1,4 @@
--- Bedroom monitor preset (Lua). Apply manually: `hyprconf-monitor-preset bedroom`.
+-- Bedroom monitor preset: `hyprconf-monitor-preset bedroom` (SUPER+SHIFT+B). See https://wiki.hypr.land/Configuring/Basics/Monitors/
 -- Output names verified against this desk's `hyprctl monitors all`: the LG TV
 -- enumerates as HDMI-A-2, the kitchen pair (off in this layout) as DP-4/DP-5,
 -- and the small secondary panel as DP-6.

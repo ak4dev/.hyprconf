@@ -7,10 +7,9 @@ Two separate reasons: the overlay's configs (hypr/, kitty/, zsh/, plugins/ …)
 are installed into any user's $HOME, so a hardcoded path is broken on every
 other machine; and the repo is published, so a name in it is published too.
 
-Scope is deliberately the WHOLE repository. An earlier version of this file
-scanned only the shipped config trees, and only for path-shaped leaks — so a
-bare username sitting in a test fixture under tests/ went unseen. A guard that
-covers part of the tree teaches you to trust it everywhere.
+Scope is deliberately the WHOLE repository — a bare username in a test
+fixture is as published as one in a config, and a guard that covers part of
+the tree teaches you to trust it everywhere.
 
 The identities being searched for are derived from the environment at runtime
 and never written down here: hard-coding the name would commit the very thing
@@ -90,7 +89,7 @@ def _repo_files() -> list[Path]:
 
     A directory walk rather than `git ls-files`: the scan then needs no git
     and no ownership trust — in CI the workspace belongs to another uid and a
-    root-run git refuses it, which used to skip this guard silently.
+    root-run git refuses it.
     """
     out: list[Path] = []
     for path in sorted(REPO_ROOT.rglob("*")):

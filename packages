@@ -26,24 +26,12 @@ zsh
 zsh-autosuggestions
 zsh-syntax-highlighting
 
-# Keybind dependencies — hypr/bindings.lua launches these and a fresh
-# Omarchy ships none of them.
-#
-# hyprshot was here for SUPER+SHIFT+4. That key now calls Omarchy's own
-# `omarchy-capture-screenshot region`, which freezes the screen the same way
-# (hyprpicker -r -z) and adds the click-to-edit notification back.
-#
-# playerctl was here for the media keys. Those now go to Omarchy's own
-# `omarchy-shell media`, and nothing else wants it: no Omarchy binary invokes
-# playerctl, and its shell only matches the *string* "playerctld" as a D-Bus
-# name to recognise that player. An orphan package is not a free one.
-#
-# firefox (SUPER+F) and VS Code (SUPER+C) are NOT here: they go in through
-# Omarchy's own installers, `omarchy-install-browser firefox` and
+# Hotkey dependencies: none. Every key in hypr/bindings.lua runs an Omarchy
+# command (screenshots, media keys, nautilus, lock, menu) or a bin/hyprconf-*
+# tool. Firefox (SUPER+F) and VS Code (SUPER+C) go in through Omarchy's own
+# installers, `omarchy-install-browser firefox` and
 # `omarchy-install-editor-vscode` (install.sh: stage_firefox, stage_editor),
-# which set up what a bare package would not (Firefox's Wayland env and prefs;
-# VS Code's keyring, update and theme settings). visual-studio-code-bin comes
-# from Omarchy's own [omarchy] pacman repository, through that installer only.
-#
-# NB: SUPER+E is deliberately NOT dolphin here — it is repointed at Omarchy's
-# own nautilus rather than pulling a chunk of KDE onto an Omarchy system.
+# which set up what a bare package would not (Firefox's Wayland env and
+# prefs; VS Code's keyring, update and theme settings); visual-studio-code-bin
+# comes from Omarchy's own [omarchy] pacman repository, through that installer
+# only.

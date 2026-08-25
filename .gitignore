@@ -6,6 +6,3 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
-
-# `coverage run` output (config in pyproject.toml)
-.coverage

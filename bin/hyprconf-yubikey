@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # hyprconf-yubikey — unlock the LUKS2 root at boot with a FIDO2 key (YubiKey).
 #
-# Port of the retired hyprconf suite's yubikey-fido2-setup, cut down to the one
-# job Omarchy has no tool for: enrolling a FIDO2 token into the LUKS2 root via
-# systemd-cryptenroll and switching the initramfs so it can use it at boot.
-# The other half of the old tool — FIDO2 for sudo and polkit through pam_u2f —
+# The one job Omarchy has no tool for: enrolling a FIDO2 token into the LUKS2
+# root via systemd-cryptenroll and switching the initramfs so it can use it at
+# boot. The other half — FIDO2 for sudo and polkit through pam_u2f —
 # IS an Omarchy command (/usr/share/omarchy/bin/omarchy-setup-security-fido2,
 # route `omarchy setup security fido2`), so `hyprconf-yubikey sudo` hands over
 # to it. Checked on Omarchy 4.0.0-1: `omarchy commands --json` has no route
@@ -95,6 +94,9 @@
 #
 # Paths are env-overridable (never read-only) so the hermetic suite points them
 # at tmp copies; every external command is a recording stub on PATH there.
+#
+# No errexit (`-e`): each step reports its own failure through die/warn with
+# what it means for the boot config; an unexplained abort half-way is worse.
 set -uo pipefail
 
 : "${_HYPRCONF_LIMINE_DEFAULT:=/etc/default/limine}"
@@ -357,8 +359,8 @@ install_libfido2() {
     omarchy-pkg-add libfido2 || die "could not install libfido2 (omarchy-pkg-add libfido2)"
 }
 
-# Like omarchy-setup-security-fido2's check_fido2_hardware, plus the retired
-# tool's plug-it-in retry on a terminal (three tries).
+# Like omarchy-setup-security-fido2's check_fido2_hardware, plus a plug-it-in
+# retry on a terminal (three tries).
 wait_for_token() {
     local tries=0 tokens
     while :; do

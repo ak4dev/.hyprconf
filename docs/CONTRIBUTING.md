@@ -1,9 +1,8 @@
 # Contributing to hyprconf
 
-hyprconf is an overlay for [Omarchy](https://omarchy.org) — `README.md` opens
-with the contract. Read [`AGENTS.md`](../AGENTS.md) first — its rules (use
-Omarchy's own tools, never work from memory about Omarchy, the package rule,
-no PII, hermetic tests) bind every change.
+Read [`AGENTS.md`](../AGENTS.md) first — its rules bind every change;
+`README.md` is the user contract. This file holds the tree, the tests, the
+publish flow and the website upload.
 
 ## Repository Layout
 
@@ -27,7 +26,7 @@ no PII, hermetic tests) bind every change.
 │   ├── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
 │   ├── hyprconf-stats          #   cpu/mem/net/temp JSON stream for the bar widget
 │   ├── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop or AMD sysfs)
-│   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (enroll/disable/remove/status); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
+│   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
 │   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU via uwsm env.d (status/prompt/fix/alt/ignore/remove)
 │   ├── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)
 │   └── hyprconf-install-service-protonvpn  # Proton VPN via omarchy-pkg-add; run by the menu row stage_menu adds
@@ -54,40 +53,36 @@ no PII, hermetic tests) bind every change.
 ├── docs/                       # This file, hyprland-reference.md, quickshell-reference.md
 ├── .github/                    # CI workflow
 ├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg, screenshot.svg (placeholder shown by the README and the page)
-├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff/coverage config
-├── .editorconfig, .gitignore   # Editor indent/EOL defaults per file type; caches and artefacts git ignores
+├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff config
+├── .gitignore                  # Python caches, `.vscode/` and editor swap files git ignores
 └── AGENTS.md, README.md
 ```
 
-Files the installer writes live in `$HOME` only (plus the Firefox policy under
-`/etc/firefox/policies/`; Firefox and VS Code themselves are installed by
-Omarchy's own `omarchy-install-browser` / `omarchy-install-editor-vscode`). The
-`hypr/*.lua` override files are **symlinked** into `~/.config/hypr/`, so the
-checkout's copies are the live files — edit them there and re-run `bash install.sh`.
+What reaches a user's machine, and how, is `README.md` › Repository layout.
+The `hypr/*.lua` override files are **symlinked** into `~/.config/hypr/` — the
+checkout's copies are the live files (`AGENTS.md` › Live files).
 
 ---
 
 ## Testing
 
-Two suites, both hermetic — no Hyprland or Omarchy shell, no host tool that
-touches the desktop, no real `$HOME`. They run in an `archlinux:latest` container in CI, as root.
-There are no VM or install suites: behaviour that needs a live Omarchy session
-is verified by hand and recorded in the commit message.
+Two suites, both hermetic (the contract is in `AGENTS.md` › Tests); CI runs
+them in an `archlinux:latest` container, as root.
 
 ```
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
-│   ├── test_config_exec_targets.py  # every hyprconf-* command and ~/-anchored path a shipped config references ships
+│   ├── test_config_exec_targets.py  # every hyprconf-* command a shipped hypr/*.lua binds ships in bin/, bound by name
 │   ├── test_firefox.py           #   infra/firefox/policies.json; the merge is a superset of the installed Omarchy policy (read-only; the install suite's fixture of it elsewhere)
 │   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + the template's render
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
-│   ├── test_hypr_overrides.py    #   hypr/*.lua state the deltas the README promises (Steam tiled …), restate none of Omarchy's binds, use its launcher idiom
-│   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, workspace rehoming, hyprlang refusal)
-│   ├── test_no_pii.py            #   every tracked file, identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, monitors.lua migration …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
+│   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom
+│   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, workspace rehoming)
+│   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
+│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, monitors.lua migration …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
 │   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
-│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; the limine drop-in, /etc/default/limine read-only, the v4.0.0–v4.2.0 inline-parameter migration; real shellcheck on the mkinitcpio drop-in)
+│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; the limine drop-in, /etc/default/limine read for the mapper and rewritten only by the v4.0.0–v4.2.0 inline-parameter migration; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias finds a relocated checkout
 └── integration/
     └── test_publish_pipeline.py  #   scripts/publish --help, --dry-run and the real promotion against a throwaway bare origin
@@ -99,10 +94,6 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 make test                # both suites in parallel (pytest -n auto)
 make test-unit
 make test-integration
-make test-seq            # both suites sequentially (clearer output)
-
-# Coverage (optional, local only — needs python-pytest-cov; config in pyproject.toml)
-pytest tests/unit/ tests/integration/ --cov=hyprconf --cov-report=term-missing
 
 # Lint gates
 make lint                # ruff check + ruff format --check
@@ -112,71 +103,59 @@ make clean
 ```
 
 Python deps for the suite: `python-pytest`, `python-pytest-xdist` (official
-repos). `jq`, `shellcheck`, `luac`, `qmllint` and `git` are used real by the
-tests that need them and skipped when absent — CI installs `jq`, `shellcheck`,
-`lua` and `qt6-declarative` (`qmllint`, under `/usr/lib/qt6/bin`) so none of
+repos). `jq`, `shellcheck`, `luac` and `qmllint` are used real by the tests
+that need them and skipped when absent; `git` is required — CI installs `git`,
+`jq`, `shellcheck`, `lua` and `qt6-declarative` (`qmllint`, under `/usr/lib/qt6/bin`) so none of
 those skip there, plus `diffutils` for the `cmp` `install.sh` runs (Omarchy has
-it through mkinitcpio; the bare `archlinux:latest` container does not). The
-one test CI does skip is `test_installed_plugins_pass_omarchy_plugin_validate`
-(it needs the installed `/usr/share/omarchy/bin/omarchy-plugin-validate`,
-which no package provides in the container); it runs on every Omarchy box.
-Every other test runs in CI — a second skip there is a regression.
+it through mkinitcpio; the bare `archlinux:latest` container does not). The one
+test that skips in CI, and the recipe that reproduces CI, are in `AGENTS.md` ›
+Gates and CI.
 
 ### Writing hermetic tests
 
 - Every path a script reads is under `$HOME` (relocated wholesale by the
-  suite) or behind an env seam — `_HYPRCONF_*` in `install.sh` for binaries and
-  non-`$HOME` paths (`OMARCHY_PATH`, `PKG_ADD`, `ZSH_BIN`, `ZSH`, `KITTY_BIN`,
-  `FIREFOX_POLICIES`, `ASSUME_TTY`, `PLUGIN_WAIT`), `_HYPRCONF_*` in
+  suite) or behind an env seam — in `install.sh`, `OMARCHY_PATH` (Omarchy's own
+  variable, not `_HYPRCONF_*`) for the Omarchy tree and `_HYPRCONF_*` for
+  binaries and the other non-`$HOME` paths (`PKG_ADD`, `ZSH_BIN`, `ZSH`,
+  `KITTY_BIN`, `FIREFOX_POLICIES`, `ASSUME_TTY`, `PLUGIN_WAIT`); `_HYPRCONF_*` in
   `bin/hyprconf-yubikey` for the boot files it reads and writes (`MKINITCPIO_D`,
   `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `LIMINE_ENTRY_CONF`, `LIMINE_USR_D`,
-  `FIDO2_DROPIN`, `VCONSOLE`, `MACHINE_ID`, `EFI_DIR`, …),
+  `FIDO2_DROPIN`, `INITCPIO_INSTALL`, `MODULES_DIR`, `VCONSOLE`, `MACHINE_ID`,
+  `EFI_DIR`);
   `_HYPRCONF_*` in `bin/hyprconf-vulkan-gpu` for the sysfs trees and env
   files it reads (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`, `UWSM_ENV_D`, `UWSM_ENV`,
   `ENVIRONMENT_D`, `STATE`, `ASSUME_TTY`),
   `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders — pointed at
   `tmp_path`. Never make such a variable `readonly`.
-- Every command that could touch the desktop or the system — `omarchy-*`,
-  `hyprctl`, `sudo`, `chsh`, `fc-list`, `systemd-cryptenroll`, `limine-update`,
-  `gum`, `vulkaninfo` (it would answer for the host's GPUs), `git clone`/`pull` …
-  — is **always** a fake bin first on `PATH`; a test must
-  never reach a real binary that changes the desktop. `/usr/bin` carries a
-  copy of every `omarchy-*` command (426 on Omarchy 4.0.0-1), so a PATH of
-  fakes plus `/usr/bin` does not keep the real ones out: stub every
-  `omarchy-*` the code path can call (`_setup` in `test_omarchy_install.py`
-  lists the installer's; `test_firefox_theme.py` stubs Omarchy's three theme
-  commands to prove the Firefox bridge calls none of them). Pure tools are real when
-  present and the test skips otherwise: `jq`, `luac`, `qmllint`, `cp`, `python3`,
-  `shellcheck`, `/usr/share/omarchy/bin/omarchy-plugin-validate` (reads a
-  manifest, changes nothing), and `git` `init`/`add`/`commit`/`checkout` — plus, for the curl-path tests, a
-  `clone` whose source is a local directory — inside a throwaway clone under
-  `tmp_path`; never the repository the suite runs from. A test that reads a
-  file of the installed Omarchy falls back to a fixture of it instead of
-  skipping (`test_firefox.py` reuses the install suite's `OMARCHY_FIREFOX_POLICY`
-  and, with Omarchy present, checks the fixture against the real file). Never invoke `pacman`
-  (it exists in the container). `tests/unit/test_omarchy_install.py` shows the
-  pattern: fake `omarchy-*` binaries that record their calls, a throwaway
-  `HOME`, and assertions about what the installer must *not* do.
-- CI runs as root, which bypasses DAC checks — reproduce permission-sensitive
-  tests with `unshare -r python -m pytest <file>`.
-- `tests/unit/test_no_pii.py` scans every tracked file for the login name, home
-  directory, hostname and git email, derived at runtime. Use `~`, `$HOME`,
-  `testuser` in fixtures.
-- Never weaken a test to get green: an intended behaviour change updates the
-  test to the new contract, in the same commit, and says so.
+- The fake bins (`AGENTS.md` › Tests): `omarchy-*`, `hyprctl`, `sudo`, `chsh`,
+  `fc-list`, `systemd-cryptenroll`, `limine-update`, `gum`, `vulkaninfo` (it
+  would answer for the host's GPUs), `git` (a clone only makes its directory —
+  the curl-path tests let a clone of a local directory run the real git — and
+  a pull is a no-op; the real git otherwise runs only inside a throwaway
+  checkout under `tmp_path`, never the repository the suite runs from) …
+  `/usr/bin` carries
+  every `omarchy-*` command (426 on Omarchy 4.0.0-1), so a PATH of fakes plus
+  `/usr/bin` keeps none of them out: stub every one the code path can call
+  (`_setup` in `test_omarchy_install.py` lists the installer's;
+  `test_firefox_theme.py` stubs the three theme commands to prove the Firefox
+  bridge calls none). Real when present, skipped otherwise: `jq`, `luac`,
+  `qmllint`, `shellcheck`, `sh`, `/usr/share/omarchy/bin/omarchy-plugin-validate`
+  (reads a manifest, changes nothing) and, for the one test that builds a PATH
+  without `gum` (`test_vulkan_gpu.py`), `bash`, `awk`, `grep`, `sed`,
+  `readlink`, `cat`, `mkdir`, `rm`.
+  A test that reads a file of the installed Omarchy falls back to a
+  fixture instead of skipping (`test_firefox.py` reuses `OMARCHY_FIREFOX_POLICY`
+  and, with Omarchy present, checks it against the real file). Never invoke
+  `pacman` (it exists in the container).
 
 ### CI
 
-`.github/workflows/test.yml` runs two jobs on every push and PR, both inside
-`archlinux:latest`: **Lint** (`make shellcheck` + `make lint`) and **Unit +
-Integration** (`make test`). Both must be green before a publish. Reproduce
-the test job in the same container before a push (`docker` works the same):
-
-```bash
-podman run --rm -v "$PWD":/repo -w /repo archlinux:latest bash -c \
-  'pacman -Syu --noconfirm --needed git make python python-pytest python-pytest-xdist jq shellcheck diffutils lua qt6-declarative &&
-   make test'
-```
+`.github/workflows/test.yml` runs two jobs on every push and PR to any branch,
+both inside `archlinux:latest` as root, in a runner-owned workspace with no
+git-trust step: **Lint** (`make shellcheck` + `make lint`) and **Unit +
+Integration** (`make test`, the target `scripts/publish` gates on). Both must
+be green before a publish; the container recipe that reproduces them is in
+`AGENTS.md` › Gates and CI.
 
 ---
 
@@ -186,6 +165,8 @@ podman run --rm -v "$PWD":/repo -w /repo archlinux:latest bash -c \
 |--------|---------|
 | `dev` | All active development |
 | `stable` | What users clone; written only by `scripts/publish` |
+
+No other branch exists: the former `omarchy` branch is retired.
 
 ## Publishing to stable
 
@@ -198,11 +179,11 @@ bash scripts/publish            # from a clean, pushed `dev` checkout
 3. Test suites: `make test`
 4. Bumps the version in `lib/hyprconf/__init__.py`, commits it and pushes the commit to `origin/dev` (after the suite is green)
 5. Creates the annotated tag `v<version>` and promotes `HEAD` to `origin/stable`
-6. **By hand, right after — upload `stable`'s `install.sh` and invalidate
-   CloudFront** (the objects under "Updating the website" below), before
-   anything points users at `bash <(curl -fsSL hyprconf.sh)`: `scripts/publish`
-   deploys nothing, so until that upload `hyprconf.sh` keeps serving the
-   previous release's `install.sh` to curl — whatever that file does.
+6. **When the user asks for a deploy, right after: upload `stable`'s
+   `install.sh` and invalidate CloudFront** (the objects under "Updating the
+   website" below). `scripts/publish` deploys nothing, so until that upload
+   `hyprconf.sh` keeps serving the previous release's `install.sh` to curl —
+   whatever that file does.
 
 Nothing is packaged: users `git clone -b stable`, so the promoted branch is the release.
 
@@ -227,9 +208,13 @@ that routes on the User-Agent: browsers get the `index.html` object, `curl` and
 `wget` get the `install.sh` object — which is what makes
 `bash <(curl -fsSL hyprconf.sh)` work. That router is existing infrastructure
 outside this repo, managed by hand; there is no deploy tooling (`aws` comes
-from `omarchy-pkg-add aws-cli-v2`, an official `extra` package). Four objects,
-and the `install.sh` one must be the **`stable`** branch's — upload it after
-`scripts/publish`, never the `dev` copy:
+from `omarchy-pkg-add aws-cli-v2`, an official `extra` package), and the upload
+happens only when the user asks for a deploy. Four objects, and the `install.sh`
+one must be the **`stable`** branch's — upload it after `scripts/publish`, never
+the `dev` copy. The page itself is fixed in shape: the `assets/banner.svg` art
+as the brand (inline SVG, never scrolls), a tiling glyph and a `user@omarchy`
+prompt on the install block, one centred GitHub button, compact, no JS and no
+external requests:
 
 | Key | Source | Content-Type |
 |---|---|---|

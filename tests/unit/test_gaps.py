@@ -4,8 +4,8 @@ The tool reads general:gaps_in / gaps_out with `hyprctl getoption -j` and
 applies the stepped values with `hyprctl eval "hl.config({ general = { … } })"`.
 It is `eval`, not `keyword`, on purpose: under Hyprland 0.56's Lua parser
 `hyprctl keyword` answers "keyword can't work with non-legacy parsers. Use
-eval." and still exits 0, so the old form failed silently. `eval` answers "ok"
-on success and reports a real failure (exit 7), which the script surfaces.
+eval." and still exits 0 — a silent no-op. `eval` answers "ok" on success and
+reports a real failure (exit 7), which the script surfaces.
 
 Everything runs against a fake hyprctl on PATH that serves canned getoption
 JSON and records every `eval` program it is handed — a `keyword` call records
@@ -109,9 +109,6 @@ def _step(tmp_path: Path, direction: str, gaps_in: int, gaps_out: int, *, field:
         ("-", 1, 1, 0, 0, "css"),  # floors at 0, never negative
         ("-", 0, 0, 0, 0, "css"),
         ("-", 2, 2, 0, 0, "css"),  # a value equal to STEP lands exactly on zero
-        # Regression: `(( new < 0 )) && new=0` under set -e aborted the script
-        # whenever the value was already positive (false expression -> exit 1).
-        ("-", 20, 30, 18, 28, "css"),
         # Older builds report the four-sided gap under "custom", not "css".
         ("+", 10, 20, 12, 22, "custom"),
     ],

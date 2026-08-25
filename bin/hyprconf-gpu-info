@@ -6,10 +6,8 @@ set -euo pipefail
 # per monitor, and the widget starts its Process per instance the way
 # Omarchy's own KeyboardLayout.qml / SystemUpdate.qml do).
 #
-# The old one-shot version was respawned by a 2s timer: bash + nvidia-smi +
-# 2×awk + printf per tick ≈ 33 ms of process churn every poll, with nvidia-smi
-# opening a fresh NVML session each time. Streaming keeps ONE nvidia-smi
-# (`--loop` mode, persistent session) piped through ONE awk; the AMD path is a
+# Streaming keeps ONE nvidia-smi (`--loop` mode, one NVML session) piped
+# through ONE awk instead of a process tree per poll; the AMD path is a
 # pure-bash sysfs loop with paths resolved once.
 #
 # Contract (the widget owns the layout and glyphs; this feeder is data only):

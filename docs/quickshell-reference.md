@@ -5,7 +5,7 @@
 > (`hyprconf.workspaces`, `clonedFrom` `omarchy.workspaces`) and `plugins/hyprconf-active-window/`
 > (`hyprconf.active-window`, `clonedFrom` `omarchy.active-window`) — and the one copy of a
 > stock plugin `install.sh` makes, `hyprconf.clock`.
-> Verified against Omarchy 4.0.0 (`/usr/share/omarchy/shell/`) and the installed
+> Verified against Omarchy 4.0.0-1 (`/usr/share/omarchy/shell/`) and the installed
 > Quickshell qmltypes (`/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, quickshell-git
 > 0.3.0). **Re-verify against both after every Omarchy or Quickshell upgrade** —
 > the shell contract and Quickshell's API both change between minor versions.
@@ -33,30 +33,28 @@ per-widget settings live in the `bar:` subtree of `~/.config/omarchy/shell.json`
 
 ## Manifest
 
-Every plugin ships `manifest.json` (contract in `shell/README.md`). The resources one:
+Every plugin ships `manifest.json` (contract in `shell/README.md`). The keys the
+resources one (`plugins/hyprconf-resources/manifest.json`) relies on:
 
 ```json
 {
   "schemaVersion": 1,
   "id": "hyprconf.resources",
-  "name": "Resource Usage",
-  "version": "1.0.0",
-  "author": "hyprconf",
-  "description": "CPU/temp/memory/GPU/network readout, ported from hyprconf's quickshell bar",
   "kinds": ["bar-widget"],
   "entryPoints": { "barWidget": "Widget.qml" },
   "barWidget": {
     "displayName": "Resource Usage",
-    "description": "CPU/temp/memory/GPU/network readout",
     "category": "System",
+    "defaultSection": "right",
     "allowMultiple": false
   }
 }
 ```
 
-Optional `barWidget` keys: `defaultSection`, `defaults` (per-widget settings the
-widget reads via `setting()`), `schema` (what `omarchy bar set` accepts). Validate
-with `omarchy plugin validate <plugin-folder>`.
+`defaultSection` is what places `hyprconf.resources` on an enable with no
+placement flag (`stage_bar_plugin` passes none). Other optional `barWidget` keys:
+`defaults` (per-widget settings the widget reads via `setting()`), `schema` (what
+`omarchy bar set` accepts). Validate with `omarchy plugin validate <plugin-folder>`.
 
 ### Copies of built-in widgets (`clonedFrom`)
 

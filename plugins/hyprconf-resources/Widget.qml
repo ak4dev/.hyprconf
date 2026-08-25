@@ -1,5 +1,4 @@
-// CPU / RAM / net and GPU / VRAM readout, ported from hyprconf's retired
-// quickshell bar. Two aligned lines:
+// CPU / RAM / net and GPU / VRAM readout. Two aligned lines:
 //
 //     <cpu>  <thermo>41°   3%   <mem> 12.7/94.2G   ↑ 12.3kB/s
 //     <gpu>  <thermo>36°   7%   <mem>  2.3/32.6G   ↓ 1.2MB/s
@@ -24,8 +23,8 @@
 // (nf-fa-microchip U+F2DB), expansion card (nf-md-expansion_card U+F08AE),
 // memory (nf-md-memory U+F061A) and the thermometer (nf-md-thermometer
 // U+F050F — a solid Material Design glyph; the Weather-Icons one at U+E350
-// the old feeder used is an outline that renders as a hairline at caption
-// size, i.e. invisible). All four verified present in GeistMono Nerd Font
+// is an outline that renders as a hairline at caption size, i.e. invisible).
+// All four verified present in GeistMono Nerd Font
 // (fc-list ':charset=…'), Omarchy's default bar font.
 //
 // Omarchy's Color singleton only exposes semantic roles (foreground, accent,

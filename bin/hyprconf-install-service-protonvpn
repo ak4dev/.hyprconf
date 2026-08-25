@@ -8,9 +8,6 @@
 # AUR. No `systemctl enable` and no group: proton-vpn-daemon's proton.VPN
 # service is D-Bus-activated (me.proton.vpn.split_tunneling.service), so
 # there is nothing to enable and no reboot to wait for.
-#
-# omarchy:summary=Install Proton VPN (GTK app + CLI) from the official repos
-# omarchy:requires-sudo=true
 set -euo pipefail
 
 echo "Installing Proton VPN..."

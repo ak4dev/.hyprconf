@@ -140,7 +140,6 @@ if [[ "$SKIP_TESTS" == true ]]; then
 else
   make test 2>&1 || die "Tests failed — fix before publishing."
   ok "Unit + integration suites passed"
-  ok "All tests passed"
 fi
 
 # Suite is green — now bump the version and cut the tag from the tested HEAD.

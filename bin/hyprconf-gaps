@@ -50,9 +50,9 @@ else
 fi
 
 # `hyprctl keyword` is dead on Hyprland 0.56+: with the Lua parser it answers
-# "keyword can't work with non-legacy parsers. Use eval." AND STILL EXITS 0, so
-# the old call failed silently and these keys did nothing at all. `eval` runs
-# the same Lua the config does, and it does report failure (exit 7).
+# "keyword can't work with non-legacy parsers. Use eval." AND STILL EXITS 0 —
+# a silent no-op. `eval` runs the same Lua the config does and reports
+# failure (exit 7).
 if ! out="$(hyprctl eval "hl.config({ general = { gaps_in = $new_in, gaps_out = $new_out } })" 2>&1)" ||
    [[ "$out" != ok ]]; then
     printf 'hyprconf-gaps: %s\n' "$out" >&2
