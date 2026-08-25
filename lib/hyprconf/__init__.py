@@ -1,3 +1,3 @@
 """hyprconf — the Omarchy overlay's version and its Firefox theme bridge (firefox_theme)."""
 
-__version__ = "4.2.0"
+__version__ = "5.0.0"
