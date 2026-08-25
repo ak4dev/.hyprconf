@@ -46,7 +46,7 @@ publish flow and the website upload.
 ├── fastfetch/config.jsonc      # Greeting layout
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 ├── hooks/theme-set.d/10-hyprconf     # Runs firefox_theme.py after every omarchy theme set
-├── infra/firefox/policies.json # System Firefox privacy policy, installed merged over Omarchy's default/firefox/policies.json
+├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
 │
 ├── tests/                      # Unit + integration (see below)
 ├── scripts/publish             # Lint + test → promote dev → stable
@@ -73,7 +73,7 @@ them in an `archlinux:latest` container, as root.
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
 │   ├── test_config_exec_targets.py  # every hyprconf-* command a shipped hypr/*.lua binds ships in bin/, bound by name
-│   ├── test_firefox.py           #   infra/firefox/policies.json; the merge is a superset of the installed Omarchy policy (read-only; the install suite's fixture of it elsewhere)
+│   ├── test_firefox.py           #   infra/firefox/policies.json: the captured settings, both force-installed extensions, every pref against Firefox's own allowlist, and the merge as a superset of the installed Omarchy policy (read-only; the install suite's fixture of it elsewhere)
 │   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + the template's render
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom

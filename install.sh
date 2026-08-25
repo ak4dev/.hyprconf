@@ -347,15 +347,25 @@ stage_packages() {
 # ~/.config/environment.d/ — every step idempotent, and nothing is launched.
 # Run only when omarchy-pkg-present firefox fails.
 #
-# The policy — telemetry off, tracking protection on, uBlock Origin
-# force-installed — lives at /etc/firefox/policies/policies.json: Firefox
-# reads enterprise policies only from root-owned paths, and that one takes
-# precedence over the distribution/ file Omarchy writes, which would shadow
-# Omarchy's own prefs (VA-API, fractional scaling, overscroll). So the file
-# installed is a superset: Omarchy's $OMARCHY_PATH/default/firefox/
-# policies.json merged UNDER infra/firefox/policies.json (jq `*` is a
-# recursive object merge — a shared "Preferences" keeps both sides, and ours
-# wins on the same key), written only when the merged bytes differ. The
+# The policy — telemetry off, tracking protection on, uBlock Origin and
+# Proton Pass force-installed, DuckDuckGo the default engine, and the UI
+# settings this config carries (compact density, vertical tabs, a bare
+# Firefox Home, DRM playback on) — lives at /etc/firefox/policies/
+# policies.json: Firefox reads enterprise policies only from root-owned
+# paths, and that one takes precedence over the distribution/ file Omarchy
+# writes, which would shadow Omarchy's own prefs (VA-API, fractional
+# scaling, overscroll). So the file installed is a superset: Omarchy's
+# $OMARCHY_PATH/default/firefox/policies.json merged UNDER
+# infra/firefox/policies.json (jq `*` is a recursive object merge — a shared
+# "Preferences" keeps both sides, and ours wins on the same key), written
+# only when the merged bytes differ. Every captured pref is a Status
+# "default": it seeds a profile and the user can still change it. Firefox
+# silently drops any pref outside its own allowlist, so
+# tests/unit/test_firefox.py pins that list — the two settings no policy can
+# make stick (the find bar's Highlight All, which that allowlist rejects; the
+# exact toolbar order, whose browser.uiCustomization.state it accepts and
+# CustomizableUI then rewrites on every start) are left to the user, in
+# README › Firefox settings. The
 # overlay's one write outside $HOME, hence behind the --no-packages gate with
 # the other sudo work; it bows out when no terminal can take sudo's password
 # prompt — the post-update hook runs non-interactively inside omarchy-update,
