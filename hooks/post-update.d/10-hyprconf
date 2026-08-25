@@ -28,6 +28,7 @@ readonly HYPRCONF_DIR="@HYPRCONF_DIR@"
 }
 
 # --no-update is the recursion guard proper: this ran FROM omarchy-update.
-# --no-packages keeps `sudo pacman` out of an update that may still hold the
-# pacman lock, and stops an unattended run blocking on a password prompt.
+# --no-packages keeps every sudo stage — packages, Firefox and its policy,
+# VS Code — out of an update that may still hold the pacman lock, and stops
+# an unattended run blocking on a password prompt.
 exec bash "$HYPRCONF_DIR/install.sh" --no-update --no-packages

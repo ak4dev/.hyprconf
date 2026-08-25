@@ -2,36 +2,46 @@
 
 Verifies:
 - enroll: read-only preflight (Omarchy's tools, the keyboard-layout guard, the
-  LUKS2-only device pick, the cmdline parse) BEFORE the --yes/TTY confirmation,
+  LUKS2-only device pick, the cmdline read) BEFORE the --yes/TTY confirmation,
   and nothing — not even omarchy-pkg-add — before it; then snapshot,
   systemd-cryptenroll with the FIDO2 flags, the mkinitcpio drop-in, the
-  rd.luks.* parameters added once next to a kept cryptdevice=, a .bak.<epoch>
-  backup before the first edit, one limine-update rebuild, and the rebuilt
-  image found on the ESP before success is announced
+  limine-entry-tool drop-in with the exact rd.luks.* line (Omarchy's own
+  KERNEL_CMDLINE[default]+=" ..." shape, the way omarchy-hibernation-setup
+  writes resume.conf), /etc/default/limine byte-identical, no .bak file, one
+  limine-update rebuild, and the rebuilt image found on the ESP before success
+  is announced
 - every KERNEL_CMDLINE[default] shape /etc/limine-entry-tool.conf documents
   (quoted, bare with inner quotes, comment after the quotes, single quotes,
-  = and +=, pre-existing rd.luks.* for this and other devices) — the exact
-  resulting line after enroll and after disable — and the shapes refused
-- the mapper name comes from the edited line alone (cryptdevice= cross-checked
+  blanks inside the quotes, pre-existing rd.luks.* of other devices) is READ
+  for the mapper name and left byte-identical; the shapes refused (a line the
+  tool cannot read with certainty, a plain `=` that would override the drop-in,
+  a competing rd.luks.options= for the device)
+- the upgrade path: hyprconf-yubikey 4.0.0–4.2.0 put the two parameters on the
+  /etc/default/limine line itself — enroll and disable strip exactly those
+  once (every shape), log the migration, leave the rest of the file
+  byte-identical, and status says "legacy inline parameters" until then
+- the mapper name comes from the read line alone (cryptdevice= cross-checked
   with root=/dev/mapper/), never from a commented or another entry's line
 - limine-update's exit-0-on-failure is caught by its message and by the
   image's mtime on the ESP (UKI on UEFI per Omarchy's omarchy-uki.conf, else
   the initramfs), with an identical unrewritten image accepted only when the
   hook set did not change
 - the drop-in REALLY rewrites Omarchy's exact HOOKS array when sourced by bash
-- disable puts the drop-in and cmdline back; remove wipes only the fido2 slot
-- status/help/sudo, and the restraint scans (no password slot, no AUR, no set -e)
+- disable removes both drop-ins; remove wipes only the fido2 slot
+- status/help/sudo, and the restraint scans (no password slot, no AUR, no set
+  -e, no .bak)
 
 HERMETIC: the tool talks to sudo, lsblk, cryptsetup, systemd-cryptenroll,
 limine-update, omarchy-pkg-add, omarchy-snapshot, fido2-token and
 omarchy-setup-security-fido2. Every one of them is a recording stub on a
-fake-bins dir put FIRST on PATH, and every system path the tool reads or edits
-— /etc/default/limine and limine's other config files, mkinitcpio.conf.d,
-vconsole.conf, machine-id, /usr/lib/modules, /sys/firmware/efi and the ESP
-itself — is pointed at a tmp copy through its env overrides. The real ones
-would enrol a key into the developer's LUKS header, rewrite their initramfs
-and bootloader entries, and take a snapper snapshot. stdin is never a terminal
-here, so the --yes / TTY guard is exercised on every run.
+fake-bins dir put FIRST on PATH, and every system path the tool reads or
+writes — /etc/default/limine and limine's other config files,
+limine-entry-tool.d, mkinitcpio.conf.d, vconsole.conf, machine-id,
+/usr/lib/modules, /sys/firmware/efi and the ESP itself — is pointed at a tmp
+copy through its env overrides. The real ones would enrol a key into the
+developer's LUKS header, rewrite their initramfs and bootloader entries, and
+take a snapper snapshot. stdin is never a terminal here, so the --yes / TTY
+guard is exercised on every run.
 """
 
 from __future__ import annotations
@@ -81,6 +91,9 @@ LIMINE_LINE = f'KERNEL_CMDLINE[default]+="{CMDLINE}"'
 RD_NAME = f"rd.luks.name={UUID}=root"
 RD_OPTS = f"rd.luks.options={UUID}=fido2-device=auto"
 ADDED = f"{RD_NAME} {RD_OPTS}"
+# What hyprconf-yubikey 4.0.0–4.2.0 left in /etc/default/limine.
+LEGACY_LINE = f'KERNEL_CMDLINE[default]+="{CMDLINE} {ADDED}"'
+DROPIN_NAME = "zz-hyprconf-fido2.conf"
 TOKEN_LINE = "/dev/hidraw3: vendor=0x1050, product=0x0407 (Yubico YubiKey OTP+FIDO+CCID)"
 MACHINE_ID = "0123456789abcdef0123456789abcdef"
 KERNEL_VERSION = "7.1.8-arch1-3"
@@ -136,6 +149,15 @@ STUBS = {
 }
 
 
+def dropin_for(mapper: str) -> str:
+    """The limine-entry-tool drop-in enroll writes, exactly — Omarchy's own
+    shape (omarchy-hibernation-setup: KERNEL_CMDLINE[default]+=" resume=...")."""
+    return f'KERNEL_CMDLINE[default]+=" rd.luks.name={UUID}={mapper} {RD_OPTS}"\n'
+
+
+LIMINE_DROPIN = dropin_for("root")
+
+
 class Box:
     """A throwaway Omarchy: fake bins, limine's config files, a mkinitcpio.conf.d,
     vconsole.conf, one installed kernel, a machine-id, a UEFI marker and an ESP.
@@ -143,7 +165,8 @@ class Box:
     Stock Omarchy 4.0.0 shape: ESP_PATH in /etc/default/limine, ENABLE_UKI=yes
     from /etc/limine-entry-tool.d/omarchy-uki.conf over the packaged
     /etc/limine-entry-tool.conf's ENABLE_UKI=no, CUSTOM_UKI_NAME="omarchy" in
-    omarchy-defaults.conf — so the boot image is <ESP>/EFI/Linux/omarchy_linux.efi.
+    omarchy-defaults.conf, resume.conf from omarchy-hibernation-setup — so the
+    boot image is <ESP>/EFI/Linux/omarchy_linux.efi.
     """
 
     def __init__(
@@ -168,10 +191,15 @@ class Box:
         self.conf_d.mkdir()
         (self.conf_d / "omarchy-defaults.conf").write_text(
             'TARGET_OS_NAME="Omarchy"\n\nKERNEL_CMDLINE[default]+=" quiet splash loglevel=0"\n\n'
+            'KERNEL_CMDLINE[default]+=" initramfs_async=0"\n\n'
             'CUSTOM_UKI_NAME="omarchy"\nENABLE_LIMINE_FALLBACK=yes\n'
+        )
+        (self.conf_d / "resume.conf").write_text(
+            'KERNEL_CMDLINE[default]+=" resume=/dev/mapper/root resume_offset=1234567"\n'
         )
         if uki:
             (self.conf_d / "omarchy-uki.conf").write_text("ENABLE_UKI=yes\n")
+        self.omarchy_conf_d = sorted(p.name for p in self.conf_d.iterdir())
         self.usr_d = tmp / "usr" / "share" / "limine-entry-tool.d"  # absent, as on 1.37.1
         self.mkinitcpio_d = etc / "mkinitcpio.conf.d"
         self.mkinitcpio_d.mkdir()
@@ -225,16 +253,30 @@ class Box:
         self.limine_file = f'ESP_PATH="{self.esp}"\n\n{line}\n'
         self.limine.write_text(self.limine_file)
 
+    def make_legacy(self, line: str = LEGACY_LINE) -> None:
+        """What a hyprconf-yubikey 4.0.0–4.2.0 enroll left behind: the FIDO2
+        slot, the mkinitcpio drop-in, the two parameters on /etc/default/limine's
+        own line — and no limine-entry-tool drop-in."""
+        assert self.run("enroll", "--yes", "--device", DEV).returncode == 0
+        self.limine_dropin.unlink()
+        self.set_limine_line(line)
+        self.reset_calls()
+        assert self.enrolled and self.dropin.exists()
+
     @property
     def dropin(self) -> Path:
-        return self.mkinitcpio_d / "zz-hyprconf-fido2.conf"
+        return self.mkinitcpio_d / DROPIN_NAME
+
+    @property
+    def limine_dropin(self) -> Path:
+        return self.conf_d / DROPIN_NAME
 
     @property
     def enrolled(self) -> bool:
         return (self.state / "fido2-slot").exists()
 
     def backups(self) -> list[Path]:
-        return sorted(self.limine.parent.glob("limine.bak.*"))
+        return sorted(self.limine.parent.glob("limine.bak*"))
 
     def limine_line(self) -> str:
         return next(ln for ln in self.limine.read_text().splitlines() if ln.startswith("KERNEL_"))
@@ -263,7 +305,7 @@ class Box:
             "_HYPRCONF_LIMINE_CONF_D": str(self.conf_d),
             "_HYPRCONF_LIMINE_USR_D": str(self.usr_d),
             "_HYPRCONF_MKINITCPIO_D": str(self.mkinitcpio_d),
-            "_HYPRCONF_FIDO2_DROPIN": "zz-hyprconf-fido2.conf",
+            "_HYPRCONF_FIDO2_DROPIN": DROPIN_NAME,
             "_HYPRCONF_INITCPIO_INSTALL": str(self.initcpio_install),
             "_HYPRCONF_VCONSOLE": str(self.vconsole),
             "_HYPRCONF_MACHINE_ID": str(self.machine_id),
@@ -305,10 +347,18 @@ def _assert_untouched(box: Box, *, allow: tuple[str, ...] = ()) -> None:
         if name in allow:
             continue
         assert not any(c.startswith(name) for c in calls), f"{name} ran: {calls}"
-    assert not box.dropin.exists()
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
     assert box.limine.read_text() == box.limine_file
     assert box.backups() == []
     assert not box.enrolled
+
+
+def _assert_configured(box: Box, mapper: str = "root") -> None:
+    """Both drop-ins as enroll writes them, /etc/default/limine untouched."""
+    assert box.dropin.is_file() and box.limine_dropin.is_file()
+    assert box.limine_dropin.read_text() == dropin_for(mapper)
+    assert box.limine.read_text() == box.limine_file
+    assert box.backups() == []
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +376,7 @@ def test_every_external_the_tool_calls_has_a_fake() -> None:
 
 
 def test_restraint_scan() -> None:
-    """Never the password slot, pacman, the AUR, sbctl or set -e."""
+    """Never the password slot, pacman, the AUR, sbctl, set -e or a .bak copy."""
     text = TOOL.read_text()
     assert text.startswith("#!/usr/bin/env bash\n")
     assert "set -uo pipefail" in text
@@ -338,6 +388,7 @@ def test_restraint_scan() -> None:
         "omarchy-pkg-aur-add",
         "sbctl",
         "set -e",
+        ".bak",
     ):
         assert forbidden not in text, f"{forbidden!r} must not appear in hyprconf-yubikey"
     assert "readonly" not in text, "system paths must stay env-overridable"
@@ -371,23 +422,25 @@ def test_enroll_happy_path(box: Box) -> None:
     assert not any(c.startswith("mkinitcpio") for c in calls)
     assert not any("wipe-slot" in c for c in calls)
 
-    # the drop-in, sorted after Omarchy's own, with the revert path in its header
+    # the mkinitcpio drop-in, sorted after Omarchy's own, with the revert path in its header
     assert box.dropin.is_file()
     dropin = box.dropin.read_text()
     assert "hyprconf-yubikey disable" in dropin
     assert sorted(p.name for p in box.mkinitcpio_d.iterdir())[-1] == box.dropin.name
 
-    # cmdline: both parameters once, cryptdevice= kept, other lines untouched
-    line = box.limine_line()
-    assert line.count("cryptdevice=PARTUUID=") == 1
-    assert line.count(RD_NAME) == 1 and line.count(RD_OPTS) == 1
-    assert line == f'KERNEL_CMDLINE[default]+="{CMDLINE} {ADDED}"'
-    assert box.limine.read_text().startswith(f'ESP_PATH="{box.esp}"\n\n')
+    # the cmdline goes through limine-entry-tool's drop-in dir, beside Omarchy's
+    # own resume.conf — the exact one line, nothing else
+    assert box.limine_dropin.read_text() == LIMINE_DROPIN
+    assert box.limine_dropin.read_text() == (
+        f'KERNEL_CMDLINE[default]+=" rd.luks.name={UUID}=root rd.luks.options={UUID}=fido2-device=auto"\n'
+    )
+    assert sorted(p.name for p in box.conf_d.iterdir()) == [*box.omarchy_conf_d, DROPIN_NAME]
+    assert f"{box.limine_dropin}: written" in res.stdout
 
-    # backup before the first edit, Omarchy's .bak.<epoch> convention
-    backups = box.backups()
-    assert len(backups) == 1 and re.fullmatch(r"limine\.bak\.\d+", backups[0].name)
-    assert backups[0].read_text() == box.limine_file
+    # /etc/default/limine is read, never edited, never backed up
+    assert box.limine.read_text() == box.limine_file
+    assert box.backups() == []
+    assert "migrated" not in res.stdout
 
     # the UKI limine-update wrote (Omarchy: ENABLE_UKI=yes, CUSTOM_UKI_NAME=omarchy)
     # was looked up on the ESP, as root, and found fresh — only then "Done"
@@ -402,7 +455,6 @@ def test_enroll_happy_path(box: Box) -> None:
 
 def test_enroll_rerun_is_idempotent(box: Box) -> None:
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
-    after_first = box.limine.read_text()
     dropin_first = box.dropin.read_text()
     box.reset_calls()
 
@@ -411,10 +463,11 @@ def test_enroll_rerun_is_idempotent(box: Box) -> None:
     calls = box.calls()
     assert not any(c.startswith("systemd-cryptenroll") for c in calls), "slot already present"
     assert "limine-update" in calls
-    assert box.limine.read_text() == after_first
+    assert f"{box.limine_dropin}: already in place" in res.stdout
+    assert box.limine_dropin.read_text() == LIMINE_DROPIN
     assert box.dropin.read_text() == dropin_first
-    assert box.limine_line().count("rd.luks.") == 2
-    assert len(box.backups()) == 1, "no second backup when nothing changed"
+    assert box.limine.read_text() == box.limine_file
+    assert box.backups() == []
 
 
 def test_enroll_refuses_luks1(box: Box) -> None:
@@ -459,7 +512,8 @@ def test_refuses_without_tty_or_yes(box: Box, sub: str, enrolled: bool, before: 
     assert res.returncode != 0
     assert "--yes" in res.stderr
     assert box.calls() == before
-    assert box.enrolled is enrolled and box.dropin.exists() is enrolled
+    assert box.enrolled is enrolled
+    assert box.dropin.exists() is enrolled and box.limine_dropin.exists() is enrolled
     if not enrolled:
         _assert_untouched(box)
 
@@ -488,86 +542,61 @@ def test_enroll_aborts_when_snapshot_fails(box: Box) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The cmdline edit: every line shape, the exact line after enroll and disable
+# /etc/default/limine: every line shape is READ for the mapper name and left
+# byte-identical; the shapes refused
 # ---------------------------------------------------------------------------
 
 CRYPT = "cryptdevice=UUID=x:root root=/dev/mapper/root rw"
-CMDLINE_SHAPES = [
-    pytest.param(
-        LIMINE_LINE,
-        f'KERNEL_CMDLINE[default]+="{CMDLINE} {ADDED}"',
-        id="quoted-stock",
-    ),
-    pytest.param(
-        f'KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=a:root root=/dev/mapper/root rd.luks.options={UUID}=discard rw"',
-        f'KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=a:root root=/dev/mapper/root rd.luks.options={UUID}=discard,fido2-device=auto rw {RD_NAME}"',
-        id="options-for-same-uuid-gain-fido2-once",
-    ),
+READ_SHAPES = [
+    pytest.param(LIMINE_LINE, "root", id="quoted-stock"),
     pytest.param(
         f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID2}=data rd.luks.options={UUID2}=discard"',
-        f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID2}=data rd.luks.options={UUID2}=discard {ADDED}"',
-        id="rd.luks-of-another-uuid-survives",
+        "root",
+        id="rd.luks-of-another-uuid",
     ),
     pytest.param(
         f'KERNEL_CMDLINE[default]+={CRYPT} acpi_osi="Windows 2015" video=efifb:off',
-        f'KERNEL_CMDLINE[default]+={CRYPT} acpi_osi="Windows 2015" video=efifb:off {ADDED}',
+        "root",
         id="bare-with-inner-quoted-parameter",
     ),
     pytest.param(
-        f'KERNEL_CMDLINE[default]+="{CRYPT}"   # keep me',
-        f'KERNEL_CMDLINE[default]+="{CRYPT} {ADDED}"   # keep me',
-        id="quoted-then-trailing-comment",
+        f'KERNEL_CMDLINE[default]+="{CRYPT}"   # keep me', "root", id="quoted-then-trailing-comment"
     ),
+    pytest.param(f"KERNEL_CMDLINE[default]+='{CRYPT}'", "root", id="single-quoted"),
     pytest.param(
-        f"KERNEL_CMDLINE[default]+='{CRYPT}'",
-        f"KERNEL_CMDLINE[default]+='{CRYPT} {ADDED}'",
-        id="single-quoted",
-    ),
-    pytest.param(
-        f'KERNEL_CMDLINE[default]="{CRYPT}"',
-        f'KERNEL_CMDLINE[default]="{CRYPT} {ADDED}"',
-        id="plain-assignment",
-    ),
-    pytest.param(
-        'KERNEL_CMDLINE[default]+=" cryptdevice=UUID=x:root rw "',
-        f'KERNEL_CMDLINE[default]+=" cryptdevice=UUID=x:root rw {ADDED} "',
-        id="blanks-inside-quotes-kept",
+        'KERNEL_CMDLINE[default]+=" cryptdevice=UUID=x:root rw "', "root", id="blanks-inside-quotes"
     ),
     pytest.param(
         "KERNEL_CMDLINE[default]+=cryptdevice=UUID=x:cryptroot root=/dev/mapper/cryptroot rw",
-        f"KERNEL_CMDLINE[default]+=cryptdevice=UUID=x:cryptroot root=/dev/mapper/cryptroot rw rd.luks.name={UUID}=cryptroot {RD_OPTS}",
+        "cryptroot",
         id="bare-mapper-name-from-cryptdevice",
     ),
     pytest.param(
         'KERNEL_CMDLINE[default]+="root=/dev/mapper/vault rw"',
-        f'KERNEL_CMDLINE[default]+="root=/dev/mapper/vault rw rd.luks.name={UUID}=vault {RD_OPTS}"',
+        "vault",
         id="mapper-name-from-root-alone",
     ),
     pytest.param(
-        f'KERNEL_CMDLINE[default]+="{CRYPT} {ADDED}"',
-        f'KERNEL_CMDLINE[default]+="{CRYPT} {ADDED}"',
-        id="already-configured-unchanged",
+        f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID}=root"',
+        "root",
+        id="matching-rd.luks.name-without-options-tolerated",
     ),
 ]
 
 
-@pytest.mark.parametrize(("line", "after_enroll"), CMDLINE_SHAPES)
-def test_cmdline_edit_shapes(box: Box, line: str, after_enroll: str) -> None:
+@pytest.mark.parametrize(("line", "mapper"), READ_SHAPES)
+def test_cmdline_read_shapes(box: Box, line: str, mapper: str) -> None:
     box.set_limine_line(line)
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stderr
-    assert box.limine_line() == after_enroll
-    assert box.limine.read_text() == f'ESP_PATH="{box.esp}"\n\n{after_enroll}\n'
+    _assert_configured(box, mapper)
+    assert "migrated" not in res.stdout
 
-    # disable takes back exactly what enroll put there (or would have): the
-    # fido2-device option and the rd.luks.name of the device that carried it
     res = box.run("disable", "--yes", "--no-snapshot")
     assert res.returncode == 0, res.stderr
-    stripped = line
-    for added in (f" {ADDED}", ",fido2-device=auto", f" {RD_NAME}"):
-        stripped = stripped.replace(added, "")
-    assert box.limine_line() == stripped
-    assert box.limine.read_text() == f'ESP_PATH="{box.esp}"\n\n{stripped}\n'
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
+    assert box.limine.read_text() == box.limine_file
+    assert box.backups() == []
 
 
 REFUSED_LINES = [
@@ -582,9 +611,24 @@ REFUSED_LINES = [
         id="rd.luks.name-for-uuid-names-another-mapper",
     ),
     pytest.param(
+        f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.options={UUID}=discard"',
+        "would override the drop-in",
+        id="rd.luks.options-for-uuid-would-override-the-dropin",
+    ),
+    pytest.param(
         'KERNEL_CMDLINE[default]+="root=UUID=y rw"',
         "cannot tell",
         id="no-cryptdevice-no-mapper-root",
+    ),
+    pytest.param(
+        f'KERNEL_CMDLINE[default]="{CRYPT}"',
+        "make it += first",
+        id="plain-assignment-overrides-every-dropin",
+    ),
+    pytest.param(
+        f'KERNEL_CMDLINE[default]="quiet splash"\nKERNEL_CMDLINE[default]+="{CRYPT}"',
+        "make it += first",
+        id="plain-assignment-on-another-default-line",
     ),
     pytest.param(
         f'KERNEL_CMDLINE[default]+="{CRYPT} acpi_osi="Linux" quiet"',
@@ -610,9 +654,10 @@ REFUSED_LINES = [
 
 
 @pytest.mark.parametrize(("line", "reason"), REFUSED_LINES)
-def test_cmdline_edit_refuses_before_anything_changes(box: Box, line: str, reason: str) -> None:
-    """A line the tool cannot rewrite with certainty stops enroll (and disable,
-    remove) before the confirmation: no package, slot, drop-in, backup."""
+def test_cmdline_read_refuses_before_anything_changes(box: Box, line: str, reason: str) -> None:
+    """A line the tool cannot read with certainty, or whose parameters would
+    fight the drop-in, stops enroll before the confirmation: no package, slot,
+    drop-in, edit."""
     box.set_limine_line(line)
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
@@ -621,13 +666,13 @@ def test_cmdline_edit_refuses_before_anything_changes(box: Box, line: str, reaso
     _assert_untouched(box)
 
 
-def test_mapper_name_comes_from_the_edited_line_only(box: Box) -> None:
+def test_mapper_name_comes_from_the_read_line_only(box: Box) -> None:
     """Not from a commented line, another entry's line, or an earlier default
-    line without cryptdevice= — those stay byte-identical too."""
+    line without cryptdevice= — and the whole file stays byte-identical."""
     others = (
         '#KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=old:old root=/dev/mapper/old rw"\n'
         'KERNEL_CMDLINE[linux-lts]+="cryptdevice=PARTUUID=lts:lts root=/dev/mapper/lts rw"\n'
-        'KERNEL_CMDLINE[default]="quiet splash"\n'
+        'KERNEL_CMDLINE[default]+=" quiet splash"\n'
     )
     mine = (
         'KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=a:cryptroot root=/dev/mapper/cryptroot rw"'
@@ -636,18 +681,129 @@ def test_mapper_name_comes_from_the_edited_line_only(box: Box) -> None:
     box.limine.write_text(box.limine_file)
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stderr
-    assert box.limine.read_text() == (
-        f'ESP_PATH="{box.esp}"\n{others}'
-        f'KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=a:cryptroot root=/dev/mapper/cryptroot rw'
-        f' rd.luks.name={UUID}=cryptroot {RD_OPTS}"\n'
-    )
+    _assert_configured(box, "cryptroot")
 
 
-def test_disable_and_remove_parse_the_cmdline_before_changing_anything(box: Box) -> None:
-    assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
-    box.limine.write_text(box.limine.read_text().replace(" rw ", ' acpi_osi="Linux" rw ', 1))
-    corrupted = box.limine.read_text()
+# ---------------------------------------------------------------------------
+# The upgrade path: 4.0.0–4.2.0 put the parameters on the line itself
+# ---------------------------------------------------------------------------
+
+LEGACY_SHAPES = [
+    pytest.param(LEGACY_LINE, LIMINE_LINE, id="quoted-stock"),
+    pytest.param(
+        f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID2}=data rd.luks.options={UUID2}=discard {ADDED}"',
+        f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID2}=data rd.luks.options={UUID2}=discard"',
+        id="rd.luks-of-another-uuid-survives",
+    ),
+    pytest.param(
+        f'KERNEL_CMDLINE[default]+={CRYPT} acpi_osi="Windows 2015" video=efifb:off {ADDED}',
+        f'KERNEL_CMDLINE[default]+={CRYPT} acpi_osi="Windows 2015" video=efifb:off',
+        id="bare-with-inner-quoted-parameter",
+    ),
+    pytest.param(
+        f'KERNEL_CMDLINE[default]+="{CRYPT} {ADDED}"   # keep me',
+        f'KERNEL_CMDLINE[default]+="{CRYPT}"   # keep me',
+        id="quoted-then-trailing-comment",
+    ),
+    pytest.param(
+        f"KERNEL_CMDLINE[default]+='{CRYPT} {ADDED}'",
+        f"KERNEL_CMDLINE[default]+='{CRYPT}'",
+        id="single-quoted",
+    ),
+    pytest.param(
+        f'KERNEL_CMDLINE[default]+=" cryptdevice=UUID=x:root rw {ADDED} "',
+        'KERNEL_CMDLINE[default]+=" cryptdevice=UUID=x:root rw "',
+        id="blanks-inside-quotes-kept",
+    ),
+    pytest.param(
+        f"KERNEL_CMDLINE[default]+=cryptdevice=UUID=x:cryptroot root=/dev/mapper/cryptroot rw rd.luks.name={UUID}=cryptroot {RD_OPTS}",
+        "KERNEL_CMDLINE[default]+=cryptdevice=UUID=x:cryptroot root=/dev/mapper/cryptroot rw",
+        id="bare-mapper-name-from-cryptdevice",
+    ),
+    pytest.param(
+        f'KERNEL_CMDLINE[default]+="{RD_OPTS} {CRYPT} {RD_NAME}"',
+        f'KERNEL_CMDLINE[default]+="{CRYPT}"',
+        id="parameters-in-the-middle",
+    ),
+]
+
+
+@pytest.mark.parametrize(("before", "after"), LEGACY_SHAPES)
+def test_enroll_migrates_legacy_inline_parameters(box: Box, before: str, after: str) -> None:
+    """A box a 4.0.0–4.2.0 enroll set up: the two parameters leave the line
+    (nothing else on it, and no other line, changes), the drop-in takes them,
+    the slot is kept — once; a re-run finds nothing to migrate."""
+    box.make_legacy(before)
+    mapper = "cryptroot" if "cryptroot" in before else "root"
+    header = f'ESP_PATH="{box.esp}"\n\n'
+
+    res = box.run("enroll", "--yes", "--device", DEV)
+    assert res.returncode == 0, res.stderr
+    assert box.limine.read_text() == f"{header}{after}\n"
+    assert box.limine_dropin.read_text() == dropin_for(mapper)
+    assert box.backups() == []
+    assert f"{box.limine}: migrated" in res.stdout and "4.0.0–4.2.0" in res.stdout
+    assert "Migration:" in res.stdout, "announced in the plan, before the confirmation"
+    assert box.ran_as_root(f"tee -- {box.limine}")
+    calls = box.calls()
+    assert not any(c.startswith("systemd-cryptenroll") for c in calls)
+    assert "limine-update" in calls
     box.reset_calls()
+
+    res = box.run("enroll", "--yes", "--device", DEV)
+    assert res.returncode == 0, res.stderr
+    assert "migrated" not in res.stdout and "Migration:" not in res.stdout
+    assert box.limine.read_text() == f"{header}{after}\n"
+    assert f"sudo -- tee -- {box.limine}" not in box.calls(), "no second write"
+
+    res = box.run("disable", "--yes", "--no-snapshot")
+    assert res.returncode == 0, res.stderr
+    assert box.limine.read_text() == f"{header}{after}\n"
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
+
+
+def test_disable_migrates_legacy_inline_parameters(box: Box) -> None:
+    """disable on a 4.0.0–4.2.0 box: the parameters leave the line even though
+    there is no cmdline drop-in to remove; status says so before and after."""
+    box.make_legacy()
+    status = box.run("status").stdout
+    assert "legacy inline parameters present" in status
+    assert "cmdline drop-in:      absent" in status
+    box.reset_calls()
+
+    res = box.run("disable", "--yes")
+    assert res.returncode == 0, res.stderr
+    assert box.limine.read_text() == f'ESP_PATH="{box.esp}"\n\n{LIMINE_LINE}\n'
+    assert f"{box.limine}: migrated" in res.stdout
+    assert f"{box.limine_dropin}: already absent" in res.stdout
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
+    assert box.backups() == []
+    assert "limine-update" in box.calls() and "Boot images verified" in res.stdout
+    assert box.enrolled, "disable keeps the LUKS slot"
+    status = box.run("status").stdout
+    assert "no legacy inline parameters" in status
+
+
+def test_legacy_options_beside_fido2_refuse_enroll_but_disable_strips(box: Box) -> None:
+    """A user option next to the legacy fido2-device= (4.x appended to an
+    existing rd.luks.options) survives the strip — and would then override
+    the drop-in's, so enroll refuses; disable takes only its own back."""
+    line = f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.options={UUID}=discard,fido2-device=auto {RD_NAME}"'
+    box.make_legacy(line)
+    res = box.run("enroll", "--yes", "--device", DEV)
+    assert res.returncode != 0 and "would override the drop-in" in res.stderr
+    assert box.limine_line() == line and box.calls() == ["lsblk -rno PATH,FSTYPE,FSVER,UUID"]
+
+    res = box.run("disable", "--yes", "--no-snapshot")
+    assert res.returncode == 0, res.stderr
+    assert box.limine_line() == f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.options={UUID}=discard"'
+
+
+def test_disable_and_remove_refuse_a_legacy_line_they_cannot_read(box: Box) -> None:
+    """A legacy line that cannot be read with certainty stops disable and
+    remove before the confirmation: the strip must write it back."""
+    box.make_legacy(LEGACY_LINE.replace(" rw ", ' acpi_osi="Linux" rw ', 1))
+    corrupted = box.limine.read_text()
 
     res = box.run("disable", "--yes")
     assert res.returncode != 0 and "with certainty" in res.stderr
@@ -657,6 +813,18 @@ def test_disable_and_remove_parse_the_cmdline_before_changing_anything(box: Box)
     assert res.returncode != 0 and "with certainty" in res.stderr
     assert box.enrolled and box.dropin.exists()
     assert not any(c.startswith("systemd-cryptenroll") for c in box.calls())
+    assert box.limine.read_text() == corrupted
+
+
+def test_disable_does_not_need_a_readable_line_without_legacy_parameters(box: Box) -> None:
+    """With nothing of its own on /etc/default/limine, disable only removes the
+    drop-ins — an unreadable line there is not its business."""
+    assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
+    box.limine.write_text(box.limine.read_text().replace(" rw ", ' acpi_osi="Linux" rw ', 1))
+    corrupted = box.limine.read_text()
+    res = box.run("disable", "--yes", "--no-snapshot")
+    assert res.returncode == 0, res.stderr
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
     assert box.limine.read_text() == corrupted
 
 
@@ -677,7 +845,7 @@ def test_rebuild_dies_on_limine_updates_failure_message(box: Box) -> None:
     assert "sudo limine-update" in res.stderr
     assert "Done." not in res.stdout and "verified" not in res.stdout
     # the config changes are in place — that is what the retry rebuilds
-    assert box.dropin.exists() and RD_OPTS in box.limine_line()
+    assert box.dropin.exists() and box.limine_dropin.read_text() == LIMINE_DROPIN
 
 
 def test_rebuild_dies_on_limine_update_exit_code(box: Box) -> None:
@@ -902,29 +1070,33 @@ def test_shellcheck_dropin(box: Box) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_disable_reverts_dropin_and_cmdline(box: Box) -> None:
+def test_disable_removes_both_dropins(box: Box) -> None:
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
     box.reset_calls()
 
     res = box.run("disable", "--yes")
     assert res.returncode == 0, res.stderr
     calls = box.calls()
-    assert not box.dropin.exists()
-    assert box.limine_line() == LIMINE_LINE
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
+    assert f"{box.limine_dropin}: removed" in res.stdout
+    assert box.ran_as_root(f"rm -f -- {box.limine_dropin}")
     assert box.limine.read_text() == box.limine_file
-    assert len(box.backups()) == 2, "backup before the disable edit too"
+    assert box.backups() == []
+    assert "migrated" not in res.stdout
     assert "omarchy-snapshot create" in calls
     assert "limine-update" in calls
     assert "Boot images verified" in res.stdout
     assert not any(c.startswith("systemd-cryptenroll") for c in calls)
     assert box.enrolled, "disable keeps the LUKS slot"
     assert (box.mkinitcpio_d / "omarchy_hooks.conf").exists(), "Omarchy's own drop-ins stay"
+    assert sorted(p.name for p in box.conf_d.iterdir()) == box.omarchy_conf_d
 
 
 def test_disable_when_not_configured_changes_nothing(box: Box) -> None:
     res = box.run("disable", "--yes", "--no-snapshot")
     assert res.returncode == 0, res.stderr
     assert box.calls() == []
+    assert "Nothing to rebuild" in res.stdout
     assert box.limine.read_text() == box.limine_file and box.backups() == []
 
 
@@ -940,8 +1112,8 @@ def test_remove_wipes_fido2_slot_then_disables(box: Box) -> None:
     assert calls.index(wipe) < calls.index("limine-update")
     assert not any("password" in c for c in calls), "passphrase slots are never touched"
     assert not box.enrolled
-    assert not box.dropin.exists()
-    assert box.limine_line() == LIMINE_LINE
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
+    assert box.limine.read_text() == box.limine_file
 
 
 # ---------------------------------------------------------------------------
@@ -957,8 +1129,10 @@ def test_status_prints_facts(box: Box) -> None:
     out = res.stdout
     assert f"{DEV}  LUKS2  UUID {UUID}  systemd-fido2 slot: no" in out
     assert "/dev/sdd  LUKS1" in out and "not eligible" in out
-    assert "initramfs drop-in:    absent" in out
-    assert "no rd.luks.options fido2-device" in out
+    assert f"initramfs drop-in:    absent ({box.dropin})" in out
+    assert f"cmdline drop-in:      absent ({box.limine_dropin})" in out
+    assert f"no legacy inline parameters ({box.limine})" in out
+    assert "replaces every drop-in" not in out
     assert f"plugged in — {TOKEN_LINE}" in out
     assert "sd-btrfs-overlayfs installed" in out
     for name in ("systemd-cryptenroll", "limine-update", "omarchy-snapshot", "mkinitcpio"):
@@ -969,9 +1143,15 @@ def test_status_prints_facts(box: Box) -> None:
     res = box.run()  # status is the default subcommand
     assert res.returncode == 0
     assert "systemd-fido2 slot: yes" in res.stdout
-    assert "initramfs drop-in:    present" in res.stdout
-    assert "rd.luks.options fido2-device present" in res.stdout
+    assert f"initramfs drop-in:    present ({box.dropin})" in res.stdout
+    assert f"cmdline drop-in:      present ({box.limine_dropin})" in res.stdout
+    assert "no legacy inline parameters" in res.stdout
     assert "FIDO2 token:          none detected" in res.stdout
+
+    box.set_limine_line(f'KERNEL_CMDLINE[default]="{CMDLINE}"')
+    res = box.run("status")
+    assert res.returncode == 0
+    assert "KERNEL_CMDLINE[default]= (not +=)" in res.stdout and "enroll refuses it" in res.stdout
 
 
 def test_status_never_fails(tmp_path: Path) -> None:
@@ -980,8 +1160,13 @@ def test_status_never_fails(tmp_path: Path) -> None:
     box.lsblk = ""
     res = box.run("status")
     assert res.returncode == 0, res.stderr
-    assert "none found" in res.stdout and "not found" in res.stdout
+    assert "none found" in res.stdout and f"{box.limine} not found" in res.stdout
     assert "sd-btrfs-overlayfs NOT installed" in res.stdout
+
+    box.limine.write_text('ESP_PATH="/boot"\n')
+    res = box.run("status")
+    assert res.returncode == 0, res.stderr
+    assert "no KERNEL_CMDLINE[default] line" in res.stdout
 
 
 def test_help_documents_flags_limitations_and_revert(box: Box) -> None:
@@ -995,6 +1180,12 @@ def test_help_documents_flags_limitations_and_revert(box: Box) -> None:
     assert "snapshot" in out and "sd-btrfs-overlayfs" in out
     assert "XKBLAYOUT" in out and "omarchy_hooks.conf" in out, "the layout limitation"
     assert "mkinitcpio failed for kernel" in out and "exits 0" in out, "the rebuild check"
+    assert str(box.limine_dropin) in out and "resume.conf" in out, "the cmdline seam"
+    assert (
+        'KERNEL_CMDLINE[default]+=" rd.luks.name=<UUID>=<name> rd.luks.options=<UUID>=fido2-device=auto"'
+        in out
+    )
+    assert "legacy inline parameters" in out and "4.0.0–4.2.0" in out, "the upgrade path"
     assert "hyprconf-yubikey disable" in out and "hyprconf-yubikey remove" in out
     assert "Passphrase slots are never touched" in out
     assert box.run("--help").returncode == 0

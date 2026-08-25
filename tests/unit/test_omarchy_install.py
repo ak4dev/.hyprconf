@@ -13,7 +13,8 @@ to disturb it as little as possible. Most of what is asserted here is therefore
     it checks nothing (Omarchy 4.0.0-1 writes ~/.config/xdg-terminals.list and
     notifies), so SUPER+RETURN and every TUI launcher would have no terminal
   * never `pacman -Syu` (an Omarchy ALPM AbortOnFail hook blocks it) or
-    `pacman -R` (it would dismantle Omarchy)
+    `pacman -R` (it would dismantle Omarchy) — the one removal, Code - OSS
+    before Omarchy's own VS Code installer, goes through omarchy-pkg-drop
   * never switch the active theme — hyprconf's theme is installed into the
     theme menu, and which one is active stays the user's choice
 
@@ -40,6 +41,15 @@ INSTALL_SH = REPO_ROOT / "install.sh"
 HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
 PROTONVPN_INSTALLER = REPO_ROOT / "bin" / "hyprconf-install-service-protonvpn"
 VULKAN_GPU = REPO_ROOT / "bin" / "hyprconf-vulkan-gpu"
+MONITOR_PRESET = REPO_ROOT / "bin" / "hyprconf-monitor-preset"
+GAPS = REPO_ROOT / "bin" / "hyprconf-gaps"
+# Omarchy's own validator for a plugin folder (pure: reads the manifest and
+# the tree, touches nothing); real when installed, the test skips otherwise.
+PLUGIN_VALIDATE = Path("/usr/share/omarchy/bin/omarchy-plugin-validate")
+
+# Where hyprconf-monitor-preset puts the chosen preset: Omarchy's Hyprland
+# toggles directory, loaded after ~/.config/hypr/monitors.lua.
+TOGGLE = Path(".local") / "state" / "omarchy" / "toggles" / "hypr" / "hyprconf-monitor-preset.lua"
 
 # A recording stub: appends its own name + args to the calls log, then runs an
 # optional body. One template covers every external the installer touches.
@@ -92,6 +102,38 @@ OMARCHY_MENU_EXTENSION = r"""{
 }
 """
 
+
+# Omarchy's default/firefox/policies.json as omarchy-install-browser copies
+# it (4.0.0-1: Preferences only), with one pref hyprconf's policy also sets —
+# the merge must keep Omarchy's others and let ours win on that one.
+OMARCHY_FIREFOX_POLICY = {
+    "policies": {
+        "Preferences": {
+            "media.ffmpeg.vaapi.enabled": {"Value": True, "Status": "default"},
+            "widget.wayland.fractional-scale.enabled": {"Value": True, "Status": "default"},
+            "browser.compactmode.show": {"Value": False, "Status": "default"},
+        }
+    }
+}
+
+# omarchy-hook-install <type> <file> (4.0.0-1): mkdir -p the .d dir, cp under
+# the file's basename, chmod 755 — reproduced so later stages find the hook.
+HOOK_INSTALL = (
+    'd="$HOME/.config/omarchy/hooks/$1.d"; mkdir -p "$d"; cp "$2" "$d/${2##*/}"; '
+    'chmod 755 "$d/${2##*/}"'
+)
+
+# omarchy-theme-refresh re-sets the current theme, which renders every user
+# template (~/.config/omarchy/themed/*.tpl) into the current theme dir from
+# its colors.toml (omarchy-theme-set-templates); the fake does that part.
+THEME_REFRESH = """\
+t="$HOME/.local/state/omarchy/current/theme"; [ -f "$t/colors.toml" ] || exit 0
+s=""
+while IFS= read -r l; do k="${l%% *}"; v="${l#*\\"}"; v="${v%\\"*}"; s="$s;s|{{ $k }}|$v|g"; done \\
+  < <(grep -E '^[a-z_]+ = "' "$t/colors.toml")
+for f in "$HOME"/.config/omarchy/themed/*.tpl; do
+  [ -f "$f" ] || continue; n="${f##*/}"; sed "${s#;}" "$f" > "$t/${n%.tpl}"
+done"""
 
 # Every monitor preset the overlay ships. Each carries the workspace-to-monitor
 # rules for its layout, so they travel as whole files.
@@ -183,16 +225,18 @@ def _setup(
         "omarchy-restart-shell",
         "omarchy-bar",
         "omarchy-update",
+        # Firefox and VS Code go in through Omarchy's own installers; the
+        # Code - OSS conflict is cleared with Omarchy's own remover.
+        "omarchy-install-browser",
+        "omarchy-install-editor-vscode",
+        "omarchy-pkg-drop",
         "sudo",
         "hyprctl",
-        # switch_monitor.sh (run by several tests here) reports through these;
+        # hyprconf-monitor-preset (run by several tests here) reports through these;
         # the real ones would put a notification and an OSD on the developer's
         # desktop every time the suite runs.
         "omarchy-notification-send",
         "omarchy-osd",
-        # The theme-set hook: Code - OSS is themed through Omarchy's own
-        # omarchy-theme-set-vscode functions (sourced), gated on its toggle.
-        "code",
         # Asserted never to run: switching the login shell, and pacman
         # directly (the container has a real one; a call must be seen, not
         # reach it).
@@ -218,18 +262,12 @@ def _setup(
     # No plugin is enabled yet, so the jq guard must fall through to enable.
     _stub(bins / "omarchy-plugin-list", calls, 'echo "[]"')
     _stub(bins / "jq", calls, "exit 1")
-    # Toggles are off unless a test says otherwise (exit 1 = not enabled).
-    _stub(bins / "omarchy-toggle-enabled", calls, "exit 1")
-    # Sourced by the theme-set hook for its set_theme; the fake records
-    # the arguments and the descriptor path it would have read.
-    _stub(
-        bins / "omarchy-theme-set-vscode",
-        calls,
-        'VS_CODE_THEME_DESCRIPTOR="$HOME/.local/state/omarchy/current/theme/vscode.json"\n'
-        'set_theme() { printf \'%s\\n\' "set_theme $* descriptor=${VS_CODE_THEME_DESCRIPTOR##*/}" >> "'
-        + str(calls)
-        + '"; }',
-    )
+    # Omarchy's package probe (pacman -Q per name): everything present unless
+    # a test says otherwise, so the steady-state box is the default and each
+    # install flow is opted into.
+    _stub(bins / "omarchy-pkg-present", calls)
+    _stub(bins / "omarchy-hook-install", calls, HOOK_INSTALL)
+    _stub(bins / "omarchy-theme-refresh", calls, THEME_REFRESH)
     # fc-list is how the installer discovers whether the font it wants is really
     # present; the real one on the test host would answer for the host's fonts.
     _stub(bins / "fc-list", calls, 'echo "GeistMono Nerd Font,GeistMono NF"')
@@ -255,6 +293,11 @@ def _setup(
     (omarchy_path / "config" / "omarchy" / "extensions").mkdir()
     (omarchy_path / "config" / "omarchy" / "extensions" / "omarchy-menu.jsonc").write_text(
         OMARCHY_MENU_EXTENSION
+    )
+    # Omarchy's Firefox prefs — what stage_firefox merges under hyprconf's.
+    (omarchy_path / "default" / "firefox").mkdir(parents=True)
+    (omarchy_path / "default" / "firefox" / "policies.json").write_text(
+        json.dumps(OMARCHY_FIREFOX_POLICY, indent=2) + "\n"
     )
 
     env = {
@@ -332,6 +375,7 @@ PAYLOAD = (
     "wallpapers",
     "plugins",
     "infra",
+    "themed",
 )
 
 # A git that is real for everything the refresh guard needs (`checkout --`)
@@ -355,6 +399,8 @@ def _checkout(tmp_path: Path) -> Path:
     repo.mkdir()
     for name in PAYLOAD:
         src = REPO_ROOT / name
+        if not src.exists():
+            continue
         if src.is_dir():
             shutil.copytree(src, repo / name, ignore=shutil.ignore_patterns("__pycache__"))
         else:
@@ -382,10 +428,10 @@ def _real_jq(env: dict) -> None:
 
 
 def _switch(env: dict, *args: str) -> subprocess.CompletedProcess:
-    """switch_monitor.sh as stage_hotkeys installed it, against the fakes."""
-    script = env["home"] / ".config" / "hypr" / "scripts" / "switch_monitor.sh"
+    """hyprconf-monitor-preset as stage_bin installed it, against the fakes."""
+    tool = env["home"] / ".local" / "bin" / "hyprconf-monitor-preset"
     return subprocess.run(
-        ["bash", str(script), *args],
+        ["bash", str(tool), *args],
         capture_output=True,
         text=True,
         env=_child_env(env),
@@ -445,7 +491,7 @@ def _tree_hash(root: Path) -> str:
 
 
 def test_scripts_are_syntactically_valid() -> None:
-    for script in (INSTALL_SH, HOOK, PROTONVPN_INSTALLER, VULKAN_GPU):
+    for script in (INSTALL_SH, HOOK, PROTONVPN_INSTALLER, VULKAN_GPU, MONITOR_PRESET, GAPS):
         assert subprocess.run(["bash", "-n", str(script)]).returncode == 0, script
 
 
@@ -641,8 +687,10 @@ def test_monitor_presets_are_installed_without_touching_the_active_layout(
 ) -> None:
     """Presets are inert files; monitors.lua stays whatever the machine chose.
 
-    Omarchy writes its own auto layout there, and switch_monitor.sh only
-    symlinks a preset over it when a hotkey is actually pressed.
+    Omarchy writes its own auto layout there, and the overlay never replaces
+    it: a chosen preset goes into Omarchy's Hyprland toggles directory, which
+    hyprland.lua requires AFTER monitors.lua (config/hypr/hyprland.lua:19,26,
+    4.0.0-1), so no backup of monitors.lua is needed or taken.
     """
     env = _setup(tmp_path)
     hypr = env["home"] / ".config" / "hypr"
@@ -651,20 +699,23 @@ def test_monitor_presets_are_installed_without_touching_the_active_layout(
     for preset in PRESETS:
         assert hypr.joinpath(preset).is_file(), preset
     assert hypr.joinpath("monitors.lua").read_text() == "-- omarchy auto layout\n"
-    # Saved before a preset switch can overwrite it — the only way back.
-    assert hypr.joinpath("monitors.lua.stock").read_text() == "-- omarchy auto layout\n"
+    assert not hypr.joinpath("monitors.lua.stock").exists()
+    assert not (env["home"] / TOGGLE).exists()
 
 
-def test_switch_monitor_reaches_every_preset_and_back(tmp_path: Path) -> None:
-    """Each shipped preset must be selectable, and stock must restore Omarchy's.
-
-    The presets carry hyprconf's workspace-to-monitor rules, so one that cannot
-    be named is dead config.
+def test_monitor_preset_reaches_every_preset_and_back(tmp_path: Path) -> None:
+    """Each shipped preset must be selectable, and stock must give the layout
+    back to Omarchy's monitors.lua alone. The presets carry hyprconf's
+    workspace-to-monitor rules, so one that cannot be named is dead config.
+    A COPY of the preset lands in the toggles file — never a link, and
+    monitors.lua is never touched — the mechanism Omarchy's own
+    omarchy-hyprland-monitor-internal uses for its hl.monitor line.
     """
     env = _setup(tmp_path)
     hypr = env["home"] / ".config" / "hypr"
     hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
     _run(env, "--no-update")
+    toggle = env["home"] / TOGGLE
 
     for name, preset in (
         ("bedroom", "pcMonitors.bedroom.lua"),
@@ -675,12 +726,14 @@ def test_switch_monitor_reaches_every_preset_and_back(tmp_path: Path) -> None:
     ):
         proc = _switch(env, name)
         assert proc.returncode == 0, proc.stderr
-        assert hypr.joinpath("monitors.lua").resolve() == hypr.joinpath(preset).resolve()
+        assert toggle.is_file() and not toggle.is_symlink(), name
+        assert toggle.read_bytes() == hypr.joinpath(preset).read_bytes(), name
+        assert not hypr.joinpath("monitors.lua").is_symlink()
+        assert hypr.joinpath("monitors.lua").read_text() == "-- omarchy auto layout\n"
 
     proc = _switch(env, "stock")
     assert proc.returncode == 0, proc.stderr
-    # A real file again, as Omarchy's own tooling expects to find there.
-    assert not hypr.joinpath("monitors.lua").is_symlink()
+    assert not toggle.exists()
     assert hypr.joinpath("monitors.lua").read_text() == "-- omarchy auto layout\n"
 
 
@@ -784,20 +837,14 @@ def test_firefox_theme_tool_is_installed_with_the_checkout_path(tmp_path: Path) 
         [str(tool), "--status"], capture_output=True, text=True, timeout=60, env=_child_env(env)
     )
     assert proc.returncode == 0, proc.stderr
-    assert "colors.toml" in proc.stdout
+    assert "userChrome.css" in proc.stdout
 
 
-def test_stock_snapshot_captures_the_live_layout_not_the_install_time_one(
-    tmp_path: Path,
-) -> None:
-    """`stock` must restore what was actually live, not a stale install snapshot.
-
-    Omarchy keeps writing to monitors.lua after the overlay is installed —
-    `omarchy-hyprland-monitor-scaling` seds the scale lines in place — so a
-    snapshot taken once at install time goes stale, and switch_monitor.sh
-    replaces that file with a symlink, destroying the only copy. The snapshot
-    has to be re-taken at the moment of destruction.
-    """
+def test_omarchys_own_edits_to_monitors_lua_survive_a_preset_switch(tmp_path: Path) -> None:
+    """Omarchy keeps writing to monitors.lua after the overlay is installed —
+    omarchy-hyprland-monitor-scaling seds the scale lines in place. A preset
+    switch never replaces that file, so nothing Omarchy wrote is lost, and
+    `stock` is just the toggle going away."""
     env = _setup(tmp_path)
     hypr = env["home"] / ".config" / "hypr"
     hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
@@ -807,8 +854,66 @@ def test_stock_snapshot_captures_the_live_layout_not_the_install_time_one(
     hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n-- DRIFTED\n")
 
     assert _switch(env, "bedroom").returncode == 0
+    assert "DRIFTED" in hypr.joinpath("monitors.lua").read_text()
     assert _switch(env, "stock").returncode == 0
     assert "DRIFTED" in hypr.joinpath("monitors.lua").read_text()
+
+
+@pytest.mark.parametrize("restore_from", ["stock", "template"])
+def test_monitors_lua_symlink_from_an_earlier_release_is_migrated_once(
+    tmp_path: Path, restore_from: str
+) -> None:
+    """v4.0.0–v4.2.0's switch_monitor.sh saved Omarchy's monitors.lua as
+    monitors.lua.stock and symlinked the chosen preset over it. The upgrade
+    carries that over once: the link's target becomes the toggles file (so
+    the desk keeps its layout) and monitors.lua is a real file again — from
+    the .stock copy, else Omarchy's template — with the .stock left in place."""
+    env = _setup(tmp_path)
+    templates = _stock_templates(env)
+    hypr = env["home"] / ".config" / "hypr"
+    hypr.joinpath("pcMonitors.bedroom.lua").write_text("-- my desk, my monitors\n")
+    hypr.joinpath("monitors.lua").symlink_to(hypr / "pcMonitors.bedroom.lua")
+    if restore_from == "stock":
+        hypr.joinpath("monitors.lua.stock").write_text("-- omarchy auto layout\n")
+        expected = "-- omarchy auto layout\n"
+    else:
+        expected = (templates / "monitors.lua").read_text()
+
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "pcMonitors.bedroom.lua" in proc.stdout and "monitors.lua" in proc.stdout
+    assert (env["home"] / TOGGLE).read_text() == "-- my desk, my monitors\n"
+    monitors = hypr / "monitors.lua"
+    assert not monitors.is_symlink() and monitors.read_text() == expected
+    assert hypr.joinpath("pcMonitors.bedroom.lua").read_text() == "-- my desk, my monitors\n"
+    if restore_from == "stock":
+        assert hypr.joinpath("monitors.lua.stock").exists()
+
+    before = _tree_hash(env["home"])
+    proc = _run(env, "--no-update")
+    assert "was a link" not in proc.stdout
+    assert _tree_hash(env["home"]) == before
+
+
+def test_dangling_monitors_lua_symlink_is_restored_without_a_toggle(tmp_path: Path) -> None:
+    """The link's preset is gone (deleted by hand): nothing to carry over, so
+    no toggle file is written, monitors.lua still comes back as a real file,
+    and the message says the layout is Omarchy's now — never that the preset
+    survived as the toggles file."""
+    env = _setup(tmp_path)
+    _stock_templates(env)
+    hypr = env["home"] / ".config" / "hypr"
+    hypr.joinpath("monitors.lua").symlink_to(hypr / "pcMonitors.gone.lua")
+    hypr.joinpath("monitors.lua.stock").write_text("-- omarchy auto layout\n")
+
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not (env["home"] / TOGGLE).exists()
+    monitors = hypr / "monitors.lua"
+    assert not monitors.is_symlink() and monitors.read_text() == "-- omarchy auto layout\n"
+    assert "toggles file now" not in proc.stdout
+    assert "pcMonitors.gone.lua, which is gone" in proc.stderr
+    assert "hyprconf-monitor-preset <name>" in proc.stderr
 
 
 def test_presets_are_seeded_once_and_never_overwritten(tmp_path: Path) -> None:
@@ -835,9 +940,7 @@ def test_no_shipped_script_uses_the_dead_hyprctl_keyword_path() -> None:
     report errors (exit 7). Verified against Hyprland 0.56.2.
     """
     offenders = []
-    for script in sorted((REPO_ROOT / "hypr" / "scripts").iterdir()):
-        if not script.is_file():
-            continue
+    for script in sorted((REPO_ROOT / "bin").glob("hyprconf-*")):
         for lineno, line in enumerate(_code_only(script.read_text()).splitlines(), 1):
             if re.search(r"hyprctl\s+(--batch\s+)?[\"']?keyword\b", line):
                 offenders.append(f"{script.name}:{lineno}: {line.strip()}")
@@ -903,14 +1006,12 @@ def test_no_shipped_script_uses_the_dead_two_token_dispatch() -> None:
     """`hyprctl dispatch dpms on` is a 0.55-ism that no longer parses.
 
     Under Hyprland's Lua parser the two-token form is a syntax error and exits
-    non-zero into a discarded stream, so the dark-output recovery in
-    switch_monitor.sh never ran once. The working form is the one Omarchy uses:
-    hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'.
+    non-zero into a discarded stream, so the dark-output recovery in the
+    monitor-preset tool never ran once. The working form is the one Omarchy
+    uses: hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })'.
     """
     offenders = []
-    for script in sorted((REPO_ROOT / "hypr" / "scripts").iterdir()):
-        if not script.is_file():
-            continue
+    for script in sorted((REPO_ROOT / "bin").glob("hyprconf-*")):
         for lineno, line in enumerate(_code_only(script.read_text()).splitlines(), 1):
             if re.search(r"hyprctl\s+dispatch\s+[a-z_]+\s+[a-z_]+", line):
                 offenders.append(f"{script.name}:{lineno}: {line.strip()}")
@@ -932,8 +1033,13 @@ def test_app_keys_go_through_omarchy_launchers(tmp_path: Path) -> None:
         for ln in (REPO_ROOT / "hypr" / "bindings.lua").read_text().splitlines()
         if not ln.lstrip().startswith("--")
     )
+    # `{ omarchy = "nautilus" }` is the launcher idiom (omarchy-launch-nautilus,
+    # default/hypr/helpers.lua) — the one quoted app name that is not a pin.
+    launchers = re.findall(r'\{ omarchy = "([a-z-]+)" \}', code)
+    assert set(launchers) == {"terminal", "browser", "editor", "nautilus"}
+    code = re.sub(r'\{ omarchy = "[a-z-]+" \}', "", code)
     # The quoted form is the point: `exec_cmd("nautilus")` pins the app, while
-    # `exec_cmd("omarchy-launch-nautilus")` resolves the user's default.
+    # the launcher resolves the user's default.
     for binary in ('"firefox"', '"nautilus"', '"code"', '"kitty"', '"dolphin"'):
         assert binary not in code, f"{binary} is an Omarchy default, not a keymap constant"
 
@@ -1064,10 +1170,23 @@ def test_sync_runs_omarchy_update_and_never_pacman(tmp_path: Path) -> None:
     assert not any(c.startswith("pacman") for c in calls)
 
 
-def test_no_packages_skips_the_only_privileged_stage(tmp_path: Path) -> None:
+def test_no_packages_skips_every_privileged_stage(tmp_path: Path) -> None:
+    """--no-packages is "no sudo": the hook passes it inside omarchy-update.
+    Packages, Firefox (Omarchy's installer + the policy) and VS Code all sit
+    behind it — with nothing installed and a terminal to prompt on, none of
+    the four privileged commands may run."""
     env = _setup(tmp_path)
-    _run(env, "--no-packages", "--no-update")
-    assert not any(c.startswith("omarchy-pkg-add") for c in _calls(env))
+    _stub(env["bins"] / "omarchy-pkg-present", env["calls"], "exit 1")
+    proc = _run(env, "--no-packages", "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert proc.returncode == 0, proc.stderr
+    for privileged in (
+        "omarchy-pkg-add",
+        "omarchy-install-browser",
+        "omarchy-install-editor-vscode",
+        "omarchy-pkg-drop",
+        "sudo",
+    ):
+        assert privileged not in _commands(env), privileged
 
 
 def test_unknown_flag_is_rejected(tmp_path: Path) -> None:
@@ -1082,9 +1201,9 @@ def test_unknown_flag_is_rejected(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _theme_state(env: dict, *, extension: str = "pub.lumon") -> Path:
+def _theme_state(env: dict) -> Path:
     """An active Omarchy theme as omarchy-theme-set leaves it: theme.name plus
-    the rendered colors.toml and the VS Code descriptor."""
+    colors.toml (what the omarchy-theme-refresh fake renders templates from)."""
     theme = env["home"] / ".local" / "state" / "omarchy" / "current" / "theme"
     theme.mkdir(parents=True, exist_ok=True)
     (theme.parent / "theme.name").write_text("lumon\n")
@@ -1092,7 +1211,6 @@ def _theme_state(env: dict, *, extension: str = "pub.lumon") -> Path:
         'mode = "dark"\nbackground = "#16242d"\nforeground = "#d6e2ee"\naccent = "#8bc9eb"\n'
         'dark_background = "#101b21"\nlighter_background = "#1b2d40"\n'
     )
-    (theme / "vscode.json").write_text(json.dumps({"name": "Lumon", "extension": extension}))
     return theme
 
 
@@ -1107,33 +1225,57 @@ def _firefox_profile(env: dict) -> Path:
     return profile
 
 
-def test_hooks_are_installed_with_a_resolved_path(tmp_path: Path) -> None:
+def test_hooks_are_installed_through_omarchy_hook_install(tmp_path: Path) -> None:
     """omarchy-update runs ~/.config/omarchy/hooks/post-update.d/* and
     omarchy-theme-set ends with `omarchy-hook theme-set <name>`, which runs
-    theme-set.d/*. Both hooks must carry the resolved checkout path (the
-    theme-set one puts lib/ on PYTHONPATH) and be executable; the theme-set
-    hook must never abort a theme switch (no set -e) or escalate."""
+    theme-set.d/*. Each hook is rendered — the checkout path resolved (the
+    theme-set one puts lib/ on PYTHONPATH) — under its final basename and
+    handed to Omarchy's own `omarchy-hook-install <type> <file>` (4.0.0-1:
+    mkdir -p, cp under the basename, chmod 755). The theme-set hook must
+    never abort a theme switch (no set -e) or escalate."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
     hooks = env["home"] / ".config" / "omarchy" / "hooks"
-    for name in ("post-update.d", "theme-set.d"):
-        installed = hooks / name / "10-hyprconf"
+    installs = [c for c in _calls(env) if c.startswith("omarchy-hook-install ")]
+    assert sorted(c.split()[1] for c in installs) == ["post-update", "theme-set"]
+    for name in ("post-update", "theme-set"):
+        call = next(c for c in installs if c.split()[1] == name)
+        assert call.split()[2].endswith("/10-hyprconf"), call  # installed under its basename
+        installed = hooks / f"{name}.d" / "10-hyprconf"
         body = installed.read_text()
         assert "@HYPRCONF_DIR@" not in body and str(REPO_ROOT) in body, name
         assert os.access(installed, os.X_OK), name
     code = _code_only((hooks / "theme-set.d" / "10-hyprconf").read_text())
     assert "set -e" not in code and "sudo" not in code and "omarchy-update" not in code
-    assert "omarchy-theme-set-vscode" in code and "hyprconf.firefox_theme" in code
+    assert "hyprconf.firefox_theme" in code
 
 
-def test_theme_set_hook_extends_the_theme_to_code_oss_and_firefox(tmp_path: Path) -> None:
-    """Omarchy themes VS Code by the Microsoft build's paths; Arch's `code` is
-    Code - OSS (~/.config/Code - OSS, ~/.vscode-oss). The hook reuses
-    Omarchy's own set_theme with those paths, falls back to the generated
-    theme when the descriptor's extension is not installed (Open VSX may
-    lack it), and writes Firefox's userChrome.css + user.js from the
-    rendered colors.toml. install.sh runs the hook once for the active
-    theme, so nothing waits for the next switch."""
+def test_hooks_fall_back_to_a_plain_copy_without_omarchy_hook_install(tmp_path: Path) -> None:
+    """The same three steps by hand only when Omarchy has no installer
+    command — the hooks must land either way, byte for byte the same."""
+    env = _setup(tmp_path)
+    (env["bins"] / "omarchy-hook-install").unlink()
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    hooks = env["home"] / ".config" / "omarchy" / "hooks"
+    for name in ("post-update", "theme-set"):
+        installed = hooks / f"{name}.d" / "10-hyprconf"
+        expected = (
+            (REPO_ROOT / "hooks" / f"{name}.d" / "10-hyprconf")
+            .read_text()
+            .replace("@HYPRCONF_DIR@", str(REPO_ROOT))
+        )
+        assert installed.read_text() == expected, name
+        assert os.access(installed, os.X_OK), name
+
+
+def test_theme_set_hook_extends_the_theme_to_firefox(tmp_path: Path) -> None:
+    """Omarchy renders hyprconf's user template (themed/userChrome.css.tpl,
+    installed by stage_themed and rendered through omarchy-theme-refresh) into
+    the current theme dir; the hook copies it into the Firefox profile and
+    merges user.js. install.sh runs the hook once for the active theme, so
+    nothing waits for the next switch. VS Code is Omarchy's own now
+    (omarchy-theme-set-vscode in omarchy-theme-set's fan-out)."""
     env = _setup(tmp_path)
     _real_jq(env)
     _theme_state(env)
@@ -1141,19 +1283,8 @@ def test_theme_set_hook_extends_the_theme_to_code_oss_and_firefox(tmp_path: Path
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
 
-    home = env["home"]
-    calls = _calls(env)
-    settings = f"{home}/.config/Code - OSS/User/settings.json"
-    assert (
-        f"set_theme code {settings} {home}/.vscode-oss/extensions descriptor=vscode.json" in calls
-    )
-    # `code --list-extensions` (stub) lists nothing -> the generated-theme fallback.
-    assert (
-        f"set_theme code {settings} {home}/.vscode-oss/extensions descriptor=.no-descriptor"
-        in calls
-    )
-    assert "Open VSX" in proc.stderr
-
+    rendered = env["home"] / ".local" / "state" / "omarchy" / "current" / "theme" / "userChrome.css"
+    assert rendered.is_file(), "stage_themed did not get the template rendered"
     css = (profile / "chrome" / "userChrome.css").read_text()
     assert "--toolbar-bgcolor: #16242d !important;" in css
     js = (profile / "user.js").read_text()
@@ -1166,22 +1297,6 @@ def test_theme_set_hook_extends_the_theme_to_code_oss_and_firefox(tmp_path: Path
     assert _tree_hash(profile) == before
 
 
-def test_theme_set_hook_honours_omarchys_vscode_toggle(tmp_path: Path) -> None:
-    """`omarchy toggle skip-vscode-theme-changes` is how Omarchy's own script
-    is told to leave VS Code alone; the Code - OSS bridge must obey it too."""
-    env = _setup(tmp_path)
-    _stub(env["bins"] / "omarchy-toggle-enabled", env["calls"], "exit 0")
-    _theme_state(env)
-    _firefox_profile(env)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert not any(c.startswith("set_theme") for c in _calls(env))
-    # Firefox is independent of that toggle.
-    assert (
-        env["home"] / ".config" / "mozilla" / "firefox" / "abc.default-release" / "user.js"
-    ).exists()
-
-
 def test_theme_stage_is_a_noop_without_an_active_theme(tmp_path: Path) -> None:
     env = _setup(tmp_path)
     _firefox_profile(env)
@@ -1190,7 +1305,68 @@ def test_theme_stage_is_a_noop_without_an_active_theme(tmp_path: Path) -> None:
     assert not (
         env["home"] / ".config" / "mozilla" / "firefox" / "abc.default-release" / "user.js"
     ).exists()
-    assert not any(c.startswith("set_theme") for c in _calls(env))
+    assert "omarchy-theme-refresh" not in _commands(env)
+
+
+# ---------------------------------------------------------------------------
+# Theme templates — Omarchy's user template seam
+# ---------------------------------------------------------------------------
+
+
+def _themed_checkout(tmp_path: Path) -> tuple[Path, str]:
+    """A throwaway checkout with one throwaway user template beside whatever
+    themed/ ships, so the stage is exercised whether or not the repo carries
+    a template of its own yet. Returns (checkout, template name)."""
+    repo = _checkout(tmp_path)
+    (repo / "themed").mkdir(exist_ok=True)
+    name = "hyprconf-test.css.tpl"
+    (repo / "themed" / name).write_text("body { color: {{ foreground }}; }\n")
+    return repo, name
+
+
+def test_templates_are_installed_and_rendered_through_omarchy_theme_refresh(
+    tmp_path: Path,
+) -> None:
+    """Every repo themed/*.tpl lands in ~/.config/omarchy/themed/ (Omarchy's
+    user template dir, rendered on each theme set ahead of default/themed),
+    and the render for the theme active right now is Omarchy's own
+    omarchy-theme-refresh — run only when a template changed or its render is
+    missing, so the hook's re-runs cost nothing; never omarchy-theme-set
+    with another name."""
+    env = _setup(tmp_path)
+    repo, name = _themed_checkout(tmp_path)
+    _theme_state(env)
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    installed = env["home"] / ".config" / "omarchy" / "themed" / name
+    assert installed.read_bytes() == (repo / "themed" / name).read_bytes()
+    assert _commands(env).count("omarchy-theme-refresh") == 1
+    assert "omarchy-theme-set" not in _commands(env)
+    rendered = env["home"] / ".local" / "state" / "omarchy" / "current" / "theme" / name[:-4]
+    assert rendered.read_text() == "body { color: #d6e2ee; }\n"
+
+    env["calls"].write_text("")
+    _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert "omarchy-theme-refresh" not in _commands(env)
+
+    (repo / "themed" / name).write_text("body { color: {{ accent }}; }\n")
+    env["calls"].write_text("")
+    _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert installed.read_text() == "body { color: {{ accent }}; }\n"
+    assert _commands(env).count("omarchy-theme-refresh") == 1
+    assert rendered.read_text() == "body { color: #8bc9eb; }\n"
+
+
+def test_templates_wait_for_a_theme_when_none_is_active(tmp_path: Path) -> None:
+    """Installed either way; with no theme.name there is nothing to refresh
+    — the next `omarchy theme set` renders it."""
+    env = _setup(tmp_path)
+    repo, name = _themed_checkout(tmp_path)
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert (env["home"] / ".config" / "omarchy" / "themed" / name).is_file()
+    assert "omarchy-theme-refresh" not in _commands(env)
+    assert "next omarchy theme set" in proc.stdout
 
 
 def test_hook_cannot_recurse_or_escalate() -> None:
@@ -1249,51 +1425,175 @@ def test_overlay_never_uses_forbidden_pacman_or_aur_forms() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_firefox_policy_is_installed_via_sudo_when_interactive(tmp_path: Path) -> None:
-    """setup.sh's setup_firefox, ported: Firefox reads enterprise policies only
-    from root-owned paths, so the file goes through sudo to (an overridden)
-    /etc/firefox/policies. A matching file is left alone, so a re-run — and
-    every hyprsync after it — never re-prompts for a password."""
-    env = _setup(tmp_path)
-    # A sudo that actually runs its command, so the install lands in the tree.
+def _policy_env(tmp_path: Path, env: dict) -> tuple[Path, dict[str, str]]:
+    """A sudo that actually runs its command (so the policy lands in the
+    tree), the real jq (the merge), and the policy path under tmp_path."""
+    _real_jq(env)
     _stub(env["bins"] / "sudo", env["calls"], '"$@"')
     policies = tmp_path / "etc" / "firefox" / "policies"
-    extra = {"_HYPRCONF_ASSUME_TTY": "1", "_HYPRCONF_FIREFOX_POLICIES": str(policies)}
+    return policies, {"_HYPRCONF_ASSUME_TTY": "1", "_HYPRCONF_FIREFOX_POLICIES": str(policies)}
+
+
+def test_firefox_policy_is_omarchys_merged_under_ours_via_sudo_when_interactive(
+    tmp_path: Path,
+) -> None:
+    """Firefox reads enterprise policies only from root-owned paths, so the
+    file goes through sudo to (an overridden) /etc/firefox/policies — which
+    takes precedence over the distribution/ file omarchy-install-browser
+    writes, and would shadow Omarchy's prefs. So what lands is Omarchy's
+    default/firefox/policies.json merged UNDER infra/firefox/policies.json:
+    every Omarchy pref survives, every hyprconf key is there, and ours wins
+    on a shared key. A matching file is left alone, so a re-run — and every
+    hyprsync after it — never re-prompts for a password."""
+    env = _setup(tmp_path)
+    policies, extra = _policy_env(tmp_path, env)
     proc = _run(env, "--no-update", extra_env=extra)
     assert proc.returncode == 0, proc.stderr
-    src = REPO_ROOT / "infra" / "firefox" / "policies.json"
-    assert (policies / "policies.json").read_text() == src.read_text()
+    assert "omarchy-install-browser" not in _commands(env)  # firefox is present
+
+    installed = json.loads((policies / "policies.json").read_text())["policies"]
+    ours = json.loads((REPO_ROOT / "infra" / "firefox" / "policies.json").read_text())["policies"]
+    theirs = OMARCHY_FIREFOX_POLICY["policies"]["Preferences"]
+    for key, value in ours.items():
+        if key != "Preferences":
+            assert installed[key] == value, key
+    for pref, value in ours["Preferences"].items():
+        assert installed["Preferences"][pref] == value, pref
+    assert (
+        installed["Preferences"]["media.ffmpeg.vaapi.enabled"]
+        == theirs["media.ffmpeg.vaapi.enabled"]
+    )
+    assert (
+        installed["Preferences"]["widget.wayland.fractional-scale.enabled"]
+        == theirs["widget.wayland.fractional-scale.enabled"]
+    )
+    assert installed["Preferences"]["browser.compactmode.show"]["Value"] is True  # ours
 
     env["calls"].write_text("")
     _run(env, "--no-update", extra_env=extra)
-    assert not any(c.startswith("sudo") for c in _calls(env))
+    assert "sudo" not in _commands(env)
+
+
+def test_firefox_is_installed_through_omarchys_installer_when_absent(tmp_path: Path) -> None:
+    """No firefox package (omarchy-pkg-present fails): `omarchy-install-browser
+    firefox` — Omarchy's own flow: omarchy-pkg-add, its prefs under
+    /usr/lib/firefox/distribution, MOZ_ENABLE_WAYLAND — runs before the policy
+    lands; never a bare omarchy-pkg-add firefox from the package list."""
+    env = _setup(tmp_path)
+    policies, extra = _policy_env(tmp_path, env)
+    _stub(env["bins"] / "omarchy-pkg-present", env["calls"], '[ "$1" != firefox ]')
+    proc = _run(env, "--no-update", extra_env=extra)
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert "omarchy-install-browser firefox" in calls
+    assert calls.index("omarchy-install-browser firefox") < next(
+        i for i, c in enumerate(calls) if c.startswith("sudo install")
+    )
+    assert (policies / "policies.json").is_file()
+    pkg_add = [c for c in calls if c.startswith("omarchy-pkg-add")]
+    assert pkg_add and not any("firefox" in c.split() for c in pkg_add)
 
 
 def test_firefox_policy_is_skipped_without_a_terminal(tmp_path: Path) -> None:
     """The post-update hook runs non-interactively inside omarchy-update; a
     sudo password prompt there would stall the whole update, so no tty means
-    no attempt (and no half-configured warning-free failure)."""
+    no attempt — neither the policy nor Omarchy's installer."""
     env = _setup(tmp_path)
+    _real_jq(env)
+    _stub(env["bins"] / "omarchy-pkg-present", env["calls"], '[ "$1" != firefox ]')
     policies = tmp_path / "etc" / "firefox" / "policies"
     proc = _run(env, "--no-update", extra_env={"_HYPRCONF_FIREFOX_POLICIES": str(policies)})
     assert proc.returncode == 0, proc.stderr
     assert not (policies / "policies.json").exists()
-    assert not any(c.startswith("sudo") for c in _calls(env))
+    assert "sudo" not in _commands(env)
+    assert "omarchy-install-browser" not in _commands(env)
 
 
 def test_firefox_policy_sits_behind_the_no_packages_gate(tmp_path: Path) -> None:
     """--no-packages means "no sudo" — the hook passes it for that reason, so
-    the only other privileged stage must honor it too."""
+    the other privileged stages must honor it too."""
     env = _setup(tmp_path)
-    policies = tmp_path / "etc" / "firefox" / "policies"
-    _run(
-        env,
-        "--no-update",
-        "--no-packages",
-        extra_env={"_HYPRCONF_ASSUME_TTY": "1", "_HYPRCONF_FIREFOX_POLICIES": str(policies)},
-    )
-    assert not any(c.startswith("sudo") for c in _calls(env))
+    policies, extra = _policy_env(tmp_path, env)
+    _run(env, "--no-update", "--no-packages", extra_env=extra)
+    assert "sudo" not in _commands(env)
     assert not (policies / "policies.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# VS Code — Omarchy's own installer, the Code - OSS conflict cleared first
+# ---------------------------------------------------------------------------
+
+
+def _packages(env: dict, present: tuple[str, ...]) -> None:
+    """omarchy-pkg-present answering for exactly these package names. The
+    VS Code installer stub then makes visual-studio-code-bin present, the way
+    the real one does (omarchy-pkg-add inside)."""
+    marker = env["home"].parent / "vscode-installed"
+    names = " ".join(present)
+    _stub(
+        env["bins"] / "omarchy-pkg-present",
+        env["calls"],
+        f'case " {names} " in *" $1 "*) exit 0;; esac; '
+        f'[ "$1" = visual-studio-code-bin ] && [ -e "{marker}" ]',
+    )
+    _stub(env["bins"] / "omarchy-install-editor-vscode", env["calls"], f'touch "{marker}"')
+
+
+def test_vscode_already_present_is_left_alone(tmp_path: Path) -> None:
+    env = _setup(tmp_path)
+    _packages(env, ("firefox", "visual-studio-code-bin"))
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-install-editor-vscode" not in _commands(env)
+    assert "omarchy-pkg-drop" not in _commands(env)
+
+
+def test_code_oss_is_dropped_before_omarchys_vscode_installer(tmp_path: Path) -> None:
+    """Arch's `code` (Code - OSS, what v4.0.0–v4.2.0 installed) conflicts with
+    visual-studio-code-bin (pacman -Si: Conflicts With: code) and Omarchy's
+    installer is a plain `pacman -S --noconfirm --needed` that a conflict
+    fails — so Code - OSS goes first, through Omarchy's own omarchy-pkg-drop
+    (only names pacman -Qq lists, --noconfirm), then
+    omarchy-install-editor-vscode, which opens VS Code once at the end: the
+    log says so. Nothing runs pacman itself."""
+    env = _setup(tmp_path)
+    _packages(env, ("firefox", "code"))
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert "omarchy-pkg-drop code" in calls
+    assert "omarchy-install-editor-vscode " in calls
+    assert calls.index("omarchy-pkg-drop code") < calls.index("omarchy-install-editor-vscode ")
+    assert "pacman" not in _commands(env)
+    assert "opens VS Code once" in proc.stdout
+    assert "~/.vscode-oss stay, not migrated" in proc.stdout
+    pkg_add = [c for c in calls if c.startswith("omarchy-pkg-add")]
+    assert pkg_add and not any("code" in c.split() for c in pkg_add)
+
+    env["calls"].write_text("")  # installed now: nothing more to do
+    _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert "omarchy-install-editor-vscode" not in _commands(env)
+    assert "omarchy-pkg-drop" not in _commands(env)
+
+
+def test_vscode_is_installed_without_a_drop_when_no_editor_is_present(tmp_path: Path) -> None:
+    env = _setup(tmp_path)
+    _packages(env, ("firefox",))
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-install-editor-vscode" in _commands(env)
+    assert "omarchy-pkg-drop" not in _commands(env)
+
+
+def test_vscode_install_waits_for_a_terminal(tmp_path: Path) -> None:
+    """Both Omarchy commands prompt for sudo; the hook's non-interactive run
+    must not start either."""
+    env = _setup(tmp_path)
+    _packages(env, ("firefox", "code"))
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-install-editor-vscode" not in _commands(env)
+    assert "omarchy-pkg-drop" not in _commands(env)
 
 
 # A model of the shell's config handling, enough for the bar-widget stages.
@@ -1477,6 +1777,8 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
         "hyprconf-yubikey",
         "hyprconf-firefox-theme",
         "hyprconf-vulkan-gpu",
+        "hyprconf-monitor-preset",
+        "hyprconf-gaps",
     } <= set(shipped)
     for name in shipped:
         installed = env["home"] / ".local" / "bin" / name
@@ -1502,8 +1804,12 @@ def _plugin_fixtures(env: dict, tmp_path: Path) -> Path:
     (src / "manifest.json").write_text(
         json.dumps(
             {
+                "schemaVersion": 1,
                 "id": "omarchy.clock",
                 "name": "Clock",
+                "version": "1.0.0",
+                "kinds": ["bar-widget"],
+                "entryPoints": {"barWidget": "BarWidget.qml"},
                 "barWidget": {"displayName": "Clock"},
                 "omarchy": {"clonePaths": [{"source": "x", "target": "x"}]},
             }
@@ -1543,9 +1849,10 @@ def test_clock_is_copied_patched_and_set_once(tmp_path: Path) -> None:
     calls = _calls(env)
     assert "omarchy-plugin-enable hyprconf.clock" in calls
     assert "omarchy-bar set hyprconf.clock format hh:mm:ss AP" in calls
-    # The shell loaded/drew the stock widget before the patch; without a
-    # restart the seconds sit frozen.
-    assert any(c.startswith("omarchy-restart-shell") for c in calls)
+    # The copy is patched before the enable, and the rescan that precedes it
+    # hot-reloads plugin code (shell/README.md) — no shell restart.
+    assert "omarchy-shell shell rescanPlugins" in calls
+    assert "omarchy-restart-shell" not in _commands(env)
 
     plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.clock"
     widget = (plug / "BarWidget.qml").read_text()
@@ -1631,14 +1938,88 @@ def test_workspaces_widget_is_the_overlays_own_plugin(tmp_path: Path) -> None:
     assert manifest["kinds"] == ["bar-widget"]
 
     # Synced, not seeded: a stale installed copy comes back to the repo's, and
-    # the running shell is reloaded so it draws the new one.
+    # the running shell rescans so it draws the new one.
     (plug / "Workspaces.qml").write_text("// stale\n")
     env["calls"].write_text("")
     _run(env, "--no-update")
     assert (plug / "Workspaces.qml").read_bytes() == (src / "Workspaces.qml").read_bytes()
-    assert any(c.startswith("omarchy-restart-shell") for c in _calls(env))
+    assert "omarchy-shell shell rescanPlugins" in _calls(env)
     # …but enabled once only, so a later `omarchy plugin disable` sticks.
     assert "omarchy-plugin-enable hyprconf.workspaces" not in _calls(env)
+
+
+def test_plugin_sync_stages_a_sibling_temp_dir_and_rescans(tmp_path: Path) -> None:
+    """The copy is staged in a temp dir beside the plugin dirs and moved into
+    place — omarchy-plugin-clone's pattern (mktemp -d under the plugins dir,
+    cp -aL, mv) — so the shell's directory watch never scans a half-copied
+    plugin; no staging dir is left behind. Then `omarchy-shell shell
+    rescanPlugins` (what omarchy-plugin-update runs after a fast-forward) —
+    it hot-reloads plugin code — and omarchy-restart-shell only when no
+    shell answers that."""
+    env = _setup(tmp_path)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    plugins = env["home"] / ".config" / "omarchy" / "plugins"
+    assert not list(plugins.glob(".hyprconf.*"))
+    assert "omarchy-shell shell rescanPlugins" in _calls(env)
+    assert "omarchy-restart-shell" not in _commands(env)
+
+    # Nothing changed: no rescan, no restart.
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert "omarchy-shell shell rescanPlugins" not in _calls(env)
+    assert "omarchy-restart-shell" not in _commands(env)
+
+    # A changed widget with no shell to rescan: the restart is the fallback.
+    _stub(env["bins"] / "omarchy-shell", env["calls"], "exit 1")
+    (plugins / "hyprconf.resources" / "Widget.qml").write_text("// stale\n")
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert "omarchy-shell shell rescanPlugins" in _calls(env)
+    assert "omarchy-restart-shell" in _commands(env)
+    assert not list(plugins.glob(".hyprconf.*"))
+
+
+def test_resources_widget_declares_its_bar_section_in_the_manifest() -> None:
+    """Placement is the manifest's barWidget.defaultSection ("right"), which
+    the shell honours on an enable with no placement (PluginRegistry.qml
+    defaultBarWidgetSection, 4.0.0-1; omarchy-plugin-validate checks the
+    value) — so the enable carries no --section argument."""
+    manifest = json.loads(
+        (REPO_ROOT / "plugins" / "hyprconf-resources" / "manifest.json").read_text()
+    )
+    assert manifest["barWidget"]["defaultSection"] == "right"
+    assert "--section" not in _code_only(INSTALL_SH.read_text())
+
+
+def test_installed_plugins_pass_omarchy_plugin_validate(tmp_path: Path) -> None:
+    """Omarchy's own validator (the checks PluginRegistry.qml enforces:
+    schemaVersion, required fields, entry points that exist, a valid
+    defaultSection, no symlinks, no omarchy.* id) over every plugin dir the
+    overlay puts under ~/.config/omarchy/plugins — the three shipped copies
+    and the hyprconf.clock copy. Real when installed; a pure check."""
+    if not PLUGIN_VALIDATE.is_file():
+        pytest.skip("no installed omarchy-plugin-validate")
+    env = _setup(tmp_path)
+    _plugin_fixtures(env, tmp_path)
+    assert _run(env, "--no-update").returncode == 0
+    plugins = env["home"] / ".config" / "omarchy" / "plugins"
+    dirs = sorted(p for p in plugins.iterdir() if p.is_dir())
+    assert [p.name for p in dirs] == [
+        "hyprconf.active-window",
+        "hyprconf.clock",
+        "hyprconf.resources",
+        "hyprconf.workspaces",
+    ]
+    for plugin in dirs:
+        proc = subprocess.run(
+            ["bash", str(PLUGIN_VALIDATE), str(plugin)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={"PATH": "/usr/bin:/bin", "HOME": str(env["home"])},
+        )
+        assert proc.returncode == 0, f"{plugin.name}: {proc.stderr}"
 
 
 def test_workspaces_widget_shows_only_active_workspaces_on_two_lines() -> None:
@@ -1744,7 +2125,7 @@ def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
     time. The first run enables, later runs leave the choice alone."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
-    assert "omarchy-plugin-enable hyprconf.resources --section right" in _calls(env)
+    assert "omarchy-plugin-enable hyprconf.resources" in _calls(env)
     env["calls"].write_text("")
     _run(env, "--no-update")
     assert not any(c.startswith("omarchy-plugin-enable") for c in _calls(env))
@@ -1755,14 +2136,14 @@ def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_switch_monitor_moves_existing_workspaces(tmp_path: Path) -> None:
+def test_monitor_preset_moves_existing_workspaces(tmp_path: Path) -> None:
     """Workspace rules only place FUTURE workspaces; a switch must move
     today's. On reload Hyprland leaves existing workspaces on whatever monitor
     they already occupy, so without an explicit move the kitchen hotkey
     enabled the right outputs while workspaces 1-6 stayed on the bedroom TV.
     The move uses the Lua dispatch form — hl.dsp.workspace.move, verified on
     Hyprland 0.56.2 — for the same reason the dpms recovery does (the
-    two-token dispatch is a parse error there, per its own scan below)."""
+    two-token dispatch is a parse error there, per its own scan above)."""
     env = _setup(tmp_path)
     hypr = env["home"] / ".config" / "hypr"
     hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
@@ -1896,28 +2277,50 @@ def test_guard_reports_when_git_cannot_repair(tmp_path: Path) -> None:
     assert (repo / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS
 
 
-def test_a_preset_reset_to_the_stock_template_is_reported_not_rewritten(tmp_path: Path) -> None:
-    """monitors.lua points at the chosen preset after a hotkey switch, so
-    `omarchy refresh config hypr/monitors.lua` lands on the preset. The
-    installer must say so — naming Omarchy's own .bak.<epoch> backup — and
-    must NOT re-seed on its own: a preset is machine-local, and re-enabling
-    outputs that are not plugged in right now would black out the desk."""
+def test_omarchy_refresh_of_monitors_lua_never_reaches_a_preset(tmp_path: Path) -> None:
+    """With the chosen preset in the toggles file, monitors.lua is Omarchy's
+    own real file, so `omarchy refresh config hypr/monitors.lua` lands where
+    Omarchy means it to — on monitors.lua — and neither the preset nor the
+    toggle is touched. (Under the old symlink flow it wrote the template
+    through the link onto the preset itself.)"""
     env = _setup(tmp_path)
     templates = _stock_templates(env)
     hypr = env["home"] / ".config" / "hypr"
     hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
     assert _run(env, "--no-update").returncode == 0
     assert _switch(env, "bedroom").returncode == 0
-    assert hypr.joinpath("monitors.lua").is_symlink()
+    preset = hypr.joinpath("pcMonitors.bedroom.lua").read_text()
 
-    _refresh_config(env, templates, "monitors.lua")  # lands on pcMonitors.bedroom.lua
+    _refresh_config(env, templates, "monitors.lua")
     stock = (templates / "monitors.lua").read_text()
-    assert hypr.joinpath("pcMonitors.bedroom.lua").read_text() == stock
-
+    assert hypr.joinpath("monitors.lua").read_text() == stock
+    assert hypr.joinpath("pcMonitors.bedroom.lua").read_text() == preset
+    assert (env["home"] / TOGGLE).read_text() == preset
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
-    assert "pcMonitors.bedroom.lua" in proc.stderr and "monitors.lua.bak" in proc.stderr
-    assert hypr.joinpath("pcMonitors.bedroom.lua").read_text() == stock  # left for the user
+    assert "stock" not in proc.stderr
+
+
+def test_old_hotkey_script_copies_are_swept(tmp_path: Path) -> None:
+    """v4.0.0–v4.2.0 copied switch_monitor.sh and adjust-gaps to
+    ~/.config/hypr/scripts/; both are ~/.local/bin tools now, so the copies go
+    — and the directory with them only when nothing else is in it."""
+    env = _setup(tmp_path)
+    old = env["home"] / ".config" / "hypr" / "scripts"
+    old.mkdir(parents=True)
+    (old / "switch_monitor.sh").write_text("#!/bin/bash\n")
+    (old / "adjust-gaps").write_text("#!/bin/bash\n")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not old.exists()
+    assert "switch_monitor.sh — it is ~/.local/bin/hyprconf-monitor-preset now" in proc.stdout
+    assert "adjust-gaps — it is ~/.local/bin/hyprconf-gaps now" in proc.stdout
+
+    old.mkdir()
+    (old / "adjust-gaps").write_text("#!/bin/bash\n")
+    (old / "mine.sh").write_text("#!/bin/bash\n")  # the user's own script
+    _run(env, "--no-update")
+    assert sorted(p.name for p in old.iterdir()) == ["mine.sh"]
 
 
 # ---------------------------------------------------------------------------

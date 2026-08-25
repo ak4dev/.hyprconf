@@ -1,6 +1,6 @@
-"""Tests for hypr/scripts/adjust-gaps.
+"""Tests for bin/hyprconf-gaps (SUPER+SHIFT+= / SUPER+SHIFT+-).
 
-The script reads general:gaps_in / gaps_out with `hyprctl getoption -j` and
+The tool reads general:gaps_in / gaps_out with `hyprctl getoption -j` and
 applies the stepped values with `hyprctl eval "hl.config({ general = { … } })"`.
 It is `eval`, not `keyword`, on purpose: under Hyprland 0.56's Lua parser
 `hyprctl keyword` answers "keyword can't work with non-legacy parsers. Use
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).parent.parent.parent / "hypr" / "scripts" / "adjust-gaps"
+SCRIPT = Path(__file__).parent.parent.parent / "bin" / "hyprconf-gaps"
 
 
 def _fake_hyprctl(calls_file: Path, json_in: str, json_out: str, *, eval_reply: str = "ok") -> str:
@@ -68,7 +68,7 @@ def _run(
     json_out: str,
     eval_reply: str = "ok",
 ) -> tuple[subprocess.CompletedProcess, list[str]]:
-    """Run adjust-gaps against the fake hyprctl; return (process, eval programs)."""
+    """Run hyprconf-gaps against the fake hyprctl; return (process, eval programs)."""
     fake_dir = tmp_path / "bins"
     fake_dir.mkdir(exist_ok=True)
     calls_file = tmp_path / "evals.txt"

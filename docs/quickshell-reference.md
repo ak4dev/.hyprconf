@@ -156,8 +156,9 @@ never a copy. `omarchy-plugin-catalog` prints the JSON (`id`, `firstParty`,
 path. Discovery after `omarchy-shell shell rescanPlugins` is asynchronous: wait
 for the id in `omarchy plugin list --json` before enabling (`activate_plugin_copy`);
 `omarchy-shell shell reloadConfig` re-reads `shell.json`; `install.sh` runs
-`omarchy restart shell` at most once per run, only when a widget's files were
-synced or the clock copy was made.
+`omarchy-shell shell rescanPlugins` after each widget sync (`reload_plugins` —
+the hot reload `omarchy-plugin-update` uses), falling back to
+`omarchy-restart-shell` only when no shell answers.
 
 **When adding a plugin API not covered here, add a concise example to this file**
 after verifying it against the installed qmltypes and shell sources.

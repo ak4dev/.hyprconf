@@ -1,4 +1,4 @@
--- Kitchen monitor preset (Lua). Apply manually: `switch_monitor.sh kitchen`.
+-- Kitchen monitor preset (Lua). Apply manually: `hyprconf-monitor-preset kitchen`.
 -- Output names verified against this desk's `hyprctl monitors all`: the
 -- Odyssey G8 enumerates as DP-4, the portrait CB282K as DP-5, and the LG TV
 -- (the bedroom display, off in this layout) as HDMI-A-2.

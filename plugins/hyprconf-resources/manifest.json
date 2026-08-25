@@ -15,6 +15,7 @@
     "displayName": "Resource Usage",
     "description": "CPU/temp/memory/GPU/network readout",
     "category": "System",
+    "defaultSection": "right",
     "allowMultiple": false
   }
 }

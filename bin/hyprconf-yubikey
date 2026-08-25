@@ -32,17 +32,30 @@
 #     sd-vconsole (/usr/lib/initcpio/install/sd-vconsole) bundles the file
 #     unconditionally, so that guard is gone under systemd init — the tool
 #     re-applies it in preflight, with the same layout list.
-#   * The kernel cmdline: Omarchy's template default/limine/default.conf writes
-#     KERNEL_CMDLINE[default]+="cryptdevice=PARTUUID=...:root root=/dev/mapper/root ..."
-#     into /etc/default/limine, and its drop-ins in /etc/limine-entry-tool.d/
-#     (omarchy-defaults.conf: quiet splash ...; resume.conf) add more with +=.
-#     limine-entry-tool loads the drop-ins first and /etc/default/limine last
-#     (/etc/limine-entry-tool.conf: "/etc/default/limine overrides any drop-in
-#     configs"), so the rd.luks.* parameters go onto the line that carries
-#     cryptdevice= — the one place they cannot be overridden away from it.
-#     cryptdevice= is KEPT beside them: each hook ignores the other's, so the
-#     box still boots through `encrypt` if Omarchy ever rewrites its drop-in
-#     back to the busybox hooks.
+#   * The kernel cmdline: limine-entry-tool assembles KERNEL_CMDLINE[default]
+#     from /usr/share/limine-entry-tool.d/*.conf, /etc/limine-entry-tool.conf,
+#     /etc/limine-entry-tool.d/*.conf and /etc/default/limine — the order of
+#     /usr/lib/limine/limine-common-functions load_config, the same four paths
+#     the limine-entry-tool binary carries — `+=` appending parameters and `=`
+#     replacing them (/etc/limine-entry-tool.conf, "Operators":
+#     "/etc/default/limine overrides any drop-in configs"). Omarchy adds
+#     parameters through drop-ins there: omarchy-hibernation-setup writes
+#     resume.conf and rtc-alarm.conf as KERNEL_CMDLINE[default]+=" ..." through
+#     `sudo tee`, and migration 1784917531.sh appends initramfs_async=0 to
+#     omarchy-defaults.conf the same way. That is the seam: enroll writes
+#     /etc/limine-entry-tool.d/zz-hyprconf-fido2.conf with the two rd.luks.*
+#     parameters, disable removes it. /etc/default/limine — Omarchy's template
+#     default/limine/default.conf, KERNEL_CMDLINE[default]+="cryptdevice=
+#     PARTUUID=...:root root=/dev/mapper/root ..." — is only READ, for the
+#     mapper name rd.luks.name= must yield (root= points at it). A plain
+#     KERNEL_CMDLINE[default]= there replaces every drop-in's parameters,
+#     Omarchy's included, so enroll refuses it. cryptdevice= is KEPT: each hook
+#     ignores the other's parameters, so the box still boots through `encrypt`
+#     if Omarchy ever rewrites its drop-in back to the busybox hooks.
+#   * Upgrade path: hyprconf-yubikey 4.0.0–4.2.0 put the two parameters on
+#     /etc/default/limine's line itself. enroll and disable strip them from
+#     there once (logged as a migration) so the drop-in is the single source;
+#     status reports "legacy inline parameters" until then.
 #   * limine-update (limine-mkinitcpio-hook) = limine-install + limine-mkinitcpio,
 #     and limine-mkinitcpio runs /usr/share/libalpm/scripts/limine-mkinitcpio-install
 #     "rebuild", which calls /usr/bin/mkinitcpio for every installed kernel
@@ -74,11 +87,11 @@
 #   * Packages come from the official repos via omarchy-pkg-add (libfido2:
 #     fido2-token + the library sd-encrypt bundles). Official repos only, never the AUR.
 #
-# Reverting: `hyprconf-yubikey disable` removes the drop-in and what enroll put
-# on the cmdline and rebuilds (the LUKS slot stays; the passphrase boots the box
-# through Omarchy's encrypt hook again); `remove` also wipes the FIDO2 slot.
-# Passphrase slots are never touched: the only --wipe-slot this tool knows is
-# fido2.
+# Reverting: `hyprconf-yubikey disable` removes both drop-ins (and the legacy
+# inline parameters, when still there) and rebuilds (the LUKS slot stays; the
+# passphrase boots the box through Omarchy's encrypt hook again); `remove` also
+# wipes the FIDO2 slot. Passphrase slots are never touched: the only
+# --wipe-slot this tool knows is fido2.
 #
 # Paths are env-overridable (never read-only) so the hermetic suite points them
 # at tmp copies; every external command is a recording stub on PATH there.
@@ -89,7 +102,7 @@ set -uo pipefail
 : "${_HYPRCONF_LIMINE_CONF_D:=/etc/limine-entry-tool.d}"
 : "${_HYPRCONF_LIMINE_USR_D:=/usr/share/limine-entry-tool.d}"
 : "${_HYPRCONF_MKINITCPIO_D:=/etc/mkinitcpio.conf.d}"
-: "${_HYPRCONF_FIDO2_DROPIN:=zz-hyprconf-fido2.conf}"
+: "${_HYPRCONF_FIDO2_DROPIN:=zz-hyprconf-fido2.conf}"  # both drop-ins' basename
 : "${_HYPRCONF_INITCPIO_INSTALL:=/usr/lib/initcpio/install}"
 : "${_HYPRCONF_VCONSOLE:=/etc/vconsole.conf}"
 : "${_HYPRCONF_MACHINE_ID:=/etc/machine-id}"
@@ -104,9 +117,13 @@ CHANGED=0          # set by every step that modified a file
 IMAGE_CHANGED=0    # set when the drop-in came or went: the boot image must come out different
 DEV=""             # picked LUKS2 device
 DEV_UUID=""
-# The KERNEL_CMDLINE[default] line limine_plan picked: the file's lines, the
-# line's index, its parts, and the value it is to get.
-L_LINES=() L_IDX="" L_PREFIX="" L_QUOTE="" L_VALUE="" L_TAIL="" L_NEW=""
+MAPPER=""          # the /dev/mapper name the root is opened under
+# The KERNEL_CMDLINE[default] line of /etc/default/limine limine_find_line
+# picked: the file's lines, the line's index and parts, whether the file has a
+# plain `=` default line, and whether the line carries the legacy parameters.
+L_LINES=() L_IDX="" L_PREFIX="" L_QUOTE="" L_VALUE="" L_TAIL="" L_PLAIN=0 L_LEGACY=0
+# What hyprconf-yubikey 4.0.0–4.2.0 put on that line (also what status reports).
+LEGACY_RE='rd\.luks\.options=[^[:space:]]*fido2-device='
 
 die()  { printf 'hyprconf-yubikey: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'hyprconf-yubikey: warning: %s\n' "$*" >&2; }
@@ -139,7 +156,7 @@ hyprconf-yubikey — FIDO2 key (YubiKey) unlock of the LUKS2 root at boot, on Om
 
 usage: hyprconf-yubikey status                 devices, enrolment and boot-config state (default)
        hyprconf-yubikey enroll  [options]     enrol the plugged-in key, switch the initramfs to systemd
-       hyprconf-yubikey disable [options]     undo the boot config (drop-in + cmdline); LUKS slot kept
+       hyprconf-yubikey disable [options]     undo the boot config (both drop-ins); LUKS slot kept
        hyprconf-yubikey remove  [options]     wipe the FIDO2 LUKS slot, then disable
        hyprconf-yubikey sudo                  FIDO2 for sudo/polkit: Omarchy's omarchy-setup-security-fido2
        hyprconf-yubikey help
@@ -162,11 +179,17 @@ before anything is; cryptdevice= is kept):
      rewrites Omarchy's HOOKS for the systemd initramfs: udev->systemd,
      encrypt->sd-encrypt, keymap->sd-vconsole, btrfs-overlayfs->sd-btrfs-overlayfs
      (when installed), consolefont and resume dropped, everything else kept
-  4. $_HYPRCONF_LIMINE_DEFAULT — the KERNEL_CMDLINE[default] line carrying
-     cryptdevice= gains rd.luks.name=<UUID>=<name> rd.luks.options=<UUID>=fido2-device=auto,
-     <name> being the mapper cryptdevice= opens and root=/dev/mapper/<name> uses
-     (they must agree; an rd.luks.options for the UUID just gains the option)
-     (backup first: $_HYPRCONF_LIMINE_DEFAULT.bak.<epoch>)
+  4. $_HYPRCONF_LIMINE_CONF_D/$_HYPRCONF_FIDO2_DROPIN
+     a limine-entry-tool drop-in, the way Omarchy's hibernation setup
+     adds resume= (its resume.conf, in the same directory):
+       KERNEL_CMDLINE[default]+=" rd.luks.name=<UUID>=<name> rd.luks.options=<UUID>=fido2-device=auto"
+     <name> being the mapper cryptdevice= opens and root=/dev/mapper/<name>
+     uses on the KERNEL_CMDLINE[default] line of $_HYPRCONF_LIMINE_DEFAULT
+     (they must agree). That file is read, not edited — with one exception:
+     hyprconf-yubikey 4.0.0–4.2.0 put the two parameters on the line itself,
+     and enroll (or disable) removes them from there once, so the drop-in is
+     the single source; \`status\` reports them as legacy inline parameters
+     until then.
   5. limine-update — rebuilds the boot images (UKI or initramfs, per limine's
      ENABLE_UKI) and the Limine entries. limine-update exits 0 even when a
      build fails, so its output is checked for limine-mkinitcpio-install's
@@ -194,11 +217,12 @@ writable overlay only when limine-mkinitcpio-hook ships sd-btrfs-overlayfs
 overlay under systemd init. Normal boots are unaffected either way.
 
 revert: \`hyprconf-yubikey disable\` puts the boot config back on Omarchy's encrypt
-hook (passphrase unlock; the FIDO2 slot stays): the drop-in goes, and on the
-cmdline the fido2-device option and the rd.luks.name of every device that
-carried it — other rd.luks.* parameters and cryptdevice= stay. \`hyprconf-yubikey
-remove\` also wipes the FIDO2 slot (systemd-cryptenroll --wipe-slot=fido2).
-Passphrase slots are never touched.
+hook (passphrase unlock; the FIDO2 slot stays): both drop-ins go, and so do
+the legacy inline parameters when a 4.0.0–4.2.0 enroll left them on
+$_HYPRCONF_LIMINE_DEFAULT (the fido2-device option and the rd.luks.name of
+every device that carried it — other rd.luks.* parameters and cryptdevice=
+stay). \`hyprconf-yubikey remove\` also wipes the FIDO2 slot (systemd-cryptenroll
+--wipe-slot=fido2). Passphrase slots are never touched.
 EOF
 }
 
@@ -369,21 +393,35 @@ take_snapshot() {
 }
 
 # ---------------------------------------------------------------------------
-# Files: the mkinitcpio drop-in and the Limine cmdline
+# Files: the mkinitcpio drop-in and the limine-entry-tool drop-in
 # ---------------------------------------------------------------------------
 
-# Omarchy's own backup convention: $file.bak.$(date +%s) (omarchy-refresh-config).
-backup_file() {
-    local bak
-    bak="$1.bak.$(date +%s)"
-    [[ -e $bak ]] && bak+=".$$"  # two edits within one second must not clobber
-    run_root cp -p -- "$1" "$bak" || die "could not back up $1"
-    info "backup: $bak"
-}
-
-# Content on stdin; tee keeps the target's owner and mode.
+# Content on stdin; tee keeps the target's owner and mode — the way Omarchy
+# writes its own drop-ins (omarchy-hibernation-setup: `... | sudo tee FILE`).
 write_root_file() {
     run_root tee -- "$1" >/dev/null || die "could not write $1"
+}
+
+# write_file_once <dir> <path> <what>: content on stdin; a no-op when the file
+# already holds it (byte for byte), else mkdir -p + tee, and CHANGED.
+write_file_once() {
+    local dir=$1 path=$2 what=$3 content
+    content=$(cat)
+    if [[ -r $path ]] && [[ $(<"$path") == "$content" ]]; then
+        info "$path: already in place"
+        return 1
+    fi
+    run_root mkdir -p -- "$dir" || die "could not create $dir"
+    write_root_file "$path" < <(printf '%s\n' "$content")
+    CHANGED=1
+    info "$path: written ($what)"
+}
+
+remove_file() {  # <path>
+    [[ -e $1 ]] || { info "$1: already absent"; return 1; }
+    run_root rm -f -- "$1" || die "could not remove $1"
+    CHANGED=1
+    info "$1: removed"
 }
 
 dropin_content() {
@@ -433,27 +471,40 @@ EOF
 
 dropin_path() { printf '%s/%s\n' "$_HYPRCONF_MKINITCPIO_D" "$_HYPRCONF_FIDO2_DROPIN"; }
 
+# The mkinitcpio drop-in changes the hook set, so the boot image must come out
+# different (IMAGE_CHANGED); the limine drop-in below only changes the cmdline.
 write_dropin() {
-    local path
-    path=$(dropin_path)
-    if [[ -r $path ]] && [[ $(<"$path") == "$(dropin_content)" ]]; then
-        info "$path: already in place"
-        return 0
-    fi
-    run_root mkdir -p -- "$_HYPRCONF_MKINITCPIO_D" || die "could not create $_HYPRCONF_MKINITCPIO_D"
-    write_root_file "$path" < <(dropin_content)
-    CHANGED=1 IMAGE_CHANGED=1
-    info "$path: written (systemd initramfs hooks)"
+    write_file_once "$_HYPRCONF_MKINITCPIO_D" "$(dropin_path)" "systemd initramfs hooks" < <(dropin_content) &&
+        IMAGE_CHANGED=1
+    return 0
 }
 
 remove_dropin() {
-    local path
-    path=$(dropin_path)
-    [[ -e $path ]] || { info "$path: already absent"; return 0; }
-    run_root rm -f -- "$path" || die "could not remove $path"
-    CHANGED=1 IMAGE_CHANGED=1
-    info "$path: removed"
+    remove_file "$(dropin_path)" && IMAGE_CHANGED=1
+    return 0
 }
+
+limine_dropin_path() { printf '%s/%s\n' "$_HYPRCONF_LIMINE_CONF_D" "$_HYPRCONF_FIDO2_DROPIN"; }
+
+# limine_dropin_content <uuid> <mapper>: one line, the shape Omarchy's
+# omarchy-hibernation-setup writes resume.conf in (KERNEL_CMDLINE[default]+=" ...").
+limine_dropin_content() {
+    printf 'KERNEL_CMDLINE[default]+=" rd.luks.name=%s=%s rd.luks.options=%s=fido2-device=auto"\n' "$1" "$2" "$1"
+}
+
+write_limine_dropin() {  # <uuid> <mapper>
+    write_file_once "$_HYPRCONF_LIMINE_CONF_D" "$(limine_dropin_path)" "rd.luks.* kernel parameters" < <(limine_dropin_content "$1" "$2")
+    return 0
+}
+
+remove_limine_dropin() {
+    remove_file "$(limine_dropin_path)"
+    return 0
+}
+
+# ---------------------------------------------------------------------------
+# /etc/default/limine: read for the mapper name, edited once for the migration
+# ---------------------------------------------------------------------------
 
 # split_cmdline_line <line>: L_PREFIX (through the `=` or `+=` and the blanks
 # after it), L_QUOTE ('"', "'" or empty), L_VALUE (the parameters, quotes
@@ -467,8 +518,8 @@ remove_dropin() {
 # the last thing on the line before an optional # comment. A value that starts
 # with a quote but has more of them inside is ambiguous, and so is a # anywhere
 # in the parameters ("Do not add # as a comment at the end of command lines" —
-# what one does is not documented). Returns 1 on either: this tool never writes
-# a line it cannot read back with certainty.
+# what one does is not documented). Returns 1 on either: this tool never reads
+# a mapper name from, or writes back, a line it cannot read with certainty.
 split_cmdline_line() {
     local line=$1 rest q re
     L_PREFIX=${line%%=*}=
@@ -490,11 +541,11 @@ split_cmdline_line() {
 }
 
 # mapper_name <value>: the /dev/mapper name the root is opened under, read
-# from the line being edited and nowhere else — Omarchy's encrypt-hook form
+# from the picked line and nowhere else — Omarchy's encrypt-hook form
 # cryptdevice=<dev>:<name>[:opts], and root=/dev/mapper/<name>. Both present
 # must agree, one is enough, neither is not a LUKS-root line this tool
 # understands. rd.luks.name must yield the /dev/mapper/<name> root= points at,
-# or the box does not boot. Runs inside cmdline_add's subshell: die ends that.
+# or the box does not boot. Runs in a subshell: die ends that.
 mapper_name() {
     local w from_crypt="" from_root=""
     local -a words=()
@@ -513,45 +564,12 @@ mapper_name() {
     printf '%s\n' "${from_crypt:-$from_root}"
 }
 
-# cmdline_add <uuid> <value>: the value with the two systemd-cryptsetup
-# parameters for <uuid>, added once — an rd.luks.options=<uuid>=... already
-# there gains fido2-device=auto instead of a duplicate, an rd.luks.name for
-# <uuid> is kept when it names the same mapper and refused when it does not.
-# rd.luks.* of other devices, cryptdevice= and everything else stay put; the
-# value comes back byte-identical when there is nothing to add.
-cmdline_add() {
-    local uuid=$1 value=$2 name w changed=0 have_name=0 have_opts=0
-    local -a words=() out=()
-    name=$(mapper_name "$value") || exit 1
-    read -r -a words <<<"$value"
-    for w in "${words[@]}"; do
-        case $w in
-            "rd.luks.name=$uuid="*)
-                [[ ${w#*=*=} == "$name" ]] ||
-                    die "$w is on the line but the root is /dev/mapper/$name — fix $_HYPRCONF_LIMINE_DEFAULT by hand first"
-                have_name=1
-                ;;
-            "rd.luks.options=$uuid="*)
-                have_opts=1
-                if [[ ,${w#*=*=}, != *,fido2-device=* ]]; then
-                    if [[ $w == *= ]]; then w+="fido2-device=auto"; else w+=",fido2-device=auto"; fi
-                    changed=1
-                fi
-                ;;
-        esac
-        out+=("$w")
-    done
-    ((have_name)) || { out+=("rd.luks.name=$uuid=$name"); changed=1; }
-    ((have_opts)) || { out+=("rd.luks.options=$uuid=fido2-device=auto"); changed=1; }
-    ((changed)) || { printf '%s\n' "$value"; return 0; }
-    printf '%s\n' "${value%%[![:space:]]*}${out[*]}${value##*[![:space:]]}"
-}
-
-# cmdline_strip <value>: undo cmdline_add for every device it was applied to
-# — the ones whose rd.luks.options carry fido2-device=: that option goes (the
-# other options stay; an emptied parameter is dropped) and so does the
-# device's rd.luks.name. rd.luks.* of other devices, cryptdevice= and
-# everything else stay; byte-identical when there is nothing to strip.
+# cmdline_strip <value>: the value without what hyprconf-yubikey 4.0.0–4.2.0
+# put on it, for every device it was applied to — the ones whose
+# rd.luks.options carry fido2-device=: that option goes (the other options
+# stay; an emptied parameter is dropped) and so does the device's
+# rd.luks.name. rd.luks.* of other devices, cryptdevice= and everything else
+# stay; byte-identical when there is nothing to strip.
 cmdline_strip() {
     local value=$1 w u o changed=0
     local -a words=() out=() fido=() opts=() keep=()
@@ -584,48 +602,82 @@ cmdline_strip() {
     printf '%s\n' "${value%%[![:space:]]*}${out[*]}${value##*[![:space:]]}"
 }
 
-# limine_plan <transform> [args...]: pick the KERNEL_CMDLINE[default] line to
-# edit (the one carrying cryptdevice=, else the first uncommented one), split
-# it, and run <transform> on its value (the value is its last argument; it
-# prints the new one) into L_NEW. Everything it cannot do with certainty is a
-# die, before anything else has changed — enroll/disable/remove call it first
-# for exactly that.
-limine_plan() {
-    local file=$_HYPRCONF_LIMINE_DEFAULT re='^[[:space:]]*KERNEL_CMDLINE\[default\][+]?='
-    local i
-    L_IDX=""
-    [[ -r $file ]] || die "$file not found — Omarchy keeps the kernel cmdline there (limine-mkinitcpio-hook)"
+# cmdline_check <uuid> <name> <value>: what /etc/default/limine's line keeps
+# beside the drop-in (its value after the strip) must not fight it. systemd
+# keeps ONE rd.luks.options= per device — systemd-cryptsetup-generator(8):
+# it "will override the options for the given UUID" — so one there for <uuid>
+# would win over, or lose to, the drop-in's fido2-device=auto; an
+# rd.luks.name=<uuid>= there must name the same mapper.
+cmdline_check() {
+    local uuid=$1 name=$2 w
+    local -a words=()
+    read -r -a words <<<"$3"
+    for w in "${words[@]}"; do
+        case $w in
+            "rd.luks.name=$uuid="*)
+                [[ ${w#*=*=} == "$name" ]] ||
+                    die "$w is on the KERNEL_CMDLINE[default] line of $_HYPRCONF_LIMINE_DEFAULT but the root is /dev/mapper/$name — fix that line by hand first"
+                ;;
+            "rd.luks.options=$uuid="*)
+                die "$w on the KERNEL_CMDLINE[default] line of $_HYPRCONF_LIMINE_DEFAULT would override the drop-in's rd.luks.options=$uuid=fido2-device=auto (systemd keeps one rd.luks.options= per device) — remove it from that line first"
+                ;;
+        esac
+    done
+}
+
+# limine_find_line: /etc/default/limine into L_LINES and the KERNEL_CMDLINE[default]
+# line this tool reads into L_IDX — the one carrying cryptdevice=, else the
+# first uncommented one; L_PLAIN when any such line assigns with `=` rather
+# than `+=`; L_LEGACY when the picked line carries the legacy parameters.
+# Returns 1 when the file is unreadable or has no such line.
+limine_find_line() {
+    local file=$_HYPRCONF_LIMINE_DEFAULT re='^[[:space:]]*KERNEL_CMDLINE\[default\]([+]?=)' i first="" crypt=""
+    L_LINES=() L_IDX="" L_PLAIN=0 L_LEGACY=0
+    [[ -r $file ]] || return 1
     mapfile -t L_LINES <"$file"
     for i in "${!L_LINES[@]}"; do
         [[ ${L_LINES[i]} =~ $re ]] || continue
-        if [[ ${L_LINES[i]} == *cryptdevice=* ]]; then
-            L_IDX=$i
-            break
-        fi
-        [[ -n $L_IDX ]] || L_IDX=$i
+        [[ ${BASH_REMATCH[1]} == '+=' ]] || L_PLAIN=1
+        [[ -n $first ]] || first=$i
+        [[ -n $crypt || ${L_LINES[i]} != *cryptdevice=* ]] || crypt=$i
     done
-    [[ -n $L_IDX ]] || die "no KERNEL_CMDLINE[default] line in $file"
-    split_cmdline_line "${L_LINES[L_IDX]}" ||
-        die "cannot read $file line $((L_IDX + 1)) with certainty — expected KERNEL_CMDLINE[default]+=\"...\" (one pair of quotes, nothing but blanks or a # comment after them) or bare parameters without a #; fix the line by hand first (format: /etc/limine-entry-tool.conf)"
-    # The transform dies in its subshell on a value it refuses; its message is out.
-    L_NEW=$("$@" "$L_VALUE") || exit 1
+    L_IDX=${crypt:-$first}
+    [[ -n $L_IDX ]] || return 1
+    [[ ${L_LINES[L_IDX]} =~ $LEGACY_RE ]] && L_LEGACY=1
+    return 0
 }
 
-# edit_limine <transform> [args...]: limine_plan, then write the line back
-# with its prefix, quotes and tail as they were. Backs the file up before the
-# first change; a no-op when nothing changes.
-edit_limine() {
+# limine_read [strict]: limine_find_line, or die; then split the picked line
+# into L_PREFIX L_QUOTE L_VALUE L_TAIL. A line that cannot be split with
+# certainty is a die under strict (enroll: the mapper name comes from it) and
+# whenever it carries the legacy parameters (the migration must write it
+# back); otherwise the file is not needed and L_VALUE stays empty. Everything
+# here happens before anything else has changed — enroll/disable/remove call
+# it first for exactly that.
+limine_read() {
     local file=$_HYPRCONF_LIMINE_DEFAULT
-    limine_plan "$@"
-    if [[ $L_NEW == "$L_VALUE" ]]; then
-        info "$file: already up to date"
-        return 0
+    if ! limine_find_line; then
+        [[ -r $file ]] || die "$file not found — Omarchy keeps the kernel cmdline there (limine-mkinitcpio-hook)"
+        die "no KERNEL_CMDLINE[default] line in $file"
     fi
-    L_LINES[L_IDX]="$L_PREFIX$L_QUOTE$L_NEW$L_QUOTE$L_TAIL"
-    backup_file "$file"
+    split_cmdline_line "${L_LINES[L_IDX]}" && return 0
+    L_VALUE=""
+    [[ ${1:-} == strict ]] || ((L_LEGACY)) || return 0
+    die "cannot read $file line $((L_IDX + 1)) with certainty — expected KERNEL_CMDLINE[default]+=\"...\" (one pair of quotes, nothing but blanks or a # comment after them) or bare parameters without a #; fix the line by hand first (format: /etc/limine-entry-tool.conf)"
+}
+
+# migrate_legacy_cmdline: hyprconf-yubikey 4.0.0–4.2.0 put the two parameters
+# on /etc/default/limine's line itself. Strip them once (cmdline_strip) so the
+# drop-in is the single source; the line keeps its prefix, quotes and tail,
+# every other line stays as it is. Needs a limine_read that split the line.
+migrate_legacy_cmdline() {
+    ((L_LEGACY)) || return 0
+    local file=$_HYPRCONF_LIMINE_DEFAULT new
+    new=$(cmdline_strip "$L_VALUE")
+    L_LINES[L_IDX]="$L_PREFIX$L_QUOTE$new$L_QUOTE$L_TAIL"
     write_root_file "$file" < <(printf '%s\n' "${L_LINES[@]}")
     CHANGED=1
-    info "$file: KERNEL_CMDLINE[default] is now: $L_NEW"
+    info "$file: migrated — the rd.luks.* parameters hyprconf-yubikey 4.0.0–4.2.0 put on KERNEL_CMDLINE[default] are removed (the drop-in is the single source): $new"
 }
 
 # ---------------------------------------------------------------------------
@@ -733,10 +785,14 @@ cmd_enroll() {
     parse_flags "$@"
     preflight
     pick_device
-    limine_plan cmdline_add "$DEV_UUID"
+    limine_read strict
+    ((L_PLAIN)) && die "$_HYPRCONF_LIMINE_DEFAULT assigns KERNEL_CMDLINE[default] with = — that replaces every parameter the drop-ins in $_HYPRCONF_LIMINE_CONF_D add, Omarchy's included (/etc/limine-entry-tool.conf: \"/etc/default/limine overrides any drop-in configs\"), so $(limine_dropin_path) could never reach the kernel; make it += first"
+    MAPPER=$(mapper_name "$L_VALUE") || exit 1
+    cmdline_check "$DEV_UUID" "$MAPPER" "$(cmdline_strip "$L_VALUE")"
     info "Device: $DEV (LUKS2, UUID $DEV_UUID)"
-    info "Cmdline: $L_NEW"
-    confirm "Enrol the plugged-in FIDO2 key to unlock $DEV at boot (installs libfido2, snapshot, LUKS slot, initramfs drop-in, cmdline, limine-update)?" ||
+    info "Drop-in $(limine_dropin_path): $(limine_dropin_content "$DEV_UUID" "$MAPPER")"
+    ((L_LEGACY)) && info "Migration: the rd.luks.* parameters a hyprconf-yubikey 4.0.0–4.2.0 enroll put on $_HYPRCONF_LIMINE_DEFAULT move into that drop-in"
+    confirm "Enrol the plugged-in FIDO2 key to unlock $DEV at boot (installs libfido2, snapshot, LUKS slot, initramfs drop-in, cmdline drop-in, limine-update)?" ||
         die "aborted — nothing changed"
     install_libfido2
     wait_for_token
@@ -751,7 +807,8 @@ cmd_enroll() {
         info "$DEV: FIDO2 token enrolled (the passphrase slot stays)"
     fi
     write_dropin
-    edit_limine cmdline_add "$DEV_UUID"
+    write_limine_dropin "$DEV_UUID" "$MAPPER"
+    migrate_legacy_cmdline
     rebuild_boot
     info ""
     info "Done. Reboot to test — plug the key in, enter its PIN, touch it."
@@ -761,7 +818,8 @@ cmd_enroll() {
 
 disable_boot_config() {
     remove_dropin
-    edit_limine cmdline_strip
+    remove_limine_dropin
+    migrate_legacy_cmdline
     if ((CHANGED)); then
         rebuild_boot
     else
@@ -772,8 +830,8 @@ disable_boot_config() {
 
 cmd_disable() {
     parse_flags "$@"
-    limine_plan cmdline_strip
-    confirm "Disable FIDO2 unlock at boot (remove the drop-in and what enroll put on the cmdline) and rebuild?" ||
+    limine_read
+    confirm "Disable FIDO2 unlock at boot (remove both drop-ins) and rebuild?" ||
         die "aborted — nothing changed"
     take_snapshot
     disable_boot_config
@@ -784,7 +842,7 @@ cmd_remove() {
     parse_flags "$@"
     have systemd-cryptenroll || die "systemd-cryptenroll not found (package systemd)"
     pick_device
-    limine_plan cmdline_strip
+    limine_read
     confirm "Wipe the FIDO2 slot on $DEV (passphrase slots are kept) and disable FIDO2 boot unlock?" ||
         die "aborted — nothing changed"
     take_snapshot
@@ -796,8 +854,9 @@ cmd_remove() {
 }
 
 cmd_status() {
-    local dropin limine tokens row path ver uuid slot sd_overlay
+    local dropin limine_dropin limine tokens row path ver uuid slot sd_overlay
     dropin=$(dropin_path)
+    limine_dropin=$(limine_dropin_path)
     limine=$_HYPRCONF_LIMINE_DEFAULT
     info "hyprconf-yubikey status"
     if have omarchy-pkg-add; then info "  omarchy:              found (omarchy-pkg-add)"; else info "  omarchy:              NOT found — not an Omarchy box?"; fi
@@ -825,13 +884,17 @@ cmd_status() {
     done < <(list_luks)
     ((any)) || info "    none found"
     if [[ -e $dropin ]]; then info "  initramfs drop-in:    present ($dropin)"; else info "  initramfs drop-in:    absent ($dropin)"; fi
+    if [[ -e $limine_dropin ]]; then info "  cmdline drop-in:      present ($limine_dropin)"; else info "  cmdline drop-in:      absent ($limine_dropin)"; fi
     if [[ ! -r $limine ]]; then
         info "  kernel cmdline:       $limine not found"
-    elif grep -q 'rd\.luks\.options=[^[:space:]"]*fido2-device=' "$limine"; then
-        info "  kernel cmdline:       rd.luks.options fido2-device present ($limine)"
+    elif ! limine_find_line; then
+        info "  kernel cmdline:       no KERNEL_CMDLINE[default] line in $limine"
+    elif ((L_LEGACY)); then
+        info "  kernel cmdline:       legacy inline parameters present — a hyprconf-yubikey 4.0.0–4.2.0 enroll put rd.luks.* on $limine; enroll or disable moves them into the drop-in"
     else
-        info "  kernel cmdline:       no rd.luks.options fido2-device ($limine)"
+        info "  kernel cmdline:       no legacy inline parameters ($limine)"
     fi
+    ((L_PLAIN)) && info "  kernel cmdline:       KERNEL_CMDLINE[default]= (not +=) in $limine replaces every drop-in's parameters — enroll refuses it"
     if [[ -r $_HYPRCONF_INITCPIO_INSTALL/sd-btrfs-overlayfs ]]; then
         sd_overlay="sd-btrfs-overlayfs installed — read-only snapshot boots keep their overlay"
     else

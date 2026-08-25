@@ -2,10 +2,14 @@
 # hyprconf-firefox-theme — Omarchy's active theme into Firefox / LibreWolf.
 #
 #   hyprconf-firefox-theme            apply now (what the theme-set hook runs
-#                                     after every `omarchy theme set`)
-#   hyprconf-firefox-theme --status   what was written where, and whether
-#                                     Firefox has restarted since — it reads
-#                                     userChrome.css and user.js only at start
+#                                     after every `omarchy theme set`): copy
+#                                     the userChrome.css Omarchy rendered from
+#                                     themed/userChrome.css.tpl into each
+#                                     profile and merge the user.js prefs
+#   hyprconf-firefox-theme --status   the rendered source, what was written
+#                                     where, and whether Firefox has restarted
+#                                     since — it reads userChrome.css and
+#                                     user.js only at start
 #
 # The logic is lib/hyprconf/firefox_theme.py; this is the launcher install.sh
 # puts on PATH. @HYPRCONF_DIR@ is substituted with the checkout path at

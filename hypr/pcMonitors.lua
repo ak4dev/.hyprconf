@@ -1,4 +1,4 @@
--- Desktop monitor preset: `switch_monitor.sh pc`. See https://wiki.hypr.land/Configuring/Basics/Monitors/
+-- Desktop monitor preset: `hyprconf-monitor-preset pc`. See https://wiki.hypr.land/Configuring/Basics/Monitors/
 hl.monitor({ output = "DP-3", disabled = true })
 hl.monitor({ output = "DP-2", disabled = true })
 hl.monitor({ output = "DP-1", mode = "3840x2160@240.00Hz", position = "auto-right", scale = 1.0, vrr = 0 })

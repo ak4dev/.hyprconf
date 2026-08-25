@@ -1,4 +1,25 @@
 #!/usr/bin/env bash
+# hyprconf-monitor-preset — switch the desk's monitor layout through Omarchy's
+# Hyprland toggles seam.
+#
+#   hyprconf-monitor-preset <bedroom|kitchen|K|pc|laptop>   apply that preset
+#   hyprconf-monitor-preset stock                            Omarchy's own layout again
+#
+# A preset is one of the ~/.config/hypr/{pcMonitors.<name>,pcMonitors,
+# laptopMonitors}.lua files install.sh seeds — hl.monitor lines plus the
+# hl.workspace_rule lines for that layout; edits survive re-selecting it. The
+# chosen one is COPIED (never linked) to
+# ~/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua, the
+# directory Omarchy's default/hypr/toggles.lua require_all()s with reload=true
+# — and config/hypr/hyprland.lua requires it (line 26) AFTER hypr.monitors
+# (line 19), so a later hl.monitor for the same output wins over Omarchy's
+# monitors.lua (Omarchy 4.0.0-1, Hyprland 0.56). That is exactly what Omarchy's
+# own omarchy-hyprland-monitor-internal does: an hl.monitor line written to
+# <toggle>.lua in that directory, then `hyprctl reload`; `stock` is
+# omarchy-hyprland-toggle's off — rm -f the file, reload. ~/.config/hypr/
+# monitors.lua is never touched, so Omarchy's own tooling keeps working on its
+# own file (omarchy-hyprland-monitor-scaling seds it; omarchy refresh replaces
+# it; neither can now land on a preset).
 set -euo pipefail
 
 # ── Palette (degraded gracefully when not a tty) ──────────────────────────────
@@ -14,7 +35,7 @@ fi
 
 log_step() { printf '%s  ▸ %s%s%s\n' "$AM" "$WH" "$1" "$RS"; }
 log_ok()   { printf '%s  ✔ %s%s%s\n' "$GR" "$WH" "$1" "$RS"; }
-# The script is reached from a hotkey, so stdout/stderr go nowhere a human can
+# The tool is reached from a hotkey, so stdout/stderr go nowhere a human can
 # see. printf stays (it is the journal record when run by hand) and Omarchy's
 # own channels are added: a notification for anything the user must act on, and
 # the OSD for the one-line "which preset am I on now" confirmation.
@@ -26,7 +47,7 @@ log_warn() { printf '%s  ! %s%s%s\n' "$AM" "$WH" "$1" "$RS" >&2
 osd()      { omarchy-osd -i display -m "$1" -d 2000 >/dev/null 2>&1 || true; }
 
 readonly CONFIG_DIR="$HOME/.config/hypr"
-readonly MONITORS_CONF="$CONFIG_DIR/monitors.lua"
+readonly TOGGLE="$HOME/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua"
 
 if [[ -z "${1:-}" ]]; then
     printf '%s  Usage: %s <preset>%s\n'   "$AM" "$(basename "$0")" "$RS" >&2
@@ -40,20 +61,13 @@ if [[ ! "$1" =~ ^[A-Za-z0-9_-]+$ ]]; then
     log_die "Invalid preset name: '$1' (allowed: A-Z, a-z, 0-9, _, -)"
 fi
 
-# `stock` (or `omarchy`) puts Omarchy's own monitors.lua back — the last real
-# monitors.lua, saved just before a preset replaced it. Restored as a
-# real file, not a link: Omarchy owns that path and its own tooling writes to
-# it. Written via a temp file + mv so monitors.lua is never momentarily absent.
+# `stock` (or `omarchy`): no toggle file, so only Omarchy's own monitors.lua
+# speaks — its auto layout, or whatever its tooling wrote there since.
 if [[ "$1" == stock || "$1" == omarchy ]]; then
-    SOURCE="$CONFIG_DIR/monitors.lua.stock"
-    [[ -f "$SOURCE" ]] ||
-        log_die "No saved monitors.lua at $SOURCE — restore Omarchy's own default with: omarchy refresh config hypr/monitors.lua"
-
     log_step "Restoring Omarchy's own monitor layout"
-    cp -- "$SOURCE" "$MONITORS_CONF.tmp"
-    mv -f -- "$MONITORS_CONF.tmp" "$MONITORS_CONF"
+    rm -f -- "$TOGGLE"
     hyprctl reload
-    log_ok "Omarchy's monitors.lua restored"
+    log_ok "Preset toggle removed — Omarchy's monitors.lua is the layout"
     osd "Monitor: stock"
     exit 0
 fi
@@ -62,9 +76,9 @@ fi
 #   pcMonitors.<name>.lua  — the named presets (bedroom, kitchen, K)
 #   <name>Monitors.lua     — the two whole-machine presets, `pc` and `laptop`
 # Lua only. An extension-less hyprlang `pcMonitors.<name>` from before the
-# 0.56 migration is refused rather than linked: Omarchy's hyprland.lua
-# `require`s monitors.lua as Lua, so a hyprlang file there is a parse error
-# that stops every require after it (input, bindings, looknfeel, autostart).
+# 0.56 migration is refused rather than copied: the toggles directory is
+# require()d as Lua, so a hyprlang file there is a parse error that stops the
+# rest of Omarchy's toggles (and the workspace-layouts module after them).
 SOURCE="$CONFIG_DIR/pcMonitors.$1.lua"
 [[ -f "$SOURCE" ]] || SOURCE="$CONFIG_DIR/${1}Monitors.lua"
 if [[ ! -f "$SOURCE" && -f "$CONFIG_DIR/pcMonitors.$1" ]]; then
@@ -74,23 +88,13 @@ fi
 
 log_step "Switching monitor config to: $1"
 
-# Re-take the stock snapshot HERE, at the one moment the real monitors.lua is
-# about to be unlinked. The installer's snapshot is taken once, on first
-# install, and monitors.lua drifts after it: Omarchy keeps writing to that path
-# (omarchy-hyprland-monitor-scaling seds the scale lines in place), so by the
-# time a preset is first chosen the installer's copy can be missing outputs
-# that are live right now. Taking it at the point of destruction is the only
-# timing that cannot go stale. Temp file + mv so a failed copy can never leave
-# a truncated .stock behind.
-if [[ -f "$MONITORS_CONF" && ! -L "$MONITORS_CONF" ]]; then
-    cp -- "$MONITORS_CONF" "$MONITORS_CONF.stock.tmp"
-    mv -f -- "$MONITORS_CONF.stock.tmp" "$MONITORS_CONF.stock"
-    log_ok "Saved the live monitors.lua -> monitors.lua.stock"
-fi
-
-# Symlink monitors.lua → preset file so later edits land on the tracked preset
-# and persist when it is re-selected.
-ln -sfn "$SOURCE" "$MONITORS_CONF"
+# A copy, via a temp file + mv, so the toggle is never momentarily truncated
+# under a reload — and never a link: the preset stays the user's file under
+# ~/.config/hypr, and nothing Omarchy does to the toggles directory
+# (omarchy-refresh-hyprland recreates it) can reach it.
+mkdir -p "$(dirname "$TOGGLE")"
+cp -- "$SOURCE" "$TOGGLE.tmp"
+mv -f -- "$TOGGLE.tmp" "$TOGGLE"
 
 hyprctl reload
 

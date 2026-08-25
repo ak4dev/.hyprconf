@@ -42,3 +42,42 @@ def test_steam_is_tiled_like_everything_else() -> None:
         assert not re.search(r'o\.window\(\s*"steam"\s*,\s*\{[^}]*float\s*=\s*true', _code(lua)), (
             lua.name
         )
+
+
+def _binds(path: Path) -> list[str]:
+    return [ln for ln in _code(path).splitlines() if re.search(r"\b(rebind|o\.bind)\s*\(", ln)]
+
+
+def test_bindings_never_restate_omarchys_own_binds() -> None:
+    """Omarchy's default/hypr/bindings/tiling.lua (4.0.0-1) already binds
+    SUPER+P (pseudo), SUPER+arrows (focus), SUPER+mouse_down/up (workspace
+    scroll) and SUPER+mouse:272/273 (drag move/resize) to exactly what
+    hyprconf wanted there. A restatement is drift the moment Omarchy retunes
+    one, so bindings.lua carries only its deltas."""
+    binds = "\n".join(_binds(HYPR / "bindings.lua"))
+    for key in (
+        '" + P"',
+        '" + left"',
+        '" + right"',
+        '" + up"',
+        '" + down"',
+        "mouse_down",
+        "mouse_up",
+        "mouse:272",
+        "mouse:273",
+    ):
+        assert key not in binds, f"{key} is Omarchy's own bind already (tiling.lua)"
+    # The resize keys are SHIFT+arrows — those stay: Omarchy swaps windows there.
+    assert '" + SHIFT + left"' in binds
+
+
+def test_launchers_use_omarchys_own_idiom() -> None:
+    """`{ omarchy = "terminal" }` is how Omarchy's own bindings name
+    omarchy-launch-terminal (default/hypr/helpers.lua command_from,
+    bindings/applications.lua); the four app keys use it rather than
+    spelling the launcher out."""
+    binds = _binds(HYPR / "bindings.lua")
+    for key, launcher in (("T", "terminal"), ("F", "browser"), ("C", "editor"), ("E", "nautilus")):
+        line = next(ln for ln in binds if f'" + {key}"' in ln)
+        assert f'{{ omarchy = "{launcher}" }}' in line, line
+    assert not any("omarchy-launch-" in ln for ln in binds)

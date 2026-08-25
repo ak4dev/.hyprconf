@@ -41,12 +41,13 @@ hl.config({
 -- Include another module (dots become path separators — "hypr.bindings" is
 -- ~/.config/hypr/bindings.lua). A module whose FILE name contains a dot
 -- (pcMonitors.bedroom.lua) cannot be require()d, which is why
--- switch_monitor.sh symlinks a preset over monitors.lua instead.
+-- hyprconf-monitor-preset copies a preset into Omarchy's toggles directory
+-- under a dot-free name (hyprconf-monitor-preset.lua) instead.
 require("hypr.bindings")
 ```
 
 - One `hl.*(...)` statement per line is this repo's convention (not a Lua
-  requirement) — `switch_monitor.sh` parses presets line by line, and a
+  requirement) — `hyprconf-monitor-preset` parses presets line by line, and a
   one-line entry is what `grep`/`diff` show cleanly.
 - **Ground truth:** the installed package's Lua API stub
   (`/usr/share/hypr/stubs/hl.meta.lua`) and example config
@@ -58,17 +59,19 @@ require("hypr.bindings")
 ## Omarchy's Override Points
 
 Omarchy's `~/.config/hypr/hyprland.lua` (template: `/usr/share/omarchy/config/hypr/hyprland.lua`)
-loads its defaults, then `require`s the user files, then its toggles, then invites
-personal additions at the tail:
+loads its defaults, then `require`s the user files, then its toggles (every
+`.lua` under `~/.local/state/omarchy/toggles/hypr/`, `require_all` with reload —
+later `hl.monitor` calls win, which is where a monitor preset lands), then
+invites personal additions at the tail:
 
 ```lua
 require("default.hypr.omarchy")   -- Omarchy defaults
-require("hypr.monitors")          -- ~/.config/hypr/monitors.lua   ← switch_monitor.sh symlinks presets here
+require("hypr.monitors")          -- ~/.config/hypr/monitors.lua   ← Omarchy's own; never touched
 require("hypr.input")             -- ~/.config/hypr/input.lua      ← symlink to hypr/input.lua
 require("hypr.bindings")          -- ~/.config/hypr/bindings.lua   ← symlink to hypr/bindings.lua
 require("hypr.looknfeel")         -- ~/.config/hypr/looknfeel.lua  ← symlink to hypr/looknfeel.lua
 require("hypr.autostart")         -- left to Omarchy
-require("default.hypr.toggles")
+require("default.hypr.toggles")   -- ~/.local/state/omarchy/toggles/hypr/*.lua ← hyprconf-monitor-preset.lua
 -- Add any other personal Hyprland configuration below.
 -- o.window("qemu", { workspace = "5" })
 ```
@@ -122,8 +125,8 @@ hl.workspace_rule({ workspace = "1", monitor = "HDMI-A-2" })
 hl.config({ render = { direct_scanout = 1, cm_auto_hdr = 1 } })
 ```
 
-`switch_monitor.sh` parses a preset's `hl.workspace_rule` lines to move existing
-workspaces after the reload — keep them one per line, in that exact form.
+`hyprconf-monitor-preset` parses a preset's `hl.workspace_rule` lines to move
+existing workspaces after the reload — keep them one per line, in that exact form.
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Monitors/>
 
@@ -180,7 +183,7 @@ Key forms in use there: `mainMod .. " + T"`, `" + SHIFT + F1"`, `" + mouse:272"`
 | `hl.dsp.window.swap({direction=...})` | direction | Swap with neighbour |
 | `hl.dsp.window.drag()` | — | Mouse move (with `{ mouse = true }`) |
 | `hl.dsp.workspace.toggle_special(name)` | name | Show/hide scratchpad |
-| `hl.dsp.workspace.move({workspace=N, monitor="…"})` | — | Rehome a workspace (used by `switch_monitor.sh`) |
+| `hl.dsp.workspace.move({workspace=N, monitor="…"})` | — | Rehome a workspace (used by `hyprconf-monitor-preset`) |
 | `hl.dsp.dpms({action="enable"})` | `enable`/`disable`/`toggle` | Display power |
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Binds/>
@@ -277,7 +280,7 @@ hl.workspace_rule({ workspace = "special:name" })                  -- named scra
 ```
 
 Workspace rules only place *future* workspaces — after a reload, existing ones
-stay where they were, which is why `switch_monitor.sh` dispatches
+stay where they were, which is why `hyprconf-monitor-preset` dispatches
 `hl.dsp.workspace.move` for each rule.
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Workspace-Rules/>
@@ -305,7 +308,7 @@ hyprctl getoption general:gaps_in -j    # 0.56 reports four-sided gaps under "cs
 hyprctl monitors [all] | clients | devices | activeworkspace
 ```
 
-`adjust-gaps` and `switch_monitor.sh` use the `eval` / Lua-dispatch forms above.
+`hyprconf-gaps` and `hyprconf-monitor-preset` use the `eval` / Lua-dispatch forms above.
 
 Wiki: <https://wiki.hypr.land/Configuring/Advanced-and-Cool/Using-hyprctl/>
 

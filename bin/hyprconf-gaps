@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
-# adjust-gaps + | -
-# Increase or decrease Hyprland window gaps (inner and outer) by a fixed step.
-# Both general:gaps_in and general:gaps_out move together so their difference
-# is preserved (proportionate adjustment).
+# hyprconf-gaps — step Hyprland's window gaps up or down from a hotkey
+# (SUPER+SHIFT+= / SUPER+SHIFT+- in hypr/bindings.lua, bound by name the way
+# Omarchy binds its own commands; install.sh puts this on ~/.local/bin).
 #
-# Usage: adjust-gaps +    # increase by STEP
-#        adjust-gaps -    # decrease by STEP (floors at 0)
+#   hyprconf-gaps +    increase general:gaps_in and gaps_out by STEP
+#   hyprconf-gaps -    decrease both by STEP (floors at 0)
+#
+# Both move together so their difference is preserved (proportionate
+# adjustment). Runtime only — a `hyprctl reload` puts the configured values
+# back; Omarchy's own `omarchy hyprland window gaps toggle` is the all-or-
+# nothing switch and is untouched.
+set -euo pipefail
 
 readonly STEP=2
 
@@ -52,6 +55,6 @@ fi
 # the same Lua the config does, and it does report failure (exit 7).
 if ! out="$(hyprctl eval "hl.config({ general = { gaps_in = $new_in, gaps_out = $new_out } })" 2>&1)" ||
    [[ "$out" != ok ]]; then
-    printf 'adjust-gaps: %s\n' "$out" >&2
+    printf 'hyprconf-gaps: %s\n' "$out" >&2
     exit 1
 fi

@@ -8,7 +8,7 @@
 hl.config({
   general = {
     -- hyprconf runs tighter than Omarchy's 5 / 10. SUPER+SHIFT+= / SUPER+SHIFT+-
-    -- (scripts/adjust-gaps) move both at runtime via hyprctl, so this is only
+    -- (hyprconf-gaps) move both at runtime via hyprctl, so this is only
     -- the value each session starts at.
     gaps_in = 3,
     gaps_out = 3,

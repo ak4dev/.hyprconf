@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
-      # jq: hypr/scripts/adjust-gaps parses `hyprctl getoption -j` with it.
+      # jq: bin/hyprconf-gaps parses `hyprctl getoption -j` with it.
       # shellcheck: tests/unit/test_yubikey.py lints the generated mkinitcpio
       # drop-in and would otherwise skip silently.
       # diffutils: install.sh compares files with `cmp -s` (a test stub does

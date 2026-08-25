@@ -9,6 +9,11 @@ local mainMod = "SUPER"
 -- No app names here: which terminal, browser and editor these keys open is an
 -- Omarchy DEFAULT (`omarchy default browser zen` moves the key with it), and
 -- the launchers add the cwd-inheriting terminal launch and uwsm-app scoping.
+-- The launchers are named the way Omarchy's own bindings name them:
+-- `{ omarchy = "terminal" }` is `omarchy-launch-terminal`
+-- (default/hypr/helpers.lua, command_from; bindings/applications.lua).
+-- hyprconf's own tools are bound by command name, like Omarchy's — install.sh
+-- puts bin/hyprconf-* on ~/.local/bin, which is on the session PATH.
 
 -- o.bind, never hl.bind: only o.bind records the description Omarchy's
 -- keybindings menu (SUPER+K) lists.
@@ -30,31 +35,28 @@ local function unbind_keycode(mods, key)
   if code then hl.unbind(mods .. " + code:" .. code) end
 end
 
-rebind(mainMod .. " + T", "Terminal", hl.dsp.exec_cmd("omarchy-launch-terminal"))
+rebind(mainMod .. " + T", "Terminal", { omarchy = "terminal" })
 rebind(mainMod .. " + Q", "Close window", hl.dsp.window.close())
 -- Omarchy's logout: its OSD, a real close request to every window, `uwsm stop`.
 hl.unbind(mainMod .. " + SHIFT + Q")
 o.bind(mainMod .. " + SHIFT + Q", "Log out", "omarchy-system-logout")
-rebind(mainMod .. " + E", "File manager", hl.dsp.exec_cmd("omarchy-launch-nautilus"))
+rebind(mainMod .. " + E", "File manager", { omarchy = "nautilus" })
 rebind(mainMod .. " + V", "Toggle window floating", hl.dsp.window.float({ action = "toggle" }))
-rebind(mainMod .. " + P", "Pseudo window", hl.dsp.window.pseudo())
-rebind(mainMod .. " + F", "Browser", hl.dsp.exec_cmd("omarchy-launch-browser"))
-rebind(mainMod .. " + C", "Editor", hl.dsp.exec_cmd("omarchy-launch-editor"))
--- Monitor presets.
+rebind(mainMod .. " + F", "Browser", { omarchy = "browser" })
+rebind(mainMod .. " + C", "Editor", { omarchy = "editor" })
+-- Monitor presets (bin/hyprconf-monitor-preset).
 hl.unbind(mainMod .. " + SHIFT + B")
 hl.unbind(mainMod .. " + SHIFT + K")
-o.bind(mainMod .. " + SHIFT + B", "Monitor preset: bedroom", "~/.config/hypr/scripts/switch_monitor.sh bedroom")
-o.bind(mainMod .. " + SHIFT + K", "Monitor preset: kitchen", "~/.config/hypr/scripts/switch_monitor.sh kitchen")
+o.bind(mainMod .. " + SHIFT + B", "Monitor preset: bedroom", "hyprconf-monitor-preset bedroom")
+o.bind(mainMod .. " + SHIFT + K", "Monitor preset: kitchen", "hyprconf-monitor-preset kitchen")
 
 -- SUPER+D: Omarchy's own menu (its menu key is SUPER+SPACE; it binds nothing here).
 hl.unbind(mainMod .. " + D")
 o.bind(mainMod .. " + D", "Omarchy menu", "omarchy-menu toggle")
 
--- Move focus with mainMod + arrow keys
-rebind(mainMod .. " + left",  "Focus left window", hl.dsp.focus({ direction = "left" }))
-rebind(mainMod .. " + right", "Focus right window", hl.dsp.focus({ direction = "right" }))
-rebind(mainMod .. " + up",    "Focus window above", hl.dsp.focus({ direction = "up" }))
-rebind(mainMod .. " + down",  "Focus window below", hl.dsp.focus({ direction = "down" }))
+-- SUPER+arrows (focus), SUPER+P (pseudo), SUPER+scroll (workspace scroll)
+-- and SUPER+LMB/RMB drag (move/resize) are Omarchy's own binds already
+-- (default/hypr/bindings/tiling.lua) and are not restated here.
 
 -- Resize active window
 rebind(mainMod .. " + SHIFT + left",  "Shrink window left", hl.dsp.window.resize({ x = -40, y = 0 }),  { repeating = true })
@@ -66,8 +68,8 @@ rebind(mainMod .. " + SHIFT + down",  "Expand window down", hl.dsp.window.resize
 -- keys by keycode to window resizing: cleared first, or every press does both.
 unbind_keycode(mainMod .. " + SHIFT", "equal")
 unbind_keycode(mainMod .. " + SHIFT", "minus")
-rebind(mainMod .. " + SHIFT + equal", "Increase window gaps", hl.dsp.exec_cmd("~/.config/hypr/scripts/adjust-gaps +"))
-rebind(mainMod .. " + SHIFT + minus", "Decrease window gaps", hl.dsp.exec_cmd("~/.config/hypr/scripts/adjust-gaps -"))
+rebind(mainMod .. " + SHIFT + equal", "Increase window gaps", "hyprconf-gaps +")
+rebind(mainMod .. " + SHIFT + minus", "Decrease window gaps", "hyprconf-gaps -")
 
 -- Switch workspaces with mainMod + [0-9]; move the active window with
 -- mainMod + SHIFT + [0-9]. Workspaces 3 and 4 sit on F1/F2; SUPER+3 / SUPER+4
@@ -122,14 +124,6 @@ rebind(mainMod .. " + SHIFT + S", "Swap window down", hl.dsp.window.swap({ direc
 -- Special workspace (scratchpad)
 rebind(mainMod .. " + M",         "Toggle magic scratchpad", hl.dsp.workspace.toggle_special("magic"))
 rebind(mainMod .. " + SHIFT + M", "Move window to magic scratchpad", hl.dsp.window.move({ workspace = "special:magic" }))
-
--- Scroll through existing workspaces with mainMod + scroll
-rebind(mainMod .. " + mouse_down", "Scroll workspace forward", hl.dsp.focus({ workspace = "e+1" }))
-rebind(mainMod .. " + mouse_up",   "Scroll workspace backward", hl.dsp.focus({ workspace = "e-1" }))
-
--- Move/resize windows with mainMod + LMB/RMB and dragging
-rebind(mainMod .. " + mouse:272", "Move window", hl.dsp.window.drag(),   { mouse = true })
-rebind(mainMod .. " + mouse:273", "Resize window", hl.dsp.window.resize(), { mouse = true })
 
 -- Volume, brightness and media keys stay Omarchy's on purpose: its commands
 -- raise its OSD and drive the shell's own media service.

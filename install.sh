@@ -18,9 +18,10 @@
 # changes the login shell, and everything Omarchy owns is either left alone or
 # extended through a documented seam (a user theme, a plugin, a hook, a kitty
 # `include`). The privileged steps are installing packages (through Omarchy's
-# own `omarchy-pkg-add`) and the system Firefox policy — the overlay's one
-# write outside $HOME — and --no-packages skips both, so the post-update hook
-# never needs sudo.
+# own `omarchy-pkg-add`), Firefox and VS Code (through Omarchy's own
+# installers) and the system Firefox policy — the overlay's one write outside
+# $HOME — and --no-packages skips them all, so the post-update hook never
+# needs sudo.
 set -euo pipefail
 
 # The installer lives at the repository root, so the two are the same
@@ -73,9 +74,6 @@ orig_args=("$@")
 do_pull=0
 do_update=0
 do_packages=1
-# Set by the bar-widget stages when a copy was (re)enabled this run; main()
-# does one deferred shell reload instead of one per stage.
-shell_reload_needed=0
 
 log()  { printf '==> %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
@@ -99,7 +97,8 @@ Options:
                   This is what the `hyprsync` alias runs.
   --no-update     Apply only; never invoke omarchy-update. Used by the
                   post-update hook, which already runs inside an update.
-  --no-packages   Skip the stages that need sudo: packages and the Firefox policy.
+  --no-packages   Skip the stages that need sudo: packages, Firefox (and its
+                  policy) and VS Code.
   -h, --help      Show this help.
 
 With no options: apply every stage once, without pulling or updating.
@@ -342,35 +341,120 @@ stage_packages() {
     "$_HYPRCONF_PKG_ADD" "${pkgs[@]}" || die "package install failed"
 }
 
-# The system Firefox policy: telemetry off, tracking protection on, uBlock
-# Origin force-installed. Firefox reads
-# enterprise policies only from root-owned paths (/etc/firefox/policies, or
-# the install dir's distribution/), so this cannot live in $HOME — it is the
-# overlay's one write outside it, and the reason the stage sits behind the
-# same --no-packages gate as the only other privileged work. It also bows out
-# when no terminal can take sudo's password prompt: the post-update hook runs
-# non-interactively inside omarchy-update, where a hung prompt would stall
-# the whole update.
+# Firefox through Omarchy's own installer, plus the system Firefox policy.
+#
+# `omarchy-install-browser firefox` (bin/omarchy-install-browser:73-80,
+# Omarchy 4.0.0-1) is omarchy-pkg-add firefox, its own policies.json copied
+# (sudo) to /usr/lib/firefox/distribution/, and MOZ_ENABLE_WAYLAND=1 in
+# ~/.config/environment.d/ — every step idempotent, and nothing is launched.
+# Run only when omarchy-pkg-present firefox fails.
+#
+# The policy — telemetry off, tracking protection on, uBlock Origin
+# force-installed — lives at /etc/firefox/policies/policies.json: Firefox
+# reads enterprise policies only from root-owned paths, and that one takes
+# precedence over the distribution/ file Omarchy writes, which would shadow
+# Omarchy's own prefs (VA-API, fractional scaling, overscroll). So the file
+# installed is a superset: Omarchy's $OMARCHY_PATH/default/firefox/
+# policies.json merged UNDER infra/firefox/policies.json (jq `*` is a
+# recursive object merge — a shared "Preferences" keeps both sides, and ours
+# wins on the same key), written only when the merged bytes differ. The
+# overlay's one write outside $HOME, hence behind the --no-packages gate with
+# the other sudo work; it bows out when no terminal can take sudo's password
+# prompt — the post-update hook runs non-interactively inside omarchy-update,
+# where a hung prompt would stall the whole update.
 stage_firefox() {
-    log "Firefox policies (privacy defaults + uBlock Origin)"
+    log "Firefox: Omarchy's installer, plus hyprconf's policy"
     local src="$REPO_ROOT/infra/firefox/policies.json"
     local dst="$_HYPRCONF_FIREFOX_POLICIES/policies.json"
+    local theirs="$_HYPRCONF_OMARCHY_PATH/default/firefox/policies.json"
     if [[ ! -f $src ]]; then
         warn "policies source not found ($src) — skipping"
         return 0
     fi
-    if [[ -f $dst ]] && cmp -s "$src" "$dst"; then
-        info "already installed at $dst"
+
+    local merged
+    merged="$(mktemp)"
+    local -a layers=()
+    [[ -f $theirs ]] && layers+=("$theirs")
+    layers+=("$src")
+    if ! jq -s 'reduce .[] as $layer ({}; . * $layer)' "${layers[@]}" > "$merged" 2>/dev/null; then
+        rm -f "$merged"
+        warn "jq could not merge the Firefox policies — will retry on the next run"
+        return 0
+    fi
+
+    local install_firefox=0 install_policy=0
+    omarchy-pkg-present firefox || install_firefox=1
+    [[ -f $dst ]] && cmp -s "$merged" "$dst" || install_policy=1
+    if (( ! install_firefox && ! install_policy )); then
+        rm -f "$merged"
+        info "installed; policy current at $dst"
         return 0
     fi
     if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
-        warn "no terminal for sudo — run \`bash install.sh\` from a terminal to install the Firefox policy"
+        rm -f "$merged"
+        warn "no terminal for sudo — run \`bash install.sh\` from a terminal to install Firefox and its policy"
         return 0
     fi
-    if sudo install -Dm644 "$src" "$dst"; then
-        info "installed at $dst"
+    if (( install_firefox )); then
+        info "installing through omarchy-install-browser firefox (Omarchy's own flow: the package, its prefs under /usr/lib/firefox/distribution, MOZ_ENABLE_WAYLAND)"
+        if ! omarchy-install-browser firefox; then
+            rm -f "$merged"
+            warn "omarchy-install-browser firefox failed — retry with: omarchy install browser firefox"
+            return 0
+        fi
+    fi
+    if (( install_policy )); then
+        if sudo install -Dm644 "$merged" "$dst"; then
+            info "policy installed at $dst (Omarchy's prefs + hyprconf's)"
+        else
+            warn "could not install the Firefox policy — skipping"
+        fi
+    fi
+    rm -f "$merged"
+}
+
+# VS Code through Omarchy's own installer. omarchy-install-editor-vscode
+# (Omarchy 4.0.0-1) is omarchy-pkg-add visual-studio-code-bin — from
+# Omarchy's own [omarchy] pacman repository, never the AUR — then
+# ~/.vscode/argv.json (gnome-libsecret), update.mode none in
+# ~/.config/Code/User/settings.json, omarchy-theme-set-vscode, and one
+# `setsid uwsm-app -- gtk-launch code`: it opens VS Code once when it is
+# done, by design, and its exit status is that launch's (no set -e), so the
+# result is read back with omarchy-pkg-present. Arch's `code` (Code - OSS,
+# what v4.0.0–v4.2.0 installed) conflicts with it (pacman -Si
+# visual-studio-code-bin: Conflicts With: code) and omarchy-pkg-add is
+# `pacman -S --noconfirm --needed`, which a conflict fails — so Code - OSS
+# goes first, through Omarchy's own remover: omarchy-pkg-drop removes only
+# names `pacman -Qq` lists, with --noconfirm, under sudo. Behind the
+# --no-packages gate with the other sudo work; bows out without a terminal.
+# Not set-once: like every package, VS Code is ensured present, so a later
+# interactive run that finds it gone and Code - OSS back swaps again. Code -
+# OSS's own user data (~/.config/Code - OSS, ~/.vscode-oss) is never touched
+# — and not migrated: VS Code reads ~/.config/Code and ~/.vscode.
+stage_editor() {
+    log "VS Code: Omarchy's installer"
+    if omarchy-pkg-present visual-studio-code-bin; then
+        info "already installed"
+        return 0
+    fi
+    if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
+        warn "no terminal for sudo — run \`bash install.sh\` from a terminal to install VS Code"
+        return 0
+    fi
+    if omarchy-pkg-present code; then
+        info "removing Arch's code (Code - OSS) first — it conflicts with visual-studio-code-bin (omarchy-pkg-drop code); its settings and extensions under ~/.config/Code - OSS and ~/.vscode-oss stay, not migrated"
+        omarchy-pkg-drop code || {
+            warn "could not remove code — skipping VS Code (retry with: omarchy pkg drop code)"
+            return 0
+        }
+    fi
+    info "installing through omarchy-install-editor-vscode — Omarchy's own flow, which opens VS Code once when it is done"
+    omarchy-install-editor-vscode || true
+    if omarchy-pkg-present visual-studio-code-bin; then
+        info "installed"
     else
-        warn "could not install the Firefox policy — skipping"
+        warn "visual-studio-code-bin did not install — retry with: omarchy install editor vscode"
     fi
 }
 
@@ -623,12 +707,21 @@ stage_font() {
 
 stage_hotkeys() {
     log "Hotkeys"
-    mkdir -p "$HOME/.config/hypr/scripts"
+    mkdir -p "$HOME/.config/hypr"
     link_hypr_override bindings.lua
-    local f
-    for f in switch_monitor.sh adjust-gaps; do
-        install -m 755 "$HERE/hypr/scripts/$f" "$HOME/.config/hypr/scripts/$f"
+    # The two hotkey scripts are PATH tools now — bin/hyprconf-monitor-preset
+    # and bin/hyprconf-gaps, installed by stage_bin and bound by name the way
+    # Omarchy binds its own commands. v4.0.0–v4.2.0 copied them to
+    # ~/.config/hypr/scripts/; swept once, and the directory with them when
+    # nothing else is left in it.
+    local old="$HOME/.config/hypr/scripts" entry f
+    for entry in switch_monitor.sh:hyprconf-monitor-preset adjust-gaps:hyprconf-gaps; do
+        f="${entry%%:*}"
+        [[ -e $old/$f || -L $old/$f ]] || continue
+        rm -f "$old/$f"
+        info "removed $old/$f — it is ~/.local/bin/${entry##*:} now"
     done
+    if [[ -d $old ]]; then rmdir "$old" 2>/dev/null || true; fi
 }
 
 stage_looknfeel() {
@@ -642,63 +735,82 @@ stage_looknfeel() {
 
 stage_monitors() {
     log "Monitor presets (SUPER+SHIFT+B / SUPER+SHIFT+K)"
-    # Presets only. Whichever monitors.lua is active — Omarchy's own auto
-    # layout, or a previously chosen preset — is left alone until a hotkey is
-    # actually pressed. Each preset carries hyprconf's workspace-to-monitor
-    # rules for that layout, which is why they travel as whole files.
+    # Presets only — seeded, never applied. hyprconf-monitor-preset (stage_bin
+    # puts it on PATH) copies the chosen one into Omarchy's Hyprland toggles
+    # directory, which loads after ~/.config/hypr/monitors.lua and wins, so
+    # Omarchy's own monitors.lua is never replaced. Each preset carries
+    # hyprconf's workspace-to-monitor rules for that layout, which is why they
+    # travel as whole files. Only bedroom and kitchen have hotkeys; the rest
+    # are `hyprconf-monitor-preset {K,pc,laptop}`.
     #
-    # Only bedroom and kitchen have hotkeys. The rest are
-    # `~/.config/hypr/scripts/switch_monitor.sh {K,pc,laptop}`.
-    #
-    # Omarchy's own monitors.lua is saved first, and once: switch_monitor.sh
-    # symlinks the chosen preset straight over that path, so without this the
-    # first hotkey press would destroy Omarchy's auto layout with no way back.
-    # `switch_monitor.sh stock` restores this copy.
-    local active="$HOME/.config/hypr/monitors.lua"
-    if [[ -f $active && ! -L $active && ! -e $active.stock ]]; then
-        cp "$active" "$active.stock"
-        info "saved Omarchy's monitors.lua -> monitors.lua.stock"
-    fi
-
     # SEEDED, not synced. A preset is a description of one machine's physical
     # desk — outputs, modes, scales — so once it exists it belongs to that
-    # machine, and switch_monitor.sh's own comment promises edits survive
-    # re-selecting a preset. Copying over it on every run would break that
-    # promise silently, and the post-update hook re-runs this after every
+    # machine, and hyprconf-monitor-preset's own comment promises edits
+    # survive re-selecting a preset. Copying over it on every run would break
+    # that promise silently, and the post-update hook re-runs this after every
     # Omarchy update. Delete a preset to have it re-seeded from the repo.
-    #
-    # A preset that reads exactly like Omarchy's stock monitors.lua template is
-    # not a preset any more: `omarchy refresh config hypr/monitors.lua` (or
-    # `omarchy refresh hyprland`) ran while monitors.lua was the symlink
-    # switch_monitor.sh leaves pointing at the chosen preset, and cp -f wrote
-    # the template through the link onto the preset itself. Not repaired here —
-    # the preset is machine-local and re-seeding it could enable outputs that
-    # are not plugged in right now — but said out loud, with where the real
-    # content went: omarchy-refresh-config backs the file up first as
-    # monitors.lua.bak.<epoch>, next to it.
-    local stock_monitors="$_HYPRCONF_OMARCHY_PATH/config/hypr/monitors.lua"
     local f
     for f in pcMonitors.bedroom.lua pcMonitors.kitchen.lua pcMonitors.K.lua \
              pcMonitors.lua laptopMonitors.lua; do
-        if [[ -e $HOME/.config/hypr/$f ]]; then
-            if [[ -f $stock_monitors ]] && cmp -s "$HOME/.config/hypr/$f" "$stock_monitors"; then
-                warn "$f is Omarchy's stock monitors.lua template — an \`omarchy refresh\` wrote" \
-                     "through the monitors.lua symlink; your preset is in" \
-                     "$HOME/.config/hypr/monitors.lua.bak.<epoch> (copy it back, or delete" \
-                     "$f and re-run to re-seed the repo's version)"
-            fi
-            continue
-        fi
+        [[ -e $HOME/.config/hypr/$f ]] && continue
         install -m 644 "$HERE/hypr/$f" "$HOME/.config/hypr/$f"
         info "seeded $f"
     done
+    migrate_monitors_symlink
+}
+
+# The upgrade from v4.0.0–v4.2.0, whose switch_monitor.sh saved Omarchy's
+# monitors.lua as monitors.lua.stock and symlinked the chosen preset over it.
+# The preset now lives in the toggles file hyprconf-monitor-preset writes, so
+# a link found at monitors.lua is carried over once: its target becomes that
+# toggle file and Omarchy's own monitors.lua comes back as a real file — from
+# the .stock copy, or from Omarchy's template when there is none — the way
+# `switch_monitor.sh stock` restored it. The layout on screen does not
+# change: the same preset loads from the toggle, after monitors.lua, and
+# wins; main()'s hyprctl reload picks it up. A dangling link (the preset was
+# deleted) has nothing to carry over: monitors.lua is restored the same way,
+# no toggle is written, and the message says the layout is Omarchy's until
+# hyprconf-monitor-preset is run. monitors.lua.stock is left where it is —
+# it is the user's copy.
+migrate_monitors_symlink() {
+    local active="$HOME/.config/hypr/monitors.lua"
+    local toggle="$HOME/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua"
+    local template="$_HYPRCONF_OMARCHY_PATH/config/hypr/monitors.lua"
+    [[ -L $active ]] || return 0
+    local preset restore target
+    preset="$(readlink -f "$active" 2>/dev/null || true)"
+    target="$(readlink -- "$active" 2>/dev/null || true)"
+    if [[ -f $active.stock ]]; then
+        restore="$active.stock"
+    elif [[ -f $template ]]; then
+        restore="$template"
+    else
+        warn "$active is a symlink from an earlier hyprconf and neither monitors.lua.stock" \
+             "nor Omarchy's template is there to restore it from — left alone"
+        return 0
+    fi
+    if [[ -n $preset && -f $preset ]]; then
+        mkdir -p "${toggle%/*}"
+        cp -- "$preset" "$toggle"
+        info "monitors.lua was a link to ${preset##*/} — that preset is the toggles file now," \
+             "and Omarchy's monitors.lua is back from ${restore##*/}"
+    else
+        warn "monitors.lua was a link to ${target##*/}, which is gone — nothing to carry over;" \
+             "Omarchy's monitors.lua is back from ${restore##*/} and its layout applies until you run: hyprconf-monitor-preset <name>"
+    fi
+    cp -- "$restore" "$active.tmp"
+    mv -f -- "$active.tmp" "$active"
 }
 
 stage_fastfetch() {
     log "fastfetch greeting"
-    # Omarchy ships fastfetch but no fastfetch config of its own — nothing to
-    # displace, so hyprconf's layout is simply linked in. ~/.zshrc runs it as
-    # the shell greeting, exactly as hyprconf's own .zshrc always has.
+    # Omarchy's own fastfetch layout is the system-wide default,
+    # /etc/fastfetch/config.jsonc (owned by omarchy-settings 4.0.0-1) — and
+    # fastfetch reads ~/.config/fastfetch/config.jsonc first, its documented
+    # per-user override, so hyprconf's layout is linked there and Omarchy's
+    # file is left untouched. A user config already at that path is backed
+    # up first. ~/.zshrc runs it as the shell greeting, exactly as hyprconf's
+    # own .zshrc always has.
     local dir="$HOME/.config/fastfetch"
     local target="$dir/config.jsonc"
     mkdir -p "$dir"
@@ -841,10 +953,15 @@ stage_menu() {
     info "install.service.protonvpn -> $file (SUPER+D > Install > Service)"
 }
 
+# Placement comes from the manifest: barWidget.defaultSection = "right",
+# which the shell honours on an enable with no explicit placement
+# (shell/services/PluginRegistry.qml defaultBarWidgetSection, 4.0.0-1;
+# omarchy-plugin-validate checks the value) — the same seam the
+# active-window copy uses, so no --section argument here.
 stage_bar_plugin() {
     log "Resource-usage bar widget (hyprconf.resources)"
     sync_plugin_dir hyprconf-resources hyprconf.resources
-    enable_plugin_once hyprconf.resources resources-applied --section right
+    enable_plugin_once hyprconf.resources resources-applied
 }
 
 # Copy a built-in shell plugin to the project's own id — what
@@ -920,11 +1037,26 @@ activate_plugin_copy() {
     omarchy-plugin-enable "$id" "$@" >/dev/null 2>&1
 }
 
+# Make the running shell pick changed plugin files up: `omarchy-shell shell
+# rescanPlugins` re-walks the plugin dirs and hot-reloads plugin code
+# (shell/README.md, IPC table; shell.qml reloadPlugins unloads panels,
+# services and widgets and loads them again) — the call omarchy-plugin-update
+# makes after a fast-forward (bin/omarchy-plugin-update:131). omarchy-shell
+# exits 1 when no shell answers, and only then is the shell restarted, which
+# is how one comes back; with no session at all (a TTY run) both fail, and
+# harmlessly.
+reload_plugins() {
+    omarchy-shell shell rescanPlugins >/dev/null 2>&1 ||
+        omarchy-restart-shell >/dev/null 2>&1 || true
+}
+
 # Install (or refresh) one of the overlay's own bar-widget plugins, shipped
 # in plugins/<src>, as ~/.config/omarchy/plugins/<id>. SYNCED on every run —
 # a `git pull` updates the widget the way it updates everything else the
-# overlay links out of the checkout; when the files changed, main() reloads
-# the shell once.
+# overlay links out of the checkout. Staged in a sibling temp dir and moved
+# into place, the way omarchy-plugin-clone lands a clone (mktemp -d under the
+# plugins dir, cp -aL, mv), so the shell's directory watch never scans a
+# half-copied plugin; then the shell rescans.
 sync_plugin_dir() {
     local src="$HERE/plugins/$1" id="$2"
     local dir="$HOME/.config/omarchy/plugins/$id"
@@ -932,9 +1064,12 @@ sync_plugin_dir() {
         return 0
     fi
     mkdir -p "$HOME/.config/omarchy/plugins"
+    local stage
+    stage="$(mktemp -d "$HOME/.config/omarchy/plugins/.hyprconf.XXXXXX")"
+    cp -aL "$src/." "$stage/"
     rm -rf "$dir"
-    cp -r "$src" "$dir"
-    shell_reload_needed=1
+    mv "$stage" "$dir"
+    reload_plugins
     info "widget files synced from plugins/$1"
 }
 
@@ -1067,7 +1202,6 @@ stage_clock() {
     set_clock_format "$id"
     follow_center_anchor omarchy.clock "$id"
 
-    shell_reload_needed=1
     mkdir -p "$(dirname "$marker")"
     : > "$marker"
     info "seconds tick via the $id widget (back to stock with: omarchy plugin disable $id)"
@@ -1139,28 +1273,92 @@ stage_shell() {
     write_managed_block "$HOME/.zshrc" "$HERE/zsh/zshrc.block"
 }
 
-# Every hook the overlay ships, hooks/<name>.d/<file>, into the matching
-# ~/.config/omarchy/hooks/<name>.d/ — the directories omarchy-hook runs
-# (post-update from omarchy-update, theme-set from omarchy-theme-set).
+# Every hook the overlay ships, hooks/<type>.d/<file>, into the matching
+# ~/.config/omarchy/hooks/<type>.d/ — the directories omarchy-hook runs
+# (post-update from omarchy-update, theme-set from omarchy-theme-set) —
+# through Omarchy's own `omarchy-hook-install <type> <file>` (4.0.0-1:
+# mkdir -p the .d dir, cp under the file's basename, chmod 755). The hook is
+# rendered first, with @HYPRCONF_DIR@ substituted, into a temp dir under its
+# final basename, since the basename is the name it is installed under. The
+# same three steps by hand only when the command is absent.
 stage_hooks() {
     log "Omarchy hooks (post-update, theme-set)"
-    local src dir
+    local src type file dir tmp
+    tmp="$(mktemp -d)"
     for src in "$HERE"/hooks/*.d/*; do
-        dir="$HOME/.config/omarchy/hooks/$(basename "$(dirname "$src")")"
-        mkdir -p "$dir"
-        sed "s|@HYPRCONF_DIR@|$REPO_ROOT|g" "$src" > "$dir/$(basename "$src")"
-        chmod 755 "$dir/$(basename "$src")"
+        type="$(basename "$(dirname "$src")")"
+        type="${type%.d}"
+        file="$tmp/${src##*/}"
+        sed "s|@HYPRCONF_DIR@|$REPO_ROOT|g" "$src" > "$file"
+        if command -v omarchy-hook-install >/dev/null 2>&1; then
+            omarchy-hook-install "$type" "$file" >/dev/null ||
+                warn "omarchy-hook-install $type ${src##*/} failed"
+        else
+            dir="$HOME/.config/omarchy/hooks/$type.d"
+            mkdir -p "$dir"
+            cp "$file" "$dir/${src##*/}"
+            chmod 755 "$dir/${src##*/}"
+        fi
     done
+    rm -rf "$tmp"
 }
 
-# Extend the ACTIVE theme to Firefox and Code - OSS now, not only on the
-# next `omarchy theme set`: the theme-set hook just installed is run once,
-# the way omarchy-theme-set runs it (`omarchy-hook theme-set <name>` after
-# its own fan-out). Not set-once — the hook is idempotent and cheap, and a
-# re-run keeps both apps in step with a theme switched while the overlay
-# was not installed.
+# hyprconf's theme templates into Omarchy's user template directory,
+# ~/.config/omarchy/themed/: every <name>.tpl there is rendered by
+# omarchy-theme-set-templates on each theme set — {{ background }},
+# {{ foreground }}, {{ accent }}, {{ color0..15 }} and the rest of the list in
+# config/omarchy/themed/alacritty.toml.tpl.sample — into
+# ~/.local/state/omarchy/current/theme/<name>, user templates ahead of
+# default/themed (4.0.0-1). Copied when the bytes differ. The render for the
+# theme active RIGHT NOW is Omarchy's own `omarchy-theme-refresh` ("Refresh
+# the current theme from its templates": omarchy-theme-set of the current
+# theme.name with OMARCHY_THEME_SKIP_BACKGROUND=1, so the wallpaper stays) —
+# the templates renderer on its own writes only into theme-set's next-theme
+# staging dir and is called from nowhere else (bin/omarchy-theme-set:156).
+# Run only when a template changed or its render is missing, so the
+# post-update hook's re-runs cost nothing; with no active theme yet the next
+# `omarchy theme set` renders it.
+stage_themed() {
+    log "Theme templates (~/.config/omarchy/themed)"
+    local dir="$HOME/.config/omarchy/themed"
+    local theme="$HOME/.local/state/omarchy/current/theme"
+    local tpl name changed=0 unrendered=0
+    for tpl in "$HERE"/themed/*.tpl; do
+        [[ -f $tpl ]] || continue
+        name="${tpl##*/}"
+        if [[ ! -f $dir/$name ]] || ! cmp -s "$tpl" "$dir/$name"; then
+            mkdir -p "$dir"
+            install -m 644 "$tpl" "$dir/$name"
+            changed=1
+            info "installed $name"
+        fi
+        [[ -f $theme/${name%.tpl} ]] || unrendered=1
+    done
+    if (( ! changed && ! unrendered )); then
+        info "already current and rendered"
+        return 0
+    fi
+    if [[ ! -r $theme.name ]]; then
+        info "no active theme yet — rendered on the next omarchy theme set"
+        return 0
+    fi
+    command -v omarchy-theme-refresh >/dev/null 2>&1 || {
+        warn "omarchy-theme-refresh not found — rendered on the next omarchy theme set"
+        return 0
+    }
+    info "rendering through omarchy-theme-refresh (Omarchy's own re-render of the current theme; the wallpaper is kept)"
+    omarchy-theme-refresh >/dev/null 2>&1 ||
+        warn "omarchy-theme-refresh failed — rendered on the next omarchy theme set"
+}
+
+# Extend the ACTIVE theme to Firefox now, not only on the next `omarchy
+# theme set`: the theme-set hook just installed is run once, the way
+# omarchy-theme-set runs it (`omarchy-hook theme-set <name>` after its own
+# fan-out — where VS Code is themed, by omarchy-theme-set-vscode). Not
+# set-once — the hook is idempotent and cheap, and a re-run keeps Firefox in
+# step with a theme switched while the overlay was not installed.
 stage_theme_apps() {
-    log "Theme into Firefox and VS Code (theme-set hook)"
+    log "Theme into Firefox (theme-set hook)"
     local hook="$HOME/.config/omarchy/hooks/theme-set.d/10-hyprconf"
     local name="$HOME/.local/state/omarchy/current/theme.name"
     if [[ ! -r $name ]]; then
@@ -1188,8 +1386,9 @@ main() {
     preflight
     if (( do_pull ));     then stage_pull; fi
     if (( do_packages )); then stage_packages; fi
-    # The Firefox policy sits behind the same gate — the only other sudo.
-    if (( do_packages )); then stage_firefox; fi
+    # Firefox (Omarchy's installer + the policy) and VS Code sit behind the
+    # same gate — sudo, all of them.
+    if (( do_packages )); then stage_firefox; stage_editor; fi
     # After the package stage, never before it — see resolve_zsh.
     resolve_zsh
     stage_terminal
@@ -1210,17 +1409,10 @@ main() {
     stage_clock
     stage_workspaces
     stage_window_title
-    # One deferred reload for however many bar-widget copies changed this
-    # run. The copies are patched BEFORE they are enabled, so a fresh enable
-    # needs no reload — this covers the swap of an already-rendered stock
-    # widget picking up its replacement cleanly. Guarded: headless runs have
-    # no shell to restart, and a cosmetic reload must not take the install
-    # down.
-    if (( shell_reload_needed )); then
-        omarchy-restart-shell >/dev/null 2>&1 || true
-    fi
     stage_shell
     stage_hooks
+    # Before stage_theme_apps: its hook wants the templates rendered.
+    stage_themed
     stage_theme_apps
     hyprctl reload >/dev/null 2>&1 || true
     if (( do_update )); then stage_update; fi

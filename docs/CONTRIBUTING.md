@@ -2,15 +2,15 @@
 
 hyprconf is an overlay for [Omarchy](https://omarchy.org) — `README.md` opens
 with the contract. Read [`AGENTS.md`](../AGENTS.md) first — its rules (use
-Omarchy's own tools, never work from memory about Omarchy, official repos
-only, no PII, hermetic tests) bind every change.
+Omarchy's own tools, never work from memory about Omarchy, the package rule,
+no PII, hermetic tests) bind every change.
 
 ## Repository Layout
 
 ```
 .hyprconf/
 ├── install.sh                  # The overlay installer — idempotent stages, the only entry point; served by hyprconf.sh, clones itself on the curl path
-├── packages                    # Official-repo packages, installed via omarchy-pkg-add
+├── packages                    # Official-repo packages, installed via omarchy-pkg-add (Firefox and VS Code go through Omarchy's installers instead)
 │
 ├── hypr/
 │   ├── bindings.lua            # Hotkeys (o.bind with descriptions; unbind-then-rebind)
@@ -20,34 +20,34 @@ only, no PII, hermetic tests) bind every change.
 │   ├── pcMonitors.bedroom.lua  # Preset "bedroom"  (SUPER+SHIFT+B)
 │   ├── pcMonitors.kitchen.lua  # Preset "kitchen"  (SUPER+SHIFT+K)
 │   ├── pcMonitors.K.lua        # Preset "K"
-│   ├── laptopMonitors.lua      # Preset "laptop"
-│   └── scripts/
-│       ├── switch_monitor.sh   # Symlink a preset over monitors.lua, reload, rehome workspaces
-│       └── adjust-gaps         # SUPER+SHIFT+= / - via hyprctl eval
+│   └── laptopMonitors.lua      # Preset "laptop"
 │
-├── bin/                        # Tools installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted)
+├── bin/                        # Tools installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted); the hotkeys bind the first two by name
+│   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
+│   ├── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
 │   ├── hyprconf-stats          #   cpu/mem/net/temp JSON stream for the bar widget
 │   ├── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop or AMD sysfs)
-│   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (enroll/disable/remove/status)
+│   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (enroll/disable/remove/status); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
 │   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU via uwsm env.d (status/prompt/fix/alt/ignore/remove)
 │   ├── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)
 │   └── hyprconf-install-service-protonvpn  # Proton VPN via omarchy-pkg-add; run by the menu row stage_menu adds
 │
 ├── lib/hyprconf/               # Python package, used in place via PYTHONPATH (theme-set hook, hyprconf-firefox-theme)
-│   ├── firefox_theme.py        # Firefox/LibreWolf chrome from Omarchy's theme (theme-set hook)
+│   ├── firefox_theme.py        # Omarchy's rendered userChrome.css into Firefox/LibreWolf profiles + user.js prefs (theme-set hook)
 │   └── __init__.py             # __version__ (bumped by scripts/publish)
 │
 ├── plugins/hyprconf-resources/ # Omarchy bar-widget plugin (manifest.json + Widget.qml)
 ├── plugins/hyprconf-workspaces/ # Omarchy bar-widget plugin replacing omarchy.workspaces (clonedFrom)
 ├── plugins/hyprconf-active-window/ # Omarchy bar-widget plugin replacing omarchy.active-window (two-line title)
 ├── themes/dracula/             # Omarchy user theme (colors.toml + backgrounds/)
+├── themed/userChrome.css.tpl   # Omarchy user template (→ ~/.config/omarchy/themed/), rendered by omarchy-theme-set-templates on every theme set
 ├── wallpapers/                 # Extra backgrounds, filed per Omarchy theme
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
 ├── kitty/hyprconf.conf         # kitty include
 ├── fastfetch/config.jsonc      # Greeting layout
-├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update
-├── hooks/theme-set.d/10-hyprconf     # Bridges a theme change to apps Omarchy does not theme
-├── infra/firefox/policies.json # System Firefox privacy policy
+├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
+├── hooks/theme-set.d/10-hyprconf     # Runs firefox_theme.py after every omarchy theme set
+├── infra/firefox/policies.json # System Firefox privacy policy, installed merged over Omarchy's default/firefox/policies.json
 │
 ├── tests/                      # Unit + integration (see below)
 ├── scripts/publish             # Lint + test → promote dev → stable
@@ -60,9 +60,10 @@ only, no PII, hermetic tests) bind every change.
 ```
 
 Files the installer writes live in `$HOME` only (plus the Firefox policy under
-`/etc/firefox/policies/`). The `hypr/*.lua` override files are **symlinked** into
-`~/.config/hypr/`, so the checkout's copies are the live files — edit them there
-and re-run `bash install.sh`.
+`/etc/firefox/policies/`; Firefox and VS Code themselves are installed by
+Omarchy's own `omarchy-install-browser` / `omarchy-install-editor-vscode`). The
+`hypr/*.lua` override files are **symlinked** into `~/.config/hypr/`, so the
+checkout's copies are the live files — edit them there and re-run `bash install.sh`.
 
 ---
 
@@ -76,17 +77,17 @@ is verified by hand and recorded in the commit message.
 ```
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
-│   ├── test_adjust_gaps.py       #   hypr/scripts/adjust-gaps (fake hyprctl, real jq)
-│   ├── test_config_exec_targets.py  # every ~/-anchored path a shipped config references ships
-│   ├── test_firefox.py           #   infra/firefox/policies.json
-│   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (theme-set hook bridge, --status)
-│   ├── test_hypr_overrides.py    #   hypr/*.lua state the deltas the README promises (Steam tiled …)
+│   ├── test_config_exec_targets.py  # every hyprconf-* command and ~/-anchored path a shipped config references ships
+│   ├── test_firefox.py           #   infra/firefox/policies.json; the merge is a superset of the installed Omarchy policy (read-only; the install suite's fixture of it elsewhere)
+│   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + the template's render
+│   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
+│   ├── test_hypr_overrides.py    #   hypr/*.lua state the deltas the README promises (Steam tiled …), restate none of Omarchy's binds, use its launcher idiom
+│   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, workspace rehoming, hyprlang refusal)
 │   ├── test_no_pii.py            #   every tracked file, identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; real qmllint on plugins/*/*.qml
+│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, monitors.lua migration …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
 │   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
-│   ├── test_switch_monitor.py    #   hypr/scripts/switch_monitor.sh
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
-│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; real shellcheck on the drop-in)
+│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; the limine drop-in, /etc/default/limine read-only, the v4.0.0–v4.2.0 inline-parameter migration; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias finds a relocated checkout
 └── integration/
     └── test_publish_pipeline.py  #   scripts/publish --help, --dry-run and the real promotion against a throwaway bare origin
@@ -113,9 +114,13 @@ make clean
 Python deps for the suite: `python-pytest`, `python-pytest-xdist` (official
 repos). `jq`, `shellcheck`, `luac`, `qmllint` and `git` are used real by the
 tests that need them and skipped when absent — CI installs `jq`, `shellcheck`,
-`lua` and `qt6-declarative` (`qmllint`, under `/usr/lib/qt6/bin`) so nothing
-skips there, plus `diffutils` for the `cmp` `install.sh` runs (Omarchy has it
-through mkinitcpio; the bare `archlinux:latest` container does not).
+`lua` and `qt6-declarative` (`qmllint`, under `/usr/lib/qt6/bin`) so none of
+those skip there, plus `diffutils` for the `cmp` `install.sh` runs (Omarchy has
+it through mkinitcpio; the bare `archlinux:latest` container does not). The
+one test CI does skip is `test_installed_plugins_pass_omarchy_plugin_validate`
+(it needs the installed `/usr/share/omarchy/bin/omarchy-plugin-validate`,
+which no package provides in the container); it runs on every Omarchy box.
+Every other test runs in CI — a second skip there is a regression.
 
 ### Writing hermetic tests
 
@@ -123,8 +128,9 @@ through mkinitcpio; the bare `archlinux:latest` container does not).
   suite) or behind an env seam — `_HYPRCONF_*` in `install.sh` for binaries and
   non-`$HOME` paths (`OMARCHY_PATH`, `PKG_ADD`, `ZSH_BIN`, `ZSH`, `KITTY_BIN`,
   `FIREFOX_POLICIES`, `ASSUME_TTY`, `PLUGIN_WAIT`), `_HYPRCONF_*` in
-  `bin/hyprconf-yubikey` for the boot files it edits (`MKINITCPIO_D`,
-  `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `VCONSOLE`, `MACHINE_ID`, `EFI_DIR`, …),
+  `bin/hyprconf-yubikey` for the boot files it reads and writes (`MKINITCPIO_D`,
+  `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `LIMINE_ENTRY_CONF`, `LIMINE_USR_D`,
+  `FIDO2_DROPIN`, `VCONSOLE`, `MACHINE_ID`, `EFI_DIR`, …),
   `_HYPRCONF_*` in `bin/hyprconf-vulkan-gpu` for the sysfs trees and env
   files it reads (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`, `UWSM_ENV_D`, `UWSM_ENV`,
   `ENVIRONMENT_D`, `STATE`, `ASSUME_TTY`),
@@ -134,11 +140,20 @@ through mkinitcpio; the bare `archlinux:latest` container does not).
   `hyprctl`, `sudo`, `chsh`, `fc-list`, `systemd-cryptenroll`, `limine-update`,
   `gum`, `vulkaninfo` (it would answer for the host's GPUs), `git clone`/`pull` …
   — is **always** a fake bin first on `PATH`; a test must
-  never reach a real binary that changes the desktop. Pure tools are real when
+  never reach a real binary that changes the desktop. `/usr/bin` carries a
+  copy of every `omarchy-*` command (426 on Omarchy 4.0.0-1), so a PATH of
+  fakes plus `/usr/bin` does not keep the real ones out: stub every
+  `omarchy-*` the code path can call (`_setup` in `test_omarchy_install.py`
+  lists the installer's; `test_firefox_theme.py` stubs Omarchy's three theme
+  commands to prove the Firefox bridge calls none of them). Pure tools are real when
   present and the test skips otherwise: `jq`, `luac`, `qmllint`, `cp`, `python3`,
-  `shellcheck`, and `git` `init`/`add`/`commit`/`checkout` — plus, for the curl-path tests, a
+  `shellcheck`, `/usr/share/omarchy/bin/omarchy-plugin-validate` (reads a
+  manifest, changes nothing), and `git` `init`/`add`/`commit`/`checkout` — plus, for the curl-path tests, a
   `clone` whose source is a local directory — inside a throwaway clone under
-  `tmp_path`; never the repository the suite runs from. Never invoke `pacman`
+  `tmp_path`; never the repository the suite runs from. A test that reads a
+  file of the installed Omarchy falls back to a fixture of it instead of
+  skipping (`test_firefox.py` reuses the install suite's `OMARCHY_FIREFOX_POLICY`
+  and, with Omarchy present, checks the fixture against the real file). Never invoke `pacman`
   (it exists in the container). `tests/unit/test_omarchy_install.py` shows the
   pattern: fake `omarchy-*` binaries that record their calls, a throwaway
   `HOME`, and assertions about what the installer must *not* do.
