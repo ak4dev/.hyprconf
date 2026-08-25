@@ -172,7 +172,9 @@ def test_captured_ui_settings_are_the_ones_the_machine_has() -> None:
     # rather than a raw media.eme.enabled pref (they do the same thing).
     assert POLICIES["EncryptedMediaExtensions"] == {"Enabled": True, "Locked": False}
     # The default search engine. The name must be exactly the one Firefox
-    # knows: a miss falls back to Google silently, with nothing logged.
+    # knows: on a miss it logs `Search engine lookup failed` and leaves the
+    # default alone, which on a fresh profile is the region default (Google)
+    # — so it reads as a silent fallback without being one.
     assert POLICIES["SearchEngines"]["Default"] == "DuckDuckGo"
 
 

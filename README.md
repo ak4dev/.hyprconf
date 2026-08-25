@@ -32,7 +32,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 | Greeting | hyprconf's `fastfetch` layout |
 | Firefox + VS Code | Installed through Omarchy's own installers (`omarchy install browser firefox`, `omarchy install editor vscode`), set as the default browser and editor once |
 | Theme reach | Every `omarchy theme set` also lands in Firefox, which Omarchy's own fan-out misses — a user template Omarchy's own engine renders |
-| Firefox settings | One system policy — Omarchy's own prefs plus hyprconf's — carries the lot: telemetry off, tracking protection on, **uBlock Origin and Proton Pass** force-installed and pinned to the toolbar, **DuckDuckGo** the default engine, compact density, vertical tabs, a bare Firefox Home, DRM playback on. Policy *defaults*, not user values — any profile comes up configured, it all stays yours to change, and dropping the file puts it back to stock ([details](#firefox-settings)) |
+| Firefox settings | One system policy — Omarchy's own prefs plus hyprconf's — carries the lot: telemetry off, tracking protection on, **uBlock Origin and Proton Pass** force-installed and pinned to the toolbar, **DuckDuckGo** the default engine, compact density, vertical tabs, a bare Firefox Home, DRM playback on. Policy *defaults*, not user prefs — any profile comes up configured and it all stays yours to change ([details](#firefox-settings)) |
 | YubiKey | `hyprconf-yubikey`: unlock the LUKS root at boot with a FIDO2 key (Omarchy's own `omarchy-setup-security-fido2` covers sudo/polkit) |
 | Dual-GPU gaming | `hyprconf-vulkan-gpu`: on a box with two GPUs, pins Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays — session environment in uwsm's `env.d`, which `install.sh` offers to write |
 | VPN | **Proton VPN** in Omarchy's menu — Install → Service, beside NordVPN — installed from Arch's official repos with `omarchy-pkg-add` |
@@ -253,7 +253,7 @@ The `~/.zshrc` managed block (`# >>> hyprconf >>>` … `# <<< hyprconf <<<`, sou
 
 ## Firefox settings
 
-Every setting below rides in the one system policy the `firefox` stage installs — `/etc/firefox/policies/policies.json`, Omarchy's own `default/firefox/policies.json` merged **under** [`infra/firefox/policies.json`](infra/firefox/policies.json). Firefox reads it at every startup, so any profile, a fresh one included, comes up configured, and none of it is written into a profile. (The theme is the one thing that *is* — [Theme → Firefox](#theme--firefox) below.)
+Every setting below rides in the one system policy the `firefox` stage installs — `/etc/firefox/policies/policies.json`, Omarchy's own `default/firefox/policies.json` merged **under** [`infra/firefox/policies.json`](infra/firefox/policies.json). Firefox reads it at every startup, so any profile, a fresh one included, comes up configured. No `user.js`, and not one user pref: the only thing that reaches profile state is the search engine, which is why it is the only one with a caveat when you undo. (The theme writes into the profile too, and has [its own section](#theme--firefox).)
 
 | What | How |
 |---|---|
@@ -370,7 +370,7 @@ rm ~/.config/omarchy/backgrounds/gruvbox/gruvbox.jpg; rmdir ~/.config/omarchy/ba
 rm ~/.config/fastfetch/config.jsonc; [ -e ~/.config/fastfetch/config.jsonc.stock ] && mv ~/.config/fastfetch/config.jsonc.stock ~/.config/fastfetch/config.jsonc   # Omarchy's own /etc/fastfetch/config.jsonc is the default again
 omarchy default terminal <name>; omarchy font set <name>; omarchy theme set <name>
 sudo rm /etc/firefox/policies/policies.json   # Omarchy's prefs are in /usr/lib/firefox/distribution/policies.json only if Omarchy's installer put Firefox there (a v4.0.0–v4.2.0 install did not) — else: omarchy install browser firefox
-# ^ this also un-manages uBlock Origin and Proton Pass (they stay installed, as ordinary add-ons you can now remove). Every captured pref was a default, never a user value, so the prefs you had changed yourself are untouched — except the search engine, which the policy records as the profile's choice: dropping the file hands it to Firefox's region default, not to whatever you had picked before. Set it again in Settings › Search
+# ^ this also un-manages uBlock Origin and Proton Pass (they stay installed, as ordinary add-ons you can now remove). Every captured pref was a default, never a user value, so the prefs you had changed yourself are untouched — except the search engine: setting it by policy *clears* the profile's record of any engine you had chosen yourself, so dropping the file hands it to Firefox's region default rather than back to your old pick. Set it again in Settings › Search
 # Firefox and VS Code are Omarchy's installs and stay; `omarchy pkg drop visual-studio-code-bin firefox` if you want them gone
 ```
 
