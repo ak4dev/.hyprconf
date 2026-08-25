@@ -1,0 +1,296 @@
+#!/usr/bin/env bash
+# hyprconf-vulkan-gpu — pin Vulkan to the GPU that drives the displays, for
+# Steam/Proton (Xwayland) on a dual-GPU box.
+#
+# Two independent causes. (1) Xwayland exposes no RandR providers, so Wine
+# binds every monitor to Vulkan physical device 0 — the first GPU by PCI bus
+# order, not the one the displays are plugged into; a game on another GPU has
+# no output on its adapter and CreateSwapChainForHwnd fails with E_INVALIDARG
+# ("No display detected for current GPU") while the launcher works. Reordering
+# (VK_LOADER_DEVICE_SELECT) is not enough: the other GPU must leave Vulkan
+# enumeration (VK_LOADER_DEVICE_ID_FILTER, vulkan-icd-loader >= 1.4.3xx).
+# (2) NVIDIA's Vulkan driver presents to Xwayland only from its own GPU 0
+# unless PRIME render offload is on: __NV_PRIME_RENDER_OFFLOAD=1 plus
+# __VK_LAYER_NV_optimus=NVIDIA_only, both together. The filter hides the other
+# GPU from Vulkan only — the compositor (KMS/EGL) still drives monitors on it;
+# Vulkan compute no longer sees it. (Mesa 25 dropped MESA_VK_DEVICE_SELECT.)
+#
+# Written as session environment, so every launcher and game inherits it, in
+# the seam uwsm sources at login: every file under ~/.config/uwsm/env.d/
+# (/usr/lib/uwsm/prepare-env.sh: source_dir "${1}/${__env_file__}.d"), which
+# Omarchy's /usr/share/uwsm/env.d/10-omarchy names as where users override its
+# session defaults ("preferably, ~/.config/uwsm/env.d/*"); sh-sourced `export
+# VAR=value` lines. Omarchy 4.0.0-1 has no command for this: `omarchy commands
+# --json` lists `omarchy hw vulkan` (only whether /usr/share/vulkan/icd.d holds
+# an ICD), `omarchy hw hybrid gpu` (supergfxctl's mode, else a GPU count via
+# lspci — which resumes runtime-suspended GPUs, as omarchy-hw-nvidia's own
+# comment says) and `omarchy hw nvidia` (sysfs vendor 0x10de); none enumerates
+# the Vulkan order, maps connectors to GPUs or writes session environment. When
+# Xwayland presentation still fails, `alt` writes PROTON_ENABLE_WAYLAND=1 for
+# a Wayland-capable Proton (native Wayland presents from either GPU).
+#
+# Paths are env-overridable (never read-only) so the hermetic suite points
+# them at tmp trees; gum and vulkaninfo are looked up on PATH.
+set -euo pipefail
+
+: "${_HYPRCONF_SYS_PCI:=/sys/bus/pci/devices}"
+: "${_HYPRCONF_SYS_DRM:=/sys/class/drm}"
+: "${_HYPRCONF_VULKANINFO:=vulkaninfo}"
+: "${_HYPRCONF_UWSM_ENV_D:=$HOME/.config/uwsm/env.d}"
+: "${_HYPRCONF_UWSM_ENV:=$HOME/.config/uwsm/env}"
+: "${_HYPRCONF_ENVIRONMENT_D:=$HOME/.config/environment.d}"
+: "${_HYPRCONF_STATE:=$HOME/.local/state}"
+: "${_HYPRCONF_ASSUME_TTY:=}"
+
+ENV_FILE=$_HYPRCONF_UWSM_ENV_D/50-hyprconf-vulkan-gpu
+MARKER=$_HYPRCONF_STATE/hyprconf/vulkan-gpu-ignored
+
+# Filled by diagnose: per GPU in PCI order its address, vendor:device (no 0x)
+# and connected outputs; the display GPU's index (-1 = none); Vulkan device 0
+# and how it was found; where it is already configured; the NVIDIA pair; risk.
+GPU_ADDR=() GPU_ID=() GPU_OUT=() DGPU=-1 VK0="" VK0_HOW="" CONFIGURED="" NV_PAIR=0 AT_RISK=0
+declare -A OUTPUTS=()  # PCI address -> connected outputs
+
+die()  { printf 'hyprconf-vulkan-gpu: %s\n' "$*" >&2; exit 1; }
+info() { printf '%s\n' "$*"; }
+have() { command -v -- "$1" >/dev/null 2>&1; }
+vendor_name() {
+    case ${1%%:*} in 10de) echo NVIDIA ;; 1002) echo AMD ;; 8086) echo Intel ;; *) echo other ;; esac
+}
+
+# Outputs: card<N>-<conn>/status == connected, card<N>/device linking to the
+# PCI dir (basename = address). GPUs: PCI class 0x03xxxx (VGA 0x030000, 3D 0x030200).
+scan() {
+    local s st card dev d class vendor device
+    for s in "$_HYPRCONF_SYS_DRM"/card[0-9]*-*/status; do
+        [[ -r $s ]] || continue
+        st=""; read -r st < "$s" || :
+        [[ $st == connected ]] || continue
+        card=${s%/status}; card=${card##*/}; card=${card%%-*}
+        dev=$(readlink -f -- "$_HYPRCONF_SYS_DRM/$card/device" 2>/dev/null) || continue
+        OUTPUTS[${dev##*/}]=$(( ${OUTPUTS[${dev##*/}]:-0} + 1 ))
+    done
+    for d in "$_HYPRCONF_SYS_PCI"/*/; do
+        d=${d%/}
+        [[ -r $d/class ]] || continue
+        class="" vendor="" device=""
+        read -r class < "$d/class" || :
+        [[ $class == 0x03* ]] || continue
+        read -r vendor < "$d/vendor" || :
+        read -r device < "$d/device" || :
+        GPU_ADDR+=("${d##*/}") GPU_ID+=("${vendor#0x}:${device#0x}") GPU_OUT+=("${OUTPUTS[${d##*/}]:-0}")
+    done
+}
+
+# `vulkaninfo --summary` lists "GPU0:" with its "vendorID = 0x..." and
+# "deviceID = 0x..." lines — the real enumeration order. Empty when it fails
+# (no ICD, no display) or prints no GPU0; the caller checks it exists.
+vulkan_first() {
+    "$_HYPRCONF_VULKANINFO" --summary 2>/dev/null | awk '
+        /^GPU[0-9]+:/ { gpu0 = ($1 == "GPU0:") }
+        gpu0 && $1 == "vendorID" { v = tolower($3); sub(/^0x/, "", v) }
+        gpu0 && $1 == "deviceID" { d = tolower($3); sub(/^0x/, "", d) }
+        END { if (v != "" && d != "") print v ":" d }' || :
+}
+
+# Where VK_LOADER_DEVICE_ID_FILTER or PROTON_ENABLE_WAYLAND is already set: an
+# uncommented line in uwsm's env files or systemd's environment.d, or the live
+# environment. Prints "VAR in <where>", nothing when unset everywhere.
+configured_in() {
+    local v f hit
+    for f in "$_HYPRCONF_UWSM_ENV_D"/* "$_HYPRCONF_UWSM_ENV" "$_HYPRCONF_ENVIRONMENT_D"/*.conf; do
+        [[ -f $f ]] || continue
+        hit=$(grep -Eom1 '^[[:space:]]*(export[[:space:]]+)?(VK_LOADER_DEVICE_ID_FILTER|PROTON_ENABLE_WAYLAND)=' "$f" || :)
+        [[ -n $hit ]] || continue
+        hit=${hit%=}; echo "${hit##*[[:space:]]} in $f"; return 0
+    done
+    for v in VK_LOADER_DEVICE_ID_FILTER PROTON_ENABLE_WAYLAND; do
+        [[ -n ${!v:-} ]] && { echo "$v in the live environment"; return 0; }
+    done
+    return 0
+}
+
+diagnose() {
+    local i why="vulkaninfo not found"
+    [[ -d $_HYPRCONF_SYS_PCI && -d $_HYPRCONF_SYS_DRM ]] || die "cannot read sysfs ($_HYPRCONF_SYS_PCI, $_HYPRCONF_SYS_DRM)"
+    GPU_ADDR=() GPU_ID=() GPU_OUT=() OUTPUTS=() DGPU=-1 NV_PAIR=0 AT_RISK=0
+    scan
+    # Most connected outputs wins; a tie goes to the lowest PCI address.
+    for i in "${!GPU_ADDR[@]}"; do
+        if (( GPU_OUT[i] > 0 && (DGPU < 0 || GPU_OUT[i] > GPU_OUT[DGPU]) )); then DGPU=$i; fi
+    done
+    VK0=""
+    if have "$_HYPRCONF_VULKANINFO"; then why="vulkaninfo gave no GPU0"; VK0=$(vulkan_first); fi
+    if [[ -n $VK0 ]]; then VK0_HOW="vulkaninfo GPU0"
+    elif (( ${#GPU_ID[@]} )); then VK0=${GPU_ID[0]} VK0_HOW="assumed PCI order; $why"
+    fi
+    CONFIGURED=$(configured_in)
+    (( DGPU >= 0 && ${#GPU_ID[@]} >= 2 )) || return 0
+    for i in "${!GPU_ID[@]}"; do
+        if (( i < DGPU )) && [[ ${GPU_ID[i]} == 10de:* && ${GPU_ID[DGPU]} == 10de:* ]]; then NV_PAIR=1; fi
+    done
+    if [[ ${GPU_ID[DGPU]} != "$VK0" ]]; then AT_RISK=1; fi
+}
+
+verdict() {  # one line; returns status's exit code
+    if (( ${#GPU_ID[@]} < 2 )); then info "nothing to do — ${#GPU_ID[@]} GPU"
+    elif (( DGPU < 0 )); then info "nothing to do — no GPU has a connected output; nothing to pin"
+    elif [[ -n $CONFIGURED ]]; then info "nothing to do — already configured: $CONFIGURED"
+    elif (( AT_RISK )); then info "AT RISK — the display GPU is not Vulkan device 0 and nothing pins it; run: hyprconf-vulkan-gpu fix"; return 3
+    else info "nothing to do — the display GPU is Vulkan device 0"
+    fi
+}
+
+cmd_status() {
+    local i multi="" dgpu="none (no connected output under $_HYPRCONF_SYS_DRM)" rc=0
+    diagnose
+    if [[ ${1:-} == --quiet ]]; then verdict >/dev/null || rc=$?; return "$rc"; fi
+    info "hyprconf-vulkan-gpu status"
+    info "  GPUs (PCI order):"
+    for i in "${!GPU_ADDR[@]}"; do
+        info "    ${GPU_ADDR[i]}  ${GPU_ID[i]}  $(vendor_name "${GPU_ID[i]}")  connected outputs: ${GPU_OUT[i]}"
+        if (( GPU_OUT[i] > 0 && i != DGPU )); then multi=" — several GPUs have outputs; most connected wins, tie -> lowest PCI address"; fi
+    done
+    (( ${#GPU_ADDR[@]} )) || info "    none under $_HYPRCONF_SYS_PCI"
+    (( DGPU < 0 )) || dgpu="${GPU_ADDR[DGPU]} (${GPU_ID[DGPU]})$multi"
+    info "  display GPU:      $dgpu"
+    info "  Vulkan device 0:  ${VK0:-unknown}${VK0_HOW:+ ($VK0_HOW)}"
+    info "  configured:       ${CONFIGURED:-no}"
+    verdict | sed 's/^/  verdict:          /' || rc=$?
+    return "$rc"
+}
+
+# The fix file: a header naming what is pinned and what is hidden, the loader
+# lines, and the NVIDIA pair for an NVIDIA display GPU behind another NVIDIA GPU.
+fix_content() {
+    local i hidden=""
+    for i in "${!GPU_ADDR[@]}"; do
+        (( i == DGPU )) || hidden+="${hidden:+, }${GPU_ADDR[i]} ($(vendor_name "${GPU_ID[i]}") ${GPU_ID[i]})"
+    done
+    printf '%s\n' \
+        "# hyprconf-vulkan-gpu: pin Vulkan to the display GPU ${GPU_ADDR[DGPU]} ($(vendor_name "${GPU_ID[DGPU]}") ${GPU_ID[DGPU]});" \
+        "# hidden from Vulkan: $hidden. Undo: hyprconf-vulkan-gpu remove" \
+        "export VK_LOADER_DEVICE_ID_FILTER=0x${GPU_ID[DGPU]#*:}" \
+        "export VK_LOADER_DEVICE_SELECT=${GPU_ID[DGPU]}"
+    if (( NV_PAIR )); then printf '%s\n' "export __NV_PRIME_RENDER_OFFLOAD=1" "export __VK_LAYER_NV_optimus=NVIDIA_only"; fi
+}
+
+write_env() {  # $1 = content; identical content is left untouched
+    rm -f "$MARKER"
+    if [[ -f $ENV_FILE && $(cat "$ENV_FILE") == "$1" ]]; then info "$ENV_FILE already current"; return 0; fi
+    mkdir -p "$_HYPRCONF_UWSM_ENV_D"
+    printf '%s\n' "$1" > "$ENV_FILE"
+    info "wrote $ENV_FILE:"
+    sed 's/^/  /' "$ENV_FILE"
+    info "re-login to apply (uwsm sources it at session start)"
+}
+
+cmd_fix() {
+    diagnose
+    (( ${#GPU_ID[@]} >= 2 )) || die "${#GPU_ID[@]} GPU under $_HYPRCONF_SYS_PCI — nothing to pin on a single-GPU box"
+    (( DGPU >= 0 )) || die "no GPU has a connected output under $_HYPRCONF_SYS_DRM — cannot tell which one to pin"
+    write_env "$(fix_content)"
+}
+
+cmd_alt() {
+    write_env "# hyprconf-vulkan-gpu: native Wayland presentation for a Wayland-capable Proton; no Vulkan filter. Undo: hyprconf-vulkan-gpu remove
+export PROTON_ENABLE_WAYLAND=1"
+}
+
+cmd_ignore() {
+    mkdir -p "${MARKER%/*}" && : > "$MARKER"
+    info "wrote $MARKER — install.sh will not ask again; hyprconf-vulkan-gpu fix stays available"
+}
+
+cmd_remove() {
+    local f any=0
+    for f in "$ENV_FILE" "$MARKER"; do
+        if [[ -e $f ]]; then rm -f "$f"; info "removed $f"; any=1; fi
+    done
+    if (( any )); then info "re-login to apply"; else info "nothing to remove ($ENV_FILE, $MARKER)"; fi
+}
+
+# install.sh's stage: asks only at risk, unconfigured, not ignored, on a
+# terminal — and never inside omarchy-update, where the post-update hook runs
+# install.sh: it re-execs itself under script(1) (bin/omarchy-update, Omarchy
+# 4.0.0-1: `exec env OMARCHY_UPDATE_LOGGED=1 script -qefc ...`), so every child
+# passes the tty test although nobody is there to answer (`-y` is "a promise
+# not to ask anything"); the marker it exports is the gate, as in install.sh's
+# show_banner.
+cmd_prompt() {
+    local choice
+    diagnose
+    { (( AT_RISK )) && [[ -z $CONFIGURED && ! -e $MARKER ]]; } || return 0
+    if [[ -n ${OMARCHY_UPDATE_LOGGED:-} ]] || { [[ ! -t 0 || ! -t 1 ]] && [[ -z $_HYPRCONF_ASSUME_TTY ]]; }; then
+        info "hyprconf-vulkan-gpu: the display GPU ${GPU_ADDR[DGPU]} is not Vulkan device 0 — Proton games may crash at start; run from a terminal: hyprconf-vulkan-gpu prompt"
+        return 0
+    fi
+    cat <<EOF
+Dual-GPU Vulkan check: the displays are on ${GPU_ADDR[DGPU]} ($(vendor_name "${GPU_ID[DGPU]}") ${GPU_ID[DGPU]}), but
+Vulkan device 0 is $VK0 ($VK0_HOW). Wine under Xwayland sees no RandR providers, so
+it binds every monitor to Vulkan device 0, and a Proton game then has no output on its adapter and
+dies at CreateSwapChainForHwnd (E_INVALIDARG, "No display detected for current GPU") while the
+launcher works. Hiding the other GPU from Vulkan fixes it — on NVIDIA the driver must also be
+allowed to present from a GPU other than its own GPU 0.
+
+  Fix     writes $ENV_FILE (uwsm sources it at login):
+$(fix_content | grep '^export' | sed 's/^/            /')
+          The hidden GPU keeps driving its monitors (KMS/EGL); Vulkan compute no longer sees it.
+  Alt     writes 'export PROTON_ENABLE_WAYLAND=1' to the same file instead — no filter; only for a
+          Wayland-capable Proton (native Wayland presentation works from either GPU).
+  Ignore  writes $MARKER so this is never asked again;
+          'hyprconf-vulkan-gpu fix' stays available.
+
+EOF
+    have gum || { info "gum not found — run one of: hyprconf-vulkan-gpu fix | alt | ignore"; return 0; }
+    choice=$(gum choose --header "Pin Vulkan (Steam/Proton) to the display GPU?" \
+        "Fix — write the Vulkan filter to ${ENV_FILE##*/}" \
+        "Alt — PROTON_ENABLE_WAYLAND=1 instead (Wayland-capable Proton only)" \
+        "Ignore — never ask again") || choice=""
+    case ${choice%% *} in
+        Fix) cmd_fix ;; Alt) cmd_alt ;; Ignore) cmd_ignore ;; *) info "nothing changed" ;;
+    esac
+}
+
+usage() {
+    cat <<EOF
+hyprconf-vulkan-gpu — pin Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays
+
+usage: hyprconf-vulkan-gpu status [--quiet]  GPUs, display GPU, Vulkan device 0, configuration (default);
+                                             exit 0 nothing to do, 3 at risk and unconfigured, 1 error
+       hyprconf-vulkan-gpu prompt            install.sh's question, Fix / Alt / Ignore via gum; silent unless
+                                             at risk; one info line and exit 0 without a terminal or inside
+                                             omarchy-update (OMARCHY_UPDATE_LOGGED set)
+       hyprconf-vulkan-gpu fix               write \$_HYPRCONF_UWSM_ENV_D/50-hyprconf-vulkan-gpu: the filter for the
+                                             display GPU, plus the NVIDIA pair behind another NVIDIA GPU; drops the marker
+       hyprconf-vulkan-gpu alt               the same file with PROTON_ENABLE_WAYLAND=1 only (Wayland-capable Proton)
+       hyprconf-vulkan-gpu ignore            write \$_HYPRCONF_STATE/hyprconf/vulkan-gpu-ignored: never ask again
+       hyprconf-vulkan-gpu remove            delete the env.d file and the marker
+       hyprconf-vulkan-gpu help
+
+Wine under Xwayland sees no RandR providers, so it binds every monitor to Vulkan physical device 0 — the
+first GPU by PCI order, not the one the displays are on; when that is not the display GPU, a Proton game's
+adapter has no outputs and it dies at CreateSwapChainForHwnd (E_INVALIDARG). The fix hides the other GPU
+from Vulkan (VK_LOADER_DEVICE_ID_FILTER + VK_LOADER_DEVICE_SELECT) and, on NVIDIA, lets the driver present
+from a GPU other than its GPU 0 (__NV_PRIME_RENDER_OFFLOAD=1 + __VK_LAYER_NV_optimus=NVIDIA_only) — session
+environment in uwsm's env.d, inherited at login; the compositor still drives monitors on the hidden GPU.
+
+env seams (never read-only; the hermetic suite points them at tmp trees):
+  _HYPRCONF_SYS_PCI ($_HYPRCONF_SYS_PCI)  _HYPRCONF_SYS_DRM ($_HYPRCONF_SYS_DRM)
+  _HYPRCONF_VULKANINFO ($_HYPRCONF_VULKANINFO, looked up on PATH)  _HYPRCONF_UWSM_ENV_D  _HYPRCONF_UWSM_ENV
+  _HYPRCONF_ENVIRONMENT_D  _HYPRCONF_STATE  _HYPRCONF_ASSUME_TTY (non-empty: prompt as on a terminal)
+EOF
+}
+
+main() {
+    local cmd=${1:-status}
+    (($#)) && shift
+    case $cmd in
+        status) cmd_status "$@" ;;
+        prompt | fix | alt | ignore | remove) "cmd_$cmd" ;;
+        help | -h | --help) usage ;;
+        *) die "unknown subcommand: $cmd (see: hyprconf-vulkan-gpu help)" ;;
+    esac
+}
+
+main "$@"

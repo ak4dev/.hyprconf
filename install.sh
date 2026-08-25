@@ -726,6 +726,27 @@ stage_bin() {
     esac
 }
 
+# Dual-GPU boxes: Wine pins every monitor to the first Vulkan GPU it
+# enumerates (Xwayland exposes no RandR providers), so when the GPU driving
+# the displays is not Vulkan device 0 — PCI order, not where the monitors are
+# plugged in — every Proton game dies at swapchain creation. The fix is
+# session environment (a ~/.config/uwsm/env.d/ file, Omarchy's documented
+# override seam, /usr/share/uwsm/env.d/10-omarchy), and hyprconf-vulkan-gpu,
+# which stage_bin just put on ~/.local/bin, owns the whole decision: it
+# diagnoses sysfs (and vulkaninfo when present), bows out when there is one
+# GPU, the right one is already device 0, the box is already configured
+# (uwsm env.d, uwsm/env, environment.d or the live environment) or the user
+# chose Ignore, and never prompts without a terminal or inside omarchy-update
+# (OMARCHY_UPDATE_LOGGED, the marker show_banner gates on: script(1)'s pty
+# would pass its tty test) — the post-update hook's run gets one info line and
+# exit 0. This stage only runs it; its failure is a warning, never a failed
+# install.
+stage_vulkan_gpu() {
+    log "Dual-GPU Vulkan check (hyprconf-vulkan-gpu)"
+    "$HOME/.local/bin/hyprconf-vulkan-gpu" prompt ||
+        warn "hyprconf-vulkan-gpu did not complete — see: hyprconf-vulkan-gpu status"
+}
+
 # hyprconf's rows in Omarchy's menu, through Omarchy's own seam for them:
 # ~/.config/omarchy/extensions/omarchy-menu.jsonc, the one user file the menu
 # merges over its defaults (shell/plugins/menu/Menu.qml, userMenuPath; the
@@ -1182,6 +1203,8 @@ main() {
     stage_monitors
     stage_fastfetch
     stage_bin
+    # Right after stage_bin: it runs the tool that stage just installed.
+    stage_vulkan_gpu
     stage_menu
     stage_bar_plugin
     stage_clock

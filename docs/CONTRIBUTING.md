@@ -29,6 +29,7 @@ only, no PII, hermetic tests) bind every change.
 │   ├── hyprconf-stats          #   cpu/mem/net/temp JSON stream for the bar widget
 │   ├── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop or AMD sysfs)
 │   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (enroll/disable/remove/status)
+│   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU via uwsm env.d (status/prompt/fix/alt/ignore/remove)
 │   ├── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)
 │   └── hyprconf-install-service-protonvpn  # Proton VPN via omarchy-pkg-add; run by the menu row stage_menu adds
 │
@@ -84,6 +85,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; real qmllint on plugins/*/*.qml
 │   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
 │   ├── test_switch_monitor.py    #   hypr/scripts/switch_monitor.sh
+│   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
 │   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; real shellcheck on the drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias finds a relocated checkout
 └── integration/
@@ -123,11 +125,15 @@ through mkinitcpio; the bare `archlinux:latest` container does not).
   `FIREFOX_POLICIES`, `ASSUME_TTY`, `PLUGIN_WAIT`), `_HYPRCONF_*` in
   `bin/hyprconf-yubikey` for the boot files it edits (`MKINITCPIO_D`,
   `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `VCONSOLE`, `MACHINE_ID`, `EFI_DIR`, …),
+  `_HYPRCONF_*` in `bin/hyprconf-vulkan-gpu` for the sysfs trees and env
+  files it reads (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`, `UWSM_ENV_D`, `UWSM_ENV`,
+  `ENVIRONMENT_D`, `STATE`, `ASSUME_TTY`),
   `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders — pointed at
   `tmp_path`. Never make such a variable `readonly`.
 - Every command that could touch the desktop or the system — `omarchy-*`,
   `hyprctl`, `sudo`, `chsh`, `fc-list`, `systemd-cryptenroll`, `limine-update`,
-  `git clone`/`pull` … — is **always** a fake bin first on `PATH`; a test must
+  `gum`, `vulkaninfo` (it would answer for the host's GPUs), `git clone`/`pull` …
+  — is **always** a fake bin first on `PATH`; a test must
   never reach a real binary that changes the desktop. Pure tools are real when
   present and the test skips otherwise: `jq`, `luac`, `qmllint`, `cp`, `python3`,
   `shellcheck`, and `git` `init`/`add`/`commit`/`checkout` — plus, for the curl-path tests, a

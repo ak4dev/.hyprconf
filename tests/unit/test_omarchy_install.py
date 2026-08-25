@@ -39,6 +39,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "install.sh"
 HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
 PROTONVPN_INSTALLER = REPO_ROOT / "bin" / "hyprconf-install-service-protonvpn"
+VULKAN_GPU = REPO_ROOT / "bin" / "hyprconf-vulkan-gpu"
 
 # A recording stub: appends its own name + args to the calls log, then runs an
 # optional body. One template covers every external the installer touches.
@@ -108,6 +109,45 @@ def _stub(path: Path, calls: Path, body: str = "exit 0") -> None:
     path.chmod(0o755)
 
 
+# A GPU for _sysfs: (PCI address, vendor, device, connected outputs). The
+# harness default is one GPU driving two displays — nothing for the Vulkan
+# check to do, so no other test is touched by it.
+SINGLE_GPU = (("0000:01:00.0", "0x1002", "0x744c", 2),)
+
+
+def _sysfs(env: dict, gpus: tuple[tuple[str, str, str, int], ...]) -> None:
+    """A fake /sys/bus/pci/devices + /sys/class/drm for hyprconf-vulkan-gpu,
+    replacing the harness default. Per GPU: class 0x030000 and the id files
+    under its PCI dir, card<N>/device linking back to that dir, and one
+    card<N>-DP-<M>/status per connector — the real tree's shape (cards and
+    connectors numbered from 1, Linux 7.1) — beside one non-display device
+    the class filter must skip."""
+    pci, drm = env["sys_pci"], env["sys_drm"]
+    for tree in (pci, drm):
+        shutil.rmtree(tree, ignore_errors=True)
+        tree.mkdir(parents=True)
+    bridge = pci / "0000:00:00.0"
+    bridge.mkdir()
+    (bridge / "class").write_text("0x060000\n")
+    (bridge / "vendor").write_text("0x1022\n")
+    (bridge / "device").write_text("0x14d8\n")
+    connector = 0
+    for n, (addr, vendor, device, connected) in enumerate(gpus, 1):
+        dev = pci / addr
+        dev.mkdir()
+        (dev / "class").write_text("0x030000\n")
+        (dev / "vendor").write_text(f"{vendor}\n")
+        (dev / "device").write_text(f"{device}\n")
+        card = drm / f"card{n}"
+        card.mkdir()
+        (card / "device").symlink_to(dev)
+        for i in range(2):
+            connector += 1
+            status = drm / f"card{n}-DP-{connector}" / "status"
+            status.parent.mkdir()
+            status.write_text("connected\n" if i < connected else "disconnected\n")
+
+
 def _terminal_stub(tmp_path: Path, set_status: int = 0) -> str:
     """omarchy-default-terminal: reports foot until something sets it, then
     what was set. The set form writes first and exits `set_status` — the real
@@ -158,6 +198,8 @@ def _setup(
         # reach it).
         "chsh",
         "pacman",
+        # hyprconf-vulkan-gpu's prompt; the real one takes over the terminal.
+        "gum",
     ):
         _stub(bins / name, calls)
     # Named so a "no Omarchy here" run can point the installer at a command
@@ -215,14 +257,18 @@ def _setup(
         OMARCHY_MENU_EXTENSION
     )
 
-    return {
+    env = {
         "home": home,
         "bins": bins,
         "omarchy_path": omarchy_path,
         "calls": calls,
         "pkg_add": pkg_add,
         "kitty": kitty,
+        "sys_pci": tmp_path / "sys" / "pci",
+        "sys_drm": tmp_path / "sys" / "drm",
     }
+    _sysfs(env, SINGLE_GPU)
+    return env
 
 
 def _run(
@@ -249,6 +295,11 @@ def _run(
         # The plugin-discovery and shell.json waits poll stubs that never
         # answer (a test modelling the shell's writes raises it again).
         "_HYPRCONF_PLUGIN_WAIT": "0",
+        # hyprconf-vulkan-gpu reads sysfs: the fake tree (_sysfs), never the
+        # host's, and no vulkaninfo — the host's would answer for its GPUs.
+        "_HYPRCONF_SYS_PCI": str(env["sys_pci"]),
+        "_HYPRCONF_SYS_DRM": str(env["sys_drm"]),
+        "_HYPRCONF_VULKANINFO": "vulkaninfo-absent",
     }
     if zsh is not None:
         child_env["_HYPRCONF_ZSH"] = zsh
@@ -394,7 +445,7 @@ def _tree_hash(root: Path) -> str:
 
 
 def test_scripts_are_syntactically_valid() -> None:
-    for script in (INSTALL_SH, HOOK, PROTONVPN_INSTALLER):
+    for script in (INSTALL_SH, HOOK, PROTONVPN_INSTALLER, VULKAN_GPU):
         assert subprocess.run(["bash", "-n", str(script)]).returncode == 0, script
 
 
@@ -1425,6 +1476,7 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
         "hyprconf-gpu-info",
         "hyprconf-yubikey",
         "hyprconf-firefox-theme",
+        "hyprconf-vulkan-gpu",
     } <= set(shipped)
     for name in shipped:
         installed = env["home"] / ".local" / "bin" / name
@@ -2291,3 +2343,161 @@ def test_protonvpn_installer_installs_both_official_packages_through_omarchy(
     )
     assert proc.returncode != 0
     assert "installed" not in proc.stdout
+
+
+# ---------------------------------------------------------------------------
+# The dual-GPU Vulkan check — bin/hyprconf-vulkan-gpu, run by stage_vulkan_gpu
+# ---------------------------------------------------------------------------
+
+VULKAN_ENV_D = Path(".config") / "uwsm" / "env.d" / "50-hyprconf-vulkan-gpu"
+VULKAN_IGNORED = Path(".local") / "state" / "hyprconf" / "vulkan-gpu-ignored"
+VULKAN_STAGE = "==> Dual-GPU Vulkan check (hyprconf-vulkan-gpu)"
+
+# The failing box: two NVIDIA GPUs, the displays on the SECOND by PCI order —
+# Vulkan device 1, which Wine never binds a monitor to (Xwayland exposes no
+# RandR providers). The sysfs of the box the fix was verified on.
+DUAL_NVIDIA = (
+    ("0000:04:00.0", "0x10de", "0x2484", 0),
+    ("0000:0a:00.0", "0x10de", "0x2b85", 2),
+)
+
+
+def _gum_stub(env: dict, answer: str) -> None:
+    """A gum whose `choose` picks the option whose first word is `answer` —
+    the prompt's three start with Fix, Alt and Ignore — the way a keypress
+    would, skipping the flags; every other verb is a no-op."""
+    _stub(
+        env["bins"] / "gum",
+        env["calls"],
+        '[ "$1" = choose ] || exit 0\n'
+        "shift\n"
+        "while [ $# -gt 0 ]; do\n"
+        '  case "$1" in\n'
+        "    --*=*) shift; continue ;;\n"
+        "    --header|--cursor|--selected|--height|--limit) shift 2; continue ;;\n"
+        "    --*) shift; continue ;;\n"
+        f'    "{answer}"|"{answer} "*) printf "%s\\n" "$1"; exit 0 ;;\n'
+        "  esac\n"
+        "  shift\n"
+        "done\n"
+        "exit 1",
+    )
+
+
+def test_dual_gpu_box_is_pinned_when_the_user_says_fix(tmp_path: Path) -> None:
+    """A terminal run on the failing box explains the problem, asks, and on
+    Fix writes the uwsm env.d file every uwsm-launched app inherits at the
+    next login (Omarchy's own override seam, /usr/share/uwsm/env.d/10-omarchy):
+    the loader filter and device select for the display GPU, plus the NVIDIA
+    PRIME pair — both required together — because another NVIDIA GPU precedes
+    it. The real tool runs, as installed by stage_bin, against a fake sysfs;
+    the file is sh-sourceable the way uwsm sources it (prepare-env.sh,
+    source_dir); the run goes on past the stage; a re-run finds the box
+    configured and asks nothing."""
+    env = _setup(tmp_path)
+    _sysfs(env, DUAL_NVIDIA)
+    _gum_stub(env, "Fix")
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert VULKAN_STAGE in proc.stdout
+    assert "WARNING: hyprconf-vulkan-gpu" not in proc.stderr
+    assert any(c.startswith("gum choose") for c in _calls(env))
+    assert "VK_LOADER_DEVICE_ID_FILTER=0x2b85" in proc.stdout + proc.stderr
+    assert "re-login" in proc.stdout + proc.stderr
+
+    env_d = env["home"] / VULKAN_ENV_D
+    code = [ln for ln in env_d.read_text().splitlines() if ln and not ln.startswith("#")]
+    assert code == [
+        "export VK_LOADER_DEVICE_ID_FILTER=0x2b85",
+        "export VK_LOADER_DEVICE_SELECT=10de:2b85",
+        "export __NV_PRIME_RENDER_OFFLOAD=1",
+        "export __VK_LAYER_NV_optimus=NVIDIA_only",
+    ]
+    sourced = subprocess.run(
+        ["sh", "-c", f'. "{env_d}" && printf %s "$VK_LOADER_DEVICE_ID_FILTER"'],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=_child_env(env),
+    )
+    assert sourced.returncode == 0 and sourced.stdout == "0x2b85", sourced.stderr
+    assert not (env["home"] / VULKAN_IGNORED).exists()
+    assert (env["home"] / ".zshrc").exists()  # a stage well after this one
+
+    env["calls"].write_text("")
+    before = env_d.read_bytes()
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert "gum" not in _commands(env)
+    assert env_d.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("args", "extra_env"),
+    [
+        (("--no-update",), {}),
+        (
+            ("--no-update", "--no-packages"),
+            {"_HYPRCONF_ASSUME_TTY": "1", "OMARCHY_UPDATE_LOGGED": "1"},
+        ),
+    ],
+    ids=["no-terminal", "omarchy-update"],
+)
+def test_dual_gpu_check_never_prompts_without_a_terminal(
+    tmp_path: Path, args: tuple[str, ...], extra_env: dict[str, str]
+) -> None:
+    """The post-update hook runs `install.sh --no-update --no-packages` inside
+    omarchy-update, which re-execs itself under script(1) (bin/omarchy-update,
+    Omarchy 4.0.0-1): every child has a pty, so the tty test passes, while
+    `-y` promises to ask nothing — the OMARCHY_UPDATE_LOGGED marker it exports
+    is the gate, as for the banner. That run, and a plain non-interactive one,
+    on the failing box: nothing asked, nothing written — no env.d file, no
+    marker — and exit 0; the tool leaves one line naming itself, so the
+    stage's own log line is not the only trace."""
+    env = _setup(tmp_path)
+    _sysfs(env, DUAL_NVIDIA)
+    _gum_stub(env, "Fix")
+    proc = _run(env, *args, extra_env=extra_env)
+    assert proc.returncode == 0, proc.stderr
+    assert VULKAN_STAGE in proc.stdout
+    assert "WARNING: hyprconf-vulkan-gpu" not in proc.stderr
+    assert (proc.stdout + proc.stderr).count("hyprconf-vulkan-gpu") >= 2
+    assert "gum" not in _commands(env)
+    assert not (env["home"] / ".config" / "uwsm").exists()
+    assert not (env["home"] / VULKAN_IGNORED).exists()
+
+
+def test_single_gpu_box_has_nothing_to_pin(tmp_path: Path) -> None:
+    """One GPU (the harness default) and a terminal to ask on: the diagnosis,
+    not the tty gate, is what stops it — no prompt, no file, no marker."""
+    env = _setup(tmp_path)
+    _gum_stub(env, "Fix")
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert VULKAN_STAGE in proc.stdout
+    assert "WARNING: hyprconf-vulkan-gpu" not in proc.stderr
+    assert "gum" not in _commands(env)
+    assert not (env["home"] / ".config" / "uwsm").exists()
+    assert not (env["home"] / VULKAN_IGNORED).exists()
+
+
+def test_a_failing_dual_gpu_check_is_a_warning_not_a_failed_install(tmp_path: Path) -> None:
+    """The tool exits 1 when it cannot read sysfs (the PCI seam pointed at a
+    file). A diagnosis must never take an install down: the run warns,
+    naming the tool, and every later stage still runs."""
+    env = _setup(tmp_path)
+    _gum_stub(env, "Fix")
+    broken = tmp_path / "not-a-sysfs"
+    broken.write_text("")
+    proc = _run(
+        env,
+        "--no-update",
+        extra_env={"_HYPRCONF_ASSUME_TTY": "1", "_HYPRCONF_SYS_PCI": str(broken)},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert VULKAN_STAGE in proc.stdout
+    assert "WARNING: hyprconf-vulkan-gpu" in proc.stderr
+    assert "gum" not in _commands(env)
+    assert not (env["home"] / ".config" / "uwsm").exists()
+    assert (env["home"] / MENU_EXT).exists()  # the very next stage
+    assert (env["home"] / ".zshrc").exists()

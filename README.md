@@ -35,6 +35,7 @@ own tools and documented seams:
 | Theme reach | Every `omarchy theme set` also lands in Firefox and Code - OSS, which Omarchy's own fan-out misses |
 | Privacy | A system Firefox policy: telemetry off, tracking protection on, uBlock Origin force-installed — plus UI defaults (vertical tabs, the revamped sidebar, compact mode available, `userChrome.css` loading on, the new tab's sponsored tiles, stories and weather off) |
 | YubiKey | `hyprconf-yubikey`: unlock the LUKS root at boot with a FIDO2 key (Omarchy's own `omarchy-setup-security-fido2` covers sudo/polkit) |
+| Dual-GPU gaming | `hyprconf-vulkan-gpu`: on a box with two GPUs, pins Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays — session environment in uwsm's `env.d`, which `install.sh` offers to write |
 | VPN | **Proton VPN** in Omarchy's menu — Install → Service, beside NordVPN — installed from Arch's official repos with `omarchy-pkg-add` |
 
 ---
@@ -83,7 +84,8 @@ bash ~/.hyprconf/install.sh
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups) |
 | monitors | Seeds the five presets into `~/.config/hypr/`; saves Omarchy's `monitors.lua` to `monitors.lua.stock` once | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. The active `monitors.lua` is untouched until a hotkey is pressed |
 | fastfetch | `~/.config/fastfetch/config.jsonc` → `fastfetch/config.jsonc` | Symlink |
-| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey`, `hyprconf-firefox-theme`, `hyprconf-install-service-protonvpn` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path |
+| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey`, `hyprconf-vulkan-gpu`, `hyprconf-firefox-theme`, `hyprconf-install-service-protonvpn` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path |
+| vulkan_gpu | On a box with two GPUs whose display GPU is not Vulkan device 0: **Fix / Alt / Ignore** (gum), asked on every terminal run until you choose — nothing on one GPU, when the display GPU already is device 0, when a Vulkan setting is already configured, or after Ignore | `hyprconf-vulkan-gpu prompt`, right after `bin` installs it (below). With no terminal, or inside `omarchy-update` — the hook's run, gated on `OMARCHY_UPDATE_LOGGED` like the banner since `script(1)`'s pty would pass the tty test — it prints one pointer line. A tool error is a warning, never a failed install |
 | menu | A **Proton VPN** row in Omarchy's menu, Install → Service, beside NordVPN — hidden once `proton-vpn-gtk-app` is installed (below) | A managed block (`// >>> hyprconf >>>` … `// <<< hyprconf <<<`) before the closing brace of `~/.config/omarchy/extensions/omarchy-menu.jsonc`, Omarchy's own menu extension file: seeded from its template when absent, written through a symlink, rewritten only when the bytes differ. A file with no closing-brace line is left alone with a warning |
 | bar_plugin | `hyprconf.resources` widget in the bar's right section | `plugins/hyprconf-resources/` synced into `~/.config/omarchy/plugins/` on every run; enabled **once** |
 | clock | `hyprconf.clock`: a copy of `omarchy.clock` patched to tick seconds, format `hh:mm:ss AP` — **set once** | Same copy mechanics as `omarchy plugin clone` (project namespace instead of `<username>.`); `omarchy-bar set`; the bar's `centerAnchor` follows only if it still pointed at `omarchy.clock` |
@@ -100,6 +102,7 @@ bash ~/.hyprconf/install.sh
 - The body of `~/.config/kitty/kitty.conf`, `~/.bashrc`, `/usr/share/omarchy`, and everything under `/etc` except the Firefox policy (and, only when you run it, what `hyprconf-yubikey enroll` changes — see below).
 - The **active theme**, the **active `monitors.lua`**, and every set-once choice (font, default apps, idle, clock, widget enables) after the first run — change them with Omarchy's own commands and hyprconf will not take them back.
 - Omarchy's keyboard layout logic in `input.lua`, and its volume / brightness / media keys, `SUPER+K` (keybindings menu), `SUPER+3`/`4`.
+- A Vulkan GPU setting you already have — `VK_LOADER_DEVICE_ID_FILTER` or `PROTON_ENABLE_WAYLAND` in `~/.config/environment.d/*.conf`, `~/.config/uwsm/env`, `~/.config/uwsm/env.d/*` or the live session: the dual-GPU check reports where and asks nothing.
 
 ## Sync
 
@@ -284,6 +287,36 @@ hyprconf-yubikey remove            # wipe the FIDO2 slot, then disable
 
 At boot: plug the key in, enter its PIN, touch it; with no key present systemd waits `token-timeout` (30 s) and falls back to the passphrase. `enroll` refuses a `/etc/vconsole.conf` whose first `XKBLAYOUT` is non-Latin (the systemd initramfs always bundles it, so a Latin passphrase could become untypeable) unless `--allow-non-latin-layout` is given. Your passphrase stays as a fallback — no passphrase slot is ever touched. Limine's read-only **snapshot** boot entries keep their writable overlay through `sd-btrfs-overlayfs` (limine-mkinitcpio-hook ≥ 1.37 ships it; an older hook package without it loses the overlay under systemd init — normal boots are unaffected either way). `disable` reverts the drop-in and the cmdline additions; `remove` also wipes the FIDO2 slot.
 
+## Dual-GPU Vulkan (Proton) fix (`hyprconf-vulkan-gpu`)
+
+**Symptom:** on a box with two GPUs, a Steam/Proton game dies right after start with `CreateSwapChainForHwnd` → `E_INVALIDARG` (DXVK / vkd3d-proton; the game log may say "No display detected for current GPU") while the launcher itself works. **Cause, two independent halves:** Xwayland exposes no RandR providers, so Wine binds every monitor to Vulkan physical device 0 — the first GPU by PCI order, not the one the displays are plugged into — and a game on any other GPU has no output on its adapter (reordering with `VK_LOADER_DEVICE_SELECT` alone is not enough: the other GPU must leave Vulkan enumeration). And NVIDIA's driver presents to Xwayland only from its own GPU 0 unless PRIME render offload is on — two variables, both required.
+
+`hyprconf-vulkan-gpu` reads the GPUs from sysfs (`/sys/bus/pci/devices/*/class` `0x03…`), takes the card with the most `connected` connectors under `/sys/class/drm` as the display GPU, and Vulkan device 0 from `vulkaninfo --summary` (`vulkan-tools`) when installed — otherwise it assumes PCI order and says so. `install.sh` runs `prompt`; the rest is yours:
+
+```bash
+hyprconf-vulkan-gpu status     # GPUs, display GPU, Vulkan device 0, configuration; exit 0 nothing to do, 3 at risk, 1 error
+hyprconf-vulkan-gpu prompt     # the install-time question: Fix / Alt / Ignore; silent unless at risk and unconfigured
+hyprconf-vulkan-gpu fix        # write the file below; drops the Ignore marker
+hyprconf-vulkan-gpu alt        # the same file with `export PROTON_ENABLE_WAYLAND=1` only
+hyprconf-vulkan-gpu ignore     # ~/.local/state/hyprconf/vulkan-gpu-ignored: never ask again
+hyprconf-vulkan-gpu remove     # delete the file and the marker
+```
+
+**Fix** writes `~/.config/uwsm/env.d/50-hyprconf-vulkan-gpu`: uwsm sources every file there at login (`/usr/lib/uwsm/prepare-env.sh`), and Omarchy's own `/usr/share/uwsm/env.d/10-omarchy` names it as the place for user overrides — so every launcher and game inherits it. For the box it was verified on (displays on the second of two NVIDIA GPUs, `10de:2b85`) the file is exactly:
+
+```sh
+# hyprconf-vulkan-gpu: pin Vulkan to the display GPU 0000:0a:00.0 (NVIDIA 10de:2b85);
+# hidden from Vulkan: 0000:04:00.0 (NVIDIA 10de:2484). Undo: hyprconf-vulkan-gpu remove
+export VK_LOADER_DEVICE_ID_FILTER=0x2b85
+export VK_LOADER_DEVICE_SELECT=10de:2b85
+export __NV_PRIME_RENDER_OFFLOAD=1
+export __VK_LAYER_NV_optimus=NVIDIA_only
+```
+
+The two loader lines (`vulkan-icd-loader` ≥ 1.4.3xx; verified against 1.4.357) expose only the display GPU to Vulkan and make it device 0. The NVIDIA pair is written only when the display GPU is NVIDIA *and* another NVIDIA GPU precedes it in PCI order (the driver's GPU 0); an AMD or Intel display GPU gets the two loader lines alone. The filter hides the other GPU from **Vulkan only** — the compositor (KMS/EGL) still drives monitors plugged into it; Vulkan compute no longer sees it. `MESA_VK_DEVICE_SELECT` is not used (Mesa 25 dropped that layer). **Alt** is the fallback when Xwayland presentation still fails: `PROTON_ENABLE_WAYLAND=1` for a Wayland-capable Proton, which presents natively from either GPU — no filter. **Ignore** writes the marker; `fix` stays available.
+
+**Re-login** (or restart Steam with the variables set): apps started through uwsm / `systemd-run --scope` inherit the compositor's environment, so `systemctl --user set-environment` alone does not reach them mid-session. Undo with `hyprconf-vulkan-gpu remove`, then re-login.
+
 ## Proton VPN
 
 Omarchy's menu installs NordVPN from Install → Service; the `menu` stage puts a **Proton VPN** row beside it through Omarchy's own seam for user rows, `~/.config/omarchy/extensions/omarchy-menu.jsonc` (merged over the default menu and watched, so the row appears without a shell restart). It is shaped like Omarchy's NordVPN row: hidden once `proton-vpn-gtk-app` is installed, and it runs `hyprconf-install-service-protonvpn` in the floating presentation terminal, where the package prompt is on screen.
@@ -296,6 +329,7 @@ Remove: delete the managed block from `omarchy-menu.jsonc` (the `sed` under Reve
 
 ```bash
 hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool is still on PATH
+hyprconf-vulkan-gpu remove   # the uwsm env.d file and the Ignore marker, if you chose either; re-login after
 omarchy plugin disable hyprconf.clock
 omarchy plugin disable hyprconf.workspaces
 omarchy plugin disable hyprconf.resources
