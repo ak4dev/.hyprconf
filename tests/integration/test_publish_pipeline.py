@@ -1,9 +1,9 @@
 """
-Integration tests for the omarchy → stable release pipeline.
+Integration tests for the dev → stable release pipeline.
 
 scripts/publish runs end-to-end — the dry run and the real promotion — against
 a throwaway repository built here: a bare ``origin`` seeded with the script and
-the version file, and a clone of it on ``omarchy``. Nothing in this checkout is
+the version file, and a clone of it on ``dev``. Nothing in this checkout is
 read through git, pushed, tagged or mutated, and no network is touched; the
 ``make`` gates are a recording stub on PATH.
 """
@@ -49,17 +49,17 @@ def _version(path: Path) -> tuple[int, int, int]:
 
 @pytest.fixture
 def clone(tmp_path: Path) -> Path:
-    """A clone on ``omarchy`` of a local bare origin that holds only
+    """A clone on ``dev`` of a local bare origin that holds only
     scripts/publish and the version file, copied from this checkout."""
     seed = tmp_path / "seed"
     for rel in (PUBLISH, VERSION_FILE):
         (seed / rel).parent.mkdir(parents=True, exist_ok=True)
         (seed / rel).write_bytes((REPO_ROOT / rel).read_bytes())
-    _git(seed, "init", "-q", "-b", "omarchy")
+    _git(seed, "init", "-q", "-b", "dev")
     _git(seed, "add", "-A")
     _git(seed, "commit", "-q", "-m", "seed")
     _git(tmp_path, "clone", "-q", "--bare", str(seed), "origin.git")
-    _git(tmp_path, "clone", "-q", "--branch", "omarchy", "origin.git", "clone")
+    _git(tmp_path, "clone", "-q", "--branch", "dev", "origin.git", "clone")
     return tmp_path / "clone"
 
 
@@ -86,14 +86,14 @@ def _make_calls(clone: Path) -> list[str]:
     return calls.read_text().splitlines() if calls.exists() else []
 
 
-def test_publish_help_describes_omarchy_to_stable() -> None:
+def test_publish_help_describes_dev_to_stable() -> None:
     """``scripts/publish --help`` prints the usage header and exits 0 without touching git."""
     result = subprocess.run(
         ["bash", PUBLISH, "--help"], cwd=REPO_ROOT, capture_output=True, text=True, timeout=30
     )
     assert result.returncode == 0, result.stderr
     assert "--dry-run" in result.stdout
-    assert "omarchy" in result.stdout and "stable" in result.stdout
+    assert "dev" in result.stdout and "stable" in result.stdout
     assert VERSION_FILE in result.stdout
 
 
@@ -107,13 +107,13 @@ def test_publish_dry_run_runs_the_gates_and_pushes_nothing(clone: Path) -> None:
     assert _make_calls(clone) == ["lint", "shellcheck", "test"]
     assert _version(clone / VERSION_FILE) == before
     assert _git(clone, "status", "--porcelain") == ""
-    assert _git(clone, "rev-parse", "HEAD") == _git(clone, "rev-parse", "origin/omarchy")
+    assert _git(clone, "rev-parse", "HEAD") == _git(clone, "rev-parse", "origin/dev")
     assert _git(clone, "tag") == ""
     assert _git(clone.parent / "origin.git", "branch", "--list", "stable") == ""
 
 
-def test_publish_promotes_omarchy_to_stable(clone: Path) -> None:
-    """The real thing: bump, commit, push the bump to origin/omarchy, tag, push
+def test_publish_promotes_dev_to_stable(clone: Path) -> None:
+    """The real thing: bump, commit, push the bump to origin/dev, tag, push
     HEAD to origin/stable, move the local stable branch too."""
     major, minor, patch = _version(clone / VERSION_FILE)
     result = _publish(clone)
@@ -127,7 +127,7 @@ def test_publish_promotes_omarchy_to_stable(clone: Path) -> None:
     head = _git(clone, "rev-parse", "HEAD")
     assert _git(clone, "log", "-1", "--pretty=%s") == f"release: [{tag}] bump version"
     origin = clone.parent / "origin.git"
-    assert _git(origin, "rev-parse", "refs/heads/omarchy") == head
+    assert _git(origin, "rev-parse", "refs/heads/dev") == head
     assert _git(origin, "rev-parse", "refs/heads/stable") == head
     assert _git(origin, "rev-list", "-n1", f"refs/tags/{tag}") == head
     assert _git(clone, "rev-parse", "refs/heads/stable") == head
@@ -161,5 +161,5 @@ def test_publish_refuses_off_the_work_branch_or_with_a_dirty_tree(clone: Path) -
 
     _git(clone, "checkout", "-q", "-b", "feature")
     result = _publish(clone, "--skip-tests")
-    assert result.returncode != 0 and "Must be on the omarchy branch" in result.stderr
+    assert result.returncode != 0 and "Must be on the dev branch" in result.stderr
     assert _git(clone.parent / "origin.git", "branch", "--list", "stable") == ""

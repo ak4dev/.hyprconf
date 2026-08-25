@@ -50,7 +50,7 @@ only, no PII, hermetic tests) bind every change.
 ├── infra/firefox/policies.json # System Firefox privacy policy
 │
 ├── tests/                      # Unit + integration (see below)
-├── scripts/publish             # Lint + test → promote omarchy → stable
+├── scripts/publish             # Lint + test → promote dev → stable
 ├── docs/                       # This file, hyprland-reference.md, quickshell-reference.md
 ├── .github/                    # CI workflow
 ├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg, screenshot.svg (placeholder shown by the README and the page)
@@ -169,19 +169,19 @@ podman run --rm -v "$PWD":/repo -w /repo archlinux:latest bash -c \
 
 | Branch | Purpose |
 |--------|---------|
-| `omarchy` | All active development |
+| `dev` | All active development |
 | `stable` | What users clone; written only by `scripts/publish` |
 
 ## Publishing to stable
 
 ```bash
-bash scripts/publish            # from a clean, pushed `omarchy` checkout
+bash scripts/publish            # from a clean, pushed `dev` checkout
 ```
 
-1. Verifies the working branch, a clean tree, and that local `omarchy` matches its remote
+1. Verifies the working branch, a clean tree, and that local `dev` matches its remote
 2. Lint gates: `make lint` + `make shellcheck`
 3. Test suites: `make test`
-4. Bumps the version in `lib/hyprconf/__init__.py`, commits it and pushes the commit to `origin/omarchy` (after the suite is green)
+4. Bumps the version in `lib/hyprconf/__init__.py`, commits it and pushes the commit to `origin/dev` (after the suite is green)
 5. Creates the annotated tag `v<version>` and promotes `HEAD` to `origin/stable`
 6. **By hand, right after — upload `stable`'s `install.sh` and invalidate
    CloudFront** (the objects under "Updating the website" below), before
@@ -202,7 +202,7 @@ Nothing is packaged: users `git clone -b stable`, so the promoted branch is the 
 `tests/integration/test_publish_pipeline.py` runs the script end to end
 against a throwaway bare origin (a recording `make` stub stands in for the
 gates): `--help`, `--dry-run` (gates run, bump reverted, nothing pushed), the
-real promotion (bump commit on `origin/omarchy`, `origin/stable` == `omarchy`,
+real promotion (bump commit on `origin/dev`, `origin/stable` == `dev`,
 annotated tag), the bump flags, and the dirty-tree / off-branch refusals.
 
 ## Updating the website
@@ -214,7 +214,7 @@ that routes on the User-Agent: browsers get the `index.html` object, `curl` and
 outside this repo, managed by hand; there is no deploy tooling (`aws` comes
 from `omarchy-pkg-add aws-cli-v2`, an official `extra` package). Four objects,
 and the `install.sh` one must be the **`stable`** branch's — upload it after
-`scripts/publish`, never the `omarchy` copy:
+`scripts/publish`, never the `dev` copy:
 
 | Key | Source | Content-Type |
 |---|---|---|

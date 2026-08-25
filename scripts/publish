@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# scripts/publish — lint + test → promote the omarchy working branch to stable
+# scripts/publish — lint + test → promote the dev working branch to stable
 #
 # Usage:
 #   bash scripts/publish [options]
@@ -17,11 +17,11 @@ set -euo pipefail
 #   --dry-run       Run every gate and resolve the tag, but push no branches/tags
 #
 # What this script does:
-#   1. Verifies the omarchy working branch with a clean, up-to-date working tree
+#   1. Verifies the dev working branch with a clean, up-to-date working tree
 #   2. Runs the CI lint gates (ruff + shellcheck)
 #   3. Runs the unit + integration suites via pytest
 #   4. Bumps the patch/minor/major version in lib/hyprconf/__init__.py, commits
-#      it and pushes the commit to origin/omarchy
+#      it and pushes the commit to origin/dev
 #   5. Creates an annotated version tag from hyprconf.__version__
 #   6. Promotes the working-branch HEAD to origin/stable and pushes the tag
 #
@@ -31,9 +31,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# The overlay is developed on "omarchy" and released by promoting that HEAD to
+# The overlay is developed on "dev" and released by promoting that HEAD to
 # "stable" (the branch install.sh clones).
-WORK_BRANCH="omarchy"
+WORK_BRANCH="dev"
 STABLE_BRANCH="stable"
 # Single source of truth for the version.
 VERSION_FILE_REL="lib/hyprconf/__init__.py"
