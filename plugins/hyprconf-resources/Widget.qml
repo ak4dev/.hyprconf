@@ -8,7 +8,10 @@
 //   hyprconf-gpu-info  — the ACTIVE GPU's util/temp/VRAM (one line/2s): on a
 //                        multi-GPU box the card with the most VRAM in use,
 //                        re-picked every sample, so an idle second card
-//                        never shadows the one doing the work
+//                        never shadows the one doing the work. NVIDIA, AMD
+//                        and Intel (xe: Panther Lake and the other Xe2/Xe3
+//                        parts), which reports no VRAM of its own — the
+//                        cell then reads "shared"
 // Both are installed onto PATH by install.sh (the convention Omarchy's own
 // plugins follow — none bundles its scripts; they shell out by name). The bar
 // is built per monitor (Bar.qml's `Variants { model: Quickshell.screens }`),

@@ -25,7 +25,7 @@ publish flow and the website upload.
 │   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
 │   ├── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
 │   ├── hyprconf-stats          #   cpu/mem/net/temp JSON stream for the bar widget
-│   ├── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop or AMD sysfs)
+│   ├── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop, AMD or Intel sysfs)
 │   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
 │   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU via uwsm env.d (status/prompt/fix/alt/ignore/remove)
 │   ├── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)

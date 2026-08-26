@@ -4,9 +4,10 @@ hyprconf.resources bar widget (plugins/hyprconf-resources/Widget.qml).
 bin/hyprconf-stats is the long-lived cpu/mem/net/temp sampler (cpu temperature
 is read straight from a hwmon path resolved once at startup); all of its system
 paths are HYPRCONF_STATS_*-overridable. bin/hyprconf-gpu-info is a long-lived
-stream too: nvidia-smi --loop piped through one awk, or a pure-bash AMD sysfs
-loop (HYPRCONF_GPU_*-overridable). These tests drive them hermetically with
-fake sysfs/proc trees and fake binaries.
+stream too: nvidia-smi --loop piped through one awk, or a pure-bash sysfs loop
+over AMD's gpu_busy_percent or Intel's xe idle-residency counter
+(HYPRCONF_GPU_*-overridable). These tests drive them hermetically with fake
+sysfs/proc trees and fake binaries.
 """
 
 from __future__ import annotations
@@ -459,6 +460,173 @@ class TestGpuInfoScript:
         line = self._lines(self._run(tmp_path, nvidia=False, drm_root=drm))[0]
         assert line["index"] == 1
         assert line["util"] == 3
+
+    # -- Intel (xe) -----------------------------------------------------------
+
+    @staticmethod
+    def _intel_card(
+        drm: Path,
+        n: int,
+        *,
+        media_idle_ms: int | None = None,
+        device_id: str | None = "0xb0a0",
+        act_freq: str | None = "1200",
+        temp: str | None = None,
+    ) -> Path:
+        """Fake xe sysfs for one Intel card: the render/compute GT (gt0-rc)
+        with its idle-residency counter, optionally the media GT (gt1-mc) that
+        must be ignored, the PCI ids the name is looked up from, hwmon."""
+        dev = drm / f"card{n}" / "device"
+        rc = dev / "tile0" / "gt0"
+        (rc / "gtidle").mkdir(parents=True)
+        (rc / "gtidle" / "idle_residency_ms").write_text("0\n")
+        (rc / "gtidle" / "name").write_text("gt0-rc\n")
+        if act_freq is not None:
+            (rc / "freq0").mkdir()
+            (rc / "freq0" / "act_freq").write_text(act_freq + "\n")
+        if media_idle_ms is not None:
+            mc = dev / "tile0" / "gt1" / "gtidle"
+            mc.mkdir(parents=True)
+            (mc / "idle_residency_ms").write_text(f"{media_idle_ms}\n")
+            (mc / "name").write_text("gt1-mc\n")
+        (dev / "vendor").write_text("0x8086\n")
+        if device_id is not None:
+            (dev / "device").write_text(device_id + "\n")
+        if temp is not None:
+            hw = dev / "hwmon" / "hwmon2"
+            hw.mkdir(parents=True)
+            (hw / "temp1_input").write_text(temp + "\n")
+        return dev
+
+    @staticmethod
+    def _pci_ids(tmp_path: Path) -> Path:
+        """A trimmed hwdata pci.ids. Two vendors carry the same device id and
+        a subsystem line sits under the wanted one, so a lookup that ignores
+        the vendor block, or reads the indented continuation lines, answers
+        with the wrong name."""
+        ids = tmp_path / "pci.ids"
+        ids.write_text(
+            "# comment\n"
+            "1002  Advanced Micro Devices, Inc. [AMD/ATI]\n"
+            "\tb0a0  Not a Panther Lake\n"
+            "8086  Intel Corporation\n"
+            "\tb080  Panther Lake [Arc B390]\n"
+            "\tb0a0  Panther Lake [Intel Graphics]\n"
+            "\t\t1849 b0a0  a subsystem line, never the answer\n"
+            "C 03  Display controller\n"
+            "\t00  VGA compatible controller\n"
+        )
+        return ids
+
+    @staticmethod
+    def _idle_file(drm: Path, n: int, gt: str = "gt0") -> Path:
+        return drm / f"card{n}" / "device" / "tile0" / gt / "gtidle" / "idle_residency_ms"
+
+    def _run_intel(
+        self,
+        tmp_path: Path,
+        drm: Path,
+        *,
+        bumps: list[tuple[Path, int]] | None = None,
+    ) -> list[dict]:
+        """Run the feeder over `drm` with a fake `sleep` that advances the
+        residency counters across the sample window — the same trick the net
+        tests play on `ip`, and the only way a static fake tree can express an
+        idle GPU (the reading is a delta over the window, not a level)."""
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        if bumps:
+            body = "".join(
+                f'read -r n < "{path}"\necho $(( n + {ms} )) > "{path}"\n' for path, ms in bumps
+            )
+            # command -p runs the real sleep off the standard PATH, never this
+            # stub again.
+            _write_exe(bin_dir / "sleep", f'#!/usr/bin/env bash\n{body}command -p sleep "$@"\n')
+        return self._lines(
+            self._run(
+                tmp_path,
+                nvidia=False,
+                drm_root=drm,
+                env={
+                    "HYPRCONF_GPU_INTERVAL": "0.2",
+                    "HYPRCONF_GPU_PCI_IDS": str(self._pci_ids(tmp_path)),
+                },
+            )
+        )
+
+    def test_intel_xe_card_is_named_and_reported(self, tmp_path: Path) -> None:
+        """A Panther Lake iGPU: named out of pci.ids, temperature from the
+        card's own hwmon, no VRAM of its own (shared), and act_freq in the
+        tooltip where NVIDIA puts power draw."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0, temp="47000")
+        line = self._run_intel(tmp_path, drm)[0]
+        assert line["index"] == 0
+        assert line["name"] == "Panther Lake [Intel Graphics]"
+        assert line["temp"] == 47
+        assert line["vram_total"] == "0"  # the widget renders this as "shared"
+        assert line["vram_used"] == "0.0"
+        assert line["tooltip"] == (
+            "Panther Lake [Intel Graphics] (GPU 0) | Util 100% | Temp 47° "
+            "| VRAM shared | Freq 1200MHz"
+        )
+
+    def test_intel_busy_gt_never_idles(self, tmp_path: Path) -> None:
+        """A residency counter that does not advance means the GT spent none
+        of the window idle: 100%."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0)
+        assert self._run_intel(tmp_path, drm)[0]["util"] == 100
+
+    def test_intel_idle_gt_reads_zero(self, tmp_path: Path) -> None:
+        """Idle for (well past) the whole window: 0%, clamped — the counter
+        is millisecond-rounded and can overrun the measured window."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0)
+        lines = self._run_intel(tmp_path, drm, bumps=[(self._idle_file(drm, 0), 5000)])
+        assert [ln["util"] for ln in lines] == [0, 0]
+
+    def test_intel_partial_idle_lands_between(self, tmp_path: Path) -> None:
+        """Half the window idle reads about half busy. The band is wide on
+        purpose: the denominator is measured wall-clock, so a loaded runner
+        that oversleeps only pushes the figure up."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0)
+        line = self._run_intel(tmp_path, drm, bumps=[(self._idle_file(drm, 0), 100)])[0]
+        assert 20 <= line["util"] <= 90
+
+    def test_intel_media_gt_is_not_the_reading(self, tmp_path: Path) -> None:
+        """gt1-mc (media) idles through a graphics workload, so the reading
+        must come from gt0-rc: only the media counter advances here, and the
+        answer is still the busy render GT."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0, media_idle_ms=0)
+        line = self._run_intel(tmp_path, drm, bumps=[(self._idle_file(drm, 0, "gt1"), 5000)])[0]
+        assert line["util"] == 100
+
+    def test_intel_two_cards_follow_the_busier_one(self, tmp_path: Path) -> None:
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0, device_id="0xb080")
+        self._intel_card(drm, 1)
+        line = self._run_intel(tmp_path, drm, bumps=[(self._idle_file(drm, 0), 5000)])[0]
+        assert line["index"] == 1
+        assert line["util"] == 100
+
+    def test_intel_unknown_id_no_hwmon_no_freq(self, tmp_path: Path) -> None:
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 3, device_id="0xffff", act_freq=None)
+        line = self._run_intel(tmp_path, drm)[0]
+        assert line["name"] == "Intel Graphics"
+        assert line["temp"] is None
+        assert line["tooltip"] == "Intel Graphics (GPU 3) | Util 100% | Temp n/a | VRAM shared"
+
+    def test_nvidia_wins_over_an_intel_igpu(self, tmp_path: Path) -> None:
+        """A hybrid laptop: the discrete card is the one worth watching, and
+        nvidia-smi answers the probe first."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0)
+        line = self._lines(self._run(tmp_path, nvidia=True, drm_root=drm))[0]
+        assert line["name"] == "NVIDIA GeForce RTX 5090"
 
     # -- neither --------------------------------------------------------------
 

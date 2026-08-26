@@ -7,20 +7,22 @@ set -euo pipefail
 # Omarchy's own KeyboardLayout.qml / SystemUpdate.qml do).
 #
 # Streaming keeps ONE nvidia-smi (`--loop` mode, one NVML session) piped
-# through ONE awk instead of a process tree per poll; the AMD path is a
-# pure-bash sysfs loop with paths resolved once.
+# through ONE awk instead of a process tree per poll; the AMD and Intel paths
+# are pure-bash sysfs loops with paths resolved once.
 #
 # Contract (the widget owns the layout and glyphs; this feeder is data only):
 #   {"index":1,"name":"NVIDIA GeForce RTX 5090","util":7,"temp":36,
 #    "vram_used":"2.3","vram_total":"31.8","tooltip":"RTX 5090 (GPU 1) | ..."}
 #   index int; name string ("" when unknown); util int %; temp int °C or null;
 #   vram_used/vram_total GiB with one decimal as strings, total "0" = shared /
-#   unknown (iGPU); tooltip a human line (Power only on NVIDIA).
+#   unknown (iGPU); tooltip a human line (Power only on NVIDIA, Freq only on
+#   Intel).
 #
 # Every sample reports the ACTIVE GPU of all present: highest memory used,
 # ties broken by highest utilization, then lowest index. Re-evaluated each
 # tick, so the bar follows a workload that moves between cards and a box whose
-# second card idles at 2 MiB shows the busy one.
+# second card idles at 2 MiB shows the busy one. (Intel reports no per-card
+# memory, so that path ranks on utilization alone, ties by lowest index.)
 #
 # Emits nothing and exits 0 when no supported GPU exists — the widget keeps
 # its GPU cells blank (sized, so the grid holds) and does NOT restart it. A
@@ -30,7 +32,8 @@ set -euo pipefail
 # Env knobs are test overrides (hermetic suite drives this with fake trees).
 : "${HYPRCONF_GPU_INTERVAL:=2}"
 : "${HYPRCONF_GPU_DRM_ROOT:=/sys/class/drm}"
-: "${HYPRCONF_GPU_ITERATIONS:=0}"   # AMD loop: 0 = forever; N = exit after N
+: "${HYPRCONF_GPU_ITERATIONS:=0}"   # sysfs loops: 0 = forever; N = exit after N
+: "${HYPRCONF_GPU_PCI_IDS:=/usr/share/hwdata/pci.ids}"
 
 # bytes → GiB with one decimal (pure integer math, no external tools)
 gib_b() {
@@ -168,11 +171,158 @@ _amd_stream() {
     done
 }
 
+# ---------------------------------------------------------------------------
+# Intel (xe): Panther Lake and every other Xe2/Xe3 part the xe driver binds
+# ---------------------------------------------------------------------------
+#
+# Panther Lake's iGPU is an xe device (its ids b080-b0b0 are in xe's alias
+# table, and none is in i915's: `modinfo -F alias xe`, kernel 7.1.8-arch1-3),
+# and the xe driver exposes NO gpu_busy_percent, so the AMD loop above never
+# saw it and the widget's GPU row stayed blank on an Intel-only box.
+#
+# Utilization comes from the GT's idle (RC6) residency counter, sysfs
+# tile<N>/gt<N>/gtidle/idle_residency_ms: cumulative milliseconds the GT spent
+# in its idle power state, so busy% is the rest of the sample window. It is
+# the only root-free utilization signal xe has — its PMU counters (gt-c0,
+# gt-actual-frequency), which is what intel_gpu_top reads, need perf_event
+# access a bar widget does not get. It reads HIGH next to a per-engine figure:
+# a GT that is awake but executing nothing counts as busy.
+#
+# The render/compute GT is the one that matters (gtidle/name is "gt<N>-rc";
+# the media GT is "gt<N>-mc" and idles through a graphics workload). No VRAM:
+# an iGPU carves from system RAM — already on the widget's CPU line — and this
+# kernel's xe exposes no VRAM size attribute at all, so total is 0 ("shared").
+_intel_dev=()    # cardN/device (for hwmon and the PCI ids)
+_intel_idx=()
+_intel_name=()
+_intel_gt=()     # cardN/device/tile<N>/gt<N> of the render/compute GT
+_intel_temp=()
+
+# hwdata's pci.ids is the database lspci itself reads, and hwdata is a
+# dependency of systemd and of base — always installed. Vendor lines start at
+# column 0, their devices are indented by exactly one tab.
+_pci_name() {
+    [[ -r "$HYPRCONF_GPU_PCI_IDS" ]] || return 0
+    awk -v v="$1" -v d="$2" '
+        /^[^\t#]/ { inv = ($1 == v); next }
+        inv && /^\t[0-9a-f]/ {
+            sub(/^\t/, "")
+            if ($1 == d) { sub(/^[0-9a-f]+[ \t]+/, ""); print; exit }
+        }' "$HYPRCONF_GPU_PCI_IDS"
+}
+
+_intel_probe() {
+    local card d gt chosen nm vendor device name t
+    for card in "$HYPRCONF_GPU_DRM_ROOT"/card[0-9]*; do
+        # Only bare cardN — connector nodes (cardN-DP-1) share the glob prefix.
+        [[ $card =~ /card([0-9]+)$ ]] || continue
+        d=$card/device
+        chosen=""
+        for gt in "$d"/tile*/gt*; do
+            [[ -r "$gt/gtidle/idle_residency_ms" ]] || continue
+            nm=""
+            [[ -r "$gt/gtidle/name" ]] && { read -r nm < "$gt/gtidle/name" || nm=""; }
+            [[ $nm == *-rc ]] && { chosen=$gt; break; }
+            [[ -n $chosen ]] || chosen=$gt   # no -rc yet: first GT is the fallback
+        done
+        [[ -n $chosen ]] || continue
+
+        _intel_dev+=("$d")
+        _intel_idx+=("${BASH_REMATCH[1]}")
+        _intel_gt+=("$chosen")
+        vendor="" device=""
+        [[ -r "$d/vendor" ]] && { read -r vendor < "$d/vendor" || vendor=""; }
+        [[ -r "$d/device" ]] && { read -r device < "$d/device" || device=""; }
+        name=$(_pci_name "${vendor#0x}" "${device#0x}")
+        [[ -n $name ]] || name="Intel Graphics"
+        name=${name//\\/\\\\}
+        name=${name//\"/\\\"}
+        _intel_name+=("$name")
+        _intel_temp+=("")
+        for t in "$d"/hwmon/hwmon*/temp1_input; do
+            [[ -r "$t" ]] && { _intel_temp[-1]="$t"; break; }
+        done
+    done
+    (( ${#_intel_dev[@]} > 0 ))
+}
+
+_intel_stream() {
+    local iter=0 i idle now d_idle d_wall util
+    local b_i b_util b_temp temp_raw temp_json temp_tip freq freq_tip
+    local -a p_idle=() p_wall=()
+
+    # Baseline: a residency counter only means something as a delta, so the
+    # first sample lands one interval in (the widget holds its GPU cells blank
+    # until then, which is what it already does before any line arrives).
+    for i in "${!_intel_gt[@]}"; do
+        p_idle[i]=0
+        [[ -r "${_intel_gt[i]}/gtidle/idle_residency_ms" ]] &&
+            { read -r "p_idle[i]" < "${_intel_gt[i]}/gtidle/idle_residency_ms" || p_idle[i]=0; }
+        [[ ${p_idle[i]} =~ ^[0-9]+$ ]] || p_idle[i]=0
+        # EPOCHREALTIME with its separator removed is microseconds as an
+        # integer (the separator is the locale's, hence the [.,] class).
+        p_wall[i]=${EPOCHREALTIME//[.,]/}
+    done
+
+    while :; do
+        sleep "$HYPRCONF_GPU_INTERVAL"
+        b_i=-1 b_util=-1
+        for i in "${!_intel_gt[@]}"; do
+            idle=""
+            [[ -r "${_intel_gt[i]}/gtidle/idle_residency_ms" ]] &&
+                { read -r idle < "${_intel_gt[i]}/gtidle/idle_residency_ms" || idle=""; }
+            [[ $idle =~ ^[0-9]+$ ]] || idle=${p_idle[i]}
+            now=${EPOCHREALTIME//[.,]/}
+            d_idle=$(( (idle - p_idle[i]) * 1000 ))   # ms -> µs, the wall unit
+            d_wall=$(( now - p_wall[i] ))
+            p_idle[i]=$idle p_wall[i]=$now
+            # Clamped both ways: a driver reload restarts the counter (negative
+            # delta), and idle can overrun the window by a tick of rounding.
+            (( d_idle < 0 )) && d_idle=0
+            (( d_idle > d_wall )) && d_idle=$d_wall
+            util=0
+            (( d_wall > 0 )) && util=$(( (100 * (d_wall - d_idle) + d_wall / 2) / d_wall ))
+            # Strictly greater, so a tie keeps the lower card index (the glob
+            # walks cardN in order).
+            (( util > b_util )) && { b_i=$i b_util=$util; }
+        done
+
+        temp_json=null temp_tip=n/a
+        if [[ -n "${_intel_temp[b_i]}" && -r "${_intel_temp[b_i]}" ]]; then
+            temp_raw=""
+            read -r temp_raw < "${_intel_temp[b_i]}" || temp_raw=""
+            if [[ $temp_raw =~ ^[0-9]+$ ]]; then
+                b_temp=$(( (temp_raw + 500) / 1000 ))
+                temp_json=$b_temp temp_tip="${b_temp}°"
+            fi
+        fi
+
+        # Frequency instead of NVIDIA's power draw: an Intel iGPU rarely
+        # exposes a temperature, and act_freq is what is left to see.
+        freq_tip=""
+        if [[ -r "${_intel_gt[b_i]}/freq0/act_freq" ]]; then
+            freq=""
+            read -r freq < "${_intel_gt[b_i]}/freq0/act_freq" || freq=""
+            [[ $freq =~ ^[0-9]+$ ]] && freq_tip=" | Freq ${freq}MHz"
+        fi
+
+        printf '{"index":%d,"name":"%s","util":%d,"temp":%s,"vram_used":"0.0","vram_total":"0","tooltip":"%s (GPU %d) | Util %d%% | Temp %s | VRAM shared%s"}\n' \
+            "${_intel_idx[b_i]}" "${_intel_name[b_i]}" "$b_util" "$temp_json" \
+            "${_intel_name[b_i]}" "${_intel_idx[b_i]}" "$b_util" "$temp_tip" "$freq_tip"
+
+        if (( HYPRCONF_GPU_ITERATIONS > 0 && ++iter >= HYPRCONF_GPU_ITERATIONS )); then
+            return 0
+        fi
+    done
+}
+
 if _nvidia_probe; then
     _nvidia_stream
 elif _amd_probe; then
     _amd_stream
+elif _intel_probe; then
+    _intel_stream
 fi
-# No supported GPU (e.g. Intel iGPU only): exit 0 with no output — the widget
-# leaves the GPU row blank rather than showing N/A.
+# No supported GPU: exit 0 with no output — the widget leaves the GPU row
+# blank rather than showing N/A.
 exit 0
