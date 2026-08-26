@@ -180,12 +180,18 @@ binds in `tiling.lua` and are not restated.
 | `hl.dsp.focus({direction=...})` | `"left"`/`"right"`/`"up"`/`"down"` | Move focus |
 | `hl.dsp.focus({workspace=...})` | N / `"e+1"` / `"e-1"` | Switch workspace |
 | `hl.dsp.window.move({workspace=...})` | N / `"special:name"` | Move window to workspace |
-| `hl.dsp.window.resize({x=,y=})` | dx, dy | Resize active window |
-| `hl.dsp.window.swap({direction=...})` | direction | Swap with neighbour |
+| `hl.dsp.window.move({direction=...})` | `"left"`/`"right"`/`"up"`/`"down"` | Move window in the layout (to the next monitor when nothing is that way) |
+| `hl.dsp.window.resize({x=,y=,relative=true})` | dx, dy | Resize active window |
+| `hl.dsp.window.swap({direction=...})` | direction | Swap with neighbour (refuses when there is none) |
 | `hl.dsp.window.drag()` | — | Mouse move (with `{ mouse = true }`) |
 | `hl.dsp.workspace.toggle_special(name)` | name | Show/hide scratchpad |
 | `hl.dsp.workspace.move({workspace=N, monitor="…"})` | — | Rehome a workspace (used by `hyprconf-monitor-preset`) |
 | `hl.dsp.dpms({action="enable"})` | `enable`/`disable`/`toggle` | Display power |
+
+`move` and `resize` read `x`/`y` as an EXACT target size unless `relative = true`
+is set, and Hyprland rejects a negative one (`error: Invalid size`) — the whole
+argument set each accepts is in its own error text: `hyprctl dispatch
+'hl.dsp.window.move({ dir = "x" })'`.
 
 Wiki: <https://wiki.hypr.land/Configuring/Basics/Binds/>
 

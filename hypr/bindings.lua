@@ -58,11 +58,15 @@ o.bind(mainMod .. " + D", "Omarchy menu", "omarchy-menu toggle")
 -- and SUPER+LMB/RMB drag (move/resize) are Omarchy's own binds already
 -- (default/hypr/bindings/tiling.lua) and are not restated here.
 
--- Resize active window
-rebind(mainMod .. " + SHIFT + left",  "Shrink window left", hl.dsp.window.resize({ x = -40, y = 0 }),  { repeating = true })
-rebind(mainMod .. " + SHIFT + right", "Expand window right", hl.dsp.window.resize({ x = 40,  y = 0 }),  { repeating = true })
-rebind(mainMod .. " + SHIFT + up",    "Shrink window up", hl.dsp.window.resize({ x = 0,   y = -40 }), { repeating = true })
-rebind(mainMod .. " + SHIFT + down",  "Expand window down", hl.dsp.window.resize({ x = 0,   y = 40 }),  { repeating = true })
+-- Resize active window. `relative = true` is load-bearing: hl.window.move and
+-- hl.window.resize read x/y as an EXACT target size unless it is set, and
+-- Hyprland rejects a negative one — every press raised `error: Invalid size`
+-- and resized nothing. Omarchy's own resize binds pass it too
+-- (default/hypr/bindings/tiling.lua).
+rebind(mainMod .. " + SHIFT + left",  "Shrink window left", hl.dsp.window.resize({ x = -40, y = 0, relative = true }),  { repeating = true })
+rebind(mainMod .. " + SHIFT + right", "Expand window right", hl.dsp.window.resize({ x = 40,  y = 0, relative = true }),  { repeating = true })
+rebind(mainMod .. " + SHIFT + up",    "Shrink window up", hl.dsp.window.resize({ x = 0,   y = -40, relative = true }), { repeating = true })
+rebind(mainMod .. " + SHIFT + down",  "Expand window down", hl.dsp.window.resize({ x = 0,   y = 40, relative = true }),  { repeating = true })
 
 -- Adjust window gaps (inner + outer, proportionate). Omarchy binds these two
 -- keys by keycode to window resizing: cleared first, or every press does both.
@@ -115,11 +119,14 @@ rebind(mainMod .. " + SHIFT + 0",  "Move window to workspace 10", hl.dsp.window.
 rebind(mainMod .. " + SHIFT + SPACE", "Toggle window floating", hl.dsp.window.float({ action = "toggle" }))
 rebind(mainMod .. " + SHIFT + F",     "Full screen", hl.dsp.window.fullscreen())
 
--- Swap window position
-rebind(mainMod .. " + SHIFT + A", "Swap window left", hl.dsp.window.swap({ direction = "left" }))
-rebind(mainMod .. " + SHIFT + D", "Swap window right", hl.dsp.window.swap({ direction = "right" }))
-rebind(mainMod .. " + SHIFT + W", "Swap window up", hl.dsp.window.swap({ direction = "up" }))
-rebind(mainMod .. " + SHIFT + S", "Swap window down", hl.dsp.window.swap({ direction = "down" }))
+-- Move the active window. hl.window.move over hl.window.swap: move relocates
+-- the window in the layout tree (a two-window split reads the same as a swap)
+-- and carries it to the neighbouring MONITOR when the direction has no window
+-- on this one, which swap refuses ("No window to swap with in that direction").
+rebind(mainMod .. " + SHIFT + A", "Move window left", hl.dsp.window.move({ direction = "left" }))
+rebind(mainMod .. " + SHIFT + D", "Move window right", hl.dsp.window.move({ direction = "right" }))
+rebind(mainMod .. " + SHIFT + W", "Move window up", hl.dsp.window.move({ direction = "up" }))
+rebind(mainMod .. " + SHIFT + S", "Move window down", hl.dsp.window.move({ direction = "down" }))
 
 -- Special workspace (scratchpad)
 rebind(mainMod .. " + M",         "Toggle magic scratchpad", hl.dsp.workspace.toggle_special("magic"))

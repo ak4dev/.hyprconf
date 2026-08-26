@@ -174,7 +174,7 @@ The clock copy is set once, and every widget is *enabled* once — disabling any
 | `SUPER+V` / `SUPER+SHIFT+SPACE` | Toggle window floating |
 | `SUPER+SHIFT+F` | Full screen |
 | `SUPER+SHIFT+← → ↑ ↓` | Shrink/expand window (repeating) |
-| `SUPER+SHIFT+A / D / W / S` | Swap window left / right / up / down |
+| `SUPER+SHIFT+A / D / W / S` | Move window left / right / up / down — and onto the neighbouring monitor when there is no window that way |
 | `SUPER+SHIFT+=` / `SUPER+SHIFT+-` | Increase / decrease window gaps (`hyprconf-gaps`, runtime only — a reload restores the configured values) |
 
 ### Workspaces
@@ -207,7 +207,7 @@ The clock copy is set once, and every widget is *enabled* once — disabling any
 | `SUPER+C` / `SUPER+V` | Universal copy / paste | `CTRL+C` / `CTRL+V` in the app |
 | `SUPER+SHIFT+F` | File manager (`omarchy-launch-nautilus`) | hyprconf's `SUPER+E`; Omarchy's `SUPER+ALT+SHIFT+F` (cwd) |
 | `SUPER+SHIFT+B` | Browser (`omarchy-launch-browser`) | hyprconf's `SUPER+F`; Omarchy's `SUPER+SHIFT+RETURN` |
-| `SUPER+SHIFT+← → ↑ ↓` | Swap window | hyprconf's `SUPER+SHIFT+A / D / W / S` |
+| `SUPER+SHIFT+← → ↑ ↓` | Swap window | Nothing binds swap any more — hyprconf's `SUPER+SHIFT+A / D / W / S` *moves* the window in the layout instead, which in a two-window split reads the same and, unlike swap, also crosses to the next monitor |
 | `SUPER+SHIFT+-` / `SUPER+SHIFT+=` | Shrink window up / expand window down (keycode binds `code:20`/`code:21`) | Omarchy's `SUPER+SHIFT+ALT+-`/`=` (a little) and `SUPER+CTRL+SHIFT+-`/`=` (a lot) |
 | `SUPER+SHIFT+4` | Move window to workspace 4 (`SUPER+SHIFT+code:13`) | hyprconf's `SUPER+SHIFT+F2` |
 | `SUPER+SHIFT+SPACE` | Toggle top bar | `omarchy toggle bar` |
