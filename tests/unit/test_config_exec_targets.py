@@ -41,5 +41,6 @@ def test_the_hotkey_tools_are_bound_by_name() -> None:
     code = _code(HYPR / "bindings.lua")
     assert '"hyprconf-monitor-preset bedroom"' in code
     assert '"hyprconf-monitor-preset kitchen"' in code
-    assert '"hyprconf-gaps +"' in code and '"hyprconf-gaps -"' in code
+    assert '"hyprconf-gaps +"' in code
+    assert '"hyprconf-gaps -"' in code
     assert "~/.config/hypr" not in code
