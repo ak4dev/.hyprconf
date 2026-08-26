@@ -9,10 +9,10 @@ PYSRC := lib/hyprconf/ \
 test: test-unit test-integration
 
 test-unit:
-	pytest tests/unit/ -q -n auto
+	pytest tests/unit/ -q -n auto -rs
 
 test-integration:
-	pytest tests/integration/ -q -n auto
+	pytest tests/integration/ -q -n auto -rs
 
 # The three gates scripts/publish and CI run. `make` alone is the suites only.
 check: lint shellcheck test
