@@ -365,7 +365,7 @@ Omarchy has no command that installs a udev rule, but it ships this exact shape 
 
 The stage writes only when the bytes differ, then runs `udevadm control --reload-rules` and `udevadm trigger --subsystem-match=hidraw` so the ACL reaches devices that are already plugged in; no reboot, no re-plug. Reload the launcher tab afterwards. It is skipped when there is no terminal for the password prompt, and by `--no-packages`.
 
-**Not covered:** a board paired over *Bluetooth* rather than through a receiver. Its `hidraw` parent is a Bluetooth device with no `idVendor` attribute, so these lines do not match it; a `KERNELS=="*3434:*"` line would.
+**Not covered:** a board paired over *Bluetooth* rather than through a receiver. Its `hidraw` parent is a Bluetooth device, and `ATTRS{idVendor}` lives on the USB parent these lines walk up to — so they do not match it. Reaching one needs a different match, which is untested here because nothing on the reference desk is paired that way.
 
 ## Proton VPN
 
@@ -398,7 +398,7 @@ rm ~/.config/fastfetch/config.jsonc; [ -e ~/.config/fastfetch/config.jsonc.stock
 omarchy default terminal <name>; omarchy font set <name>; omarchy theme set <name>
 sudo rm /etc/firefox/policies/policies.json   # Omarchy's prefs are in /usr/lib/firefox/distribution/policies.json only if Omarchy's installer put Firefox there (a v4.0.0–v4.2.0 install did not) — else: omarchy install browser firefox
 # ^ this also un-manages uBlock Origin and Proton Pass (they stay installed, as ordinary add-ons you can now remove). Every captured pref was a default, never a user value, so the prefs you had changed yourself are untouched — except the search engine: setting it by policy *clears* the profile's record of any engine you had chosen yourself, so dropping the file hands it to Firefox's region default rather than back to your old pick. Set it again in Settings › Search
-sudo rm /etc/udev/rules.d/70-keychron.rules; sudo udevadm control --reload-rules   # Keychron/Lemokey boards go back to root-only hidraw — the web launcher stops seeing them
+sudo rm /etc/udev/rules.d/70-keychron.rules; sudo udevadm control --reload-rules   # every new hidraw node is root-only again; an ACL already granted to this session lasts until you re-plug the board or log out (`udevadm control --reload-rules` never touches devices that already exist)
 # Firefox and VS Code are Omarchy's installs and stay; `omarchy pkg drop visual-studio-code-bin firefox` if you want them gone
 ```
 

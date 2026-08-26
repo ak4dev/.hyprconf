@@ -18,7 +18,8 @@
 # mice behind the 2.4GHz receivers.
 #
 # Bluetooth-paired boards are NOT covered: their hidraw parent is a Bluetooth
-# device with no idVendor attribute. A KERNELS=="*3434:*" line would reach them.
+# device, and ATTRS{idVendor} lives on the USB parent these lines walk to.
+# Reaching them needs a different match, untested here — none is paired.
 #
 # Undo: README › Reverting to stock.
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"

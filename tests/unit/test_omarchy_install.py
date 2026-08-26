@@ -1063,9 +1063,9 @@ def test_pull_still_stops_on_a_real_divergence(tmp_path: Path) -> None:
 
 def test_no_packages_skips_every_privileged_stage(tmp_path: Path) -> None:
     """--no-packages is "no sudo": the hook passes it inside omarchy-update.
-    Packages, Firefox (Omarchy's installer + the policy) and VS Code all sit
-    behind it — with nothing installed and a terminal to prompt on, none of
-    the four privileged commands may run."""
+    Packages, Firefox (Omarchy's installer + the policy), VS Code and the
+    Keychron udev rule all sit behind it — with nothing installed and a
+    terminal to prompt on, none of the privileged commands may run."""
     env = _setup(tmp_path)
     _stub(env["bins"] / "omarchy-pkg-present", env["calls"], "exit 1")
     proc = _run(env, "--no-packages", "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
@@ -1449,10 +1449,19 @@ def test_keychron_rule_is_installed_via_sudo_when_interactive(tmp_path: Path) ->
     assert "sudo udevadm control --reload-rules" in calls
     assert "sudo udevadm trigger --subsystem-match=hidraw" in calls
 
+    assert installed.stat().st_mode & 0o777 == 0o644, "install -Dm644"
+
     env["calls"].write_text("")
     _run(env, "--no-update", extra_env=extra)
     assert "sudo" not in _commands(env)
     assert "udevadm" not in _commands(env)
+
+    # Drift repair. Nothing else can catch a regression here: the byte-
+    # stability gate hashes $HOME only, so a stage that stopped repairing an
+    # edited /etc file would look perfectly stable to it.
+    installed.write_text("# hand-edited\n")
+    _run(env, "--no-update", extra_env=extra)
+    assert installed.read_text() == KEYCHRON_RULE.read_text()
 
 
 def test_keychron_rule_is_skipped_without_a_terminal(tmp_path: Path) -> None:
@@ -1488,6 +1497,9 @@ def test_keychron_rule_is_vendor_only_and_sorts_before_seat_late() -> None:
     rules = "\n".join(body)  # the rules themselves; the header explains all three
     assert "MODE=" not in rules
     assert "idProduct" not in rules
+    # A GROUP= would grant persistent, session-independent raw HID access to
+    # every member of that group — strictly worse than the per-session ACL.
+    assert "GROUP=" not in rules
 
 
 # ---------------------------------------------------------------------------
