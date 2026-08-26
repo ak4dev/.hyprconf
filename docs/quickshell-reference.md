@@ -5,12 +5,12 @@
 > (`hyprconf.workspaces`, `clonedFrom` `omarchy.workspaces`) and `plugins/hyprconf-active-window/`
 > (`hyprconf.active-window`, `clonedFrom` `omarchy.active-window`) — and the one copy of a
 > stock plugin `install.sh` makes, `hyprconf.clock`.
-> Verified against Omarchy 4.0.0-1 (`/usr/share/omarchy/shell/`) and the installed
-> Quickshell qmltypes (`/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, quickshell-git
-> 0.3.0). **Re-verify against both after every Omarchy or Quickshell upgrade** —
+> Verified against Omarchy 4.0.1-1 (`/usr/share/omarchy/shell/`) and the installed
+> Quickshell qmltypes (`/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, quickshell
+> 0.3.1 — Arch's package, renamed off `-git`). **Re-verify against both after every Omarchy or Quickshell upgrade** —
 > the shell contract and Quickshell's API both change between minor versions.
-> Quickshell docs: <https://quickshell.org/docs/v0.3.0/types/> (match the path
-> segment to `pacman -Q quickshell-git`).
+> Quickshell docs: <https://quickshell.org/docs/v0.3.1/types/> (match the path
+> segment to `pacman -Q quickshell`).
 
 ---
 
@@ -144,7 +144,7 @@ Timer { id: restartTimer; interval: 1000; onTriggered: gpuProc.running = true }
   `Hours | Minutes | Seconds`) is the one-line patch `install.sh` applies to the
   `hyprconf.clock` copy — the stock clock samples at `Minutes`.
 
-Docs: <https://quickshell.org/docs/v0.3.0/types/Quickshell.Io/Process/>
+Docs: <https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/Process/>
 
 ## CLI
 

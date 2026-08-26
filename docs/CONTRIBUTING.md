@@ -139,7 +139,7 @@ Gates and CI.
   a pull is a no-op; the real git otherwise runs only inside a throwaway
   checkout under `tmp_path`, never the repository the suite runs from) …
   `/usr/bin` carries
-  every `omarchy-*` command (426 on Omarchy 4.0.0-1), so a PATH of fakes plus
+  every `omarchy-*` command (426 on Omarchy 4.0.1-1), so a PATH of fakes plus
   `/usr/bin` keeps none of them out: stub every one the code path can call
   (`_setup` in `test_omarchy_install.py` lists the installer's;
   `test_firefox_theme.py` stubs the three theme commands to prove the Firefox

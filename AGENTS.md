@@ -5,7 +5,7 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 ## What hyprconf is
 
 - A lean overlay on a stock [Omarchy](https://omarchy.org): `install.sh` plus the payload it ships, nothing else. Omarchy owns packages, session, shell, theme engine, idle/lock and bar; hyprconf layers one person's preferences on top through Omarchy's own seams (map below) and disturbs the install as little as possible. `install.sh` is the only entry point — run with no payload beside it (the curl path) it clones `stable` and hands over; nothing is packaged, the promoted branch is the release.
-- Verified against Omarchy 4.0.0-1 (Hyprland 0.56.2, quickshell-git 0.3.0, uwsm 0.26.6, Bash 5.3).
+- Verified against Omarchy 4.0.1-1 (Hyprland 0.56.2, quickshell 0.3.1 — Arch's package, renamed off `-git`; uwsm 0.26.7, Bash 5.3). This line is the pin: a version named inside a code comment or a test is that fact's own provenance and stays as written.
 - Posture: a personal config shared as-is — not a product, no support obligation. Favour deleting over adding: every line ships into a user's `$HOME`.
 - Gone for good, never rebuilt: the TUI, the standalone dotfiles/ISO suite, the 68-theme engine, the release tarball, and any deploy tooling or web app. `web/` is one static `index.html` (+ `favicon.svg`): no build, no JS, no external requests.
 
@@ -49,7 +49,7 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 | `hyprconf.clock` made by `copy_builtin_plugin`, not `omarchy plugin clone` | clone hardcodes `<username>.<id>` — a username in shipped config is PII; the copy is the same layout with the same `clonedFrom` rewrite |
 | `~/.config/fastfetch/config.jsonc` symlink | Omarchy's layout is `/etc/fastfetch/config.jsonc`; the user directory is fastfetch's documented override and reads first |
 | `/etc/firefox/policies/policies.json` | Firefox reads enterprise policies from root-owned paths only, and that path shadows the `distribution/` file Omarchy writes — so the file is Omarchy's policy `jq`-merged under `infra/firefox/policies.json` |
-| `idle.screensaver` written with `jq` | Omarchy 4.0.0-1 has no command for the key (`omarchy-shell-config` is a hidden sourced helper); the stage mirrors its `commit` |
+| `idle.screensaver` written with `jq` | Omarchy has no command for the key (`omarchy-shell-config` is a hidden sourced helper); the stage mirrors its `commit` |
 | Python in `lib/hyprconf/` | a bounded, tested module used in place via `PYTHONPATH` — never inline `python3 -c`, never copied into `~/.local/lib` |
 
 ## Live files — the symlink hazard
@@ -96,7 +96,7 @@ docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
    cp -r /src /repo && chown 1001:1001 /repo && cd /repo && make lint shellcheck test'
 ```
 
-## Known quirks (Omarchy 4.0.0-1, Hyprland 0.56.2, Bash 5.3 — re-verify on upgrade)
+## Known quirks (Omarchy 4.0.1-1, Hyprland 0.56.2, Firefox 154.0-1, Bash 5.3 — re-verify on upgrade)
 
 - `hyprctl keyword` is a no-op — prints "keyword can't work with non-legacy parsers. Use eval." and exits 0 — and `dispatch dpms on` errors under the Lua parser: use `hyprctl eval` (exit 7 on error) and `hyprctl dispatch 'hl.dsp.…({ … })'` (forms in `docs/hyprland-reference.md` › Runtime).
 - Omarchy binds digits and `-`/`=` by keycode (`SUPER + SHIFT + code:20`, `default/hypr/bindings/tiling.lua`), which `hl.unbind` of the keysym does not match — both fire; `unbind_keycode()` in `bindings.lua` is load-bearing.
