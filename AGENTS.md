@@ -6,7 +6,7 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 
 - A lean overlay on a stock [Omarchy](https://omarchy.org): `install.sh` plus the payload it ships, nothing else. Omarchy owns packages, session, shell, theme engine, idle/lock and bar; hyprconf layers one person's preferences on top through Omarchy's own seams (map below) and disturbs the install as little as possible. `install.sh` is the only entry point — run with no payload beside it (the curl path) it clones `stable` and hands over; nothing is packaged, the promoted branch is the release.
 - Verified against Omarchy 4.0.1-1 (Hyprland 0.56.2, quickshell 0.3.1 — Arch's package, renamed off `-git`; uwsm 0.26.7, Bash 5.3). This line is the pin: a version named inside a code comment or a test is that fact's own provenance and stays as written.
-- Posture: a personal config shared as-is — not a product, no support obligation. Favour deleting over adding: every line ships into a user's `$HOME`.
+- Posture: a personal config shared as-is — not a product, no support obligation. No `LICENSE`, deliberately: default copyright applies and that is the intent — do not add one. Favour deleting over adding: every line ships into a user's `$HOME`.
 - Gone for good, never rebuilt: the TUI, the standalone dotfiles/ISO suite, the 68-theme engine, the release tarball, and any deploy tooling or web app. `web/` is one static `index.html` (+ `favicon.svg`): no build, no JS, no external requests.
 
 ## Hard rules
