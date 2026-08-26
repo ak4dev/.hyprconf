@@ -7,8 +7,11 @@
    reads the theme mode back from --hyprconf-theme-mode. */
 :root {
   --hyprconf-theme-mode: {{ mode }};
-  /* Firefox's documented theming API, honoured under a lightweight theme
-     (user.js activates the built-in Dark or Light one for this mode). */
+  /* Firefox's theme variables. On 154 the --lwt-* ones are inert — the
+     built-in Dark/Light themes user.js activates are inApp, so
+     :root[lwtheme] never turns on — and six of the names below are gone
+     from Firefox entirely. The direct rules further down paint the
+     chrome; these are kept for other themes and older builds. */
   --lwt-accent-color: {{ background }} !important;
   --lwt-text-color: {{ foreground }} !important;
   --toolbar-bgcolor: {{ background }} !important;

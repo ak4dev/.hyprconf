@@ -49,12 +49,18 @@ BROWSER_INIS = {
 THEME_DIR_REL = ".local/state/omarchy/current/theme"
 RENDERED_NAME = "userChrome.css"
 
-# Firefox's built-in Dark / Light themes. They are lightweight themes, and
-# that is the whole point: Firefox applies ``--lwt-*`` / ``--toolbar-*``
-# overrides only while a lightweight theme is active (``:root:-moz-lwtheme``
-# in browser.css). Under the default "System theme — auto"
-# (default-theme@mozilla.org) the same userChrome.css does nothing, which
-# is exactly what a fresh profile runs.
+# Firefox's built-in Dark / Light themes. Setting one forces the colour
+# scheme: their manifests carry nothing but ``color_scheme``, and a fresh
+# profile runs "System theme — auto" (default-theme@mozilla.org) instead.
+#
+# They are NOT lightweight themes on 154: BuiltInThemeConfig.sys.mjs marks
+# both ``inApp: true``, so LightweightThemeConsumer.sys.mjs's
+# ``hasTheme = id != DEFAULT_THEME_ID && !builtinThemeConfig?.inApp`` is
+# false and ``:root[lwtheme]`` never turns on. The template's ``--lwt-*``
+# block is therefore inert; its direct #navigator-toolbox / #nav-bar /
+# #urlbar-background / #sidebar-box rules are what paint the chrome, which
+# is what that half of the template was written for. (``-moz-lwtheme`` is
+# gone from FF 154 entirely — the selector is the attribute now.)
 THEME_ID_DARK = "firefox-compact-dark@mozilla.org"
 THEME_ID_LIGHT = "firefox-compact-light@mozilla.org"
 
