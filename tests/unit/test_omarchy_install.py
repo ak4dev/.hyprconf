@@ -468,6 +468,15 @@ def _code_only(body: str) -> str:
     return "\n".join(out)
 
 
+def _stage_body(name: str) -> str:
+    """One install.sh stage function's code, comments stripped — so a claim
+    about what a stage *does* cannot be satisfied by the comment above it."""
+    src = INSTALL_SH.read_text()
+    start = src.index(f"\n{name}() {{\n")
+    end = src.index("\n}\n", start)
+    return _code_only(src[start:end])
+
+
 def _code_only_qml(body: str) -> str:
     """Drop // comment lines, so a scan cannot match the prose explaining it."""
     return "\n".join(ln for ln in body.splitlines() if not ln.lstrip().startswith("//"))
@@ -976,6 +985,80 @@ def test_sync_runs_omarchy_update_and_never_pacman(tmp_path: Path) -> None:
     calls = _calls(env)
     assert any(c.startswith("omarchy-update") for c in calls)
     assert not any(c.startswith("pacman") for c in calls)
+
+
+def _real_repo(tmp_path: Path, *, rebase: bool) -> Path:
+    """An upstream and a clone of it, with git configured the way the reader's
+    box is. Returns the clone."""
+    up, clone = tmp_path / "up", tmp_path / "clone"
+    run = lambda *a, **kw: subprocess.run(a, check=True, capture_output=True, **kw)  # noqa: E731
+    run("git", "init", "-q", "-b", "main", str(up))
+    ident = ["-c", "user.email=t@e", "-c", "user.name=t"]
+    (up / "f").write_text("one\n")
+    run("git", "-C", str(up), "add", "f")
+    run("git", "-C", str(up), *ident, "commit", "-qm", "one")
+    run("git", "clone", "-q", str(up), str(clone))
+    run("git", "-C", str(clone), "config", "pull.rebase", "true" if rebase else "false")
+    return clone
+
+
+def test_pull_is_immune_to_a_readers_pull_rebase_setting(tmp_path: Path) -> None:
+    """`pull.rebase = true` is a common global git setting, and under it a bare
+    `git pull --ff-only` refuses whenever the checkout has unstaged edits —
+    "cannot pull with rebase: You have unstaged changes" — even with nothing
+    to pull. The overlay's checkout is also where the overlay is edited, so a
+    dirty tree is the normal state of a developer's box, and `hyprsync` died
+    there. stage_pull pins pull.rebase=false for its own invocation.
+
+    Driven against real git repositories, because the suite's git stub
+    short-circuits `pull` and so cannot see this at all.
+    """
+    body = _stage_body("stage_pull")
+    assert "-c pull.rebase=false" in body, "stage_pull must pin pull.rebase for its own pull"
+
+    clone = _real_repo(tmp_path, rebase=True)
+    (clone / "f").write_text("edited locally\n")  # the dirty checkout
+
+    fixed = subprocess.run(
+        ["git", "-C", str(clone), "-c", "pull.rebase=false", "pull", "--ff-only"],
+        capture_output=True,
+        text=True,
+    )
+    assert fixed.returncode == 0, fixed.stderr
+
+    # And the bug is real: without the pin, the same state fails.
+    unpinned = subprocess.run(
+        ["git", "-C", str(clone), "pull", "--ff-only"], capture_output=True, text=True
+    )
+    assert unpinned.returncode != 0
+    assert "rebase" in unpinned.stderr
+
+
+def test_pull_still_stops_on_a_real_divergence(tmp_path: Path) -> None:
+    """The pin must not turn --ff-only into a merge: a checkout that has truly
+    diverged is still a stop, never a silent merge or discard (install.sh's own
+    comment: "Diverged history is a stop, not something to silently discard")."""
+    clone = _real_repo(tmp_path, rebase=True)
+    up = tmp_path / "up"
+    ident = ["-c", "user.email=t@e", "-c", "user.name=t"]
+    (up / "f").write_text("upstream moved\n")
+    subprocess.run(["git", "-C", str(up), "add", "f"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(up), *ident, "commit", "-qm", "two"], check=True, capture_output=True
+    )
+    (clone / "g").write_text("local commit\n")
+    subprocess.run(["git", "-C", str(clone), "add", "g"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(clone), *ident, "commit", "-qm", "mine"], check=True, capture_output=True
+    )
+
+    diverged = subprocess.run(
+        ["git", "-C", str(clone), "-c", "pull.rebase=false", "pull", "--ff-only"],
+        capture_output=True,
+        text=True,
+    )
+    assert diverged.returncode != 0, "a diverged checkout must not fast-forward"
+    assert (clone / "g").exists(), "nothing may be discarded"
 
 
 def test_no_packages_skips_every_privileged_stage(tmp_path: Path) -> None:

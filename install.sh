@@ -322,8 +322,16 @@ stage_pull() {
     # bash has already read it. The data files every later stage reads (the
     # package list, the zshrc block, bindings.lua) ARE re-read fresh, so only
     # this file's own logic is a version behind. Re-run to pick that up.
-    git -C "$HERE" pull --ff-only ||
-        die "git pull failed (diverged history?) — resolve it and re-run"
+    #
+    # `-c pull.rebase=false` is for the reader with `pull.rebase = true` in
+    # their global git config — a common setting, and under it `--ff-only`
+    # refuses outright with "cannot pull with rebase: You have unstaged
+    # changes" whenever the checkout is dirty, which is the normal state of a
+    # box the overlay is edited on. The pin covers this invocation only, and
+    # --ff-only still stops on a real divergence. The message does not guess
+    # at the cause: git has already printed it.
+    git -C "$HERE" -c pull.rebase=false pull --ff-only ||
+        die "git pull failed (git's own error is above) — resolve it and re-run"
 }
 
 stage_packages() {
