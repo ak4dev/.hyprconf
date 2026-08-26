@@ -56,7 +56,7 @@ publish flow and the website upload.
 ├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg, screenshot.svg (placeholder shown by the README and the page)
 ├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff config
 ├── .gitignore                  # Python caches, `.vscode/` and editor swap files git ignores
-└── AGENTS.md, README.md
+└── AGENTS.md, CLAUDE.md, README.md   # CLAUDE.md is a symlink to AGENTS.md — Claude Code reads CLAUDE.md, not AGENTS.md
 ```
 
 What reaches a user's machine, and how, is `README.md` › Repository layout.

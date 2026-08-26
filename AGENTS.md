@@ -1,6 +1,6 @@
 # Agent instructions
 
-The one directive file for this repo. `README.md` is the user contract and keeps 1:1 parity with the code; `docs/CONTRIBUTING.md` holds the tree, the test tree and seam lists, the publish flow and the website upload. One home per fact — link, never restate.
+The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude Code reads `CLAUDE.md`, not `AGENTS.md`, so this file loads into every session and is re-injected after `/compact`; keep the symlink, and keep this file short (its length is context, every session). `README.md` is the user contract and keeps 1:1 parity with the code; `docs/CONTRIBUTING.md` holds the tree, the test tree and seam lists, the publish flow and the website upload. One home per fact — link, never restate.
 
 ## What hyprconf is
 
