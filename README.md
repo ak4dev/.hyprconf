@@ -35,6 +35,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 | Firefox settings | One system policy — Omarchy's own prefs plus hyprconf's — carries the lot: telemetry off, tracking protection on, **uBlock Origin and Proton Pass** force-installed and pinned to the toolbar, **DuckDuckGo** the default engine, compact density, vertical tabs, a bare Firefox Home, DRM playback on. Policy *defaults*, not user prefs — any profile comes up configured and it all stays yours to change ([details](#firefox-settings)) |
 | YubiKey | `hyprconf-yubikey`: unlock the LUKS root at boot with a FIDO2 key (Omarchy's own `omarchy-setup-security-fido2` covers sudo/polkit) |
 | Dual-GPU gaming | `hyprconf-vulkan-gpu`: on a box with two GPUs, pins Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays — session environment in uwsm's `env.d`, which `install.sh` offers to write |
+| Keychron / Lemokey | One udev rule so [launcher.keychron.com](https://launcher.keychron.com) can reach your boards and mice over WebHID — a `hidraw` node is `0600 root:root` until something says otherwise ([details](#keychron--lemokey-hid-access)) |
 | VPN | **Proton VPN** in Omarchy's menu — Install → Service, beside NordVPN — installed from Arch's official repos with `omarchy-pkg-add` |
 
 ---
@@ -42,7 +43,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 ## Requirements
 
 - A running [Omarchy](https://omarchy.org) install. Verified against Omarchy 4.0.0-1 (Hyprland 0.56, Lua config — hyprlang `.conf` is gone). `install.sh` refuses to run when `/usr/share/omarchy` or `omarchy-pkg-add` is missing.
-- `git`, and a terminal for the three stages that need `sudo` (packages, Firefox, VS Code).
+- `git`, and a terminal for the four stages that need `sudo` (packages, Firefox, VS Code, the Keychron udev rule).
 
 ## Install
 
@@ -64,7 +65,7 @@ bash ~/.hyprconf/install.sh
 | *(none)* | Apply every stage once. Idempotent — re-running is how you pick up changes. |
 | `--sync` | `git pull --ff-only` the checkout, re-apply, then run `omarchy-update`. This is what the `hyprsync` alias runs. |
 | `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook, which already runs inside an update. |
-| `--no-packages` | Skip the three stages that need `sudo`: packages, Firefox (and its policy) and VS Code. The hook passes this too. |
+| `--no-packages` | Skip the four stages that need `sudo`: packages, Firefox (and its policy), VS Code and the Keychron udev rule. The hook passes this too. |
 | `-h`, `--help` | Usage: both forms and the three variables. On the curl path it answers from the served copy — nothing is cloned. |
 
 ### What each stage does
@@ -72,8 +73,9 @@ bash ~/.hyprconf/install.sh
 | Stage | Changes | Mechanism |
 |---|---|---|
 | packages | Installs the `packages` list (official repos only) | `omarchy-pkg-add` — idempotent, never bare `pacman -Syu` (Omarchy's ALPM hook blocks it) |
-| firefox | Firefox when absent; `/etc/firefox/policies/policies.json` = Omarchy's `default/firefox/policies.json` merged **under** `infra/firefox/policies.json` (extensions, search engine, privacy and UI settings — [Firefox settings](#firefox-settings)) | `omarchy-install-browser firefox` — Omarchy's own flow: `omarchy-pkg-add firefox`, its prefs to `/usr/lib/firefox/distribution/policies.json`, `MOZ_ENABLE_WAYLAND=1` in `~/.config/environment.d/`. The policy is a `jq` recursive merge (`*`, ours wins on a shared key) written with `sudo install` only when the bytes differ: `/etc/firefox/policies` takes precedence over `distribution/`, so Omarchy's prefs (VA-API, fractional scaling, overscroll) ride along instead of being shadowed. Skipped when there is no terminal for the password prompt. The overlay's one write outside `$HOME` |
+| firefox | Firefox when absent; `/etc/firefox/policies/policies.json` = Omarchy's `default/firefox/policies.json` merged **under** `infra/firefox/policies.json` (extensions, search engine, privacy and UI settings — [Firefox settings](#firefox-settings)) | `omarchy-install-browser firefox` — Omarchy's own flow: `omarchy-pkg-add firefox`, its prefs to `/usr/lib/firefox/distribution/policies.json`, `MOZ_ENABLE_WAYLAND=1` in `~/.config/environment.d/`. The policy is a `jq` recursive merge (`*`, ours wins on a shared key) written with `sudo install` only when the bytes differ: `/etc/firefox/policies` takes precedence over `distribution/`, so Omarchy's prefs (VA-API, fractional scaling, overscroll) ride along instead of being shadowed. Skipped when there is no terminal for the password prompt. One of the overlay's two writes outside `$HOME` (the other is the Keychron rule below) |
 | editor | VS Code (`visual-studio-code-bin`, from Omarchy's own `[omarchy]` pacman repository) when absent; Arch's `code` (Code - OSS, what v4.0.0–v4.2.0 installed) removed first — the two packages conflict. Not set-once: any interactive run that finds VS Code absent installs it (dropping Code - OSS again if it is back); Code - OSS's settings and extensions (`~/.config/Code - OSS`, `~/.vscode-oss`) stay, not migrated | `omarchy-pkg-drop code` (Omarchy's remover: `pacman -Rns --noconfirm`, only for names that are installed), then `omarchy-install-editor-vscode` — Omarchy's own flow: the package, `~/.vscode/argv.json`, `update.mode none`, `omarchy-theme-set-vscode`, and it **opens VS Code once** when done, by design. Skipped without a terminal; the result is read back with `omarchy-pkg-present` |
+| keychron | `infra/udev/70-keychron.rules` → `/etc/udev/rules.d/70-keychron.rules` (Keychron `0x3434`, Lemokey `0x362d`) | `sudo install` only when the bytes differ, then `udevadm control --reload-rules` + `udevadm trigger --subsystem-match=hidraw` so it reaches devices already plugged in. Skipped when there is no terminal for the password prompt |
 | terminal | kitty becomes the default terminal; `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity, `shell <zsh>`) plus one `include hyprconf.conf` line appended to `kitty.conf` | `omarchy-default-terminal kitty`; Omarchy's `kitty.conf` stays authoritative (theme include, `listen_on`, font lines). The setter's exit status is its closing notification's, so with no shell (a TTY first run) it warns and the re-run finds kitty already current |
 | theme | `~/.config/omarchy/themes/dracula` → `themes/dracula` (hyprconf's Dracula palette + wallpaper) | Symlinked user theme, **installed, never activated** — pick it with `omarchy theme set dracula` or `SUPER+SHIFT+CTRL+SPACE`. A real `themes/dracula` directory (a theme you installed yourself) is left alone with a warning |
 | defaults | Browser `firefox`, editor `code` — **set once** | `omarchy-default-browser` / `omarchy-default-editor`; marker `~/.local/state/hyprconf/defaults-applied` |
@@ -340,6 +342,31 @@ The two loader lines (`vulkan-icd-loader` ≥ 1.4.3xx; verified against 1.4.357)
 
 **Re-login** (or restart Steam with the variables set): apps started through uwsm / `systemd-run --scope` inherit the compositor's environment, so `systemctl --user set-environment` alone does not reach them mid-session. Undo with `hyprconf-vulkan-gpu remove`, then re-login.
 
+## Keychron / Lemokey HID access
+
+**Symptom:** [launcher.keychron.com](https://launcher.keychron.com) — Keychron's web-based remapper, which drives the board over the WebHID API — lists no device, or the browser's device picker comes up empty. Same for a Keychron mouse behind a Link / 4K Link 2.4 GHz receiver.
+
+**Cause:** a `hidraw` node is created `0600 root:root`. Arch's `50-udev-default.rules` sets no `MODE` for the `hidraw` subsystem, and none of the stock `uaccess` rules match a Keychron — the hidraw lines in `70-uaccess.rules` are each gated on an `ID_*` property (hardware wallet, 3D mouse, AV controller) that these devices do not carry. So the browser, running as you, cannot open the device at all.
+
+`install.sh` ships `infra/udev/70-keychron.rules` to `/etc/udev/rules.d/`:
+
+```
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="362d", TAG+="uaccess"
+```
+
+`TAG+="uaccess"` is the entire mechanism: systemd's `73-seat-late.rules` turns the tag into a POSIX ACL (`user:<you>:rw-`) on the node for whoever holds the active session. Three things about that are load-bearing and were verified on hardware, not assumed:
+
+- **The `70-` prefix is required.** `73-seat-late.rules` matches on `TAG==`, so a rule file that sorts *after* it sets a tag nothing will ever read. A `99-` file looks correct in `udevadm info` and grants nothing.
+- **The match is on vendor alone.** The vendor-defined interface the launcher talks to is not in a fixed place — `if01` on a Q2 Max, `if03` on a Link dongle, usage page `0xFF0A` on a 4K Link where the others use `0xFF60` — and two dongles sharing a product id can expose different interface counts depending on pairing state. Matching the vendor also covers the mice behind the receivers.
+- **No `MODE=`.** Without a `GROUP=` it would mean `0660 root:root`, which grants a desktop user nothing; the ACL is what grants access. (Omarchy's own `framework16-qmk-hid.rules` carries a `MODE="0660"` that buys it nothing for the same reason.)
+
+Omarchy has no command that installs a udev rule, but it ships this exact shape — `install/hardware/framework/qmk-hid.sh` copies `default/udev/framework16-qmk-hid.rules` into `/etc/udev/rules.d` for the Framework 16's QMK interface — so the stage follows it rather than inventing a mechanism.
+
+The stage writes only when the bytes differ, then runs `udevadm control --reload-rules` and `udevadm trigger --subsystem-match=hidraw` so the ACL reaches devices that are already plugged in; no reboot, no re-plug. Reload the launcher tab afterwards. It is skipped when there is no terminal for the password prompt, and by `--no-packages`.
+
+**Not covered:** a board paired over *Bluetooth* rather than through a receiver. Its `hidraw` parent is a Bluetooth device with no `idVendor` attribute, so these lines do not match it; a `KERNELS=="*3434:*"` line would.
+
 ## Proton VPN
 
 Omarchy's menu installs NordVPN from Install → Service; the `menu` stage puts a **Proton VPN** row beside it through Omarchy's own seam for user rows, `~/.config/omarchy/extensions/omarchy-menu.jsonc` (merged over the default menu and watched, so the row appears without a shell restart). It is shaped like Omarchy's NordVPN row: hidden once `proton-vpn-gtk-app` is installed, and it runs `hyprconf-install-service-protonvpn` in the floating presentation terminal, where the package prompt is on screen.
@@ -371,6 +398,7 @@ rm ~/.config/fastfetch/config.jsonc; [ -e ~/.config/fastfetch/config.jsonc.stock
 omarchy default terminal <name>; omarchy font set <name>; omarchy theme set <name>
 sudo rm /etc/firefox/policies/policies.json   # Omarchy's prefs are in /usr/lib/firefox/distribution/policies.json only if Omarchy's installer put Firefox there (a v4.0.0–v4.2.0 install did not) — else: omarchy install browser firefox
 # ^ this also un-manages uBlock Origin and Proton Pass (they stay installed, as ordinary add-ons you can now remove). Every captured pref was a default, never a user value, so the prefs you had changed yourself are untouched — except the search engine: setting it by policy *clears* the profile's record of any engine you had chosen yourself, so dropping the file hands it to Firefox's region default rather than back to your old pick. Set it again in Settings › Search
+sudo rm /etc/udev/rules.d/70-keychron.rules; sudo udevadm control --reload-rules   # Keychron/Lemokey boards go back to root-only hidraw — the web launcher stops seeing them
 # Firefox and VS Code are Omarchy's installs and stay; `omarchy pkg drop visual-studio-code-bin firefox` if you want them gone
 ```
 

@@ -47,6 +47,7 @@ publish flow and the website upload.
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 ├── hooks/theme-set.d/10-hyprconf     # Runs firefox_theme.py after every omarchy theme set
 ├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
+├── infra/udev/70-keychron.rules # hidraw uaccess for Keychron (0x3434) / Lemokey (0x362d), so the WebHID launcher can reach the boards
 │
 ├── tests/                      # Unit + integration (see below)
 ├── scripts/publish             # Lint + test → promote dev → stable
@@ -117,7 +118,7 @@ Gates and CI.
   suite) or behind an env seam — in `install.sh`, `OMARCHY_PATH` (Omarchy's own
   variable, not `_HYPRCONF_*`) for the Omarchy tree and `_HYPRCONF_*` for
   binaries and the other non-`$HOME` paths (`PKG_ADD`, `ZSH_BIN`, `ZSH`,
-  `KITTY_BIN`, `FIREFOX_POLICIES`, `ASSUME_TTY`, `PLUGIN_WAIT`); `_HYPRCONF_*` in
+  `KITTY_BIN`, `FIREFOX_POLICIES`, `UDEV_RULES`, `ASSUME_TTY`, `PLUGIN_WAIT`); `_HYPRCONF_*` in
   `bin/hyprconf-yubikey` for the boot files it reads and writes (`MKINITCPIO_D`,
   `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `LIMINE_ENTRY_CONF`, `LIMINE_USR_D`,
   `FIDO2_DROPIN`, `INITCPIO_INSTALL`, `MODULES_DIR`, `VCONSOLE`, `MACHINE_ID`,
@@ -128,7 +129,8 @@ Gates and CI.
   `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders — pointed at
   `tmp_path`. Never make such a variable `readonly`.
 - The fake bins (`AGENTS.md` › Tests): `omarchy-*`, `hyprctl`, `sudo`, `chsh`,
-  `fc-list`, `systemd-cryptenroll`, `limine-update`, `gum`, `vulkaninfo` (it
+  `fc-list`, `systemd-cryptenroll`, `limine-update`, `gum`, `udevadm` (the real
+  one would re-apply rules on the developer's own machine), `vulkaninfo` (it
   would answer for the host's GPUs), `git` (a clone only makes its directory —
   the curl-path tests let a clone of a local directory run the real git — and
   a pull is a no-op; the real git otherwise runs only inside a throwaway

@@ -48,12 +48,16 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # as omarchy-pkg-add: a test proving the "kitty is not installed" stop has no
 # other way to make it absent on a machine whose /usr/bin has one.
 : "${_HYPRCONF_KITTY_BIN:=kitty}"
-# Where the system Firefox policy lands. Root-owned, so the one stage that
-# writes it goes through sudo; overridable so the hermetic suite can point it
-# at a tmp tree. _HYPRCONF_ASSUME_TTY lets that suite reach the sudo path from
-# a non-tty pytest run.
+# Where the system Firefox policy lands. Root-owned, so the stage that writes
+# it goes through sudo; overridable so the hermetic suite can point it at a tmp
+# tree. _HYPRCONF_ASSUME_TTY lets that suite reach the sudo path from a non-tty
+# pytest run.
 : "${_HYPRCONF_FIREFOX_POLICIES:=/etc/firefox/policies}"
 : "${_HYPRCONF_ASSUME_TTY:=}"
+# Where the Keychron hidraw rule lands — root-owned for the same reason, and
+# overridable for the same reason. udev reads /etc/udev/rules.d before its own
+# /usr/lib tree, and 70- must sort before systemd's 73-seat-late.rules.
+: "${_HYPRCONF_UDEV_RULES:=/etc/udev/rules.d}"
 # How long activate_plugin_copy waits for the shell to discover a freshly
 # copied plugin (attempts x 0.05s). The hermetic suite sets it to 0 — its
 # omarchy-plugin-list is a stub that never lists the copy.
@@ -458,6 +462,49 @@ stage_editor() {
         info "installed"
     else
         warn "visual-studio-code-bin did not install — retry with: omarchy install editor vscode"
+    fi
+}
+
+# Keychron / Lemokey keyboards and mice over WebHID. The web launcher at
+# launcher.keychron.com talks to the board's vendor-defined HID interface, and
+# a hidraw node is 0600 root:root by default (/usr/lib/udev/rules.d/
+# 50-udev-default.rules sets no MODE for hidraw), so the browser cannot open
+# it. The rule tags the node uaccess and systemd's 73-seat-late.rules turns
+# that into an ACL for the active session — see infra/udev/70-keychron.rules
+# for why the match is vendor-only and why the filename must sort at 70-.
+#
+# Omarchy has no command for this — `omarchy commands --json` has no udev
+# route — but it ships the shape itself: install/hardware/framework/
+# qmk-hid.sh copies default/udev/framework16-qmk-hid.rules into
+# /etc/udev/rules.d for the Framework 16's QMK interface. This is that same
+# pattern with hyprconf's vendors, written the way stage_firefox writes its
+# policy: compared first, so a steady-state re-run never reaches sudo.
+#
+# Not gated on a Keychron being plugged in: a udev rule is for the device you
+# attach next as much as the one attached now.
+stage_keychron() {
+    log "Keychron / Lemokey: hidraw access for the web launcher"
+    local src="$HERE/infra/udev/70-keychron.rules"
+    local dst="$_HYPRCONF_UDEV_RULES/70-keychron.rules"
+    if [[ -f $dst ]] && cmp -s "$src" "$dst"; then
+        info "rule current at $dst"
+        return 0
+    fi
+    if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
+        warn "no terminal for sudo — run \`bash install.sh\` from a terminal to install the Keychron udev rule"
+        return 0
+    fi
+    if ! sudo install -Dm644 "$src" "$dst"; then
+        warn "could not install the Keychron udev rule — skipping"
+        return 0
+    fi
+    info "rule installed at $dst (Keychron 0x3434, Lemokey 0x362d)"
+    # Apply it to what is already plugged in; without this the ACL arrives
+    # only on the next re-plug or reboot.
+    if sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw; then
+        info "applied to connected devices — reload the launcher tab"
+    else
+        warn "rule installed but not applied — re-plug the board or reboot"
     fi
 }
 
@@ -1365,8 +1412,10 @@ main() {
     show_banner
     preflight
     if (( do_pull )); then stage_pull; fi
-    # Everything that needs sudo: packages, Firefox (+ the policy), VS Code.
-    if (( do_packages )); then stage_packages; stage_firefox; stage_editor; fi
+    # Everything that needs sudo: packages, Firefox (+ the policy), VS Code,
+    # the Keychron udev rule. stage_keychron runs last of the four so the
+    # first `sudo install` of a run is still the Firefox policy's.
+    if (( do_packages )); then stage_packages; stage_firefox; stage_editor; stage_keychron; fi
     # After the package stage, never before it — see resolve_zsh.
     resolve_zsh
     stage_terminal

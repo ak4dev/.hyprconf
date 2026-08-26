@@ -1,0 +1,25 @@
+# hyprconf — Keychron / Lemokey HID access for the web-based launcher.
+#
+# TAG+="uaccess" is the whole mechanism: systemd's 73-seat-late.rules turns the
+# tag into a POSIX ACL (user:<active-seat-user>:rw-) on the hidraw node, which
+# is what lets launcher.keychron.com reach a board over WebHID without running
+# the browser as root. That rule matches on TAG==, so this file MUST sort
+# before it — hence 70-, not 99-.
+#
+# No MODE=: it would set 0660 root:root and grant a desktop user nothing. The
+# ACL is what grants access (/dev/uinput on a stock Arch box is uaccess-tagged
+# with no MODE= and no GROUP=, and lands at 0600 root:root plus that ACL).
+#
+# Vendor-only matches on purpose. The vendor-defined interface the launcher
+# talks to is not in a fixed place: if01 on a Q2 Max, if03 on a Link dongle,
+# usage page 0xFF0A on a 4K Link where the others use 0xFF60 — and two dongles
+# sharing a product id can expose different interface counts depending on
+# pairing state. The vendor id is the only stable thing, and it also covers the
+# mice behind the 2.4GHz receivers.
+#
+# Bluetooth-paired boards are NOT covered: their hidraw parent is a Bluetooth
+# device with no idVendor attribute. A KERNELS=="*3434:*" line would reach them.
+#
+# Undo: README › Reverting to stock.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="362d", TAG+="uaccess"

@@ -233,6 +233,9 @@ def _setup(
         "pacman",
         # hyprconf-vulkan-gpu's prompt; the real one takes over the terminal.
         "gum",
+        # stage_keychron reloads and retriggers udev; the real one would
+        # re-apply rules on the developer's own machine.
+        "udevadm",
     ):
         _stub(bins / name, calls)
     # Named so a "no Omarchy here" run can point the installer at a command
@@ -300,6 +303,7 @@ def _setup(
         "kitty": kitty,
         "sys_pci": tmp_path / "sys" / "pci",
         "sys_drm": tmp_path / "sys" / "drm",
+        "udev_rules": tmp_path / "etc" / "udev" / "rules.d",
     }
     _sysfs(env, SINGLE_GPU)
     return env
@@ -334,6 +338,10 @@ def _run(
         "_HYPRCONF_SYS_PCI": str(env["sys_pci"]),
         "_HYPRCONF_SYS_DRM": str(env["sys_drm"]),
         "_HYPRCONF_VULKANINFO": "vulkaninfo-absent",
+        # Pinned on every run, not just the tests that exercise it: a test
+        # that makes sudo real (_policy_env) would otherwise install the
+        # Keychron rule into the CI container's own /etc/udev/rules.d.
+        "_HYPRCONF_UDEV_RULES": str(env["udev_rules"]),
     }
     if zsh is not None:
         child_env["_HYPRCONF_ZSH"] = zsh
@@ -985,6 +993,7 @@ def test_no_packages_skips_every_privileged_stage(tmp_path: Path) -> None:
         "omarchy-install-editor-vscode",
         "omarchy-pkg-drop",
         "sudo",
+        "udevadm",
     ):
         assert privileged not in _commands(env), privileged
 
@@ -1331,6 +1340,71 @@ def test_firefox_policy_is_skipped_without_a_terminal(tmp_path: Path) -> None:
     assert not (policies / "policies.json").exists()
     assert "sudo" not in _commands(env)
     assert "omarchy-install-browser" not in _commands(env)
+
+
+# ---------------------------------------------------------------------------
+# The Keychron / Lemokey udev rule — the overlay's other write outside $HOME
+# ---------------------------------------------------------------------------
+
+KEYCHRON_RULE = REPO_ROOT / "infra" / "udev" / "70-keychron.rules"
+
+
+def test_keychron_rule_is_installed_via_sudo_when_interactive(tmp_path: Path) -> None:
+    """The shipped rule lands byte-for-byte under (an overridden)
+    /etc/udev/rules.d through sudo, and is applied to devices that are already
+    plugged in — without the reload+trigger the ACL would arrive only on the
+    next re-plug. A matching file is left alone, so the re-run every hyprsync
+    performs never re-prompts for a password."""
+    env = _setup(tmp_path)
+    _, extra = _policy_env(tmp_path, env)
+    proc = _run(env, "--no-update", extra_env=extra)
+    assert proc.returncode == 0, proc.stderr
+
+    installed = env["udev_rules"] / "70-keychron.rules"
+    assert installed.read_text() == KEYCHRON_RULE.read_text()
+    calls = _calls(env)
+    assert "sudo udevadm control --reload-rules" in calls
+    assert "sudo udevadm trigger --subsystem-match=hidraw" in calls
+
+    env["calls"].write_text("")
+    _run(env, "--no-update", extra_env=extra)
+    assert "sudo" not in _commands(env)
+    assert "udevadm" not in _commands(env)
+
+
+def test_keychron_rule_is_skipped_without_a_terminal(tmp_path: Path) -> None:
+    """Same reason as the Firefox policy: the post-update hook runs inside
+    omarchy-update, and a sudo password prompt there would stall the update."""
+    env = _setup(tmp_path)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not (env["udev_rules"] / "70-keychron.rules").exists()
+    assert "sudo" not in _commands(env)
+    assert "udevadm" not in _commands(env)
+
+
+def test_keychron_rule_is_vendor_only_and_sorts_before_seat_late() -> None:
+    """Three properties the rule is worthless without, all verified against a
+    real Arch box before they were written down (see the file's own header):
+
+    * it must sort before systemd's 73-seat-late.rules, which is what converts
+      TAG+="uaccess" into an ACL — it matches on TAG==, so a 99- file sets the
+      tag after the only rule that reads it and grants nothing at all;
+    * the match is on vendor alone, because the vendor-defined interface the
+      launcher talks to sits at a different interface number and even a
+      different usage page from product to product;
+    * no MODE=, which without a GROUP= would mean 0660 root:root and grant a
+      desktop user nothing — the uaccess ACL is the whole mechanism.
+    """
+    assert int(KEYCHRON_RULE.name.split("-", 1)[0]) < 73, "must sort before 73-seat-late.rules"
+    body = [ln for ln in KEYCHRON_RULE.read_text().splitlines() if not ln.startswith("#") and ln]
+    assert body == [
+        'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"',
+        'SUBSYSTEM=="hidraw", ATTRS{idVendor}=="362d", TAG+="uaccess"',
+    ]
+    rules = "\n".join(body)  # the rules themselves; the header explains all three
+    assert "MODE=" not in rules
+    assert "idProduct" not in rules
 
 
 # ---------------------------------------------------------------------------
