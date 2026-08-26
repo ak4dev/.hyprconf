@@ -122,4 +122,4 @@ docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
 3. Change code, tests and docs together; keep `README.md`, `docs/CONTRIBUTING.md` and this file in lockstep, one home per fact.
 4. `hypr/*.lua` are live — every save luac-clean, deltas only, targets on PATH.
 5. Run the gates; reproduce CI in the container before a push.
-6. Commit when asked. Never push, publish or deploy unless the user says so, in those words.
+6. Commit when asked. Never push, publish or deploy unless the user says so, in those words. `.claude/settings.json` holds the deny/ask rules that back this line and rules 2–3 — a speed bump the model cannot talk itself past, not a boundary: they match command text, and do not reach a script that opens files itself.

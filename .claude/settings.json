@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(//usr/share/omarchy/**)",
+      "Bash(sudo pacman:*)",
+      "Bash(yay:*)",
+      "Bash(sudo yay:*)",
+      "Bash(paru:*)",
+      "Bash(makepkg:*)",
+      "Bash(omarchy-pkg-aur-add:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(*scripts/publish*)",
+      "Bash(aws:*)",
+      "Bash(*/aws *)"
+    ]
+  }
+}

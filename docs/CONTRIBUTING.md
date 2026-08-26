@@ -55,7 +55,8 @@ publish flow and the website upload.
 ├── .github/                    # CI workflow
 ├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg, screenshot.svg (placeholder shown by the README and the page)
 ├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff config
-├── .gitignore                  # Python caches, `.vscode/` and editor swap files git ignores
+├── .gitignore                  # Python caches, `.vscode/`, editor swap files and Claude Code's local session state
+├── .claude/settings.json       # Agent deny/ask rules — the layer bypass permission mode still honours
 └── AGENTS.md, CLAUDE.md, README.md   # CLAUDE.md is a symlink to AGENTS.md — Claude Code reads CLAUDE.md, not AGENTS.md
 ```
 

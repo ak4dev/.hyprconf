@@ -6,3 +6,9 @@ __pycache__/
 .vscode/
 *.swp
 *.swo
+
+# Claude Code local session state — never committed. settings.local.json is
+# written by "don't ask again" and carries absolute /home/<user> paths, which
+# tests/unit/test_no_pii.py (an on-disk walk) would fail on.
+.claude/settings.local.json
+.claude/RESUME.md
