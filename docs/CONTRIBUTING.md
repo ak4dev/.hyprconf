@@ -93,6 +93,8 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 ### Running tests
 
 ```bash
+make check               # the three commit gates: lint + shellcheck + test
+
 make test                # both suites in parallel (pytest -n auto)
 make test-unit
 make test-integration

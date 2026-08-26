@@ -1,4 +1,4 @@
-.PHONY: test test-unit test-integration shellcheck lint fmt clean
+.PHONY: check test test-unit test-integration shellcheck lint fmt clean
 
 export PYTHONDONTWRITEBYTECODE := 1
 
@@ -13,6 +13,9 @@ test-unit:
 
 test-integration:
 	pytest tests/integration/ -q -n auto
+
+# The three gates scripts/publish and CI run. `make` alone is the suites only.
+check: lint shellcheck test
 
 shellcheck:
 	@files=$$(find . -path ./.git -prune -o -type f -print | while IFS= read -r f; do \

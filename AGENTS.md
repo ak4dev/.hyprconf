@@ -88,7 +88,7 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 
 ## Gates and CI
 
-Before every commit: `make lint` (ruff check + format), `make shellcheck` (find-based; fails when it finds nothing), `make test` (`pytest -n auto`), `luac -p hypr/*.lua`. `.github/workflows/test.yml` runs the first three on every push and PR in `archlinux:latest` as root, in a workspace whose top directory the runner's uid owns — git refuses it as dubious for root — with no git-trust step and no gate that depends on the checkout's git (the one call, `test_no_pii`'s `git config --get user.email`, tolerates refusal). Exactly one test skips there — `test_installed_plugins_pass_omarchy_plugin_validate`, which needs the installed Omarchy; any other skip is a regression. CI must be green before a publish. Before every push reproduce it the same way — root, the checkout copied into the container with its top directory chowned to another uid (without that git never refuses and the run proves nothing about it), no trust step (a green local `make test` alone is not enough):
+Before every commit: `make check` — `make lint` (ruff check + format), `make shellcheck` (find-based; fails when it finds nothing) and `make test` (`pytest -n auto`), the three gates `scripts/publish` runs; `make` alone runs only the suites. `.github/workflows/test.yml` runs the same three on every push and PR in `archlinux:latest` as root, in a workspace whose top directory the runner's uid owns — git refuses it as dubious for root — with no git-trust step and no gate that depends on the checkout's git (the one call, `test_no_pii`'s `git config --get user.email`, tolerates refusal). Exactly one test skips there — `test_installed_plugins_pass_omarchy_plugin_validate`, which needs the installed Omarchy; any other skip is a regression. CI must be green before a publish. Before every push reproduce it the same way — root, the checkout copied into the container with its top directory chowned to another uid (without that git never refuses and the run proves nothing about it), no trust step (a green local `make test` alone is not enough):
 
 ```bash
 docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
@@ -121,5 +121,5 @@ docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
 2. Verify every Omarchy fact on the box before changing anything (rule 2).
 3. Change code, tests and docs together; keep `README.md`, `docs/CONTRIBUTING.md` and this file in lockstep, one home per fact.
 4. `hypr/*.lua` are live — every save luac-clean, deltas only, targets on PATH.
-5. Run the gates; reproduce CI in the container before a push.
+5. Run `make check`; reproduce CI in the container before a push.
 6. Commit when asked. Never push, publish or deploy unless the user says so, in those words. `.claude/settings.json` holds the deny/ask rules that back this line and rules 2–3 — a speed bump the model cannot talk itself past, not a boundary: they match command text, and do not reach a script that opens files itself.
