@@ -371,15 +371,16 @@ stage_packages() {
 # infra/firefox/policies.json (jq `*` is a recursive object merge — a shared
 # "Preferences" keeps both sides, and ours wins on the same key), written
 # only when the merged bytes differ. Every captured pref is a Status
-# "default": it seeds a profile and the user can still change it. Firefox
-# silently drops any pref outside its own allowlist, so
-# tests/unit/test_firefox.py pins that list — the two settings no policy can
-# make stick (the find bar's Highlight All, which that allowlist rejects; the
-# exact toolbar order, whose browser.uiCustomization.state it accepts and
-# CustomizableUI then rewrites on every start) are left to the user, in
-# README › Firefox settings. The
-# overlay's one write outside $HOME, hence behind the --no-packages gate with
-# the other sudo work; it bows out when no terminal can take sudo's password
+# "default": it seeds a profile and the user can still change it — the
+# toolbar arrangement included, a seeded browser.uiCustomization.state that
+# a fresh profile's first window is built from (CLAUDE.md › Known quirks for
+# the semantics). Firefox silently drops any pref outside its own allowlist,
+# so tests/unit/test_firefox.py pins that list — the one setting no policy
+# can make stick (the find bar's Highlight All, which that allowlist
+# rejects) is left to the user, in README › Firefox settings. One of the
+# overlay's two writes outside $HOME (the other is the Keychron udev rule),
+# hence behind the --no-packages gate with the other sudo work; it bows out
+# when no terminal can take sudo's password
 # prompt — the post-update hook runs non-interactively inside omarchy-update,
 # where a hung prompt would stall the whole update.
 stage_firefox() {

@@ -91,6 +91,14 @@
         "Value": 1,
         "Status": "default",
         "Type": "number"
+      },
+      "browser.uiCustomization.state": {
+        "Value": "{\"placements\":{\"widget-overflow-fixed-list\":[],\"unified-extensions-area\":[],\"nav-bar\":[\"ai-window-toggle\",\"reset-pbm-toolbar-button\",\"sidebar-button\",\"back-button\",\"forward-button\",\"stop-reload-button\",\"urlbar-container\",\"vertical-spacer\",\"78272b6fa58f4a1abaac99321d503a20_proton_me-browser-action\",\"ublock0_raymondhill_net-browser-action\",\"unified-extensions-button\"],\"toolbar-menubar\":[\"menubar-items\"],\"TabsToolbar\":[],\"vertical-tabs\":[\"tabbrowser-tabs\"],\"PersonalToolbar\":[\"import-button\",\"personal-bookmarks\"]},\"currentVersion\":25}",
+        "Status": "default"
+      },
+      "browser.engagement.sidebar-button.has-used": {
+        "Value": true,
+        "Status": "default"
       }
     }
   }

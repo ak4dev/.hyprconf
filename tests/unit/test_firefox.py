@@ -14,6 +14,7 @@ a plausible-looking entry can do nothing at all and never say so.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 from tests.unit.test_omarchy_install import OMARCHY_FIREFOX_POLICY
@@ -107,10 +108,10 @@ def test_both_extensions_are_force_installed_into_the_toolbar() -> None:
 
     `default_area` is Firefox's own knob for where a browser action lands
     (ExtensionActions.sys.mjs: the policy value beats the manifest's, and
-    without one an extension falls into the overflow menu) — which is why the
-    machine's `browser.uiCustomization.state` is not shipped: the deliberate
-    part of that blob is these two buttons, and this puts them there without
-    pinning a serialized layout Firefox rewrites on every start.
+    without one an extension falls into the overflow menu). The seeded
+    layout (the tests below) pins the exact slots on a fresh profile; this
+    is the fallback that still lands both buttons in the nav-bar on any
+    profile whose saved state does not know them.
 
     `private_browsing` is deliberately absent: its presence at ANY value takes
     the about:addons toggle away from the user (XPIDatabase.sys.mjs), and
@@ -176,6 +177,112 @@ def test_captured_ui_settings_are_the_ones_the_machine_has() -> None:
     # default alone, which on a fresh profile is the region default (Google)
     # — so it reads as a silent fallback without being one.
     assert POLICIES["SearchEngines"]["Default"] == "DuckDuckGo"
+
+
+def test_toolbar_layout_seeds_a_fresh_profile_then_belongs_to_the_user() -> None:
+    """The machine's toolbar arrangement, seeded the way every other capture is.
+
+    CustomizableUI loads the layout with a plain effective-value read
+    (`Services.prefs.getCharPref(kPrefCustomizationState, "")`,
+    CustomizableUI.sys.mjs:3495, Firefox 154.0), so the default-branch string
+    this policy writes on every startup is what a fresh profile's first
+    window is built from. The profile's first customization re-serializes to
+    the user branch, which shadows the seed from then on: later
+    rearrangements survive restarts, and dropping the policy file leaves
+    them in place. On a profile that already has a user-branch value the
+    seed does nothing (CLAUDE.md › Known quirks). Verified live on 154.0
+    with fresh headless profiles under the real policy machinery
+    (2026-08-30): the seeded order comes up, a swap made between runs stays.
+    """
+    entry = POLICIES["Preferences"]["browser.uiCustomization.state"]
+    # A string, not a nested object: the Preferences policy takes only
+    # bool/number/string values (Policies.sys.mjs:2744-2778).
+    assert isinstance(entry["Value"], str)
+    assert entry["Status"] == "default"  # seeds once, never fights the user
+    state = json.loads(entry["Value"])
+    # Placements and the version, nothing else. seen / dirtyAreaCache /
+    # newElementCount are Firefox's own bookkeeping (the capture philosophy
+    # above), each safe to omit: seen starts empty, dirtyAreaCache is
+    # recomputed against the defaults, and newElementCount matters only for
+    # explicit customizableui-special-* ids, of which the layout ships none.
+    assert set(state) == {"placements", "currentVersion"}
+    # kVersion on Firefox 154.0. At 0 — the default when the field is
+    # omitted — the whole migration ladder rewrites the seed, and the v<21
+    # step dereferences placements["nav-bar"] unguarded: a TypeError out of
+    # CustomizableUI's initialize. So the version rides, and nav-bar must.
+    assert state["currentVersion"] == 25
+    placements = state["placements"]
+    # The arrangement, exactly as arranged on the machine this is a config
+    # of (its prefs.js browser.uiCustomization.state, bookkeeping stripped).
+    # Ids Firefox has not registered yet — the two extension buttons before
+    # their XPIs install, ai-window-toggle while the AI window is off — are
+    # retained in placements and slot in when the widget appears.
+    assert placements["nav-bar"] == [
+        "ai-window-toggle",
+        "reset-pbm-toolbar-button",
+        "sidebar-button",
+        "back-button",
+        "forward-button",
+        "stop-reload-button",
+        "urlbar-container",
+        "vertical-spacer",
+        "78272b6fa58f4a1abaac99321d503a20_proton_me-browser-action",
+        "ublock0_raymondhill_net-browser-action",
+        "unified-extensions-button",
+    ]
+    # Vertical tabs travel with sidebar.verticalTabs above: the tab strip
+    # empty, the tabs in the vertical-tabs area.
+    assert placements["TabsToolbar"] == []
+    assert placements["vertical-tabs"] == ["tabbrowser-tabs"]
+    # No widget twice: a duplicate placement is a corrupt capture.
+    everywhere = [wid for area in placements.values() for wid in area]
+    assert len(everywhere) == len(set(everywhere))
+
+
+def test_toolbar_layout_places_every_managed_extension_button() -> None:
+    """Each force-installed extension's button sits in the seeded nav-bar.
+
+    The widget id is the extension id through Firefox's makeWidgetId —
+    lowercase, then every char outside [a-z0-9_-] becomes "_"
+    (ExtensionCommon.sys.mjs:201-205, Firefox 154.0) — plus
+    "-browser-action" (actionWidgetId, ext-browserAction.js:45, called
+    at :136). Deriving it here keeps
+    ExtensionSettings and the layout in lockstep: an extension added or
+    dropped there moves here too. CustomizableUI consults saved placements
+    before default_area (createWidget, CustomizableUI.sys.mjs:4028-4062),
+    so the seed pins the position even though the XPIs install
+    asynchronously after the first window.
+    """
+    state = json.loads(POLICIES["Preferences"]["browser.uiCustomization.state"]["Value"])
+    nav_bar = state["placements"]["nav-bar"]
+    for addon_id in POLICIES["ExtensionSettings"]:
+        widget = re.sub(r"[^a-z0-9_-]", "_", addon_id.lower()) + "-browser-action"
+        assert widget in nav_bar, addon_id
+
+
+def test_toolbar_layout_keeps_the_sidebar_button_where_it_was_put() -> None:
+    """The one companion pref the seeded layout needs.
+
+    updateForNewProtonVersion (CustomizableUI.sys.mjs:886-938, Firefox
+    154.0) runs on any profile whose browser.proton.toolbar.version is
+    below 3 — a fresh one is 0 — and strips sidebar-button from a saved
+    nav-bar unless browser.engagement.sidebar-button.has-used says the
+    button was used. Seeded true, the migration keeps the button at its
+    seeded slot, then stamps version 3 into the profile exactly as a stock
+    first run would — so the strip cannot fire later, not even after the
+    policy file is removed. (The other mover, the sidebar.revamp
+    introduced-append, needs no pref: restoreStateForArea skips a future
+    placement that is already placed, CustomizableUI.sys.mjs:3592-3594.)
+    Verified live on a fresh profile: without this pref the button lands at
+    the end of the nav-bar instead of its seeded slot.
+    """
+    prefs = POLICIES["Preferences"]
+    state = json.loads(prefs["browser.uiCustomization.state"]["Value"])
+    assert "sidebar-button" in state["placements"]["nav-bar"]
+    assert prefs["browser.engagement.sidebar-button.has-used"] == {
+        "Value": True,
+        "Status": "default",
+    }
 
 
 def test_nothing_is_locked_that_should_stay_the_users_to_change() -> None:
