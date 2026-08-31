@@ -543,6 +543,25 @@ def test_zshrc_preserves_content_outside_the_block(tmp_path: Path) -> None:
     assert "export MY_OWN_THING=1" in (env["home"] / ".zshrc").read_text()
 
 
+def test_a_failed_shell_clone_warns_and_the_stages_after_it_still_run(tmp_path: Path) -> None:
+    """A dead network must not abort the apply — or the post-update hook run.
+
+    stage_shell's clones run under `set -e`; unguarded, a DNS failure killed
+    the whole run before stage_hooks, so a first install on a flaky network
+    never got the post-update hook. The clones are bounded and non-fatal:
+    the run warns, skips the rest of the stage (so .zshrc never names a
+    theme that is not there), and everything after it still lands. The next
+    run retries — the directory is still absent."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], 'if [ "$1" = clone ]; then exit 1; fi; exit 0')
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "could not clone Oh My Zsh" in proc.stderr
+    assert not (env["home"] / ".oh-my-zsh").is_dir()
+    assert not (env["home"] / ".zshrc").exists()
+    assert "omarchy-hook-install" in _commands(env)
+
+
 # ---------------------------------------------------------------------------
 # Restraint — what the installer must never do
 # ---------------------------------------------------------------------------

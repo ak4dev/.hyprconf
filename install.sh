@@ -1288,14 +1288,22 @@ stage_shell() {
 
     if [[ ! -d $HOME/.oh-my-zsh ]]; then
         info "Installing Oh My Zsh"
-        git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"
+        # Bounded and non-fatal, like the p10k pull below: this path also runs
+        # from the post-update hook (README says ~/.oh-my-zsh may be deleted),
+        # and under `set -e` an unguarded clone on a dead network would abort
+        # the whole apply before the stages after this one — on a first
+        # install, before the hooks land. The rest of the stage is skipped so
+        # .zshrc never names a theme that is not there.
+        timeout 300 git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh" ||
+            { warn "could not clone Oh My Zsh — will retry on the next run"; return 0; }
     fi
 
     local p10k="$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
     mkdir -p "$(dirname "$p10k")"
     if [[ ! -d $p10k ]]; then
         info "Installing powerlevel10k"
-        git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$p10k"
+        timeout 300 git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$p10k" ||
+            { warn "could not clone powerlevel10k — will retry on the next run"; return 0; }
     else
         # Bounded, and failure is fine. This runs on every apply — including
         # from the post-update hook, non-interactively, inside `omarchy-update`
