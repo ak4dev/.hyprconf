@@ -103,7 +103,7 @@ hyprctl reload
 while IFS=$'\t' read -r ws mon; do
     hyprctl dispatch "hl.dsp.workspace.move({ workspace = $ws, monitor = \"$mon\" })" \
         >/dev/null 2>&1 || true
-done < <(sed -nE 's/.*hl\.workspace_rule\(\{ *workspace *= *"([0-9]+)".*monitor *= *"([^"]+)".*/\1\t\2/p' "$SOURCE")
+done < <(sed -nE 's/^[[:space:]]*hl\.workspace_rule\(\{ *workspace *= *"([0-9]+)".*monitor *= *"([^"]+)".*/\1\t\2/p' "$SOURCE")
 
 # An output flipping disabled→enabled through this same reload path can hit a
 # failed-CRTC-restore bug (aquamarine/nvidia-open: ATOMIC modeset commit

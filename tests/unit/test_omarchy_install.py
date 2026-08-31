@@ -2142,6 +2142,36 @@ def test_monitor_preset_moves_existing_workspaces(tmp_path: Path) -> None:
         assert expected in calls, expected
 
 
+def test_monitor_preset_skips_commented_out_workspace_rules(tmp_path: Path) -> None:
+    """A rule commented out of a preset is a comment to the move walk exactly
+    as it is to the Hyprland reload: the sed anchors at line start, so a `--`
+    prefix means no dispatch. Editing a preset is a documented workflow, and
+    a disabled rule must not keep moving its workspace."""
+    env = _setup(tmp_path)
+    hypr = env["home"] / ".config" / "hypr"
+    hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
+    _run(env, "--no-update")
+
+    body = (REPO_ROOT / "hypr" / "pcMonitors.kitchen.lua").read_text()
+    rules = re.findall(
+        r'hl\.workspace_rule\(\{ workspace = "(\d+)", monitor = "([^"]+)" \}\)', body
+    )
+    assert len(rules) >= 2, "kitchen preset needs two workspace rules for this test"
+    # Comment the first rule out — through a plain file, never the installed
+    # symlink, which points into the real checkout.
+    preset = hypr / "pcMonitors.kitchen.lua"
+    preset.unlink()
+    preset.write_text(body.replace("hl.workspace_rule(", "-- hl.workspace_rule(", 1))
+
+    env["calls"].write_text("")
+    proc = _switch(env, "kitchen")
+    assert proc.returncode == 0, proc.stderr
+    moves = [c for c in _calls(env) if "workspace.move" in c]
+    ws_off, ws_on = rules[0][0], rules[1][0]
+    assert not any(f"workspace = {ws_off}," in m for m in moves)
+    assert any(f"workspace = {ws_on}," in m for m in moves)
+
+
 def test_clock_copy_takes_the_center_anchor_with_it(tmp_path: Path) -> None:
     """canonicalWidgetId does no clone resolution (shell/Commons/Util.qml — a
     plain string cast), so a centerAnchor left at omarchy.clock matches
