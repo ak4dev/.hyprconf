@@ -109,10 +109,8 @@ current_branch="$(git rev-parse --abbrev-ref HEAD)"
 ok "On ${WORK_BRANCH}, working tree clean"
 
 git fetch origin "$WORK_BRANCH" --quiet
-# shellcheck disable=SC2055  # || is correct: not-up-to-date = HEAD differs from merge-base OR from origin/<work>
-if [[ "$(git rev-parse HEAD)" != "$(git merge-base HEAD "origin/${WORK_BRANCH}")" \
-   || "$(git rev-parse HEAD)" != "$(git rev-parse "origin/${WORK_BRANCH}")" ]]; then
-  die "Local ${WORK_BRANCH} is behind or diverged from origin/${WORK_BRANCH} — pull or rebase first."
+if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/${WORK_BRANCH}")" ]]; then
+  die "Local ${WORK_BRANCH} is not in sync with origin/${WORK_BRANCH} — push, pull or rebase first."
 fi
 ok "Local ${WORK_BRANCH} is up-to-date with origin/${WORK_BRANCH}"
 
@@ -144,6 +142,13 @@ fi
 
 # Suite is green — now bump the version and cut the tag from the tested HEAD.
 if [[ "$SKIP_BUMP" == false ]]; then
+  # A previous publish that died after its bump commit (a failed stable or tag
+  # push) leaves HEAD as an already-released version with a clean tree, so
+  # every pre-flight above passes and a naive rerun would bump AGAIN —
+  # stranding the first tag and leaving a version gap on stable.
+  if [[ "$(git log -1 --pretty=%s)" == "release: [v$(_read_version)] bump version" ]]; then
+    die "HEAD is already the v$(_read_version) release commit (a previous publish failed mid-way) — rerun with --skip-bump to resume the promotion."
+  fi
   step "Bumping ${BUMP_TYPE} version (suite is green)"
   version="$(_bump_version "$BUMP_TYPE")"
   release_tag="v${version}"

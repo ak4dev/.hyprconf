@@ -153,6 +153,47 @@ def test_publish_bumps_the_requested_component(clone: Path, flag: str, bump) -> 
     assert _git(origin, "rev-parse", "refs/heads/stable") == _git(clone, "rev-parse", "HEAD")
 
 
+def test_publish_rerun_after_a_failed_promotion_requires_skip_bump(clone: Path) -> None:
+    """A publish that dies after its bump commit (here: the stable push is
+    rejected once, simulating an outage) must not bump again on a naive
+    rerun — that would strand the first tag locally forever and skip a
+    version on stable. The rerun is refused, naming --skip-bump; with the
+    flag, the promotion resumes and releases the version the first run cut."""
+    origin = clone.parent / "origin.git"
+    hook = origin / "hooks" / "pre-receive"
+    hook.write_text(
+        "#!/usr/bin/env bash\n"
+        "while read -r _ _ ref; do\n"
+        '  if [ "$ref" = refs/heads/stable ] && [ ! -f flag-stable-once ]; then\n'
+        "    touch flag-stable-once\n"
+        '    echo "stable rejected (simulated outage)" >&2\n'
+        "    exit 1\n"
+        "  fi\n"
+        "done\n"
+        "exit 0\n"
+    )
+    hook.chmod(hook.stat().st_mode | stat.S_IEXEC)
+
+    before = _version(clone / VERSION_FILE)
+    released = (before[0], before[1], before[2] + 1)
+    tag = "v{}.{}.{}".format(*released)
+    first = _publish(clone, "--skip-tests")
+    assert first.returncode != 0, "the stable push was rejected"
+    # The bump commit reached origin/dev; stable never moved.
+    assert _git(origin, "rev-parse", "refs/heads/dev") == _git(clone, "rev-parse", "HEAD")
+    assert _git(origin, "branch", "--list", "stable") == ""
+
+    rerun = _publish(clone, "--skip-tests")
+    assert rerun.returncode != 0 and "--skip-bump" in rerun.stderr
+    assert _version(clone / VERSION_FILE) == released, "no second bump"
+
+    resume = _publish(clone, "--skip-tests", "--skip-bump")
+    assert resume.returncode == 0, resume.stdout + resume.stderr
+    head = _git(clone, "rev-parse", "HEAD")
+    assert _git(origin, "rev-parse", "refs/heads/stable") == head
+    assert _git(origin, "rev-list", "-n1", f"refs/tags/{tag}") == head
+
+
 def test_publish_refuses_off_the_work_branch_or_with_a_dirty_tree(clone: Path) -> None:
     (clone / "scratch").write_text("uncommitted\n")
     result = _publish(clone, "--skip-tests")
