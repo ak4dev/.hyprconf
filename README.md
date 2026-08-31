@@ -102,7 +102,7 @@ bash ~/.hyprconf/install.sh
 ### What it deliberately leaves alone
 
 - The **login shell** — no `chsh`. zsh runs inside kitty only; `~/.zshrc` sources Omarchy's own `envs`/`aliases`, so its updates flow through.
-- The body of `~/.config/kitty/kitty.conf`, `~/.bashrc`, `/usr/share/omarchy`, and everything under `/etc` except the Firefox policy (and, only when you run it, `hyprconf-yubikey enroll`'s two drop-ins — see below).
+- The body of `~/.config/kitty/kitty.conf`, `~/.bashrc`, `/usr/share/omarchy`, and everything under `/etc` except the Firefox policy and the Keychron udev rule (and, only when you run it, `hyprconf-yubikey enroll`'s two drop-ins — see below).
 - Installed packages — nothing is removed, with one exception: Arch's `code` (Code - OSS) goes when Omarchy's VS Code is installed, because the two packages conflict.
 - The **active theme**, Omarchy's **`monitors.lua`** (a preset loads beside it from the toggles directory and never replaces it), and every set-once choice (font, default apps, idle, clock, widget enables) after the first run — change them with Omarchy's own commands and hyprconf will not take them back.
 - Omarchy's keyboard layout logic in `input.lua`, and its volume / brightness / media keys, `SUPER+K` (keybindings menu), `SUPER+3`/`4`, `SUPER+SHIFT+3`.
@@ -121,7 +121,7 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 
 ## Repository layout
 
-The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `hypr/`, `bin/`, `plugins/`, `themes/`, `themed/`, `wallpapers/`, `zsh/`, `kitty/`, `fastfetch/` and `hooks/` land in `$HOME` (the `hypr/*.lua` overrides, the theme, `.p10k.zsh` and the fastfetch config as symlinks into the checkout; the template into `~/.config/omarchy/themed/`; `lib/hyprconf/` is used in place), and `infra/firefox/policies.json` is the one system file, merged over Omarchy's own.
+The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `hypr/`, `bin/`, `plugins/`, `themes/`, `themed/`, `wallpapers/`, `zsh/`, `kitty/`, `fastfetch/` and `hooks/` land in `$HOME` (the `hypr/*.lua` overrides, the theme, `.p10k.zsh` and the fastfetch config as symlinks into the checkout; the template into `~/.config/omarchy/themed/`; `lib/hyprconf/` is used in place), and `infra/firefox/policies.json` (merged over Omarchy's own) and `infra/udev/70-keychron.rules` are the two system files.
 
 ## Monitor presets
 

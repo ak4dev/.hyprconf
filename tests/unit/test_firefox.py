@@ -1,6 +1,7 @@
 """Tests for infra/firefox/policies.json — the system Firefox policy install.sh ships.
 
-The policy is the overlay's one write outside $HOME (see stage_firefox): Firefox
+The policy is one of the overlay's two writes outside $HOME (see stage_firefox;
+the other is the Keychron udev rule): Firefox
 reads enterprise policies only from root-owned paths. This pins what it must
 keep saying: telemetry and studies off, tracking protection on, uBlock Origin
 and Proton Pass force-installed, DuckDuckGo the default engine, and the UI

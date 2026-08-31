@@ -19,9 +19,9 @@
 # extended through a documented seam (a user theme, a plugin, a hook, a kitty
 # `include`). The privileged steps are installing packages (through Omarchy's
 # own `omarchy-pkg-add`), Firefox and VS Code (through Omarchy's own
-# installers) and the system Firefox policy — the overlay's one write outside
-# $HOME — and --no-packages skips them all, so the post-update hook never
-# needs sudo.
+# installers), the system Firefox policy and the Keychron udev rule — the
+# overlay's two writes outside $HOME — and --no-packages skips them all, so
+# the post-update hook never needs sudo.
 set -euo pipefail
 
 # The checkout: the installer lives at the repository root. ${BASH_SOURCE[0]}
@@ -99,8 +99,8 @@ Options:
                   This is what the `hyprsync` alias runs.
   --no-update     Apply only; never invoke omarchy-update. Used by the
                   post-update hook, which already runs inside an update.
-  --no-packages   Skip the stages that need sudo: packages, Firefox (and its
-                  policy) and VS Code.
+  --no-packages   Skip the four stages that need sudo: packages, Firefox (and
+                  its policy), VS Code and the Keychron udev rule.
   -h, --help      Show this help.
 
 With no options: apply every stage once, without pulling or updating.
@@ -228,7 +228,8 @@ write_managed_block() {
 strip_managed_block() {
     local file="$1" begin="$2" end="$3" tmp
     [[ -f $file ]] || return 0
-    # -e: the Lua marker starts with "--", which grep would read as an option.
+    # -e: defensive — a marker starting with a dash would read as an option
+    # (today's markers start with "#" and "  //").
     grep -qxF -e "$begin" "$file" || return 0
     tmp="$(mktemp)"
     awk -v b="$begin" -v e="$end" '

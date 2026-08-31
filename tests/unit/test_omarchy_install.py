@@ -1363,7 +1363,7 @@ def test_overlay_never_uses_the_dead_hyprctl_forms() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The Firefox policy — the overlay's one write outside $HOME
+# The Firefox policy — one of the overlay's two writes outside $HOME
 # ---------------------------------------------------------------------------
 
 
