@@ -344,6 +344,21 @@ def test_merge_user_js_preserves_crlf_line_endings(tmp_path: Path) -> None:
     assert b"\r\n" in user_js.read_bytes() and b"\n\n" not in user_js.read_bytes()
 
 
+def test_merge_user_js_round_trips_non_utf8_bytes(tmp_path: Path) -> None:
+    """A user-edited line with a latin-1 comment must neither crash the merge
+    (an unhandled UnicodeDecodeError used to kill theming for the profile)
+    nor be rewritten: surrogateescape round-trips the bytes exactly."""
+    user_js = tmp_path / "user.js"
+    user_js.write_bytes(b'// caf\xe9 config\nuser_pref("keep.me", 1);\n')
+    assert ft.merge_user_js(user_js, {"ui.systemUsesDarkTheme": 1}) is True
+    assert user_js.read_bytes() == (
+        b'// caf\xe9 config\nuser_pref("keep.me", 1);\nuser_pref("ui.systemUsesDarkTheme", 1);\n'
+    )
+    assert ft.merge_user_js(user_js, {"ui.systemUsesDarkTheme": 1}) is False
+    # The --status path reads the same file and must not crash either.
+    assert ft._pref_key_present(user_js, "keep.me") is True
+
+
 # ---------------------------------------------------------------------------
 # apply + main: the rendered file into the profiles
 # ---------------------------------------------------------------------------

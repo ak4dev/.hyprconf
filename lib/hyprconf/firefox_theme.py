@@ -189,10 +189,12 @@ def merge_user_js(path: Path, prefs: dict[str, object]) -> bool:
 
     A managed pref already present is rewritten in place, its inline comment
     kept; later duplicates go; prefs not yet there are appended. The file's
-    own line ending (LF or CRLF) is preserved. Returns True when the file
-    changed.
+    own line ending (LF or CRLF) is preserved, and so are non-UTF-8 bytes in
+    lines this does not manage (surrogateescape round-trips them exactly —
+    a user.js with a latin-1 comment must not kill theming). Returns True
+    when the file changed.
     """
-    raw = _read_raw(path) if path.exists() else ""
+    raw = _read_raw(path, "surrogateescape") if path.exists() else ""
     newline = "\r\n" if "\r\n" in raw else "\n"
     pending = dict(prefs)
     kept: list[str] = []
@@ -204,7 +206,9 @@ def merge_user_js(path: Path, prefs: dict[str, object]) -> bool:
         elif key in pending:
             kept.append(format_pref(key, pending.pop(key)) + (m.group("tail") or ""))
     kept.extend(format_pref(k, v) for k, v in pending.items())
-    return _write_if_changed(path, (newline.join(kept) + newline).encode("utf-8"))
+    return _write_if_changed(
+        path, (newline.join(kept) + newline).encode("utf-8", "surrogateescape")
+    )
 
 
 def apply(profile: Path, css: bytes) -> bool:
@@ -246,7 +250,8 @@ def _pref_value(path: Path, key: str) -> str | None:
 
 
 def _pref_key_present(path: Path, key: str) -> bool:
-    return path.exists() and any(_pref_key(line) == key for line in _read_raw(path).splitlines())
+    raw = _read_raw(path, errors="replace") if path.exists() else ""
+    return any(_pref_key(line) == key for line in raw.splitlines())
 
 
 def status(home: Path) -> int:
