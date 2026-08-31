@@ -11,8 +11,9 @@ set -euo pipefail
 #   --minor         Bump the minor component
 #   --major         Bump the major component
 #   --skip-bump     Skip automatic version bump (version must be pre-bumped manually)
-#   --skip-tests    Skip the lint gates and test suite (only for nested test-harness
-#                   calls — they must still pass before any real publish)
+#   --skip-tests    Skip the lint gates and test suite (for the integration
+#                   suite's own runs of this script — every real publish must
+#                   still pass them)
 #   --skip-tag      Skip annotated release-tag creation
 #   --dry-run       Run every gate and resolve the tag, but push no branches/tags
 #

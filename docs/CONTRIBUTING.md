@@ -106,14 +106,14 @@ make fmt                 # ruff format + safe fixes
 make clean
 ```
 
-Python deps for the suite: `python-pytest`, `python-pytest-xdist` (official
-repos). `jq`, `shellcheck`, `luac` and `qmllint` are used real by the tests
-that need them and skipped when absent; `git` is required — CI installs `git`,
-`jq`, `shellcheck`, `lua` and `qt6-declarative` (`qmllint`, under `/usr/lib/qt6/bin`) so none of
-those skip there, plus `diffutils` for the `cmp` `install.sh` runs (Omarchy has
-it through mkinitcpio; the bare `archlinux:latest` container does not). The one
-test that skips in CI, and the recipe that reproduces CI, are in `AGENTS.md` ›
-Gates and CI.
+The gates need `ruff`, `shellcheck`, `python-pytest` and `python-pytest-xdist`
+— official repos, the same Arch packages CI installs, so the versions match:
+`omarchy pkg add ruff shellcheck python-pytest python-pytest-xdist`. `jq`,
+`luac` and `qmllint` are used real by the tests that need them and skipped
+when absent; `git` is required. CI's own package list, with the reason each
+entry is there, lives in `.github/workflows/test.yml`; the one test that
+skips in CI, and the recipe for reproducing a container-only failure, are in
+`AGENTS.md` › Gates and CI.
 
 ### Writing hermetic tests
 
@@ -159,8 +159,8 @@ Gates and CI.
 both inside `archlinux:latest` as root, in a runner-owned workspace with no
 git-trust step: **Lint** (`make shellcheck` + `make lint`) and **Unit +
 Integration** (`make test`, the target `scripts/publish` gates on). Both must
-be green before a publish; the container recipe that reproduces them is in
-`AGENTS.md` › Gates and CI.
+be green before a publish; the recipe for reproducing a container-only
+failure is in `AGENTS.md` › Gates and CI.
 
 ---
 
@@ -170,8 +170,6 @@ be green before a publish; the container recipe that reproduces them is in
 |--------|---------|
 | `dev` | All active development |
 | `stable` | What users clone; written only by `scripts/publish` |
-
-No other branch exists: the former `omarchy` branch is retired.
 
 ## Publishing to stable
 
