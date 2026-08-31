@@ -38,21 +38,17 @@ end
 rebind(mainMod .. " + T", "Terminal", { omarchy = "terminal" })
 rebind(mainMod .. " + Q", "Close window", hl.dsp.window.close())
 -- Omarchy's logout: its OSD, a real close request to every window, `uwsm stop`.
-hl.unbind(mainMod .. " + SHIFT + Q")
-o.bind(mainMod .. " + SHIFT + Q", "Log out", "omarchy-system-logout")
+rebind(mainMod .. " + SHIFT + Q", "Log out", "omarchy-system-logout")
 rebind(mainMod .. " + E", "File manager", { omarchy = "nautilus" })
 rebind(mainMod .. " + V", "Toggle window floating", hl.dsp.window.float({ action = "toggle" }))
 rebind(mainMod .. " + F", "Browser", { omarchy = "browser" })
 rebind(mainMod .. " + C", "Editor", { omarchy = "editor" })
 -- Monitor presets (bin/hyprconf-monitor-preset).
-hl.unbind(mainMod .. " + SHIFT + B")
-hl.unbind(mainMod .. " + SHIFT + K")
-o.bind(mainMod .. " + SHIFT + B", "Monitor preset: bedroom", "hyprconf-monitor-preset bedroom")
-o.bind(mainMod .. " + SHIFT + K", "Monitor preset: kitchen", "hyprconf-monitor-preset kitchen")
+rebind(mainMod .. " + SHIFT + B", "Monitor preset: bedroom", "hyprconf-monitor-preset bedroom")
+rebind(mainMod .. " + SHIFT + K", "Monitor preset: kitchen", "hyprconf-monitor-preset kitchen")
 
 -- SUPER+D: Omarchy's own menu (its menu key is SUPER+SPACE; it binds nothing here).
-hl.unbind(mainMod .. " + D")
-o.bind(mainMod .. " + D", "Omarchy menu", "omarchy-menu toggle")
+rebind(mainMod .. " + D", "Omarchy menu", "omarchy-menu toggle")
 
 -- SUPER+arrows (focus), SUPER+P (pseudo), SUPER+scroll (workspace scroll)
 -- and SUPER+LMB/RMB drag (move/resize) are Omarchy's own binds already
@@ -137,28 +133,24 @@ rebind(mainMod .. " + SHIFT + M", "Move window to magic scratchpad", hl.dsp.wind
 
 -- Clipboard history: Omarchy's overlay. NOT omarchy-clipboard-open — that is
 -- the hidden --history-index callback, which run bare exits 1 silently.
-hl.unbind(mainMod .. " + SHIFT + V")
-o.bind(mainMod .. " + SHIFT + V", "Clipboard history", "omarchy-menu-clipboard")
+rebind(mainMod .. " + SHIFT + V", "Clipboard history", "omarchy-menu-clipboard")
 
 -- Screenshots through Omarchy's own capture (frozen pick, click-to-edit, no
 -- software cursor in the frame, a second press cancels). The keycode unbind
 -- is load-bearing: Omarchy's move-to-workspace-4 is SUPER+SHIFT+code:13, and
 -- without it the shot was of workspace 4.
 unbind_keycode(mainMod .. " + SHIFT", "4")
-hl.unbind(mainMod .. " + SHIFT + 4")
-o.bind(mainMod .. " + SHIFT + 4", "Screenshot region", "omarchy-capture-screenshot region")
+rebind(mainMod .. " + SHIFT + 4", "Screenshot region", "omarchy-capture-screenshot region")
 
 -- Screen lock through Omarchy's own (a Quickshell session lock reachable only
 -- over IPC; `loginctl lock-session` only sets LockedHint here). SUPER+L
 -- displaces Omarchy's "Toggle workspace layout", still available as
 -- omarchy-hyprland-workspace-layout-toggle.
-hl.unbind(mainMod .. " + L")
-o.bind(mainMod .. " + L",              "Lock system", "omarchy-system-lock")
+rebind(mainMod .. " + L",              "Lock system", "omarchy-system-lock")
 o.bind(mainMod .. " + SHIFT + Escape", "Lock system", "omarchy-system-lock")
 
 -- Toggle the built-in laptop display through Omarchy's own command (refuses
 -- to disable the only active display, persists as a toggle flag, has a
 -- `recover` path). Displaces Omarchy's "Toggle window gaps", still available
 -- as `omarchy hyprland window gaps toggle`.
-hl.unbind(mainMod .. " + SHIFT + BACKSPACE")
-o.bind(mainMod .. " + SHIFT + BACKSPACE", "Toggle laptop display", "omarchy-hyprland-monitor-internal toggle")
+rebind(mainMod .. " + SHIFT + BACKSPACE", "Toggle laptop display", "omarchy-hyprland-monitor-internal toggle")
