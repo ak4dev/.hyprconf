@@ -1006,6 +1006,16 @@ def test_sync_runs_omarchy_update_and_never_pacman(tmp_path: Path) -> None:
     assert not any(c.startswith("pacman") for c in calls)
 
 
+def test_no_update_beats_sync_in_either_order(tmp_path: Path) -> None:
+    """--no-update documents "never invoke omarchy-update": --sync sets the
+    update flag, so a last-wins option loop would let `--no-update --sync`
+    update anyway. The latch must win regardless of order."""
+    for order in (("--no-update", "--sync"), ("--sync", "--no-update")):
+        env = _setup(tmp_path / order[0].strip("-"))
+        _run(env, *order)
+        assert not any(c.startswith("omarchy-update") for c in _calls(env)), order
+
+
 def _real_repo(tmp_path: Path, *, rebase: bool) -> Path:
     """An upstream and a clone of it, with git configured the way the reader's
     box is. Returns the clone."""
@@ -1171,10 +1181,17 @@ def test_hooks_are_installed_through_omarchy_hook_install(tmp_path: Path) -> Non
 
 def test_hooks_fall_back_to_a_plain_copy_without_omarchy_hook_install(tmp_path: Path) -> None:
     """The same three steps by hand only when Omarchy has no installer
-    command — the hooks must land either way, byte for byte the same."""
+    command — the hooks must land either way, byte for byte the same.
+
+    Absent via the _HYPRCONF_HOOK_INSTALL name seam, not by unlinking the
+    stub: /usr/bin/omarchy-hook-install is real on every Omarchy dev box, so
+    an unlinked stub would quietly hand this test to the genuine installer
+    branch (the omarchy-pkg-add-absent trap all over again) and the fallback
+    would only ever run in CI's bare container."""
     env = _setup(tmp_path)
-    (env["bins"] / "omarchy-hook-install").unlink()
-    proc = _run(env, "--no-update")
+    proc = _run(
+        env, "--no-update", extra_env={"_HYPRCONF_HOOK_INSTALL": "omarchy-hook-install-absent"}
+    )
     assert proc.returncode == 0, proc.stderr
     hooks = env["home"] / ".config" / "omarchy" / "hooks"
     for name in ("post-update", "theme-set"):
@@ -1749,6 +1766,28 @@ def test_defaults_marker_waits_for_a_successful_seed(tmp_path: Path) -> None:
     _run(env, "--no-update")
     assert any(c.startswith("omarchy-default-browser firefox") for c in _calls(env))
     assert (env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied").exists()
+
+
+def test_fastfetch_config_is_linked_with_a_stock_backup(tmp_path: Path) -> None:
+    """README: 'Symlink (an existing file backed up to config.jsonc.stock)'.
+    A user's real config.jsonc must land in the backup byte-for-byte before
+    the link replaces it — the one stage that had no pin."""
+    env = _setup(tmp_path)
+    target = env["home"] / ".config" / "fastfetch" / "config.jsonc"
+    target.parent.mkdir(parents=True)
+    target.write_text('{"user": "layout"}\n')
+    _run(env, "--no-update")
+    assert target.is_symlink()
+    assert target.resolve() == (REPO_ROOT / "fastfetch" / "config.jsonc").resolve()
+    assert (target.parent / "config.jsonc.stock").read_text() == '{"user": "layout"}\n'
+
+
+def test_fastfetch_link_without_existing_config_makes_no_backup(tmp_path: Path) -> None:
+    env = _setup(tmp_path)
+    _run(env, "--no-update")
+    target = env["home"] / ".config" / "fastfetch" / "config.jsonc"
+    assert target.is_symlink()
+    assert not (target.parent / "config.jsonc.stock").exists()
 
 
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:

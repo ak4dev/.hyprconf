@@ -83,6 +83,7 @@ def _run_stats(
     route_line: str | None = None,
     iterations: int = 2,
     hwmon_root: Path | None = None,
+    ip_body: str | None = None,
 ) -> list[dict]:
     """Run hyprconf-stats hermetically for N samples and parse its JSON lines.
 
@@ -96,7 +97,11 @@ def _run_stats(
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     ip = "#!/usr/bin/env bash\n"
-    if route_dev is not None:
+    if ip_body is not None:
+        # A scripted fake for tests that mutate the tree between ticks
+        # (interface switches, vanishing sensors); replaces the default body.
+        ip += ip_body
+    elif route_dev is not None:
         stats = net_root / route_dev / "statistics"
         route_line = route_line or f"default via 192.168.1.1 dev {route_dev} proto dhcp"
         ip += (
@@ -162,6 +167,28 @@ class TestStatsScript:
         payload = _run_stats(tmp_path, net, route_dev=None, iterations=1)[0]
         assert (payload["down"], payload["up"]) == ("0B/s", "0B/s")
 
+    def test_interface_switch_rebases_the_rate_baseline(self, tmp_path: Path) -> None:
+        """Ethernet coming up while Wi-Fi held the route: the first eth0
+        sample would diff eth0's lifetime counter against wlan0's baseline
+        (an absurd one-tick spike, hundreds of GB/s on a real box) unless the
+        baseline is rebased to the new interface — that tick must read 0B/s."""
+        net = _fake_net(tmp_path, wired_up=False)
+        calls = tmp_path / "ip-calls"
+        ip_body = (
+            f'c=0; [[ -r {calls} ]] && read -r c < "{calls}"; c=$((c + 1)); echo $c > "{calls}"\n'
+            f'read -r n < "{net}/wlan0/statistics/rx_bytes" && echo $((n + 5000)) > "{net}/wlan0/statistics/rx_bytes"\n'
+            f'read -r n < "{net}/wlan0/statistics/tx_bytes" && echo $((n + 1000)) > "{net}/wlan0/statistics/tx_bytes"\n'
+            f"if (( c == 2 )); then\n"
+            f'    echo 800000000000 > "{net}/eth0/statistics/rx_bytes"\n'
+            f'    echo 900000000000 > "{net}/eth0/statistics/tx_bytes"\n'
+            f'    echo up > "{net}/eth0/operstate"\n'
+            f"fi\n"
+            'echo "default via 192.168.1.1 dev wlan0 proto dhcp"\n'
+        )
+        lines = _run_stats(tmp_path, net, iterations=2, ip_body=ip_body)
+        assert (lines[0]["down"], lines[0]["up"]) == ("5.0kB/s", "1.0kB/s")  # wlan0, steady
+        assert (lines[1]["down"], lines[1]["up"]) == ("0B/s", "0B/s")  # eth0's first tick
+
     def test_vpn_tunnel_default_route_without_gateway(self, tmp_path: Path) -> None:
         """WireGuard/OpenVPN default routes have no gateway hop — `ip route
         show default` prints `default dev wg0 scope link`, not `default via
@@ -214,6 +241,22 @@ class TestStatsCpuTemp:
 
     def test_no_hwmon_tree_hides_module(self, tmp_path: Path) -> None:
         assert self._temp(tmp_path, []) == ""
+
+    def test_sensor_vanishing_mid_stream_blanks_the_cell_and_survives(self, tmp_path: Path) -> None:
+        """The stated reason hyprconf-stats shuns `set -e`: a sensor that
+        vanishes between ticks must blank its cell, never kill the sampler."""
+        hwmon = _fake_hwmon(tmp_path, [("Tctl", "54300")])
+        gone = hwmon / "hwmon0" / "temp1_input"
+        net = _fake_net(tmp_path, wired_up=False)
+        calls = tmp_path / "ip-calls"
+        ip_body = (
+            f'c=0; [[ -r {calls} ]] && read -r c < "{calls}"; c=$((c + 1)); echo $c > "{calls}"\n'
+            f'if (( c == 3 )); then rm -f "{gone}"; fi\n'
+            'echo "default via 192.168.1.1 dev wlan0 proto dhcp"\n'
+        )
+        lines = _run_stats(tmp_path, net, iterations=2, hwmon_root=hwmon, ip_body=ip_body)
+        assert lines[0]["temp"] == "54°"
+        assert lines[1]["temp"] == ""
 
 
 # ---------------------------------------------------------------------------
@@ -570,6 +613,51 @@ class TestGpuInfoScript:
             "Panther Lake [Intel Graphics] (GPU 0) | Util 100% | Temp 47° "
             "| VRAM shared | Freq 1200MHz"
         )
+
+    def test_amd_counter_vanishing_mid_stream_dies_into_the_widget_restart(
+        self, tmp_path: Path
+    ) -> None:
+        """An emptied gpu_busy_percent kills the stream after the lines it
+        already emitted (an unguarded `read` under set -e): the widget's
+        documented restart-and-reprobe self-heal, pinned so a refactor cannot
+        silently turn a vanished card into a lie that streams on."""
+        drm = tmp_path / "drm"
+        card = self._amd_card(drm, 1, busy="42", used=100, total=8 * 1024**3)
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        _write_exe(
+            bin_dir / "sleep",
+            f'#!/usr/bin/env bash\n: > "{card}/gpu_busy_percent"\ncommand -p sleep "$@"\n',
+        )
+        r = self._run(tmp_path, nvidia=False, drm_root=drm, env={"HYPRCONF_GPU_ITERATIONS": "5"})
+        assert r.returncode == 1
+        assert len(r.stdout.strip().splitlines()) == 1
+
+    def test_intel_gt_vanishing_mid_stream_reads_idle_not_pegged(self, tmp_path: Path) -> None:
+        """No data must read as idle: a vanished xe residency counter once
+        computed a zero idle-delta — a gone GPU pegged at 100% forever, with
+        the stream alive so the widget's restart self-heal never ran."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0)
+        idle = self._idle_file(drm, 0)
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        calls = tmp_path / "sleep-calls"
+        _write_exe(
+            bin_dir / "sleep",
+            f'#!/usr/bin/env bash\nc=0; [[ -r {calls} ]] && read -r c < "{calls}"; c=$((c + 1)); echo $c > "{calls}"\n'
+            f'if (( c == 2 )); then rm -f "{idle}"; fi\ncommand -p sleep "$@"\n',
+        )
+        r = self._run(
+            tmp_path,
+            nvidia=False,
+            drm_root=drm,
+            env={
+                "HYPRCONF_GPU_INTERVAL": "0.2",
+                "HYPRCONF_GPU_PCI_IDS": str(self._pci_ids(tmp_path)),
+            },
+        )
+        assert [ln["util"] for ln in self._lines(r)] == [100, 0]
 
     def test_intel_busy_gt_never_idles(self, tmp_path: Path) -> None:
         """A residency counter that does not advance means the GT spent none

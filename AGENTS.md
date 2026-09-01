@@ -5,7 +5,7 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 ## What hyprconf is
 
 - A lean overlay on a stock [Omarchy](https://omarchy.org): `install.sh` plus the payload it ships, nothing else. Omarchy owns packages, session, shell, theme engine, idle/lock and bar; hyprconf layers one person's preferences on top through Omarchy's own seams (map below) and disturbs the install as little as possible. `install.sh` is the only entry point — run with no payload beside it (the curl path) it clones `stable` and hands over; nothing is packaged, the promoted branch is the release.
-- Verified against Omarchy 4.0.1-1 (Hyprland 0.56.2, quickshell 0.3.1 — Arch's package, renamed off `-git`; uwsm 0.26.7, Bash 5.3). This line is the pin: a version named inside a code comment or a test is that fact's own provenance and stays as written.
+- Verified against Omarchy 4.0.2-1 (Hyprland 0.56.2, quickshell 0.3.1 — Arch's package, renamed off `-git`; uwsm 0.26.7, Bash 5.3). This line is the pin: a version named inside a code comment or a test is that fact's own provenance and stays as written.
 - Posture: a personal config shared as-is — not a product, no support obligation. No `LICENSE`, deliberately: default copyright applies and that is the intent — do not add one. Favour deleting over adding: every line ships into a user's `$HOME`.
 - Gone for good, never rebuilt: the TUI, the standalone dotfiles/ISO suite, the 68-theme engine, the release tarball, and any deploy tooling or web app. `web/` is one static `index.html` (+ `favicon.svg`): no build, no JS, no external requests.
 
@@ -96,7 +96,7 @@ docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
    cp -r /src /repo && chown 1001:1001 /repo && cd /repo && make lint shellcheck test'
 ```
 
-## Known quirks (Omarchy 4.0.1-1, Hyprland 0.56.2, Firefox 154.0-1, Bash 5.3 — re-verify on upgrade)
+## Known quirks (Omarchy 4.0.2-1, Hyprland 0.56.2, Firefox 154.0-1, Bash 5.3 — re-verify on upgrade)
 
 - `hyprctl keyword` is a no-op — prints "keyword can't work with non-legacy parsers. Use eval." and exits 0 — and `dispatch dpms on` errors under the Lua parser: use `hyprctl eval` (exit 7 on error) and `hyprctl dispatch 'hl.dsp.…({ … })'` (forms in `docs/hyprland-reference.md` › Runtime).
 - Omarchy binds digits and `-`/`=` by keycode (`SUPER + SHIFT + code:20`, `default/hypr/bindings/tiling.lua`), which `hl.unbind` of the keysym does not match — both fire; `unbind_keycode()` in `bindings.lua` is load-bearing.

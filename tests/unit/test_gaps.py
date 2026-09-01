@@ -62,7 +62,7 @@ def _gap_json(option: str, value: int, *, field: str = "css") -> str:
 
 def _run(
     tmp_path: Path,
-    direction: str,
+    direction: str | None,
     *,
     json_in: str,
     json_out: str,
@@ -79,8 +79,9 @@ def _run(
     # The fake first, then only /usr/bin and /bin (jq lives there) — never the
     # host's PATH, where /usr/share/omarchy/bin would answer.
     env = {"PATH": f"{fake_dir}:/usr/bin:/bin", "HOME": str(tmp_path)}
+    args = [direction] if direction is not None else []  # None: the bare, zero-argument run
     proc = subprocess.run(
-        ["bash", str(SCRIPT), direction], env=env, capture_output=True, text=True, timeout=30
+        ["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=30
     )
     calls = calls_file.read_text().splitlines() if calls_file.exists() else []
     return proc, [c.strip() for c in calls if c.strip()]
@@ -186,3 +187,17 @@ def test_usage_on_bad_direction(tmp_path: Path) -> None:
     assert proc.returncode == 1
     assert "Usage" in proc.stderr
     assert calls == []
+
+
+def test_bare_run_is_a_usage_error_and_touches_nothing(tmp_path: Path) -> None:
+    """No argument must never default to `+`: a user typing the bare command
+    to learn its shape was silently widening their gaps."""
+    proc, evals = _run(
+        tmp_path,
+        None,
+        json_in=_gap_json("general:gaps_in", 4),
+        json_out=_gap_json("general:gaps_out", 8),
+    )
+    assert proc.returncode == 1
+    assert "Usage:" in proc.stderr
+    assert evals == []

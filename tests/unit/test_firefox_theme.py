@@ -239,8 +239,9 @@ def test_theme_prefs_follow_the_mode() -> None:
     dark = ft.theme_prefs("dark")
     light = ft.theme_prefs("light")
     assert dark["toolkit.legacyUserProfileCustomizations.stylesheets"] is True
-    # The variables only apply under a lightweight theme: the built-in one is
-    # activated, dark or light to match the palette.
+    # activeThemeID forces the light/dark colour scheme — on FF 154 the
+    # built-in ids are inApp, so it never unlocks the --lwt-* block; the
+    # template's direct selectors paint (AGENTS.md › Known quirks).
     assert dark["extensions.activeThemeID"] == "firefox-compact-dark@mozilla.org"
     assert light["extensions.activeThemeID"] == "firefox-compact-light@mozilla.org"
     assert dark["ui.systemUsesDarkTheme"] == 1 and light["ui.systemUsesDarkTheme"] == 0
@@ -342,6 +343,14 @@ def test_merge_user_js_preserves_crlf_line_endings(tmp_path: Path) -> None:
     # And a second run is a byte-for-byte no-op, CRLF included.
     assert ft.merge_user_js(user_js, {"ui.systemUsesDarkTheme": 1, "x.y": True}) is False
     assert b"\r\n" in user_js.read_bytes() and b"\n\n" not in user_js.read_bytes()
+
+
+def test_non_utf8_profiles_ini_yields_no_profiles_instead_of_crashing(tmp_path: Path) -> None:
+    """A latin-1 profile Name is not a configparser.Error: uncaught, the
+    UnicodeDecodeError killed theming for every browser and --status with it."""
+    ini = tmp_path / "profiles.ini"
+    ini.write_bytes(b"[Profile0]\nName=caf\xe9\nPath=p0\nDefault=1\n")
+    assert ft.default_profiles(ini) == []
 
 
 def test_merge_user_js_round_trips_non_utf8_bytes(tmp_path: Path) -> None:

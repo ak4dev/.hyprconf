@@ -146,9 +146,23 @@ if [[ "$SKIP_BUMP" == false ]]; then
   # A previous publish that died after its bump commit (a failed stable or tag
   # push) leaves HEAD as an already-released version with a clean tree, so
   # every pre-flight above passes and a naive rerun would bump AGAIN —
-  # stranding the first tag and leaving a version gap on stable.
+  # stranding the first tag and leaving a version gap on stable. But HEAD
+  # being the release commit is ALSO the normal state after every successful
+  # publish: tell the two apart (tag at HEAD and origin/stable here → done),
+  # and let --dry-run — documented as pushing nothing — validate the flow
+  # from either state with its scratch bump.
   if [[ "$(git log -1 --pretty=%s)" == "release: [v$(_read_version)] bump version" ]]; then
-    die "HEAD is already the v$(_read_version) release commit (a previous publish failed mid-way) — rerun with --skip-bump to resume the promotion."
+    if [[ "$DRY_RUN" == true ]]; then
+      warn "HEAD is already the v$(_read_version) release commit — dry-run continues with a scratch bump"
+    else
+      git fetch origin "$STABLE_BRANCH" --quiet 2>/dev/null || true
+      if git rev-parse -q --verify "refs/tags/v$(_read_version)" >/dev/null \
+          && _tag_points_at_head "v$(_read_version)" \
+          && [[ "$(git rev-parse -q --verify "origin/${STABLE_BRANCH}" 2>/dev/null || echo none)" == "$(git rev-parse HEAD)" ]]; then
+        die "HEAD is the released v$(_read_version) — the tag and origin/${STABLE_BRANCH} are both here; nothing new to publish."
+      fi
+      die "HEAD is already the v$(_read_version) release commit (a previous publish failed mid-way) — rerun with --skip-bump to resume the promotion."
+    fi
   fi
   step "Bumping ${BUMP_TYPE} version (suite is green)"
   version="$(_bump_version "$BUMP_TYPE")"

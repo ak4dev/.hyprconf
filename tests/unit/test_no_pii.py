@@ -71,10 +71,12 @@ GENERIC_ACCOUNTS = frozenset(
     }
 )
 
-# Binary or vendored payloads: scanning them proves nothing and decoding them
-# is noise.
+# Binary payloads: scanning them proves nothing and decoding them is noise.
+# .svg is deliberately NOT here — the repo's SVGs are authored UTF-8 text,
+# and tool-exported SVG is exactly where an editor embeds absolute
+# /home/<user> paths (Inkscape's sodipodi:docname, export-filename).
 SKIP_SUFFIXES = frozenset(
-    {".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".ttf", ".otf", ".woff", ".woff2", ".pyc"}
+    {".png", ".jpg", ".jpeg", ".gif", ".ico", ".ttf", ".otf", ".woff", ".woff2", ".pyc"}
 )
 
 
@@ -82,6 +84,12 @@ SKIP_SUFFIXES = frozenset(
 # tool caches. Everything else in the tree is scanned — including a stray
 # scratch file, which is the moment to catch it, before it is ever added.
 SKIP_DIRS = frozenset({".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".vscode"})
+
+# The two gitignored Claude Code local-state files (see .gitignore): tool-
+# managed, never committed, and settings.local.json carries absolute
+# /home/<user> paths by design — one "don't ask again" click must not turn a
+# hard gate red. The tracked .claude/settings.json stays scanned.
+SKIP_FILES = frozenset({".claude/settings.local.json", ".claude/RESUME.md"})
 
 
 def _repo_files() -> list[Path]:
@@ -93,7 +101,10 @@ def _repo_files() -> list[Path]:
     """
     out: list[Path] = []
     for path in sorted(REPO_ROOT.rglob("*")):
-        if any(part in SKIP_DIRS for part in path.relative_to(REPO_ROOT).parts):
+        rel = path.relative_to(REPO_ROOT)
+        if any(part in SKIP_DIRS for part in rel.parts):
+            continue
+        if str(rel) in SKIP_FILES:
             continue
         if path.is_file() and not path.is_symlink():
             out.append(path)

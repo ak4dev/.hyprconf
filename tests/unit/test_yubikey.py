@@ -28,6 +28,12 @@ Verifies:
   hook set did not change
 - the drop-in REALLY rewrites Omarchy's exact HOOKS array when sourced by bash
 - disable removes both drop-ins; remove wipes only the fido2 slot
+- the verified-rebuild fingerprint: a disable after a failed enroll verifies
+  against the stock image, a retried enroll still refuses a stale one; the
+  cmdline drop-in is written before the hooks drop-in (the inert
+  intermediate); an empty lsblk FSVER survives the field round trip; the
+  UUID-less rd.luks.options global form is not "legacy"; and the interactive
+  prompts (confirm, the device menu, its bounds) via _HYPRCONF_ASSUME_TTY
 - status/help/sudo, and the restraint scans (no password slot, no AUR, no set
   -e, no .bak)
 
@@ -295,7 +301,12 @@ class Box:
     def reset_calls(self) -> None:
         self.calls_file.unlink(missing_ok=True)
 
-    def run(self, *args: str) -> subprocess.CompletedProcess:
+    def run(
+        self, *args: str, stdin_text: str | None = None, assume_tty: bool = False
+    ) -> subprocess.CompletedProcess:
+        """assume_tty reaches the prompts through the _HYPRCONF_ASSUME_TTY
+        seam; stdin_text feeds their reads (default: closed stdin, so the
+        --yes/TTY refusals stay exercised on every other run)."""
         env = {
             **os.environ,
             "PATH": f"{self.bins}:{os.environ['PATH']}",
@@ -318,14 +329,18 @@ class Box:
             "FAKE_SNAPSHOT_RC": str(self.snapshot_rc),
             "FAKE_LIMINE_UPDATE": self.limine_update,
             "FAKE_BOOT_IMAGES": "\n".join(str(p) for p in self.boot_images),
+            "_HYPRCONF_ASSUME_TTY": "1" if assume_tty else "",
         }
+        stdin_opt: dict = (
+            {"input": stdin_text} if stdin_text is not None else {"stdin": subprocess.DEVNULL}
+        )
         return subprocess.run(
             ["bash", str(TOOL), *args],
             capture_output=True,
             text=True,
             env=env,
-            stdin=subprocess.DEVNULL,
             timeout=60,
+            **stdin_opt,
         )
 
 
@@ -1198,3 +1213,125 @@ def test_sudo_subcommand_execs_omarchy_script(box: Box) -> None:
     assert res.returncode == 0, res.stderr
     assert "OMARCHY FIDO2 SETUP" in res.stdout
     assert box.calls() == ["omarchy-setup-security-fido2"]
+
+
+# ---------------------------------------------------------------------------
+# The audit pins: verified-rebuild fingerprints, field round-trips, write
+# order, the UUID-less non-legacy shape, and the interactive paths
+# ---------------------------------------------------------------------------
+
+
+def test_disable_after_a_failed_enroll_rebuild_verifies_against_stock(box: Box) -> None:
+    """An enroll whose rebuild failed leaves both drop-ins; disable then
+    reverts them, and the pre-enroll image on the ESP — byte-identical, not
+    rewritten — is the CORRECT one. A this-run changed flag called that a
+    failure; the recorded-fingerprint check accepts it against stock."""
+    box.limine_update = "fail"
+    assert box.run("enroll", "--yes", "--device", DEV).returncode == 1
+    assert box.dropin.exists() and box.limine_dropin.exists()
+    box.write_stale_image()  # the ESP still holds the pre-enroll image
+    box.limine_update = "stale"  # reproducible build: identical, not rewritten
+    res = box.run("disable", "--yes")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "unchanged (identical image" in res.stdout
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
+
+
+def test_a_retried_enroll_still_refuses_a_stale_image(box: Box) -> None:
+    """On the retry the drop-ins are already in place, so a this-run flag
+    read 'nothing changed' and blessed the pre-enroll image silently. The
+    hook set differs from the last VERIFIED rebuild: refuse."""
+    box.limine_update = "fail"
+    assert box.run("enroll", "--yes", "--device", DEV).returncode == 1
+    box.write_stale_image()
+    box.limine_update = "stale"
+    res = box.run("enroll", "--yes", "--device", DEV)
+    assert res.returncode == 1
+    assert "changed since the last verified rebuild" in res.stderr
+
+
+def test_enroll_rerun_on_a_box_without_the_record_accepts_and_records(box: Box) -> None:
+    """A box enrolled by a release that never wrote the believed-ESP record:
+    drop-ins in place, correct image, no .verified file. The documented
+    idempotent re-run must accept the identical unrewritten image (and start
+    the record), never die 'changed since the last verified rebuild'."""
+    assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
+    state = box.mkinitcpio_d / f".{DROPIN_NAME}.verified"
+    assert state.exists()
+    state.unlink()  # what a prior-release enroll left behind
+    box.write_stale_image()
+    box.limine_update = "stale"
+    res = box.run("enroll", "--yes", "--device", DEV)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "no verified-rebuild record — accepting" in res.stdout
+    assert state.exists()  # recorded, so the check is armed from here on
+
+
+def test_disable_removes_the_verified_record(box: Box) -> None:
+    """Reverting to stock leaves no residue under /etc: both drop-ins AND
+    the believed-ESP record go."""
+    assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
+    state = box.mkinitcpio_d / f".{DROPIN_NAME}.verified"
+    assert state.exists()
+    assert box.run("disable", "--yes").returncode == 0
+    assert not state.exists()
+
+
+def test_empty_fsver_luks_row_reads_as_unknown_version(box: Box) -> None:
+    """lsblk leaves FSVER empty when blkid cannot tell. The empty field must
+    survive the awk-to-read round trip — whitespace-delimited it collapsed,
+    and the UUID became the 'version' in every diagnostic."""
+    box.lsblk = LSBLK_STOCK + f"/dev/sdd crypto_LUKS  {UUID2}\n"
+    res = box.run("enroll", "--yes", "--device", "/dev/sdd")
+    assert res.returncode == 1
+    assert "is LUKS? — systemd-cryptenroll needs LUKS2" in res.stderr
+
+
+def test_enroll_writes_the_cmdline_dropin_before_the_hooks_dropin(box: Box) -> None:
+    """The inert intermediate state must come first: rd.luks.* without the
+    systemd hooks is ignored by the busybox initramfs, but the hooks drop-in
+    without rd.luks.* turns the next kernel upgrade's rebuild into an
+    initramfs that cannot unlock the root."""
+    assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
+    if os.geteuid() == 0:
+        return  # run_root skips sudo under EUID 0 (CI): no records to order
+    calls = box.calls()
+    limine_i = next(i for i, c in enumerate(calls) if "tee" in c and str(box.limine_dropin) in c)
+    hooks_i = next(i for i, c in enumerate(calls) if "tee" in c and str(box.dropin) in c)
+    assert limine_i < hooks_i
+
+
+def test_uuid_less_global_fido2_options_are_not_legacy(box: Box) -> None:
+    """rd.luks.options=fido2-device=auto — systemd-cryptsetup-generator(8)'s
+    global form, plausibly hand-written — is not the UUID-prefixed 4.0.0 to
+    4.2.0 shape: cmdline_strip leaves it byte-identical, so calling it legacy
+    made every run print 'migrated' while migrating nothing, forever."""
+    line = f'KERNEL_CMDLINE[default]+="{CMDLINE} rd.luks.options=fido2-device=auto"'
+    box.set_limine_line(line)
+    res = box.run("status")
+    assert "no legacy inline parameters" in res.stdout
+    res = box.run("disable", "--yes")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "migrated" not in res.stdout
+    assert box.limine.read_text() == box.limine_file
+
+
+def test_interactive_confirm_n_aborts_untouched(box: Box) -> None:
+    res = box.run("enroll", "--device", DEV, assume_tty=True, stdin_text="n\n")
+    assert res.returncode == 1
+    assert "aborted — nothing changed" in res.stderr
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
+
+
+def test_interactive_menu_picks_the_numbered_device(box: Box) -> None:
+    box.lsblk = LSBLK_STOCK + f"/dev/sdd crypto_LUKS 2 {UUID2}\n"
+    res = box.run("enroll", assume_tty=True, stdin_text="2\ny\n")
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert UUID2 in box.limine_dropin.read_text()
+
+
+def test_interactive_menu_rejects_an_out_of_range_choice(box: Box) -> None:
+    box.lsblk = LSBLK_STOCK + f"/dev/sdd crypto_LUKS 2 {UUID2}\n"
+    res = box.run("enroll", assume_tty=True, stdin_text="9\n")
+    assert res.returncode == 1 and "invalid choice" in res.stderr
+    assert not box.dropin.exists()

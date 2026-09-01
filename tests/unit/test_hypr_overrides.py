@@ -141,3 +141,33 @@ def test_app_keys_use_omarchys_launcher_idiom() -> None:
     assert "omarchy-launch-" not in rest
     for binary in ('"firefox"', '"nautilus"', '"code"', '"kitty"', '"dolphin"'):
         assert binary not in rest, f"{binary} is an Omarchy default, not a keymap constant"
+
+
+def test_every_keycode_key_rebind_is_paired_with_its_unbind() -> None:
+    """Omarchy binds digits and -/= by KEYCODE (`SUPER + SHIFT + code:20`),
+    which `hl.unbind` of the keysym does not match — so a rebind of such a
+    key without its `unbind_keycode(mods, key)` leaves Omarchy's bind live
+    and both fire on every press (AGENTS › Known quirks calls the pairing
+    load-bearing; nothing pinned it). Parsed textually: one bind per line is
+    the file's own stated discipline."""
+    text = (REPO_ROOT / "hypr" / "bindings.lua").read_text(encoding="utf-8")
+    table = re.search(r"local KEYCODE = \{(.*?)\}", text, re.S)
+    assert table, "KEYCODE table not found in bindings.lua"
+    # Both spellings Lua allows: bracket-quoted digits and bare identifiers
+    # (minus/equal) — missing the bare ones silently skipped exactly the
+    # -/= rebinds this test exists for.
+    keys = set(re.findall(r'\["([a-z0-9]+)"\]\s*=\s*\d+', table.group(1)))
+    keys |= set(re.findall(r"\b([a-z]+)\s*=\s*\d+", table.group(1)))
+    assert {"1", "minus", "equal"} <= keys, f"KEYCODE parse incomplete: {sorted(keys)}"
+    checked = 0
+    for m in re.finditer(r'rebind\(mainMod \.\. " \+ ([^"]+)"', text):
+        tokens = m.group(1).split(" + ")
+        key = tokens[-1]
+        if key not in keys:
+            continue
+        mods = "mainMod" if len(tokens) == 1 else 'mainMod .. " + ' + " + ".join(tokens[:-1]) + '"'
+        expected = f'unbind_keycode({mods}, "{key}")'
+        assert expected in text, f"missing {expected} for rebind of {m.group(1)}"
+        assert text.index(expected) < m.start(), f"{expected} must come before its rebind"
+        checked += 1
+    assert checked >= 4, "the digit/-/= rebinds the pairing exists for were not found"

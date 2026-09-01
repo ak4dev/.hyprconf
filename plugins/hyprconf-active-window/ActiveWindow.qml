@@ -61,6 +61,7 @@ BarWidget {
       anchors.left: parent.left
       width: root.lineWidth
       text: root.title
+      textFormat: Text.PlainText
       color: root.bar ? root.bar.barForeground : Color.foreground
       font.family: root.bar ? root.bar.fontFamily : Style.font.family
       font.pixelSize: Style.font.caption

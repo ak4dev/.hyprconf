@@ -167,6 +167,18 @@ def test_stock_removes_the_toggle_and_reloads(tmp_path: Path) -> None:
     assert _calls(tmp_path).count("hyprctl reload") == 3
 
 
+def test_help_flags_print_usage_without_a_notification(tmp_path: Path) -> None:
+    """-h/--help fit the preset-name whitelist, so without their own branch
+    they fell through to log_die's critical desktop notification
+    ("Preset not found: pcMonitors.--help.lua")."""
+    cfg_src = _cfg(tmp_path)
+    for flag in ("-h", "--help"):
+        res = _run(tmp_path, cfg_src, flag)
+        assert res.returncode == 0, (flag, res.stderr)
+        assert "Usage:" in res.stderr and "Presets:" in res.stderr
+        assert not any(c.startswith("omarchy-notification-send") for c in _calls(tmp_path)), flag
+
+
 def test_preset_not_found_exits_nonzero_and_notifies(tmp_path: Path) -> None:
     """A missing preset fails, and the failure is a desktop notification —
     the hotkey path has no terminal to read stderr from."""

@@ -14,7 +14,7 @@ set -euo pipefail
 
 readonly STEP=2
 
-direction="${1:-+}"
+direction="${1:-}"
 
 if [[ "$direction" != "+" && "$direction" != "-" ]]; then
     printf 'Usage: %s <+|->\n' "$(basename "$0")" >&2

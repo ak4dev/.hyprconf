@@ -103,7 +103,10 @@ def default_profiles(ini: Path) -> list[Path]:
     parser = configparser.ConfigParser(interpolation=None)
     try:
         parser.read(ini, encoding="utf-8")
-    except configparser.Error:
+    except (configparser.Error, UnicodeDecodeError):
+        # A latin-1 byte in profiles.ini (an older build's profile Name) is
+        # not a configparser.Error; uncaught it aborted theming for every
+        # browser — the same byte class merge_user_js survives.
         return []
 
     def resolve(path: str, relative: bool) -> Path:
@@ -137,11 +140,14 @@ def rendered_mode(css: bytes) -> str:
 def theme_prefs(mode: str) -> dict[str, object]:
     """user.js prefs the stylesheet needs, plus the theme's light/dark mode.
 
-    ``extensions.activeThemeID`` activates the built-in Dark or Light theme —
-    the stylesheet's ``--lwt-*`` overrides only take effect under a lightweight
-    theme, and a fresh profile runs the default (system) theme, under which
-    the same file changes nothing (verified on Firefox 154, see the module
-    docstring). ``ui.systemUsesDarkTheme`` is what Firefox consults for
+    ``extensions.activeThemeID`` activates the built-in Dark or Light theme.
+    On Firefox 154 that does NOT unlock the stylesheet's ``--lwt-*`` block:
+    both built-in ids are ``inApp: true``, so ``:root[lwtheme]`` never turns
+    on for them and that block stays inert (see THEME_ID above and AGENTS.md
+    › Known quirks) — the template's direct selectors are what paint the
+    chrome, under any theme. The pref still earns its place: it forces the
+    light/dark colour scheme, which is all the built-in manifests carry.
+    ``ui.systemUsesDarkTheme`` is what Firefox consults for
     prefers-color-scheme when it does not trust the desktop's answer. The
     ``browser.theme.content-theme`` / ``toolbar-theme`` prefs are deliberately
     not set: Firefox writes them itself from the active theme, so they are
@@ -264,7 +270,11 @@ def status(home: Path) -> int:
         print(f"rendered: MISSING ({rendered}) — `omarchy theme refresh` renders the template")
     else:
         print(f"rendered: {rendered} ({rendered_mode(css)})")
-    wanted = str(theme_prefs(rendered_mode(css))["extensions.activeThemeID"]) if css else None
+    wanted = (
+        str(theme_prefs(rendered_mode(css))["extensions.activeThemeID"])
+        if css is not None
+        else None
+    )
     managed = list(theme_prefs("dark"))
     found = False
     for browser, ini in profile_inis(home):

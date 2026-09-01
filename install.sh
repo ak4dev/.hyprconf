@@ -29,6 +29,11 @@ set -euo pipefail
 # the $0 fallback, for set -u); either way no payload sits beside it and
 # main() hands over to bootstrap.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# $HERE lands in `sed "s|@HYPRCONF_DIR@|...|g"` replacements (stage_bin,
+# stage_hooks), where '&' reads back the match, '|' ends the expression and
+# '\' escapes: escape all three once, or a checkout under a path like
+# ~/a&b installs tools and hooks that point nowhere.
+HERE_SED=${HERE//\\/\\\\}; HERE_SED=${HERE_SED//&/\\&}; HERE_SED=${HERE_SED//|/\\|}
 
 # Everything under $HOME is reached through $HOME itself, which the hermetic
 # test suite relocates; the seams below name what lies outside it — binaries
@@ -48,6 +53,10 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 # as omarchy-pkg-add: a test proving the "kitty is not installed" stop has no
 # other way to make it absent on a machine whose /usr/bin has one.
 : "${_HYPRCONF_KITTY_BIN:=kitty}"
+# Omarchy's hook installer, by name for the same reason as omarchy-pkg-add:
+# /usr/bin/omarchy-hook-install exists on every Omarchy dev box, so the test
+# for stage_hooks' plain-copy fallback has no other way to make it absent.
+: "${_HYPRCONF_HOOK_INSTALL:=omarchy-hook-install}"
 # Where the system Firefox policy lands. Root-owned, so the stage that writes
 # it goes through sudo; overridable so the hermetic suite can point it at a tmp
 # tree. _HYPRCONF_ASSUME_TTY lets that suite reach the sudo path from a non-tty
@@ -76,6 +85,7 @@ orig_args=("$@")
 do_pull=0
 do_update=0
 do_packages=1
+no_update=0
 
 log()  { printf '==> %s\n' "$*"; }
 info() { printf '    %s\n' "$*"; }
@@ -110,13 +120,17 @@ USAGE
 while (( $# )); do
     case "$1" in
         --sync)        do_pull=1; do_update=1 ;;
-        --no-update)   do_update=0 ;;
+        --no-update)   no_update=1 ;;
         --no-packages) do_packages=0 ;;
         -h|--help)     usage; exit 0 ;;
         *)             die "unknown option: $1 (try --help)" ;;
     esac
     shift
 done
+# "never invoke omarchy-update" means never, whichever order the flags came
+# in: --sync sets do_update, and a last-wins loop would let
+# `--no-update --sync` run the update anyway.
+if (( no_update )); then do_update=0; fi
 
 # ---------------------------------------------------------------- preflight
 
@@ -873,13 +887,24 @@ stage_fastfetch() {
 stage_bin() {
     log "PATH tools (bin/hyprconf-*)"
     mkdir -p "$HOME/.local/bin"
-    local f
+    local f dst
     # Every bin/hyprconf-* file; a new tool is one file in bin/. @HYPRCONF_DIR@
     # is substituted the way the hooks get it, for the tools that need the
-    # checkout (the Python lib).
+    # checkout (the Python lib). Rendered beside the target and mv'd over it:
+    # the rename is atomic, so a hotkey or bar feeder exec'ing one of these
+    # mid-install runs old bytes or new, never a truncated prefix (a running
+    # feeder keeps its old inode); cmp keeps the steady-state re-run
+    # write-free, matching the byte-stable posture of the other stages.
     for f in "$HERE"/bin/hyprconf-*; do
-        sed "s|@HYPRCONF_DIR@|$HERE|g" "$f" > "$HOME/.local/bin/${f##*/}"
-        chmod 755 "$HOME/.local/bin/${f##*/}"
+        dst="$HOME/.local/bin/${f##*/}"
+        sed "s|@HYPRCONF_DIR@|$HERE_SED|g" "$f" > "$dst.hyprconf-tmp"
+        chmod 755 "$dst.hyprconf-tmp"
+        if cmp -s "$dst.hyprconf-tmp" "$dst" 2>/dev/null; then
+            rm -f "$dst.hyprconf-tmp"
+            chmod 755 "$dst"
+        else
+            mv -f "$dst.hyprconf-tmp" "$dst"
+        fi
     done
     case ":$PATH:" in
         *":$HOME/.local/bin:"*) ;;
@@ -1334,9 +1359,9 @@ stage_hooks() {
         type="$(basename "$(dirname "$src")")"
         type="${type%.d}"
         file="$tmp/${src##*/}"
-        sed "s|@HYPRCONF_DIR@|$HERE|g" "$src" > "$file"
-        if command -v omarchy-hook-install >/dev/null 2>&1; then
-            omarchy-hook-install "$type" "$file" >/dev/null ||
+        sed "s|@HYPRCONF_DIR@|$HERE_SED|g" "$src" > "$file"
+        if command -v "$_HYPRCONF_HOOK_INSTALL" >/dev/null 2>&1; then
+            "$_HYPRCONF_HOOK_INSTALL" "$type" "$file" >/dev/null ||
                 warn "omarchy-hook-install $type ${src##*/} failed"
         else
             dir="$HOME/.config/omarchy/hooks/$type.d"

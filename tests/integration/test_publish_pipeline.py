@@ -204,3 +204,52 @@ def test_publish_refuses_off_the_work_branch_or_with_a_dirty_tree(clone: Path) -
     result = _publish(clone, "--skip-tests")
     assert result.returncode != 0 and "Must be on the dev branch" in result.stderr
     assert _git(clone.parent / "origin.git", "branch", "--list", "stable") == ""
+
+
+def test_dry_run_and_rerun_after_a_successful_release(clone: Path) -> None:
+    """After a clean publish, HEAD is the release commit by design. A naive
+    rerun must be refused as "nothing new" (not misdiagnosed as a failed
+    promotion), and --dry-run — documented as running every gate and pushing
+    nothing — must still complete from that state."""
+    first = _publish(clone, "--skip-tests")
+    assert first.returncode == 0, first.stderr
+    released = _version(clone / VERSION_FILE)
+    head = _git(clone, "rev-parse", "HEAD")
+
+    rerun = _publish(clone, "--skip-tests")
+    assert rerun.returncode != 0
+    assert "nothing new to publish" in rerun.stdout + rerun.stderr
+    assert _git(clone, "rev-parse", "HEAD") == head  # no second bump commit
+    assert _version(clone / VERSION_FILE) == released
+
+    dry = _publish(clone, "--skip-tests", "--dry-run")
+    assert dry.returncode == 0, dry.stdout + dry.stderr
+    assert "dry-run continues with a scratch bump" in dry.stdout + dry.stderr
+    assert _git(clone, "rev-parse", "HEAD") == head  # scratch bump restored
+    assert _version(clone / VERSION_FILE) == released
+    assert _git(clone.parent / "origin.git", "rev-parse", "refs/heads/stable") == head
+
+
+def test_skip_bump_refuses_a_tag_on_a_different_commit(clone: Path) -> None:
+    """The tag/version-skew guard: --skip-bump with __version__ naming a tag
+    that points at an OLDER commit must refuse, or stable would be promoted
+    while the version file and tag describe a different release."""
+    version = "v{}.{}.{}".format(*_version(clone / VERSION_FILE))
+    _git(clone, "tag", "-a", version, "-m", "older release")
+    (clone / "f").write_text("new work\n")
+    _git(clone, "add", "f")
+    _git(clone, "commit", "-q", "-m", "feat: new work")
+    _git(clone, "push", "-q", "origin", "dev")
+
+    r = _publish(clone, "--skip-tests", "--skip-bump")
+    assert r.returncode != 0
+    assert "already exists on a different commit" in r.stdout + r.stderr
+    origin = clone.parent / "origin.git"
+    stable = subprocess.run(
+        ["git", "rev-parse", "-q", "--verify", "refs/heads/stable"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+        env=GIT_ENV,
+    )
+    assert stable.returncode != 0  # stable was never created

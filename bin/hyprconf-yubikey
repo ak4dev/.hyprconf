@@ -107,6 +107,9 @@ set -uo pipefail
 : "${_HYPRCONF_FIDO2_DROPIN:=zz-hyprconf-fido2.conf}"  # both drop-ins' basename
 : "${_HYPRCONF_INITCPIO_INSTALL:=/usr/lib/initcpio/install}"
 : "${_HYPRCONF_VCONSOLE:=/etc/vconsole.conf}"
+# A non-empty value treats stdin/stdout as a terminal — the hermetic suite's
+# only way into the prompts (a pytest run has no tty), same as install.sh.
+: "${_HYPRCONF_ASSUME_TTY:=}"
 : "${_HYPRCONF_MACHINE_ID:=/etc/machine-id}"
 : "${_HYPRCONF_MODULES_DIR:=/usr/lib/modules}"
 : "${_HYPRCONF_EFI_DIR:=/sys/firmware/efi}"
@@ -116,7 +119,6 @@ YES=0              # --yes
 SNAPSHOT=1         # --no-snapshot clears it
 ALLOW_NON_LATIN=0  # --allow-non-latin-layout
 CHANGED=0          # set by every step that modified a file
-IMAGE_CHANGED=0    # set when the drop-in came or went: the boot image must come out different
 DEV=""             # picked LUKS2 device
 DEV_UUID=""
 MAPPER=""          # the /dev/mapper name the root is opened under
@@ -124,8 +126,13 @@ MAPPER=""          # the /dev/mapper name the root is opened under
 # picked: the file's lines, the line's index and parts, whether the file has a
 # plain `=` default line, and whether the line carries the legacy parameters.
 L_LINES=() L_IDX="" L_PREFIX="" L_QUOTE="" L_VALUE="" L_TAIL="" L_PLAIN=0 L_LEGACY=0
-# What hyprconf-yubikey 4.0.0–4.2.0 put on that line (also what status reports).
-LEGACY_RE='rd\.luks\.options=[^[:space:]]*fido2-device='
+# What hyprconf-yubikey 4.0.0–4.2.0 put on that line (also what status
+# reports): the UUID-prefixed shape, and only that. cmdline_strip removes
+# exactly the UUID-keyed words, so a wider match — the UUID-less global form
+# from systemd-cryptsetup-generator(8) a user may have hand-written — would
+# declare a migration the strip then leaves byte-identical, on every run,
+# forever.
+LEGACY_RE='rd\.luks\.options=[^=[:space:]]+=[^[:space:]]*fido2-device='
 
 die()  { printf 'hyprconf-yubikey: %s\n' "$*" >&2; exit 1; }
 warn() { printf 'hyprconf-yubikey: warning: %s\n' "$*" >&2; }
@@ -146,7 +153,7 @@ run_root_quiet() {
 # refuse rather than guess.
 confirm() {
     ((YES)) && return 0
-    [[ -t 0 && -t 1 ]] || die "no terminal to confirm on — re-run with --yes"
+    [[ -t 0 && -t 1 ]] || [[ -n $_HYPRCONF_ASSUME_TTY ]] || die "no terminal to confirm on — re-run with --yes"
     local answer
     read -r -p "$1 [y/N] " answer
     [[ $answer == [yY]* ]]
@@ -166,7 +173,9 @@ usage: hyprconf-yubikey status                 devices, enrolment and boot-confi
 options (enroll, disable, remove):
   --device /dev/X   use this LUKS2 device instead of the picker
   --yes             no prompts; required when there is no terminal to confirm on
-  --no-snapshot     skip the \`omarchy snapshot create\` taken before changing anything
+  --no-snapshot     skip the \`omarchy snapshot create\` taken before the boot
+                    config changes (libfido2 goes in first — fido2-token is
+                    how the key is seen at all)
   --allow-non-latin-layout   (enroll) go ahead although $_HYPRCONF_VCONSOLE's
                     XKBLAYOUT starts with a non-Latin layout — see below
 
@@ -174,14 +183,14 @@ what enroll changes (every step is idempotent; nothing is touched before the
 confirmation, and a kernel cmdline it cannot read with certainty stops it
 before anything is; cryptdevice= is kept):
   1. libfido2 via omarchy-pkg-add (fido2-token + the library the initramfs bundles)
-  2. systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes <dev>
+  2. omarchy snapshot create — the restore point, before anything below changes
+  3. systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes <dev>
      asks for the LUKS passphrase, the key's FIDO2 PIN, then a touch — the
      passphrase slot stays as the fallback
-  3. $_HYPRCONF_MKINITCPIO_D/$_HYPRCONF_FIDO2_DROPIN
-     rewrites Omarchy's HOOKS for the systemd initramfs: udev->systemd,
-     encrypt->sd-encrypt, keymap->sd-vconsole, btrfs-overlayfs->sd-btrfs-overlayfs
-     (when installed), consolefont and resume dropped, everything else kept
-  4. $_HYPRCONF_LIMINE_CONF_D/$_HYPRCONF_FIDO2_DROPIN
+  4. $_HYPRCONF_LIMINE_CONF_D/$_HYPRCONF_FIDO2_DROPIN — first, so an abort
+     between the two drop-ins leaves the inert state (rd.luks.* is ignored
+     by the busybox encrypt hook; the systemd hooks without rd.luks.* would
+     poison the next rebuild)
      a limine-entry-tool drop-in, the way Omarchy's hibernation setup
      adds resume= (its resume.conf, in the same directory):
        KERNEL_CMDLINE[default]+=" rd.luks.name=<UUID>=<name> rd.luks.options=<UUID>=fido2-device=auto"
@@ -192,7 +201,13 @@ before anything is; cryptdevice= is kept):
      and enroll (or disable) removes them from there once, so the drop-in is
      the single source; \`status\` reports them as legacy inline parameters
      until then.
-  5. limine-update — rebuilds the boot images (UKI or initramfs, per limine's
+  5. $_HYPRCONF_MKINITCPIO_D/$_HYPRCONF_FIDO2_DROPIN
+     rewrites Omarchy's HOOKS for the systemd initramfs: udev->systemd,
+     encrypt->sd-encrypt, keymap->sd-vconsole, btrfs-overlayfs->sd-btrfs-overlayfs
+     (when installed), consolefont and resume dropped, everything else kept;
+     beside it, .$_HYPRCONF_FIDO2_DROPIN.verified records what the boot
+     images were last verified built from (removed by disable)
+  6. limine-update — rebuilds the boot images (UKI or initramfs, per limine's
      ENABLE_UKI) and the Limine entries. limine-update exits 0 even when a
      build fails, so its output is checked for limine-mkinitcpio-install's
      "mkinitcpio failed for kernel" and every installed kernel's image is
@@ -246,25 +261,28 @@ parse_flags() {
 # Devices
 # ---------------------------------------------------------------------------
 
-# One "path version uuid" line per crypto_LUKS device. -r prints raw, single-
+# One "path|version|uuid" line per crypto_LUKS device. -r prints raw, single-
 # space-separated fields, so awk must split on exactly one space or an empty
-# FSVER would shift the UUID left. PATH rather than NAME: a LUKS container on
-# a dm device lists as NAME=vg-lv but PATH=/dev/mapper/vg-lv.
+# FSVER would shift the UUID left — and the fields must come back OUT through
+# a non-whitespace delimiter, or the consumers' `read` would collapse the
+# empty field again and hand the UUID to ver. PATH rather than NAME: a LUKS
+# container on a dm device lists as NAME=vg-lv but PATH=/dev/mapper/vg-lv.
 list_luks() {
     lsblk -rno PATH,FSTYPE,FSVER,UUID 2>/dev/null |
-        awk -F'[ ]' '$2 == "crypto_LUKS" { print $1, $3, $4 }'
+        awk -F'[ ]' '$2 == "crypto_LUKS" { print $1 "|" $3 "|" $4 }'
 }
 
 # Sets DEV and DEV_UUID. --device skips the picker; LUKS1 is refused
 # (systemd-cryptenroll needs LUKS2); one candidate is taken as is, several
 # need a terminal for the menu or --device.
 pick_device() {
-    local -a rows=() cands=()
+    local -a rows=() cands=() all_paths=()
     local row path ver uuid
     mapfile -t rows < <(list_luks)
     ((${#rows[@]})) || die "no LUKS device found (lsblk -rno PATH,FSTYPE,FSVER,UUID lists none)"
     for row in "${rows[@]}"; do
-        read -r path ver uuid <<<"$row"
+        IFS='|' read -r path ver uuid <<<"$row"
+        all_paths+=("$path")
         if [[ -n $DEVICE && $path != "$DEVICE" ]]; then
             continue
         fi
@@ -277,7 +295,7 @@ pick_device() {
         cands+=("$path $uuid")
     done
     if [[ -n $DEVICE ]]; then
-        ((${#cands[@]})) || die "$DEVICE is not a LUKS device (lsblk lists: ${rows[*]%% *})"
+        ((${#cands[@]})) || die "$DEVICE is not a LUKS device (lsblk lists: ${all_paths[*]})"
         read -r DEV DEV_UUID <<<"${cands[0]}"
         return 0
     fi
@@ -288,7 +306,7 @@ pick_device() {
     fi
     local -a paths=("${cands[@]%% *}")
     ((YES)) && die "several LUKS2 devices — pick one with --device: ${paths[*]}"
-    [[ -t 0 && -t 1 ]] || die "several LUKS2 devices and no terminal — pick one with --device: ${paths[*]}"
+    [[ -t 0 && -t 1 ]] || [[ -n $_HYPRCONF_ASSUME_TTY ]] || die "several LUKS2 devices and no terminal — pick one with --device: ${paths[*]}"
     local i=1 choice
     info "LUKS2 devices:"
     for row in "${cands[@]}"; do
@@ -370,7 +388,7 @@ wait_for_token() {
             return 0
         fi
         ((tries++))
-        if ((YES)) || [[ ! -t 0 ]] || ((tries >= 3)); then
+        if ((YES)) || { [[ ! -t 0 ]] && [[ -z $_HYPRCONF_ASSUME_TTY ]]; } || ((tries >= 3)); then
             die "no FIDO2 device detected (fido2-token -L) — plug the key in (unlock it if needed) and retry"
         fi
         warn "no FIDO2 device detected (attempt $tries/3) — plug the key in"
@@ -473,17 +491,59 @@ EOF
 
 dropin_path() { printf '%s/%s\n' "$_HYPRCONF_MKINITCPIO_D" "$_HYPRCONF_FIDO2_DROPIN"; }
 
-# The mkinitcpio drop-in changes the hook set, so the boot image must come out
-# different (IMAGE_CHANGED); the limine drop-in below only changes the cmdline.
+# The mkinitcpio drop-in changes the hook set, so the boot image must come
+# out different — but "different" is measured against the LAST VERIFIED
+# rebuild, not this run's writes: a change whose rebuild failed is still
+# pending on the next run (a rerun's no-op write must not read as clean),
+# and a disable that reverts a failed enroll is already satisfied by the
+# pre-enroll image on the ESP. verify_boot_images compares the fingerprints
+# below; the limine drop-in only changes the cmdline.
+# Both writers seed only when a change is actually coming: a no-op write or
+# removal carries no information about the ESP (and a disable on a box that
+# was never configured must make no root call at all — pinned).
 write_dropin() {
-    write_file_once "$_HYPRCONF_MKINITCPIO_D" "$(dropin_path)" "systemd initramfs hooks" < <(dropin_content) &&
-        IMAGE_CHANGED=1
+    if ! { [[ -r $(dropin_path) ]] && [[ $(<"$(dropin_path)") == "$(dropin_content)" ]]; }; then
+        seed_verified_state
+    fi
+    write_file_once "$_HYPRCONF_MKINITCPIO_D" "$(dropin_path)" "systemd initramfs hooks" < <(dropin_content) || true
     return 0
 }
 
 remove_dropin() {
-    remove_file "$(dropin_path)" && IMAGE_CHANGED=1
+    if [[ -e $(dropin_path) ]]; then
+        seed_verified_state
+    fi
+    remove_file "$(dropin_path)" || true
     return 0
+}
+
+# What the ESP images are believed built from, as far as this tool changes
+# them: the hooks drop-in's bytes, or "absent". Recorded after every verified
+# rebuild, and SEEDED from the pre-change config the first time a drop-in is
+# about to change — so a box enrolled by a release without the record (or
+# whose enroll died mid-rebuild) carries the right baseline forward. A
+# missing (or unreadable) record means "unknown": verify accepts an
+# identical unrewritten image and records it, the pre-record behaviour, so
+# an idempotent re-run on an upgraded box never falsely dies. disable
+# removes the record — reverting to stock leaves no residue, and README's
+# /etc inventory names it while it exists.
+config_fingerprint() {
+    if [[ -r $(dropin_path) ]]; then sha256sum < "$(dropin_path)"; else echo absent; fi
+}
+
+verified_state_path() { printf '%s/.%s.verified\n' "$_HYPRCONF_MKINITCPIO_D" "$_HYPRCONF_FIDO2_DROPIN"; }
+
+record_verified_state() {
+    { config_fingerprint | run_root tee "$(verified_state_path)" >/dev/null &&
+        run_root chmod 644 -- "$(verified_state_path)"; } ||
+        warn "could not record the verified hook set at $(verified_state_path) — a later identical-image check may misjudge"
+    return 0
+}
+
+# Once, before the first drop-in change: what the ESP was last built from is
+# the config as it stands right now.
+seed_verified_state() {
+    [[ -f $(verified_state_path) ]] || record_verified_state
 }
 
 limine_dropin_path() { printf '%s/%s\n' "$_HYPRCONF_LIMINE_CONF_D" "$_HYPRCONF_FIDO2_DROPIN"; }
@@ -722,6 +782,7 @@ limine_setting() {
 # not rewrite an identical file (see the header).
 verify_boot_images() {
     local start=$1 esp mid prefix uki=0 dir name path mtime n=0
+    local recorded
     local -a missing=() stale=()
     esp=$(limine_setting ESP_PATH)
     if [[ -z ${esp// /} ]]; then
@@ -752,11 +813,14 @@ verify_boot_images() {
         die "limine-update finished, but no boot image at ${missing[*]} (ESP_PATH=$esp, ENABLE_UKI=$(limine_setting ENABLE_UKI), the way limine-mkinitcpio-install places them) — the boot config is changed but unproven: check limine-update's output above and re-run it: sudo limine-update"
     fi
     if ((${#stale[@]})); then
-        if ((IMAGE_CHANGED)); then
-            die "limine-update finished, but ${stale[*]} predates this run although the hook set changed — the boot image on the ESP is the previous one and still boots; find the cause in limine-update's output above, then: sudo limine-update"
+        recorded=$(cat "$(verified_state_path)" 2>/dev/null || true)
+        if [[ -n $recorded && $(config_fingerprint) != "$recorded" ]]; then
+            die "limine-update finished, but ${stale[*]} predates this run although the hook set changed since the last verified rebuild — the boot image on the ESP is the previous one and still boots; find the cause in limine-update's output above, then: sudo limine-update"
         fi
+        [[ -n $recorded ]] || info "  no verified-rebuild record — accepting the identical image and recording it"
         info "  ${stale[*]}: unchanged (identical image, not rewritten)"
     fi
+    record_verified_state
     info "Boot images verified on $esp."
 }
 
@@ -808,8 +872,14 @@ cmd_enroll() {
             die "systemd-cryptenroll failed — nothing else was changed"
         info "$DEV: FIDO2 token enrolled (the passphrase slot stays)"
     fi
-    write_dropin
+    # Cmdline drop-in first, hooks drop-in second: an abort between the two
+    # must leave the inert state. rd.luks.* with the busybox encrypt hook is
+    # ignored (the header's own fact), but a hooks drop-in with no rd.luks.*
+    # turns the NEXT rebuild from any source — a kernel upgrade — into a
+    # systemd initramfs that never unlocks the root. disable_boot_config
+    # removes in the mirror order (hooks first) for the same reason.
     write_limine_dropin "$DEV_UUID" "$MAPPER"
+    write_dropin
     migrate_legacy_cmdline
     rebuild_boot
     info ""
@@ -826,6 +896,11 @@ disable_boot_config() {
         rebuild_boot
     else
         info "Nothing to rebuild — FIDO2 boot unlock was not configured."
+    fi
+    # Stock means no residue: the believed-ESP record goes too; the next
+    # enroll re-seeds it from the config it finds.
+    if [[ -e $(verified_state_path) ]]; then
+        run_root rm -f -- "$(verified_state_path)"
     fi
     info "Boot config is back on Omarchy's encrypt hook: the passphrase unlocks the root."
 }
@@ -868,7 +943,7 @@ cmd_status() {
     if [[ -n $tokens ]]; then info "  FIDO2 token:          plugged in — ${tokens%%$'\n'*}"; else info "  FIDO2 token:          none detected"; fi
     info "  LUKS devices:"
     local any=0
-    while read -r path ver uuid; do
+    while IFS='|' read -r path ver uuid; do
         [[ -n $path ]] || continue
         any=1
         if [[ $ver == 2 ]]; then

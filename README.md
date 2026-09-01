@@ -103,7 +103,7 @@ bash ~/.hyprconf/install.sh
 ### What it deliberately leaves alone
 
 - The **login shell** — no `chsh`. zsh runs inside kitty only; `~/.zshrc` sources Omarchy's own `envs`/`aliases`, so its updates flow through.
-- The body of `~/.config/kitty/kitty.conf`, `~/.bashrc`, `/usr/share/omarchy`, and everything under `/etc` except the Firefox policy and the Keychron udev rule (and, only when you run it, `hyprconf-yubikey enroll`'s two drop-ins — see below).
+- The body of `~/.config/kitty/kitty.conf`, `~/.bashrc`, `/usr/share/omarchy`, and everything under `/etc` except the Firefox policy and the Keychron udev rule (and, only when you run it, `hyprconf-yubikey enroll`'s two drop-ins plus the `.zz-hyprconf-fido2.conf.verified` record beside them — see below).
 - Installed packages — nothing is removed, with one exception: Arch's `code` (Code - OSS) goes when Omarchy's VS Code is installed, because the two packages conflict.
 - The **active theme**, Omarchy's **`monitors.lua`** (a preset loads beside it from the toggles directory and never replaces it), and every set-once choice (font, default apps, idle, clock, widget enables) after the first run — change them with Omarchy's own commands and hyprconf will not take them back.
 - Omarchy's keyboard layout logic in `input.lua`, and its volume / brightness / media keys, `SUPER+K` (keybindings menu), `SUPER+3`/`4`, `SUPER+SHIFT+3`.
@@ -150,7 +150,7 @@ Upgrading from v4.0.0–v4.2.0, whose `switch_monitor.sh` symlinked the preset o
 | `hyprconf.clock` | Copy of `omarchy.clock` sampling at `SystemClock.Seconds`, format `hh:mm:ss AP` | `omarchy plugin disable hyprconf.clock` |
 | `hyprconf.workspaces` | The overlay's own workspaces widget: only workspaces that exist (no fixed 1–5 pills, no id cap), stacked on two lines like the resources widget, hyprconf's Pac-Man (`󰮯`) on the focused workspace; click focuses | `omarchy plugin disable hyprconf.workspaces` |
 | `hyprconf.resources` | Two aligned lines fed by `hyprconf-stats` and `hyprconf-gpu-info` (long-lived JSON streams): top **CPU temp / util · RAM · ↑ upload**, bottom **GPU temp / util · VRAM · ↓ download**. Columns are fixed-width (sized from their widest value) with a hairline gap between them, so nothing shifts as the numbers change. On a multi-GPU box the **active** card is shown — the one with the most VRAM in use (ties: utilization, then index), re-evaluated every sample. NVIDIA (`nvidia-smi --loop`), AMD (`gpu_busy_percent`) and Intel (the `xe` driver's GT idle residency — Panther Lake and every other Xe2/Xe3 part) in that order; an Intel iGPU has no VRAM of its own, so it reads `shared` and ranks on utilization, and its tooltip carries the GT clock where NVIDIA's carries power draw. Click opens `btop` via `omarchy-launch-or-focus-tui` | `omarchy plugin disable hyprconf.resources` |
-| `hyprconf.active-window` | The focused window's title after the workspaces — the overlay's own two-line version of Omarchy's `omarchy.active-window` (a `clonedFrom` copy, so it takes the stock slot) that lays the same character budget (`maxWidth`, 280 px of body text by default) out on **two caption-size lines**, so it takes about half the width; hover for the full title, click focuses, middle-click closes; budget via `omarchy bar set hyprconf.active-window maxWidth 400` | `omarchy plugin disable hyprconf.active-window` |
+| `hyprconf.active-window` | The focused window's title after the workspaces — the overlay's own two-line version of Omarchy's `omarchy.active-window` (a `clonedFrom` copy, so it takes the stock slot) that lays the same character budget (`maxWidth`, 280 px of body text by default) out on **two caption-size lines**, so it takes about half the width; hover for the full title, click focuses, middle- or right-click closes; budget via `omarchy bar set hyprconf.active-window maxWidth 400` | `omarchy plugin disable hyprconf.active-window` |
 
 The clock copy is set once, and every widget is *enabled* once — disabling any of them sticks. The three plugins the overlay ships (`plugins/hyprconf-resources`, `plugins/hyprconf-workspaces`, `plugins/hyprconf-active-window`) are re-synced on every run, so a `git pull` updates them — staged in a sibling temp dir and moved into place, the way `omarchy plugin clone` lands a copy, then `omarchy-shell shell rescanPlugins` hot-reloads them; the clock is the one copy of a stock plugin `install.sh` makes. `omarchy bar set hyprconf.clock format 'HH:mm'` reformats the clock.
 
@@ -216,7 +216,7 @@ The clock copy is set once, and every widget is *enabled* once — disabling any
 | `SUPER+SHIFT+SPACE` | Toggle top bar | `omarchy toggle bar` |
 | `SUPER+L` | Toggle workspace layout | `omarchy-hyprland-workspace-layout-toggle`; lock stays on Omarchy's `SUPER+CTRL+L` too |
 | `SUPER+SHIFT+BACKSPACE` | Toggle window gaps | `omarchy-hyprland-window-gaps-toggle` |
-| `SUPER+SHIFT+A` / `D` / `W` / `S` / `M` | ChatGPT / Docker / Omawrite / Google Maps / Music — only while Omarchy's preinstalled-app bindings are on (`o.preinstalled_bindings_enabled()`: until `~/.local/state/omarchy/preinstalls-removed` exists) | `omarchy-launch-webapp`, `omarchy-launch-tui lazydocker`, `omawrite`, `omarchy-launch-spotify` |
+| `SUPER+SHIFT+A` / `D` / `W` / `S` / `M` | ChatGPT / Docker / Omawrite / Google Maps / Music — only while Omarchy's preinstalled-app bindings are on (`o.preinstalled_bindings_enabled()`: until `~/.local/state/omarchy/preinstalls-removed` exists) | `omarchy-launch-webapp`, `omarchy-launch-docker-tui` (lazydocker behind Omarchy's polkit gate — the socket is root-owned), `omawrite`, `omarchy-launch-spotify` |
 
 ## Look'n'feel and input deltas
 
@@ -388,7 +388,7 @@ Remove: delete the managed block from `omarchy-menu.jsonc` (the `sed` under Reve
 ## Reverting to stock
 
 ```bash
-hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool is still on PATH; both drop-ins go (and a v4.0.0–v4.2.0 enroll's inline parameters)
+hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool is still on PATH; both drop-ins and the `.verified` record go (and a v4.0.0–v4.2.0 enroll's inline parameters)
 hyprconf-vulkan-gpu remove   # the uwsm env.d file and the Ignore marker, if you chose either; re-login after
 omarchy plugin disable hyprconf.clock
 omarchy plugin disable hyprconf.workspaces

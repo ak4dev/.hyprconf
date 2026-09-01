@@ -38,9 +38,11 @@ set -euo pipefail
 : "${HYPRCONF_GPU_PCI_IDS:=/usr/share/hwdata/pci.ids}"
 
 # bytes → GiB with one decimal (pure integer math, no external tools)
+# gib_b <bytes> <varname>: GiB to one decimal, printf -v like hyprconf-stats'
+# human() so a tick forks nothing for it.
 gib_b() {
     local g10=$(( ($1 * 10 + 536870912) / 1073741824 ))
-    printf '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
+    printf -v "$2" '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
 }
 
 _nvidia_count=0
@@ -154,10 +156,10 @@ _amd_stream() {
         [[ $total =~ ^[0-9]+$ ]] || total=0
         if (( total > 0 )); then
             b_total=$total
-            vu=$(gib_b "$b_used") vt=$(gib_b "$b_total")
+            gib_b "$b_used" vu; gib_b "$b_total" vt
             mem_tip="$vu/$vt GiB"
         else
-            vu=$(gib_b "$b_used") vt=0
+            gib_b "$b_used" vu; vt=0
             mem_tip="shared"   # iGPU: VRAM is carved from system RAM
         fi
 
@@ -273,11 +275,18 @@ _intel_stream() {
             idle=""
             [[ -r "${_intel_gt[i]}/gtidle/idle_residency_ms" ]] &&
                 { read -r idle < "${_intel_gt[i]}/gtidle/idle_residency_ms" || idle=""; }
-            [[ $idle =~ ^[0-9]+$ ]] || idle=${p_idle[i]}
             now=${EPOCHREALTIME//[.,]/}
-            d_idle=$(( (idle - p_idle[i]) * 1000 ))   # ms -> µs, the wall unit
             d_wall=$(( now - p_wall[i] ))
-            p_idle[i]=$idle p_wall[i]=$now
+            if [[ $idle =~ ^[0-9]+$ ]]; then
+                d_idle=$(( (idle - p_idle[i]) * 1000 ))   # ms -> µs, the wall unit
+                p_idle[i]=$idle
+            else
+                # A vanished or unreadable residency counter is "no data",
+                # and no data must read as idle: d_idle=0 here would report
+                # a GPU that no longer exists pegged at 100% forever.
+                d_idle=$d_wall
+            fi
+            p_wall[i]=$now
             # Clamped both ways: a driver reload restarts the counter (negative
             # delta), and idle can overrun the window by a tick of rounding.
             (( d_idle < 0 )) && d_idle=0
