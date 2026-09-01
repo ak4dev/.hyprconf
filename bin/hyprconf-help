@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# hyprconf-help — every hyprconf add-on at a glance.
+#
+# One screen: the PATH tools with the one-liner each states on the first
+# line of its own header ("# hyprconf-<name> — <what it does>", a convention
+# tests/unit/test_help.py pins, so a tool cannot ship without a line here),
+# the bar widgets from their manifests, the theme and hook directories by
+# name. Everything is derived from the checkout at run time — nothing to
+# fall out of date when an add-on is added or dropped.
+#
+# A custom path per the hard rules: `omarchy commands --json` (356 entries,
+# Omarchy 4.0.2-1) lists only Omarchy's own commands, and nothing under
+# /usr/share/omarchy/bin enumerates an overlay's additions.
+#
+# @HYPRCONF_DIR@ is substituted with the checkout path at install time
+# (stage_bin), the way the hooks resolve it; unsubstituted — run straight
+# from the checkout — this file's parent directory IS the checkout, so the
+# fallback keeps the tool working before any install.
+set -euo pipefail
+
+HYPRCONF_DIR="@HYPRCONF_DIR@"
+[[ $HYPRCONF_DIR == @HYPRCONF* ]] && HYPRCONF_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+
+die() { printf 'hyprconf-help: %s\n' "$*" >&2; exit 1; }
+
+one_liner() {  # the "# <name> — <desc>" line from a tool's header, desc only
+    awk -v name="${1##*/}" '
+        NR > 12 { exit }
+        $0 ~ "^# " name " — " { sub("^# " name " — ", ""); print; exit }' "$1"
+}
+
+main() {
+    case ${1:-} in
+        '' | help | -h | --help) ;;
+        *) die "unknown argument: $1 (hyprconf-help takes none)" ;;
+    esac
+    [[ -d $HYPRCONF_DIR/bin ]] || die "no checkout at $HYPRCONF_DIR"
+    local f d desc
+    printf 'hyprconf — a lean overlay on stock Omarchy (checkout: %s)\n\n' "$HYPRCONF_DIR"
+    printf 'Tools (~/.local/bin, on the session PATH):\n'
+    for f in "$HYPRCONF_DIR"/bin/hyprconf-*; do
+        desc=$(one_liner "$f")
+        printf '  %-38s %s\n' "${f##*/}" "${desc:-(no header one-liner)}"
+    done
+    printf '\nBar widgets (~/.config/omarchy/plugins; enable via the bar menu):\n'
+    for d in "$HYPRCONF_DIR"/plugins/*/; do
+        d=${d%/}
+        desc=$(jq -r '.description // empty' "$d/manifest.json" 2>/dev/null || :)
+        printf '  %-38s %s\n' "${d##*/}" "$desc"
+    done
+    printf '\nThemes (~/.config/omarchy/themes, never auto-activated):'
+    for d in "$HYPRCONF_DIR"/themes/*/; do d=${d%/}; printf ' %s' "${d##*/}"; done
+    printf '\nHooks (omarchy hook):'
+    for d in "$HYPRCONF_DIR"/hooks/*/; do d=${d%/}; printf ' %s' "${d##*/}"; done
+    printf '\nConfig deltas: hypr/*.lua (live symlinks), zsh inside kitty, fastfetch, themed/ Firefox template\n'
+    printf '\nThe full contract is README.md in the checkout.\n'
+}
+
+main "$@"

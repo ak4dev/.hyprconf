@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# hyprconf-install-service-protonvpn — Proton VPN, the way Omarchy installs
-# its own services (bin/omarchy-install-service-nordvpn, Omarchy 4.0.0-1):
+# hyprconf-install-service-protonvpn — Proton VPN, installed Omarchy's way.
+# Mirrors Omarchy's own services (bin/omarchy-install-service-nordvpn,
+# Omarchy 4.0.0-1):
 # run from the menu row install.sh adds under Install > Service, in the
 # floating presentation terminal, so the package prompt is on screen.
 #

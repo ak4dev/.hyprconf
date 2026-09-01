@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Streaming GPU stats for the quickshell bar: one JSON line per interval on
-# stdout, long-lived — one instance per bar surface (Omarchy builds the bar
+# hyprconf-gpu-info — streaming GPU stats for the quickshell bar.
+#
+# One JSON line per interval on stdout, long-lived — one instance per bar
+# surface (Omarchy builds the bar
 # per monitor, and the widget starts its Process per instance the way
 # Omarchy's own KeyboardLayout.qml / SystemUpdate.qml do).
 #

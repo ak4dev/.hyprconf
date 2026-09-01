@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Streaming cpu / memory / network stats for the quickshell bar: one JSON
-# line per second on stdout. Long-lived so counters can be diffed in-process
-# instead of re-forking a sampler every poll.
+# hyprconf-stats — streaming cpu/memory/network stats for the quickshell bar.
+#
+# One JSON line per second on stdout. Long-lived so counters can be diffed
+# in-process instead of re-forking a sampler every poll.
 #
 # No `set -e`: a long-lived sampler must outlive a read that fails when a
 # sensor or interface vanishes between ticks; no pipeline's status is tested,

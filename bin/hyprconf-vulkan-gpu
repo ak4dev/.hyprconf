@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# hyprconf-vulkan-gpu — pin Vulkan to the GPU that drives the displays, for
-# Steam/Proton (Xwayland) on a dual-GPU box.
+# hyprconf-vulkan-gpu — pin Vulkan to one GPU of a dual-GPU box (Steam/Proton).
+# The display GPU is the default; `use`, `toggle` and `run` pick another.
 #
 # Two independent causes. (1) Xwayland exposes no RandR providers, so Wine
 # binds every monitor to Vulkan physical device 0 — the first GPU by PCI bus
@@ -47,8 +47,8 @@ MARKER=$_HYPRCONF_STATE/hyprconf/vulkan-gpu-ignored
 
 # Filled by diagnose: per GPU in PCI order its address, vendor:device (no 0x)
 # and connected outputs; the display GPU's index (-1 = none); Vulkan device 0
-# and how it was found; where it is already configured; the NVIDIA pair; risk.
-GPU_ADDR=() GPU_ID=() GPU_OUT=() DGPU=-1 VK0="" VK0_HOW="" CONFIGURED="" NV_PAIR=0 AT_RISK=0
+# and how it was found; where it is already configured; risk.
+GPU_ADDR=() GPU_ID=() GPU_OUT=() DGPU=-1 VK0="" VK0_HOW="" CONFIGURED="" AT_RISK=0
 declare -A OUTPUTS=()  # PCI address -> connected outputs
 
 die()  { printf 'hyprconf-vulkan-gpu: %s\n' "$*" >&2; exit 1; }
@@ -110,15 +110,36 @@ configured_in() {
     return 0
 }
 
-diagnose() {
-    local i why="vulkaninfo not found"
+# How many scanned GPUs carry this vendor:device. The loader filters by id
+# alone, so two identical cards are inseparable to it — every id-keyed path
+# checks this before promising anything.
+id_count() {
+    local c=0 g
+    for g in "${GPU_ID[@]}"; do
+        if [[ $g == "$1" ]]; then c=$((c + 1)); fi
+    done
+    printf '%s\n' "$c"
+}
+
+# The sysfs half of the diagnosis: GPU arrays and the display-GPU pick — all
+# that use/toggle/run need. vulkaninfo and the config grep stay out of this
+# path on purpose: `run` sits on every game launch, and probing every ICD
+# creates a Vulkan instance that wakes a runtime-suspended GPU — the very
+# cost the header faults `omarchy hw hybrid gpu`'s lspci for.
+diagnose_scan() {
+    local i
     [[ -d $_HYPRCONF_SYS_PCI && -d $_HYPRCONF_SYS_DRM ]] || die "cannot read sysfs ($_HYPRCONF_SYS_PCI, $_HYPRCONF_SYS_DRM)"
-    GPU_ADDR=() GPU_ID=() GPU_OUT=() OUTPUTS=() DGPU=-1 NV_PAIR=0 AT_RISK=0
+    GPU_ADDR=() GPU_ID=() GPU_OUT=() OUTPUTS=() DGPU=-1 AT_RISK=0
     scan
     # Most connected outputs wins; a tie goes to the lowest PCI address.
     for i in "${!GPU_ADDR[@]}"; do
         if (( GPU_OUT[i] > 0 && (DGPU < 0 || GPU_OUT[i] > GPU_OUT[DGPU]) )); then DGPU=$i; fi
     done
+}
+
+diagnose() {
+    local why="vulkaninfo not found"
+    diagnose_scan
     VK0=""
     if have "$_HYPRCONF_VULKANINFO"; then why="vulkaninfo gave no GPU0"; VK0=$(vulkan_first); fi
     if [[ -n $VK0 ]]; then VK0_HOW="vulkaninfo GPU0"
@@ -126,16 +147,23 @@ diagnose() {
     fi
     CONFIGURED=$(configured_in)
     (( DGPU >= 0 && ${#GPU_ID[@]} >= 2 )) || return 0
-    for i in "${!GPU_ID[@]}"; do
-        if (( i < DGPU )) && [[ ${GPU_ID[i]} == 10de:* && ${GPU_ID[DGPU]} == 10de:* ]]; then NV_PAIR=1; fi
-    done
     if [[ ${GPU_ID[DGPU]} != "$VK0" ]]; then AT_RISK=1; fi
+}
+
+# [[ target id unique ]] || die — two identical cards cannot be separated by
+# an id-based filter, so refuse to write a pin that hides nothing.
+require_unique_id() {
+    local t=$1
+    if (( $(id_count "${GPU_ID[t]}") > 1 )); then
+        die "GPUs sharing id ${GPU_ID[t]} — the Vulkan loader filters by vendor:device and cannot separate identical cards (try: hyprconf-vulkan-gpu alt)"
+    fi
 }
 
 verdict() {  # one line; returns status's exit code
     if (( ${#GPU_ID[@]} < 2 )); then info "nothing to do — ${#GPU_ID[@]} GPU"
     elif (( DGPU < 0 )); then info "nothing to do — no GPU has a connected output; nothing to pin"
     elif [[ -n $CONFIGURED ]]; then info "nothing to do — already configured: $CONFIGURED"
+    elif (( $(id_count "${GPU_ID[DGPU]}") > 1 )); then info "cannot tell — two GPUs share id ${GPU_ID[DGPU]}, so the loader cannot separate them and the device-0 check is meaningless; the filter cannot help here (see: hyprconf-vulkan-gpu alt)"; return 3
     elif (( AT_RISK )); then info "AT RISK — the display GPU is not Vulkan device 0 and nothing pins it; run: hyprconf-vulkan-gpu fix"; return 3
     else info "nothing to do — the display GPU is Vulkan device 0"
     fi
@@ -160,19 +188,80 @@ cmd_status() {
     return "$rc"
 }
 
-# The fix file: a header naming what is pinned and what is hidden, the loader
-# lines, and the NVIDIA pair for an NVIDIA display GPU behind another NVIDIA GPU.
-fix_content() {
-    local i hidden=""
+# Resolve a selector to an index in PCI order: `display` (the GPU the monitors
+# are on), `other` (the only other one, on a two-GPU box), an index, a PCI
+# address with or without the 0000: domain, or a vendor:device id.
+resolve_gpu() {
+    local sel=$1 i
+    case $sel in
+        display)
+            (( DGPU >= 0 )) || die "no GPU has a connected output under $_HYPRCONF_SYS_DRM"
+            printf '%s\n' "$DGPU"; return 0 ;;
+        other)
+            (( ${#GPU_ID[@]} == 2 )) || die "'other' needs exactly two GPUs; found ${#GPU_ID[@]}"
+            (( DGPU >= 0 )) || die "no display GPU for 'other' to be the other of"
+            printf '%s\n' "$(( DGPU == 0 ? 1 : 0 ))"; return 0 ;;
+    esac
     for i in "${!GPU_ADDR[@]}"; do
-        (( i == DGPU )) || hidden+="${hidden:+, }${GPU_ADDR[i]} ($(vendor_name "${GPU_ID[i]}") ${GPU_ID[i]})"
+        if [[ $sel == "$i" || $sel == "${GPU_ADDR[i]}" || 0000:$sel == "${GPU_ADDR[i]}" || $sel == "${GPU_ID[i]}" ]]; then
+            printf '%s\n' "$i"; return 0
+        fi
+    done
+    die "no GPU matches '$sel' (see: hyprconf-vulkan-gpu status)"
+}
+
+# NVIDIA's driver presents to Xwayland only from its own GPU 0 unless PRIME
+# render offload is on, so the pair is needed exactly when another NVIDIA GPU
+# sits before the target in PCI order — and must be absent when the target
+# already is that GPU 0, where offload has nothing to offload to.
+nv_pair_for() {
+    local t=$1 i
+    [[ ${GPU_ID[t]} == 10de:* ]] || return 1
+    for i in "${!GPU_ID[@]}"; do
+        if (( i < t )) && [[ ${GPU_ID[i]} == 10de:* ]]; then return 0; fi
+    done
+    return 1
+}
+
+# The fix file for GPU $1 (default: the display GPU): a header naming what is
+# pinned and what is hidden, the loader lines, and the NVIDIA pair.
+fix_content() {
+    local t=${1:-$DGPU} i hidden="" role="GPU"
+    (( t == DGPU )) && role="display GPU"
+    for i in "${!GPU_ADDR[@]}"; do
+        (( i == t )) || hidden+="${hidden:+, }${GPU_ADDR[i]} ($(vendor_name "${GPU_ID[i]}") ${GPU_ID[i]})"
     done
     printf '%s\n' \
-        "# hyprconf-vulkan-gpu: pin Vulkan to the display GPU ${GPU_ADDR[DGPU]} ($(vendor_name "${GPU_ID[DGPU]}") ${GPU_ID[DGPU]});" \
+        "# hyprconf-vulkan-gpu: pin Vulkan to the $role ${GPU_ADDR[t]} ($(vendor_name "${GPU_ID[t]}") ${GPU_ID[t]});" \
         "# hidden from Vulkan: $hidden. Undo: hyprconf-vulkan-gpu remove" \
-        "export VK_LOADER_DEVICE_ID_FILTER=0x${GPU_ID[DGPU]#*:}" \
-        "export VK_LOADER_DEVICE_SELECT=${GPU_ID[DGPU]}"
-    if (( NV_PAIR )); then printf '%s\n' "export __NV_PRIME_RENDER_OFFLOAD=1" "export __VK_LAYER_NV_optimus=NVIDIA_only"; fi
+        "export VK_LOADER_DEVICE_ID_FILTER=0x${GPU_ID[t]#*:}" \
+        "export VK_LOADER_DEVICE_SELECT=${GPU_ID[t]}"
+    if nv_pair_for "$t"; then printf '%s\n' "export __NV_PRIME_RENDER_OFFLOAD=1" "export __VK_LAYER_NV_optimus=NVIDIA_only"; fi
+}
+
+# Every VK_LOADER_*/PROTON_ENABLE_WAYLAND line outside our own file. Which one
+# a session ends up with depends on what it sources last, so `use` and `toggle`
+# name them rather than fight them.
+conflicts_elsewhere() {
+    local f hit
+    for f in "$_HYPRCONF_UWSM_ENV_D"/* "$_HYPRCONF_UWSM_ENV" "$_HYPRCONF_ENVIRONMENT_D"/*.conf; do
+        [[ -f $f && $f != "$ENV_FILE" ]] || continue
+        hit=$(grep -Eom1 '^[[:space:]]*(export[[:space:]]+)?(VK_LOADER_DEVICE_ID_FILTER|VK_LOADER_DEVICE_SELECT|PROTON_ENABLE_WAYLAND)=' "$f" || :)
+        [[ -n $hit ]] || continue
+        hit=${hit%=}; printf '%s\n' "${hit##*[[:space:]]} in $f"
+    done
+}
+
+warn_conflicts() {
+    local line any=0
+    while IFS= read -r line; do
+        [[ -n $line ]] || continue
+        (( any )) || info "warning: Vulkan variables are also set outside $ENV_FILE —"
+        info "         $line"
+        any=1
+    done < <(conflicts_elsewhere)
+    (( any )) && info "         remove or rename those, or they may win over this pin"
+    return 0
 }
 
 write_env() {  # $1 = content; identical content is left untouched
@@ -189,7 +278,72 @@ cmd_fix() {
     diagnose
     (( ${#GPU_ID[@]} >= 2 )) || die "${#GPU_ID[@]} GPU under $_HYPRCONF_SYS_PCI — nothing to pin on a single-GPU box"
     (( DGPU >= 0 )) || die "no GPU has a connected output under $_HYPRCONF_SYS_DRM — cannot tell which one to pin"
+    require_unique_id "$DGPU"
     write_env "$(fix_content)"
+    warn_conflicts
+}
+
+# Pin a GPU of your choosing rather than the one `fix` picks. The display GPU
+# is the safe default and what `fix` writes; the other one is worth it only
+# when it is much faster AND the copy of every frame back across PCIe to the
+# card that scans out costs less than it gains — measure, do not assume.
+cmd_use() {
+    local sel=${1:-} t
+    [[ -n $sel ]] || die "usage: hyprconf-vulkan-gpu use <display|other|index|pci-address|vendor:device>"
+    diagnose_scan
+    (( ${#GPU_ID[@]} >= 2 )) || die "${#GPU_ID[@]} GPU under $_HYPRCONF_SYS_PCI — nothing to pin on a single-GPU box"
+    t=$(resolve_gpu "$sel")
+    require_unique_id "$t"
+    write_env "$(fix_content "$t")"
+    warn_conflicts
+}
+
+# Swap to the next GPU in PCI order after the pinned one — the whole switch in
+# one word on a two-GPU box. Unpinned, it starts from the display GPU.
+cmd_toggle() {
+    local cur=-1 pinned="" i t
+    diagnose_scan
+    (( ${#GPU_ID[@]} >= 2 )) || die "${#GPU_ID[@]} GPU under $_HYPRCONF_SYS_PCI — nothing to toggle on a single-GPU box"
+    if [[ -f $ENV_FILE ]]; then
+        pinned=$(grep -Eom1 '^export VK_LOADER_DEVICE_SELECT=.*' "$ENV_FILE" || :)
+        pinned=${pinned#*=}
+    fi
+    for i in "${!GPU_ID[@]}"; do
+        if [[ -n $pinned && ${GPU_ID[i]} == "$pinned" ]]; then cur=$i; break; fi
+    done
+    (( cur >= 0 )) || cur=$DGPU
+    (( cur >= 0 )) || cur=0
+    t=$(( (cur + 1) % ${#GPU_ID[@]} ))
+    require_unique_id "$t"
+    info "toggling ${GPU_ADDR[cur]} (${GPU_ID[cur]}) -> ${GPU_ADDR[t]} (${GPU_ID[t]})"
+    write_env "$(fix_content "$t")"
+    warn_conflicts
+}
+
+# Run one command with a GPU's variables set, touching neither the env file nor
+# the session. This is the only way to change GPU without re-logging in: apps
+# started through uwsm inherit the compositor's environment, and `systemctl
+# --user set-environment` does not reach them (README). `run <gpu> -- steam`
+# restarts Steam on that GPU; as a Steam launch option, `... run <gpu> --
+# %command%` picks a GPU for one game. `env -u` must precede the assignments —
+# GNU env stops reading options at the first NAME=VALUE.
+cmd_run() {
+    local sel=${1:-} t
+    local -a pre=() post=()
+    [[ -n $sel ]] || die "usage: hyprconf-vulkan-gpu run <gpu> [--] <command> [args...]"
+    shift
+    [[ ${1:-} == -- ]] && shift
+    (( $# )) || die "no command given (usage: hyprconf-vulkan-gpu run <gpu> [--] <command> [args...])"
+    diagnose_scan
+    t=$(resolve_gpu "$sel")
+    require_unique_id "$t"
+    post=("VK_LOADER_DEVICE_ID_FILTER=0x${GPU_ID[t]#*:}" "VK_LOADER_DEVICE_SELECT=${GPU_ID[t]}")
+    if nv_pair_for "$t"; then
+        post+=("__NV_PRIME_RENDER_OFFLOAD=1" "__VK_LAYER_NV_optimus=NVIDIA_only")
+    else
+        pre=(-u __NV_PRIME_RENDER_OFFLOAD -u __VK_LAYER_NV_optimus)
+    fi
+    exec env "${pre[@]}" "${post[@]}" "$@"
 }
 
 cmd_alt() {
@@ -254,7 +408,7 @@ EOF
 
 usage() {
     cat <<EOF
-hyprconf-vulkan-gpu — pin Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays
+hyprconf-vulkan-gpu — pin Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays, or one you pick
 
 usage: hyprconf-vulkan-gpu status [--quiet]  GPUs, display GPU, Vulkan device 0, configuration (default);
                                              exit 0 nothing to do, 3 at risk and unconfigured, 1 error
@@ -263,6 +417,14 @@ usage: hyprconf-vulkan-gpu status [--quiet]  GPUs, display GPU, Vulkan device 0,
                                              omarchy-update (OMARCHY_UPDATE_LOGGED set)
        hyprconf-vulkan-gpu fix               write \$_HYPRCONF_UWSM_ENV_D/50-hyprconf-vulkan-gpu: the filter for the
                                              display GPU, plus the NVIDIA pair behind another NVIDIA GPU; drops the marker
+       hyprconf-vulkan-gpu use <gpu>         the same file for a GPU you name instead of the display one:
+                                             display | other | index | pci-address | vendor:device
+       hyprconf-vulkan-gpu toggle            swap to the next GPU in PCI order after the pinned one — the
+                                             two-GPU switch; starts from the display GPU when nothing is pinned
+       hyprconf-vulkan-gpu run <gpu> [--] cmd [args...]
+                                             run cmd with that GPU's variables set and nothing written; the only
+                                             switch that needs no re-login ("run other -- steam"), and usable as a
+                                             Steam launch option: hyprconf-vulkan-gpu run other -- %command%
        hyprconf-vulkan-gpu alt               the same file with PROTON_ENABLE_WAYLAND=1 only (Wayland-capable Proton)
        hyprconf-vulkan-gpu ignore            write \$_HYPRCONF_STATE/hyprconf/vulkan-gpu-ignored: never ask again
        hyprconf-vulkan-gpu remove            delete the env.d file and the marker
@@ -287,7 +449,10 @@ main() {
     (($#)) && shift
     case $cmd in
         status) cmd_status "$@" ;;
-        prompt | fix | alt | ignore | remove) "cmd_$cmd" ;;
+        use | run) "cmd_$cmd" "$@" ;;
+        prompt | fix | alt | ignore | remove | toggle)
+            if (($#)); then die "$cmd takes no arguments (did you mean: use $1?)"; fi
+            "cmd_$cmd" ;;
         help | -h | --help) usage ;;
         *) die "unknown subcommand: $cmd (see: hyprconf-vulkan-gpu help)" ;;
     esac

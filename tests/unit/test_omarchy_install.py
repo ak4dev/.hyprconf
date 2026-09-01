@@ -1761,6 +1761,7 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
         "hyprconf-firefox-theme",
         "hyprconf-gaps",
         "hyprconf-gpu-info",
+        "hyprconf-help",
         "hyprconf-install-service-protonvpn",
         "hyprconf-monitor-preset",
         "hyprconf-stats",

@@ -9,6 +9,15 @@ Verifies:
   display GPU, the NVIDIA pair only for an NVIDIA display GPU behind another
   NVIDIA GPU, sh-clean and yielding those variables when sourced; idempotent
   (bytes and mtime); refuses on a single-GPU box
+- `use` pins a GPU you name (display / other / index / PCI address, long or
+  short / vendor:device) and `toggle` swaps to the next in PCI order, both
+  deriving the NVIDIA pair from the target rather than the display GPU, and
+  both naming a VK_LOADER_*/PROTON_ENABLE_WAYLAND line set outside their file
+- `run` sets one GPU's variables for a single command, writes nothing, and
+  clears an NVIDIA pair the target must not have
+- two cards sharing a vendor:device id refuse every id-keyed promise (the
+  loader cannot separate them); no-arg subcommands reject leftover arguments;
+  use/toggle/run never probe vulkaninfo (run sits on every game launch)
 - "already configured" in environment.d/*.conf, uwsm/env.d/*, uwsm/env and
   the live environment silences status and prompt
 - `prompt`: silent when nothing is at risk or the ignore marker exists, one
@@ -598,7 +607,17 @@ def test_prompt_without_gum_prints_the_manual_commands(dual: Box) -> None:
 def test_help(dual: Box, arg: str) -> None:
     r = dual.run(arg)
     assert r.returncode == 0
-    for sub in ("status [--quiet]", "prompt", "fix", "alt", "ignore", "remove"):
+    for sub in (
+        "status [--quiet]",
+        "prompt",
+        "fix",
+        "use <gpu>",
+        "toggle",
+        "run <gpu>",
+        "alt",
+        "ignore",
+        "remove",
+    ):
         assert f"hyprconf-vulkan-gpu {sub}" in r.stdout
     for seam in (
         "_HYPRCONF_SYS_PCI",
@@ -627,3 +646,181 @@ def test_script_hygiene() -> None:
     assert "readonly" not in text
     assert "MESA_VK_DEVICE_SELECT=" not in text  # Mesa 25 dropped the layer; never set it
     assert TOOL.stat().st_mode & stat.S_IXUSR
+
+
+# ---------------------------------------------------------------------------
+# use / toggle / run: choosing a GPU, and switching between them
+# ---------------------------------------------------------------------------
+
+# The `dual` box has the displays on the second GPU, so "other" is the 3070 —
+# which is also the NVIDIA driver's own GPU 0, hence never the PRIME pair.
+LOADER_LINES_3070 = [
+    "export VK_LOADER_DEVICE_ID_FILTER=0x2484",
+    "export VK_LOADER_DEVICE_SELECT=10de:2484",
+]
+
+
+def test_use_display_writes_what_fix_writes(dual: Box) -> None:
+    assert dual.run("use", "display").returncode == 0
+    assert exports(dual.env_file) == FIX_LINES
+
+
+def test_use_other_pins_the_non_display_gpu_without_the_nv_pair(dual: Box) -> None:
+    r = dual.run("use", "other")
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert exports(dual.env_file) == LOADER_LINES_3070
+    head = dual.env_file.read_text().splitlines()[:2]
+    assert "0000:04:00.0 (NVIDIA 10de:2484)" in head[0]
+    assert "0000:0a:00.0 (NVIDIA 10de:2b85)" in head[1]
+    assert sourced(dual.env_file, "VK_LOADER_DEVICE_SELECT", "__NV_PRIME_RENDER_OFFLOAD") == [
+        "10de:2484",
+        "",
+    ]
+
+
+@pytest.mark.parametrize("selector", ["0", "0000:04:00.0", "04:00.0", "10de:2484"])
+def test_use_accepts_index_address_long_or_short_and_id(dual: Box, selector: str) -> None:
+    assert dual.run("use", selector).returncode == 0
+    assert exports(dual.env_file) == LOADER_LINES_3070
+
+
+def test_use_rejects_an_unknown_selector_and_writes_nothing(dual: Box) -> None:
+    r = dual.run("use", "nope")
+    assert r.returncode == 1 and "no GPU matches 'nope'" in r.stderr
+    assert dual.files() == set()
+
+
+def test_use_without_a_selector_is_a_usage_error(dual: Box) -> None:
+    r = dual.run("use")
+    assert r.returncode == 1 and "usage: hyprconf-vulkan-gpu use" in r.stderr
+
+
+def test_use_refuses_on_a_single_gpu_box(tmp_path: Path) -> None:
+    box = Box(tmp_path, [NV_5090])
+    r = box.run("use", "display")
+    assert r.returncode == 1 and "nothing to pin on a single-GPU box" in r.stderr
+
+
+def test_toggle_starts_from_the_display_gpu_then_swaps_back(dual: Box) -> None:
+    first = dual.run("toggle")
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert exports(dual.env_file) == LOADER_LINES_3070
+    assert "0000:0a:00.0 (10de:2b85) -> 0000:04:00.0 (10de:2484)" in first.stdout
+    second = dual.run("toggle")
+    assert second.returncode == 0, second.stdout + second.stderr
+    assert exports(dual.env_file) == FIX_LINES
+    assert "0000:04:00.0 (10de:2484) -> 0000:0a:00.0 (10de:2b85)" in second.stdout
+
+
+def test_toggle_refuses_on_a_single_gpu_box(tmp_path: Path) -> None:
+    box = Box(tmp_path, [NV_5090])
+    r = box.run("toggle")
+    assert r.returncode == 1 and "nothing to toggle on a single-GPU box" in r.stderr
+
+
+@pytest.mark.parametrize("args", [("use", "other"), ("toggle",)])
+def test_use_and_toggle_name_a_setting_outside_their_own_file(dual: Box, args: tuple) -> None:
+    stray = dual.home / ".config" / "environment.d" / "50-mine.conf"
+    stray.parent.mkdir(parents=True)
+    stray.write_text("VK_LOADER_DEVICE_ID_FILTER=0x2b85\n")
+    r = dual.run(*args)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "also set outside" in r.stdout and str(stray) in r.stdout
+    assert exports(dual.env_file) == LOADER_LINES_3070
+
+
+def test_run_sets_the_variables_for_one_command_and_writes_nothing(dual: Box) -> None:
+    r = dual.run("run", "display", "--", "env")
+    assert r.returncode == 0, r.stdout + r.stderr
+    seen = dict(ln.split("=", 1) for ln in r.stdout.splitlines() if "=" in ln)
+    assert seen["VK_LOADER_DEVICE_ID_FILTER"] == "0x2b85"
+    assert seen["VK_LOADER_DEVICE_SELECT"] == "10de:2b85"
+    assert seen["__NV_PRIME_RENDER_OFFLOAD"] == "1"
+    assert seen["__VK_LAYER_NV_optimus"] == "NVIDIA_only"
+    assert dual.files() == set()
+
+
+def test_run_clears_an_nv_pair_the_target_must_not_have(dual: Box) -> None:
+    """A session pinned to the second GPU exports the pair; a `run` at the
+    first must not inherit it, or the driver offloads with nowhere to go."""
+    r = dual.run(
+        "run",
+        "other",
+        "--",
+        "env",
+        __NV_PRIME_RENDER_OFFLOAD="1",
+        __VK_LAYER_NV_optimus="NVIDIA_only",
+    )
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "VK_LOADER_DEVICE_SELECT=10de:2484" in r.stdout
+    assert "__NV_PRIME_RENDER_OFFLOAD" not in r.stdout
+    assert "__VK_LAYER_NV_optimus" not in r.stdout
+
+
+def test_run_takes_the_command_without_a_double_dash(dual: Box) -> None:
+    r = dual.run("run", "display", "env")
+    assert r.returncode == 0 and "VK_LOADER_DEVICE_SELECT=10de:2b85" in r.stdout
+
+
+def test_run_without_a_command_is_a_usage_error(dual: Box) -> None:
+    r = dual.run("run", "display")
+    assert r.returncode == 1 and "no command given" in r.stderr
+
+
+# Two cards with the same vendor:device: the loader's id filter cannot tell
+# them apart, so every id-keyed promise must refuse instead of lying.
+NV_3070_TWIN = {**NV_3070, "addr": "0000:0b:00.0", "connected": 2}
+
+
+@pytest.fixture
+def twins(tmp_path: Path) -> Box:
+    """Two identical NVIDIA cards, the displays on the second."""
+    return Box(tmp_path, [NV_3070, NV_3070_TWIN])
+
+
+@pytest.mark.parametrize("args", [("fix",), ("use", "display"), ("use", "1"), ("toggle",)])
+def test_identical_gpu_ids_refuse_to_write_a_pin(twins: Box, args: tuple) -> None:
+    r = twins.run(*args)
+    assert r.returncode == 1, r.stdout + r.stderr
+    assert "sharing id 10de:2484" in r.stderr and "cannot separate identical cards" in r.stderr
+    assert not twins.env_file.exists()
+
+
+def test_identical_gpu_ids_refuse_to_run(twins: Box) -> None:
+    r = twins.run("run", "display", "--", "env")
+    assert r.returncode == 1 and "sharing id 10de:2484" in r.stderr
+
+
+def test_identical_gpu_ids_status_says_cannot_tell(twins: Box) -> None:
+    r = twins.run("status")
+    assert r.returncode == 3, r.stdout + r.stderr
+    assert "cannot tell — two GPUs share id 10de:2484" in r.stdout
+
+
+def test_no_arg_subcommands_reject_leftover_arguments(dual: Box) -> None:
+    """`toggle other` must die pointing at `use`, never silently plain-toggle."""
+    r = dual.run("toggle", "other")
+    assert r.returncode == 1
+    assert "toggle takes no arguments (did you mean: use other?)" in r.stderr
+    assert not dual.env_file.exists()
+    for cmd in ("fix", "alt", "ignore", "remove", "prompt"):
+        r = dual.run(cmd, "stray")
+        assert r.returncode == 1 and f"{cmd} takes no arguments" in r.stderr, cmd
+
+
+def test_use_toggle_run_never_probe_vulkan(dual: Box) -> None:
+    """`run` sits on every game launch: probing every ICD there would wake a
+    runtime-suspended GPU. Only status/prompt/fix may pay for vulkaninfo."""
+    dual._fake(
+        "vulkaninfo",
+        'printf \'vulkaninfo\\n\' >> "$FAKE_CALLS"\n[[ $1 == --summary ]] && cat "$FAKE_VULKANINFO"\n',
+    )
+    (dual.tmp / "vulkaninfo-summary").write_text(vulkaninfo_summary(NV_3070, NV_5090))
+    for args in (("use", "other"), ("toggle",), ("run", "other", "--", "true")):
+        dual.calls_file.write_text("")
+        r = dual.run(*args)
+        assert r.returncode == 0, (args, r.stdout + r.stderr)
+        assert "vulkaninfo" not in dual.calls_file.read_text(), args
+    dual.calls_file.write_text("")
+    assert dual.run("status").returncode in (0, 3)
+    assert "vulkaninfo" in dual.calls_file.read_text()

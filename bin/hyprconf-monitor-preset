@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# hyprconf-monitor-preset — switch the desk's monitor layout through Omarchy's
-# Hyprland toggles seam.
+# hyprconf-monitor-preset — switch the desk's monitor layout.
+# Goes through Omarchy's Hyprland toggles seam.
 #
 #   hyprconf-monitor-preset <bedroom|kitchen|K|pc|laptop>   apply that preset
 #   hyprconf-monitor-preset stock                            Omarchy's own layout again
