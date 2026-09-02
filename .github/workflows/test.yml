@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Install toolchain
         run: pacman -Syu --noconfirm --needed git make ruff shellcheck
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: ShellCheck (all bash scripts)
         run: make shellcheck
       - name: Ruff (lint + format check)
@@ -51,7 +51,7 @@ jobs:
           pacman -Syu --noconfirm --needed git make python \
             python-pytest python-pytest-xdist jq shellcheck diffutils lua \
             qt6-declarative
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Same target scripts/publish gates on, so CI and a release run identically.
       - name: Run unit + integration
         run: make test

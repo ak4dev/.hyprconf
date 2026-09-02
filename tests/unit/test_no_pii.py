@@ -91,6 +91,22 @@ SKIP_DIRS = frozenset({".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".
 # hard gate red. The tracked .claude/settings.json stays scanned.
 SKIP_FILES = frozenset({".claude/settings.local.json", ".claude/RESUME.md"})
 
+# Credential formats rule 4 names but no identity string would catch: fixed,
+# low-false-positive shapes only. Matches are reported by file and line
+# number, never echoed.
+SECRET_RES = tuple(
+    re.compile(p)
+    for p in (
+        r"AKIA[0-9A-Z]{16}",
+        r"ASIA[0-9A-Z]{16}",
+        r"-----BEGIN (?:[A-Z]+ )?PRIVATE KEY-----",
+        r"ghp_[A-Za-z0-9]{36}",
+        r"github_pat_[A-Za-z0-9_]{22,}",
+        r"xox[baprs]-[A-Za-z0-9-]{10,}",
+        r"aws_secret_access_key\s*=",
+    )
+)
+
 
 def _repo_files() -> list[Path]:
     """Every regular file in the checkout, skipping SKIP_DIRS.
@@ -190,3 +206,15 @@ def test_no_personal_identities_anywhere() -> None:
         "Personal identity (username or git email) found in the tree.\n"
         "Replace it with a placeholder such as 'testuser', ~ or $HOME:\n" + "\n".join(offenders)
     )
+
+
+def test_no_secret_material_anywhere() -> None:
+    """Rule 4 bans keys and AWS ids; the identity scan cannot see them. A
+    pasted credential would otherwise ride the publish pipeline onto the
+    public stable branch."""
+    offenders: list[str] = []
+    for path in _repo_files():
+        for i, line in enumerate(_text_lines(path), start=1):
+            if any(r.search(line) for r in SECRET_RES):
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{i}")
+    assert not offenders, "Secret-shaped material in tracked files: " + ", ".join(offenders)

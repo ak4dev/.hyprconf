@@ -63,9 +63,13 @@ def clone(tmp_path: Path) -> Path:
     return tmp_path / "clone"
 
 
-def _publish(clone: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _publish(
+    clone: Path, *args: str, harness_marker: bool = True
+) -> subprocess.CompletedProcess[str]:
     """Run scripts/publish in the clone with a ``make`` stub first on PATH that
-    records its target in <clone>/../make-calls and succeeds."""
+    records its target in <clone>/../make-calls and succeeds. The harness
+    marker lets --skip-tests through; ``harness_marker=False`` runs the way a
+    mistaken real invocation would."""
     bins = clone.parent / "bins"
     bins.mkdir(exist_ok=True)
     make = bins / "make"
@@ -76,6 +80,9 @@ def _publish(clone: Path, *args: str) -> subprocess.CompletedProcess[str]:
         "PATH": f"{bins}:{os.environ['PATH']}",
         "FAKE_CALLS": str(clone.parent / "make-calls"),
     }
+    if harness_marker:
+        # The marker that lets --skip-tests through: harness runs only.
+        env["_HYPRCONF_PUBLISH_UNDER_TEST"] = "1"
     return subprocess.run(
         ["bash", PUBLISH, *args], cwd=clone, capture_output=True, text=True, timeout=120, env=env
     )
@@ -253,3 +260,22 @@ def test_skip_bump_refuses_a_tag_on_a_different_commit(clone: Path) -> None:
         env=GIT_ENV,
     )
     assert stable.returncode != 0  # stable was never created
+
+
+def test_skip_tests_without_the_harness_marker_is_refused(clone: Path) -> None:
+    """--skip-tests on a real publish would promote an unvetted tree to the
+    branch strangers clone; only the harness marker (or --dry-run) may pass
+    it. Deleting the guard must not ship green."""
+    r = _publish(clone, "--skip-tests", harness_marker=False)
+    assert r.returncode != 0
+    assert "--skip-tests is for the test harness" in r.stdout + r.stderr
+    assert not (clone.parent / "make-calls").exists()  # died before any gate
+    origin = clone.parent / "origin.git"
+    stable = subprocess.run(
+        ["git", "rev-parse", "-q", "--verify", "refs/heads/stable"],
+        cwd=origin,
+        capture_output=True,
+        text=True,
+        env=GIT_ENV,
+    )
+    assert stable.returncode != 0  # nothing was promoted

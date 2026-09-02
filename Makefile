@@ -22,6 +22,11 @@ shellcheck:
 	    head -n1 "$$f" | grep -q bash && printf '%s\n' "$$f"; done); \
 	[ -n "$$files" ] || { echo "shellcheck: no bash scripts found" >&2; exit 1; }; \
 	printf '%s\n' "$$files" | xargs -d '\n' shellcheck --severity=warning
+	@# The two root-writing files also gate SC2086 (info-level, below the
+	@# main pass's --severity=warning): an unquoted word there splits into an
+	@# extra argument to a root command. SC2068 is error-level and already
+	@# caught everywhere by the main pass.
+	shellcheck --include=SC2086 install.sh bin/hyprconf-yubikey
 	@echo "shellcheck: clean"
 
 lint:

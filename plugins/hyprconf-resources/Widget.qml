@@ -156,6 +156,10 @@ BarWidget {
   }
 
   component Cell: Text {
+    // Feeder strings are untrusted-adjacent (device names, interface names):
+    // never rich-text parsed — the same hardening stock 4.0.2 applies to
+    // window titles.
+    textFormat: Text.PlainText
     color: root.textColor
     font.pixelSize: Style.font.caption
     font.family: root.fontFamily

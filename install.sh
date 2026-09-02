@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installs the hyprconf overlay on top of a fresh Omarchy install.
 #
-#   bash <(curl -fsSL hyprconf.sh)
+#   bash <(curl -fsSL --proto '=https' https://hyprconf.sh)
 #
 # hyprconf.sh serves this very file to curl and wget. Run that way it has no
 # payload beside it, so it clones github.com/ak4dev/.hyprconf (branch stable)
@@ -94,7 +94,7 @@ die()  { printf 'hyprconf: %s\n' "$*" >&2; exit 1; }
 
 usage() {
     cat <<'USAGE'
-Usage: bash <(curl -fsSL hyprconf.sh) [OPTIONS]
+Usage: bash <(curl -fsSL --proto '=https' https://hyprconf.sh) [OPTIONS]
        bash install.sh [OPTIONS]
 
 Installs (or re-applies) the hyprconf overlay on an Omarchy system.
@@ -138,6 +138,13 @@ if (( no_update )); then do_update=0; fi
 # the base system; run against a hand-built Hyprland desktop it would fight
 # that machine's own configuration.
 preflight() {
+    # The overlay writes the invoking user's $HOME and asks for sudo itself
+    # in the four gated stages; run under sudo it half-installs into /root
+    # (env_reset sets HOME) and the curl|bash habit of prefixing sudo is the
+    # dangerous one. CI runs the hermetic suite as root, hence the seam.
+    if ((EUID == 0)) && [[ -z ${_HYPRCONF_ALLOW_ROOT:-} ]]; then
+        die "run as your regular user — install.sh asks for sudo itself where a stage needs it."
+    fi
     [[ -d $OMARCHY_PATH ]] ||
         die "no Omarchy found at $OMARCHY_PATH — this overlay installs on top of Omarchy."
     command -v "$_HYPRCONF_PKG_ADD" >/dev/null 2>&1 ||
@@ -194,7 +201,10 @@ show_banner() {
     banner "${branch:-unknown}"
 }
 
-# The curl path: `bash <(curl -fsSL hyprconf.sh)` runs this file from /dev/fd
+# The curl path: `bash <(curl -fsSL --proto '=https' https://hyprconf.sh)` runs this file from /dev/fd
+# (schemeless, curl's first request is plaintext port 80 and an on-path
+# attacker answers it before the https redirect exists — hence the scheme
+# and --proto, which also refuses any downgrade redirect)
 # with nothing beside it, so nothing is applied from here. Preflight FIRST —
 # a box without Omarchy is refused before anything lands on it — then the
 # checkout is cloned into $HYPRCONF_DIR, or the one already there is used as
@@ -1304,6 +1314,38 @@ stage_window_title() {
     enable_plugin_once hyprconf.active-window active-window-applied
 }
 
+# clone_pinned <url> <dir> <sha> <name>: the named commit and only it —
+# cloned without checkout, the exact sha fetched shallow (GitHub serves
+# unadvertised reachable objects by full sha), checked out detached. A dir
+# already at the pin costs nothing and touches no network; one at any other
+# commit (an install from before the pins, or a bumped pin) is moved to it,
+# fetching from the pinned URL so a stray origin cannot answer. EVERY network
+# step is timeout-bounded — the blob download happens at the checkout under
+# --filter=blob:none, not the fetch (the unbounded pull this replaces once
+# held an omarchy-update for minutes). Non-fatal throughout; a failed MOVE
+# keeps the existing checkout in service (return 0: the dir is usable, just
+# not yet at the pin), a failed fresh CLONE leaves nothing to use (return 1).
+clone_pinned() {
+    local url=$1 dir=$2 sha=$3 name=$4
+    if [[ -d $dir ]]; then
+        if ! git -C "$dir" rev-parse --git-dir >/dev/null 2>&1; then
+            warn "$name at $dir is not a git checkout — leaving it as it is (move it aside to let the pin re-clone)"
+            return 0
+        fi
+        [[ $(git -C "$dir" rev-parse HEAD 2>/dev/null) == "$sha" ]] && return 0
+        info "Moving $name to its pinned commit"
+        { timeout 300 git -C "$dir" fetch --depth=1 "$url" "$sha" >/dev/null 2>&1 &&
+            timeout 300 git -C "$dir" checkout --detach -q FETCH_HEAD; } ||
+            warn "could not move $name to its pin — the current checkout stays in use; will retry on the next run"
+        return 0
+    fi
+    info "Installing $name (pinned)"
+    { timeout 300 git clone --no-checkout --filter=blob:none "$url" "$dir" >/dev/null 2>&1 &&
+        timeout 300 git -C "$dir" fetch --depth=1 "$url" "$sha" >/dev/null 2>&1 &&
+        timeout 300 git -C "$dir" checkout --detach -q FETCH_HEAD; } ||
+        { rm -rf "$dir"; warn "could not clone $name — will retry on the next run"; return 1; }
+}
+
 stage_shell() {
     log "Shell: zsh + powerlevel10k in the terminal"
     # Deliberately NO chsh. The login shell stays bash, so Omarchy's rc chain,
@@ -1312,32 +1354,25 @@ stage_shell() {
     # Omarchy's own env/alias files so its updates keep flowing through.
     [[ -n $_HYPRCONF_ZSH ]] || { warn "zsh not installed — skipping"; return 0; }
 
-    if [[ ! -d $HOME/.oh-my-zsh ]]; then
-        info "Installing Oh My Zsh"
-        # Bounded and non-fatal, like the p10k pull below: this path also runs
-        # from the post-update hook (README says ~/.oh-my-zsh may be deleted),
-        # and under `set -e` an unguarded clone on a dead network would abort
-        # the whole apply before the stages after this one — on a first
-        # install, before the hooks land. The rest of the stage is skipped so
-        # .zshrc never names a theme that is not there.
-        timeout 300 git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh" ||
-            { warn "could not clone Oh My Zsh — will retry on the next run"; return 0; }
-    fi
-
+    # Third-party shell code, PINNED: both repos are checked out at exactly
+    # the commits below and never auto-updated. Their code runs in every
+    # interactive zsh, and the old per-apply `git pull` was a silent
+    # auto-propagation channel from two upstream HEADs into every box on
+    # every omarchy-update (the post-update hook runs this stage with output
+    # discarded) — an upstream or maintainer-account compromise would have
+    # shipped itself. Bumping a pin is a deliberate commit through the
+    # publish gates (zsh/zshrc.block's `zstyle :omz:update mode disabled`
+    # holds the other half: the updater shipping inside the pinned code).
+    # Clone/fetch stay bounded and non-fatal, as before:
+    # a dead network must not stall an Omarchy update, and the rest of the
+    # stage is skipped so .zshrc never names a theme that is not there.
+    # Pins verified 2026-09-01 (upstream HEADs, reviewed):
+    local omz_pin=9112b53fa8b5ab556c7c893aa8be8a247ac512a0
+    local p10k_pin=3308262dfbd743b6e1d3956a2b5572f7a049d692
     local p10k="$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
+    clone_pinned https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh" "$omz_pin" "Oh My Zsh" || return 0
     mkdir -p "$(dirname "$p10k")"
-    if [[ ! -d $p10k ]]; then
-        info "Installing powerlevel10k"
-        timeout 300 git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$p10k" ||
-            { warn "could not clone powerlevel10k — will retry on the next run"; return 0; }
-    else
-        # Bounded, and failure is fine. This runs on every apply — including
-        # from the post-update hook, non-interactively, inside `omarchy-update`
-        # — so an unreachable or slow network must not stall an Omarchy update.
-        # An out-of-date prompt theme is cosmetic; a hung system update is not.
-        # (Observed: an unbounded pull here held a run for several minutes.)
-        timeout 20 git -C "$p10k" pull --ff-only >/dev/null 2>&1 || true
-    fi
+    clone_pinned https://github.com/romkatv/powerlevel10k.git "$p10k" "$p10k_pin" "powerlevel10k" || return 0
 
     ln -sfn "$HERE/zsh/.p10k.zsh" "$HOME/.p10k.zsh"
     write_managed_block "$HOME/.zshrc" "$HERE/zsh/zshrc.block"

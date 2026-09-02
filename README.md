@@ -49,8 +49,10 @@ preferences on top, always through Omarchy's own tools and documented seams:
 ## Install
 
 ```bash
-bash <(curl -fsSL hyprconf.sh)
+bash <(curl -fsSL --proto '=https' https://hyprconf.sh)
 ```
+
+Run it as your regular user — it asks for sudo itself where a stage needs it, and refuses to run as root (a sudo-prefixed bootstrap would half-install the overlay into `/root`).
 
 `hyprconf.sh` serves `install.sh` itself to curl. Run with no payload beside it, it refuses a box without Omarchy before touching anything, clones the `stable` branch into `~/.hyprconf` — or uses the checkout already there, without pulling it — and hands over to that checkout's `install.sh` with the same options. `HYPRCONF_REPO` (`https://github.com/ak4dev/.hyprconf`), `HYPRCONF_BRANCH` (`stable`) and `HYPRCONF_DIR` (`~/.hyprconf`) override those three. The same by hand:
 
@@ -94,7 +96,7 @@ bash ~/.hyprconf/install.sh
 | clock | `hyprconf.clock`: a copy of `omarchy.clock` patched to tick seconds, format `hh:mm:ss AP` — **set once** | Same copy mechanics as `omarchy plugin clone` (project namespace instead of `<username>.`); `omarchy-bar set`; the bar's `centerAnchor` follows only if it still pointed at `omarchy.clock` |
 | workspaces | `hyprconf.workspaces`: the overlay's own workspaces widget — only workspaces that exist, on two lines, Pac-Man on the focused one | `plugins/hyprconf-workspaces/` synced on every run (a `clonedFrom` copy the shell swaps into the stock widget's slot); enabled **once** |
 | window_title | `hyprconf.active-window`: the focused window's title after the workspaces, on **two lines** | `plugins/hyprconf-active-window/` synced on every run (a `clonedFrom` copy the shell swaps into the stock `omarchy.active-window` slot); enabled **once** with no placement of its own: the manifest's `defaultSection: left` and the shell's own anchor after `omarchy.workspaces` — resolved to the `hyprconf.workspaces` copy while it is on the bar — place it |
-| shell | Oh My Zsh + Powerlevel10k cloned into `~/.oh-my-zsh`; `~/.p10k.zsh` → `zsh/.p10k.zsh`; managed block in `~/.zshrc` | Plain `git clone`, no `chsh` |
+| shell | Oh My Zsh + Powerlevel10k into `~/.oh-my-zsh`, each pinned to a reviewed commit (no auto-update — bumping a pin is a deliberate release); `~/.p10k.zsh` → `zsh/.p10k.zsh`; managed block in `~/.zshrc` | `git` at exact shas, no `chsh` |
 | hooks | `~/.config/omarchy/hooks/post-update.d/10-hyprconf` and `theme-set.d/10-hyprconf` | `omarchy hook install <type> <file>` (Omarchy's own: mkdir, copy under the file's basename, `chmod 755`) on a copy rendered with `@HYPRCONF_DIR@` substituted. The first re-runs `install.sh --no-update --no-packages` after every `omarchy-update`; the second extends every `omarchy theme set` to Firefox (below) |
 | themed | `~/.config/omarchy/themed/userChrome.css.tpl` → `themed/userChrome.css.tpl` | Copied when the bytes differ into Omarchy's user-template directory: every `<name>.tpl` there is rendered by `omarchy-theme-set-templates` on each theme set into `~/.local/state/omarchy/current/theme/<name>`. When the template changed or its render is missing, `omarchy-theme-refresh` (`omarchy theme refresh`: re-sets the current theme, wallpaper kept) renders it now; with no active theme the next `omarchy theme set` does |
 | theme_apps | Firefox `userChrome.css`/`user.js` match the **active** theme right away | Runs the theme-set hook once for `~/.local/state/omarchy/current/theme.name`; a no-op with no active theme |

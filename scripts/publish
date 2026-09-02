@@ -122,6 +122,13 @@ ok "Local ${WORK_BRANCH} is up-to-date with origin/${WORK_BRANCH}"
 # Lint + shellcheck are the same gates CI enforces. Run them here (fast, seconds)
 # so a release can never be cut with a red lint job — a formatting/shellcheck
 # regression must never reach stable just because the test suite was green.
+# --skip-tests exists for the integration suite's own runs of this script;
+# on a real publish it would promote an unvetted tree to the branch strangers
+# clone and execute. Refuse it without the harness marker or --dry-run.
+if [[ "$SKIP_TESTS" == true && "$DRY_RUN" != true && -z "${_HYPRCONF_PUBLISH_UNDER_TEST:-}" ]]; then
+  die "--skip-tests is for the test harness (set _HYPRCONF_PUBLISH_UNDER_TEST=1) or --dry-run — a real publish runs every gate."
+fi
+
 step "Lint gates (ruff + shellcheck)"
 if [[ "$SKIP_TESTS" == true ]]; then
   warn "Skipping lint gates (--skip-tests) — ensure ruff + shellcheck passed before this call"

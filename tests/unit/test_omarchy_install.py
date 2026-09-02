@@ -335,6 +335,9 @@ def _run(
         "_HYPRCONF_PLUGIN_WAIT": "0",
         # hyprconf-vulkan-gpu reads sysfs: the fake tree (_sysfs), never the
         # host's, and no vulkaninfo — the host's would answer for its GPUs.
+        # CI runs this suite as root; the refuse-root preflight must not
+        # fire against the relocated fake HOME (its own test unsets this).
+        "_HYPRCONF_ALLOW_ROOT": "1",
         "_HYPRCONF_SYS_PCI": str(env["sys_pci"]),
         "_HYPRCONF_SYS_DRM": str(env["sys_drm"]),
         "_HYPRCONF_VULKANINFO": "vulkaninfo-absent",
@@ -379,10 +382,22 @@ PAYLOAD = (
 )
 
 # A git that is real for everything the refresh guard needs (`checkout --`)
-# and still fake for the two things a hermetic run must never do: clone Oh My
-# Zsh / powerlevel10k off the network, and pull.
+# and still fake for what a hermetic run must never do: touch the network for
+# Oh My Zsh / powerlevel10k. The pin dance (fetch <sha> / checkout FETCH_HEAD
+# / rev-parse HEAD) against those two dirs is faked through marker files, so
+# clone_pinned sees a repo that lands at — and stays at — whatever sha it
+# fetched; everything else passes through to the real git.
 GIT_PASSTHROUGH = """\
 if [ "$1" = clone ]; then mkdir -p "${@: -1}"; exit 0; fi
+if [ "$1" = -C ]; then case "$2" in *oh-my-zsh*|*powerlevel10k*)
+  dir=$2; shift 2
+  case "$1" in
+    fetch)     printf %s "$4" > "$dir/.fake-fetch-head"; exit 0 ;;
+    checkout)  cat "$dir/.fake-fetch-head" > "$dir/.fake-head" 2>/dev/null; exit 0 ;;
+    rev-parse) cat "$dir/.fake-head" 2>/dev/null || echo unborn; exit 0 ;;
+    *)         exit 0 ;;
+  esac ;;
+esac; fi
 case " $* " in *" pull "*) exit 0 ;; esac
 exec "$(PATH=/usr/bin:/bin command -v git)" "$@"
 """
@@ -1359,6 +1374,68 @@ def test_overlay_never_uses_forbidden_pacman_or_aur_forms() -> None:
         code = _code_only(script.read_text(errors="ignore"))
         for token in FORBIDDEN_TOKENS:
             assert token not in code, f"{script}: {token}"
+
+
+# The overlay's network trust is clone-only over https: fetching content and
+# executing it would add a network trust root the model never had (AGENTS ›
+# Security). Every exception is written down here, in full, or does not land.
+# Whole-word curl/wget on purpose: URL-first invocations and `sh -c "$(curl
+# …)"` all carry the word; the pipe net catches any *sh interpreter.
+FETCH_EXEC_PATTERNS = (
+    r"\bcurl\b",
+    r"\bwget\b",
+    r"\|&?\s*\w*sh\b",
+    r"bash\s*<\(",
+    r"source\s*<\(",
+    r"base64\s+(?:-d|--decode)",
+    r"(?<!hyprctl )\beval\b",
+)
+FETCH_EXEC_ALLOWED = (
+    # install.sh's usage text: the documented one-liner and its prose, strings
+    "Usage: bash <(curl -fsSL --proto '=https' https://hyprconf.sh) [OPTIONS]",
+    "The curl form clones github.com/ak4dev/.hyprconf (branch stable) into",
+    # zoxide's documented init: output of a pacman-installed binary
+    'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"',
+)
+
+
+def _fetch_exec_surface() -> list[Path]:
+    """_overlay_scripts() plus the shipped shell payload its suffix filter
+    misses — the zsh block and p10k config every interactive zsh executes,
+    and the kitty conf. The scan must reach everything that runs."""
+    return _overlay_scripts() + [
+        REPO_ROOT / "zsh" / "zshrc.block",
+        REPO_ROOT / "zsh" / ".p10k.zsh",
+        REPO_ROOT / "kitty" / "hyprconf.conf",
+    ]
+
+
+def test_overlay_never_fetches_and_executes() -> None:
+    for script in _fetch_exec_surface():
+        code = _code_only(script.read_text(errors="ignore"))
+        for allowed in FETCH_EXEC_ALLOWED:
+            code = code.replace(allowed, "")
+        for pat in FETCH_EXEC_PATTERNS:
+            assert not re.search(pat, code), f"{script}: fetch-and-execute shape {pat!r}"
+
+
+def test_bootstrap_defaults_are_pinned_https_and_stable() -> None:
+    """The first bytes strangers run. Every behavioral curl-path test
+    overrides HYPRCONF_REPO, so an http:// downgrade or fork URL in the
+    default would ship green without this literal pin."""
+    text = INSTALL_SH.read_text()
+    assert ': "${HYPRCONF_REPO:=https://github.com/ak4dev/.hyprconf}"' in text
+    assert ': "${HYPRCONF_BRANCH:=stable}"' in text
+
+
+def test_packages_file_lines_are_plain_package_names() -> None:
+    """A line starting with '-' would reach the sudo package stage as an
+    option, not a package."""
+    for ln in (REPO_ROOT / "packages").read_text().splitlines():
+        ln = ln.strip()
+        if not ln or ln.startswith("#"):
+            continue
+        assert re.fullmatch(r"[a-z0-9][a-z0-9@._+-]*", ln), f"packages: {ln!r}"
 
 
 def test_overlay_never_uses_the_dead_hyprctl_forms() -> None:
@@ -2367,7 +2444,7 @@ def test_old_hotkey_script_copies_are_swept(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The curl path — `bash <(curl -fsSL hyprconf.sh)` serves install.sh alone
+# The curl path — `bash <(curl -fsSL --proto '=https' https://hyprconf.sh)` serves install.sh alone
 # ---------------------------------------------------------------------------
 
 # A git that really clones a LOCAL repository (the throwaway checkout under
@@ -2379,6 +2456,15 @@ if [ "$1" = clone ]; then
   if [ -d "$src" ]; then exec "$(PATH=/usr/bin:/bin command -v git)" "$@"; fi
   mkdir -p "${@: -1}"; exit 0
 fi
+if [ "$1" = -C ]; then case "$2" in *oh-my-zsh*|*powerlevel10k*)
+  dir=$2; shift 2
+  case "$1" in
+    fetch)     printf %s "$4" > "$dir/.fake-fetch-head"; exit 0 ;;
+    checkout)  cat "$dir/.fake-fetch-head" > "$dir/.fake-head" 2>/dev/null; exit 0 ;;
+    rev-parse) cat "$dir/.fake-head" 2>/dev/null || echo unborn; exit 0 ;;
+    *)         exit 0 ;;
+  esac ;;
+esac; fi
 case " $* " in *" pull "*) exit 0 ;; esac
 exec "$(PATH=/usr/bin:/bin command -v git)" "$@"
 """
@@ -2486,7 +2572,7 @@ def test_curl_path_help_and_bad_options_never_clone(tmp_path: Path) -> None:
     served = _served_copy(tmp_path)
     proc = _run(env, "--help", extra_env={"HYPRCONF_DIR": str(target)}, install_sh=served)
     assert proc.returncode == 0
-    assert "bash <(curl -fsSL hyprconf.sh)" in proc.stdout
+    assert "bash <(curl -fsSL --proto '=https' https://hyprconf.sh)" in proc.stdout
     assert "HYPRCONF_REPO" in proc.stdout
     proc = _run(env, "--bogus", extra_env={"HYPRCONF_DIR": str(target)}, install_sh=served)
     assert proc.returncode != 0
@@ -2940,3 +3026,69 @@ def test_a_failing_dual_gpu_check_is_a_warning_not_a_failed_install(tmp_path: Pa
     assert not (env["home"] / ".config" / "uwsm").exists()
     assert (env["home"] / MENU_EXT).exists()  # the very next stage
     assert (env["home"] / ".zshrc").exists()
+
+
+# The default git stub exits 0 for everything; this one also plays the pin
+# dance against the two third-party dirs through marker files (never real
+# git), so the pinned-checkout logic is observable.
+GIT_PIN_DANCE = """\
+if [ "$1" = clone ]; then mkdir -p "${@: -1}"; fi
+if [ "$1" = -C ]; then case "$2" in *oh-my-zsh*|*powerlevel10k*)
+  dir=$2; shift 2
+  case "$1" in
+    fetch)     if [ -e "$dir/.fail-fetch" ]; then exit 1; fi
+               printf %s "$4" > "$dir/.fake-fetch-head" ;;
+    checkout)  cat "$dir/.fake-fetch-head" > "$dir/.fake-head" 2>/dev/null ;;
+    rev-parse) cat "$dir/.fake-head" 2>/dev/null || echo unborn ;;
+  esac ;;
+esac; fi
+exit 0
+"""
+
+
+def test_shell_third_party_repos_are_pinned_and_never_pulled(tmp_path: Path) -> None:
+    """Oh My Zsh and powerlevel10k execute in every interactive zsh: they
+    stay at the reviewed pins named in stage_shell — the old per-apply
+    `git pull` was a silent auto-update channel from two upstream HEADs into
+    every box on every omarchy-update. A dir at another commit (a pre-pin
+    install) is moved to the pin."""
+    pins = dict(re.findall(r"local (omz_pin|p10k_pin)=([0-9a-f]{40})", INSTALL_SH.read_text()))
+    assert set(pins) == {"omz_pin", "p10k_pin"}, "stage_shell must name both pins"
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_PIN_DANCE)
+    _run(env, "--no-update")
+    omz = env["home"] / ".oh-my-zsh"
+    p10k = omz / "custom" / "themes" / "powerlevel10k"
+    assert (omz / ".fake-head").read_text() == pins["omz_pin"]
+    assert (p10k / ".fake-head").read_text() == pins["p10k_pin"]
+    assert not any(" pull " in f" {c} " for c in _calls(env))
+    # the migration: a checkout left at any other commit moves to the pin
+    (p10k / ".fake-head").write_text("0" * 40)
+    _run(env, "--no-update")
+    assert (p10k / ".fake-head").read_text() == pins["p10k_pin"]
+    # an offline box mid-migration keeps the usable checkout AND the stage
+    # tail: .zshrc must not be held hostage by an unreachable pin
+    (p10k / ".fake-head").write_text("1" * 40)
+    (p10k / ".fail-fetch").write_text("")
+    (env["home"] / ".zshrc").unlink()
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert (p10k / ".fake-head").read_text() == "1" * 40  # unpinned, but in use
+    assert "could not move powerlevel10k to its pin" in proc.stderr
+    assert (env["home"] / ".zshrc").exists()  # the tail still ran
+
+
+def test_refuses_to_run_as_root_without_the_harness_seam(tmp_path: Path) -> None:
+    """curl|bash users reflexively prefix sudo; under env_reset that
+    half-installs the overlay into /root. CI runs this suite as root and
+    exercises the live branch; elsewhere the guard is pinned as text."""
+    env = _setup(tmp_path)
+    if os.geteuid() == 0:
+        proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ALLOW_ROOT": ""})
+        assert proc.returncode != 0
+        assert "run as your regular user" in proc.stderr
+        assert not (env["home"] / ".zshrc").exists()
+    else:
+        assert (
+            "if ((EUID == 0)) && [[ -z ${_HYPRCONF_ALLOW_ROOT:-} ]]; then" in INSTALL_SH.read_text()
+        )

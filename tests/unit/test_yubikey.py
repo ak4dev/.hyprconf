@@ -407,6 +407,12 @@ def test_restraint_scan() -> None:
     ):
         assert forbidden not in text, f"{forbidden!r} must not appear in hyprconf-yubikey"
     assert "readonly" not in text, "system paths must stay env-overridable"
+    # Root writes keep the end-of-options discipline: a value starting with
+    # '-' must never become an option to a root coreutils command.
+    loose = re.findall(
+        r"run_root(?:_quiet)? (?:tee|rm -f|mkdir -p|chmod [0-7]+(?![0-7])|stat -c %Y)(?! --)", text
+    )
+    assert not loose, f"root write without -- separator: {loose}"
 
 
 # ---------------------------------------------------------------------------

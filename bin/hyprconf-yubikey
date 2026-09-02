@@ -534,7 +534,7 @@ config_fingerprint() {
 verified_state_path() { printf '%s/.%s.verified\n' "$_HYPRCONF_MKINITCPIO_D" "$_HYPRCONF_FIDO2_DROPIN"; }
 
 record_verified_state() {
-    { config_fingerprint | run_root tee "$(verified_state_path)" >/dev/null &&
+    { config_fingerprint | run_root tee -- "$(verified_state_path)" >/dev/null &&
         run_root chmod 644 -- "$(verified_state_path)"; } ||
         warn "could not record the verified hook set at $(verified_state_path) — a later identical-image check may misjudge"
     return 0

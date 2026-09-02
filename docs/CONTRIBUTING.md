@@ -85,6 +85,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
 │   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, monitors.lua migration …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
 │   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
+│   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
 │   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; the limine drop-in, /etc/default/limine read for the mapper and rewritten only by the v4.0.0–v4.2.0 inline-parameter migration; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias finds a relocated checkout
@@ -103,7 +104,7 @@ make test-integration
 
 # Lint gates
 make lint                # ruff check + ruff format --check
-make shellcheck          # every bash script, severity=warning
+make shellcheck          # every bash script, severity=warning; plus SC2086 (info-level) on install.sh and hyprconf-yubikey — unquoted words in root-writing code
 make fmt                 # ruff format + safe fixes
 make clean
 ```
@@ -137,9 +138,11 @@ skips in CI, and the recipe for reproducing a container-only failure, are in
   `fc-list`, `systemd-cryptenroll`, `limine-update`, `gum`, `udevadm` (the real
   one would re-apply rules on the developer's own machine), `vulkaninfo` (it
   would answer for the host's GPUs), `git` (a clone only makes its directory —
-  the curl-path tests let a clone of a local directory run the real git — and
-  a pull is a no-op; the real git otherwise runs only inside a throwaway
-  checkout under `tmp_path`, never the repository the suite runs from) …
+  the curl-path tests let a clone of a local directory run the real git — the
+  pinned fetch/checkout/rev-parse dance against the two third-party shell
+  dirs is faked through marker files, and a pull is a no-op; the real git
+  otherwise runs only inside a throwaway checkout under `tmp_path`, never
+  the repository the suite runs from) …
   `/usr/bin` carries
   every `omarchy-*` command (426 on Omarchy 4.0.1-1), so a PATH of fakes plus
   `/usr/bin` keeps none of them out: stub every one the code path can call
@@ -165,6 +168,16 @@ be green before a publish; the recipe for reproducing a container-only
 failure is in `AGENTS.md` › Gates and CI.
 
 ---
+
+## Security
+
+The overlay is published: strangers clone `stable` and run `install.sh` with their own sudo. Three trust boundaries, each held by mechanical pins (AGENTS.md hard rule 8):
+
+1. **Unprivileged → root, on the local box.** The four sudo stages, `hyprconf-yubikey`'s `run_root` surface, and `hyprconf-install-service-protonvpn`'s package install (rule 6 names all of them) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned in `test_yubikey.py`'s restraint scan); installed tools are rendered beside the target and `mv`'d, never truncated in place; the `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo stage names itself in README (rule 6) and lands with a pin.
+2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`textFormat: Text.PlainText`, stock parity); nothing shipped fetches-and-executes — `test_overlay_never_fetches_and_executes` forbids curl/wget/pipe-to-shell/`base64 -d`/`eval` in shipped bash, with the allowed exceptions written down in full inside the test. A new exception is added there verbatim, with its why, or the change does not land.
+3. **Publish pipeline → strangers' boxes.** The bootstrap is https-only (`--proto '=https'`; `test_published_one_liners_are_https_only`, `test_bootstrap_defaults_are_pinned_https_and_stable` — schemeless, curl's first request is plaintext port 80 and an on-path attacker answers it before the redirect exists). Oh My Zsh and powerlevel10k are pinned to reviewed commits in `stage_shell` — bumping a pin is a deliberate commit through the publish gates, never an auto-pull (`test_shell_third_party_repos_are_pinned_and_never_pulled`) — and `zsh/zshrc.block` disables the updater that ships inside Oh My Zsh itself (`zstyle ':omz:update' mode disabled`, pinned in `test_supply_chain.py`), which would otherwise re-open the channel with one keypress. CI actions are sha-pinned under a read-only token (`test_ci_workflow_is_least_privilege`); `scripts/publish` refuses `--skip-tests` outside the harness marker; `web/` stays self-contained (`test_web_page_is_self_contained`); secret-shaped material anywhere in the tree fails `test_no_secret_material_anywhere`; `install.sh` refuses to run as root (the curl|bash sudo-prefix habit half-installs into /root).
+
+The checklist for any change: does it add a network touch, execute anything it did not ship with, widen a root path or a udev match, or move bytes from an untrusted source toward a shell, QML or root sink? Then the matching pin above changes in the same commit, its reasoning beside it. A pin loosened without its why is a finding, not a diff.
 
 ## Branches
 
@@ -211,7 +224,7 @@ annotated tag), the bump flags, and the dirty-tree / off-branch refusals.
 `hyprconf.sh` is the `hyprconf-sh` S3 bucket behind a CloudFront distribution
 that routes on the User-Agent: browsers get the `index.html` object, `curl` and
 `wget` get the `install.sh` object — which is what makes
-`bash <(curl -fsSL hyprconf.sh)` work. That router is existing infrastructure
+`bash <(curl -fsSL --proto '=https' https://hyprconf.sh)` work. That router is existing infrastructure
 outside this repo, managed by hand; there is no deploy tooling (`aws` comes
 from `omarchy-pkg-add aws-cli-v2`, an official `extra` package), and the upload
 happens only when the user asks for a deploy. Four objects, and the `install.sh`
@@ -244,7 +257,7 @@ Verify both routes once the invalidation has completed — the curl UA must get
 `stable`'s installer, a browser UA the page:
 
 ```bash
-curl -fsSL hyprconf.sh | cmp - <(git show stable:install.sh) && echo installer-ok
-curl -fsSL -A 'Mozilla/5.0' hyprconf.sh | cmp - web/index.html && echo page-ok
+curl -fsSL https://hyprconf.sh | cmp - <(git show stable:install.sh) && echo installer-ok
+curl -fsSL -A 'Mozilla/5.0' https://hyprconf.sh | cmp - web/index.html && echo page-ok
 curl -sSI -A 'Mozilla/5.0' https://hyprconf.sh/screenshot.svg | grep -i '^content-type: image/svg+xml'
 ```
