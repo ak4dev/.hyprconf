@@ -12,8 +12,8 @@ Verifies:
   stderr goes nowhere a human can see)
 - A missing or unsafe preset argument exits non-zero
 
-The `pc` / `laptop` short names and the workspace re-homing are covered
-against the installed copy by test_omarchy_install.py.
+The `laptop` short name and the workspace re-homing are covered against the
+installed copy by test_omarchy_install.py.
 
 HERMETIC: the tool talks to hyprctl, omarchy-notification-send and
 omarchy-osd. Every one of them is a recording stub on a fake-bins dir put

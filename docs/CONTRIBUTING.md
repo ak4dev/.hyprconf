@@ -15,10 +15,8 @@ publish flow and the website upload.
 │   ├── bindings.lua            # Hotkeys (o.bind with descriptions; unbind-then-rebind)
 │   ├── input.lua               # Input/gesture deltas from Omarchy's defaults
 │   ├── looknfeel.lua           # Look'n'feel deltas from Omarchy's defaults
-│   ├── pcMonitors.lua          # Preset "pc"
-│   ├── pcMonitors.bedroom.lua  # Preset "bedroom"  (SUPER+SHIFT+B)
-│   ├── pcMonitors.kitchen.lua  # Preset "kitchen"  (SUPER+SHIFT+K)
-│   ├── pcMonitors.K.lua        # Preset "K"
+│   ├── pcMonitors.bedroom.lua  # Preset "bedroom"  (SUPER+SHIFT+B), desc:-keyed
+│   ├── pcMonitors.kitchen.lua  # Preset "kitchen"  (SUPER+SHIFT+K), desc:-keyed
 │   └── laptopMonitors.lua      # Preset "laptop"
 │
 ├── bin/                        # Tools installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted); the hotkeys bind the first two by name

@@ -131,8 +131,6 @@ done"""
 PRESETS = (
     "pcMonitors.bedroom.lua",
     "pcMonitors.kitchen.lua",
-    "pcMonitors.K.lua",
-    "pcMonitors.lua",
     "laptopMonitors.lua",
 )
 
@@ -739,8 +737,6 @@ def test_monitor_preset_reaches_every_preset_and_back(tmp_path: Path) -> None:
     for name, preset in (
         ("bedroom", "pcMonitors.bedroom.lua"),
         ("kitchen", "pcMonitors.kitchen.lua"),
-        ("K", "pcMonitors.K.lua"),
-        ("pc", "pcMonitors.lua"),
         ("laptop", "laptopMonitors.lua"),
     ):
         proc = _switch(env, name)

@@ -814,8 +814,8 @@ stage_monitors() {
     # directory, which loads after ~/.config/hypr/monitors.lua and wins, so
     # Omarchy's own monitors.lua is never replaced. Each preset carries
     # hyprconf's workspace-to-monitor rules for that layout, which is why they
-    # travel as whole files. Only bedroom and kitchen have hotkeys; the rest
-    # are `hyprconf-monitor-preset {K,pc,laptop}`.
+    # travel as whole files. Only bedroom and kitchen have hotkeys; the third
+    # is `hyprconf-monitor-preset laptop`.
     #
     # SEEDED, not synced. A preset is a description of one machine's physical
     # desk — outputs, modes, scales — so once it exists it belongs to that
@@ -824,8 +824,7 @@ stage_monitors() {
     # that promise silently, and the post-update hook re-runs this after every
     # Omarchy update. Delete a preset to have it re-seeded from the repo.
     local f
-    for f in pcMonitors.bedroom.lua pcMonitors.kitchen.lua pcMonitors.K.lua \
-             pcMonitors.lua laptopMonitors.lua; do
+    for f in pcMonitors.bedroom.lua pcMonitors.kitchen.lua laptopMonitors.lua; do
         [[ -e $HOME/.config/hypr/$f ]] && continue
         install -m 644 "$HERE/hypr/$f" "$HOME/.config/hypr/$f"
         info "seeded $f"

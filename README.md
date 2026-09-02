@@ -26,7 +26,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 |---|---|
 | Hotkeys | hyprconf's keymap in `~/.config/hypr/bindings.lua`, with descriptions so it shows in Omarchy's `SUPER+K` menu |
 | Look'n'feel + input | Tighter gaps, hairline rounding, blur/shadow, fade workspace animation, natural scroll, 3-finger swipe; Steam tiles like every other window |
-| Monitor presets | `bedroom` / `kitchen` / `K` / `pc` / `laptop`, hot-swapped with a hotkey (`hyprconf-monitor-preset`) through Omarchy's Hyprland toggles directory — Omarchy's `monitors.lua` is never touched |
+| Monitor presets | `bedroom` / `kitchen` / `laptop`, hot-swapped with a hotkey (`hyprconf-monitor-preset`) through Omarchy's Hyprland toggles directory — Omarchy's `monitors.lua` is never touched |
 | Bar widgets | A clock that ticks seconds, active-only workspaces on two lines with a Pac-Man on the focused one, the focused window's title, a CPU/temp/mem/GPU/net readout — all as Omarchy shell plugins |
 | Terminal + shell | kitty as the default terminal, running zsh + Oh My Zsh + Powerlevel10k *inside* the terminal; the login shell stays bash |
 | Greeting | hyprconf's `fastfetch` layout |
@@ -87,7 +87,7 @@ bash ~/.hyprconf/install.sh
 | idle | Screensaver after **15 min** (`idle.screensaver = 900` in `~/.config/omarchy/shell.json`; Omarchy's default is 150 s; the lock timeout is left alone) — **set once** | Omarchy has no command for these keys, so `jq` edits the file the way `omarchy-shell-config`'s `commit` does (seeded from Omarchy's shipped defaults when you have no `shell.json` yet), then `omarchy-shell shell reloadConfig`; marker `idle-applied` |
 | hotkeys | `~/.config/hypr/bindings.lua` → `hypr/bindings.lua` | Symlink (stock file backed up to `bindings.lua.stock`). The hotkey tools are `bin/` commands (below); the `~/.config/hypr/scripts/` copies v4.0.0–v4.2.0 made are swept once |
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups) |
-| monitors | Seeds the five presets into `~/.config/hypr/` | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. Omarchy's `monitors.lua` is never replaced; one left as a symlink by v4.0.0–v4.2.0 is migrated once (its preset becomes the toggles file, `monitors.lua` comes back from `monitors.lua.stock`, else Omarchy's template) |
+| monitors | Seeds the three presets into `~/.config/hypr/` | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. Omarchy's `monitors.lua` is never replaced; one left as a symlink by v4.0.0–v4.2.0 is migrated once (its preset becomes the toggles file, `monitors.lua` comes back from `monitors.lua.stock`, else Omarchy's template) |
 | fastfetch | `~/.config/fastfetch/config.jsonc` → `fastfetch/config.jsonc` | Symlink (an existing file backed up to `config.jsonc.stock`). fastfetch reads the user directory before `/etc/fastfetch/` (`fastfetch --list-config-paths`), so Omarchy's own layout, `/etc/fastfetch/config.jsonc` (`omarchy-settings`), stays untouched as the fallback |
 | bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-monitor-preset`, `hyprconf-gaps` (the hotkey tools), `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey`, `hyprconf-vulkan-gpu`, `hyprconf-firefox-theme`, `hyprconf-install-service-protonvpn`, `hyprconf-help` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path; `bindings.lua` binds the hotkey tools by name, the way Omarchy binds its own commands |
 | vulkan_gpu | On a box with two GPUs whose display GPU is not Vulkan device 0: **Fix / Alt / Ignore** (gum), asked on every terminal run until you choose — nothing on one GPU, when the display GPU already is device 0, when a Vulkan setting is already configured, or after Ignore | `hyprconf-vulkan-gpu prompt`, right after `bin` installs it (below). With no terminal, or inside `omarchy-update` (the hook's run), it prints one pointer line. A tool error is a warning, never a failed install |
@@ -132,8 +132,6 @@ The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your
 |---|---|---|
 | `bedroom` | `~/.config/hypr/pcMonitors.bedroom.lua` | `SUPER+SHIFT+B` |
 | `kitchen` | `~/.config/hypr/pcMonitors.kitchen.lua` | `SUPER+SHIFT+K` |
-| `K` | `~/.config/hypr/pcMonitors.K.lua` | — |
-| `pc` | `~/.config/hypr/pcMonitors.lua` | — |
 | `laptop` | `~/.config/hypr/laptopMonitors.lua` | — |
 | `stock` (or `omarchy`) | — (removes the toggle file; Omarchy's `monitors.lua` alone speaks) | — |
 
@@ -142,6 +140,8 @@ hyprconf-monitor-preset <preset>
 ```
 
 `hyprconf-monitor-preset` copies the preset (never links it) to `~/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua` — Omarchy's Hyprland toggles directory, which its `default/hypr/toggles.lua` loads (`require_all`, reloaded on every `hyprctl reload`) *after* `~/.config/hypr/monitors.lua` in `hyprland.lua`, so a later `hl.monitor` for the same output wins; it is the seam Omarchy's own `omarchy-hyprland-monitor-internal` toggle writes to. Then `hyprctl reload`, then it walks the preset's `hl.workspace_rule` lines and moves each existing workspace to its monitor (a reload only places *future* workspaces). Dark outputs get a `dpms` wake retry. Feedback goes through `omarchy-osd` and `omarchy-notification-send`. `stock` deletes the toggle file and reloads. Omarchy's `monitors.lua` is never touched, so `omarchy-hyprland-monitor-scaling` and `omarchy refresh` keep working on their own file. Each preset carries its workspace-to-monitor rules, and edits to a preset survive re-selecting it.
+
+The two desk presets name their displays by **description** (`output = "desc:<make> <model>"`), not by connector. `DP-N`/`HDMI-A-N` numbering follows the GPU the session drives the displays through — probe order, `AQ_DRM_DEVICES`, cabling — so moving a cable between two GPUs renumbers every connector and a connector-keyed preset lights nothing. A description follows the panel. `desc:` prefix-matches Hyprland's `"<make> <model> <serial>"` string, so make + model is enough and the serial stays out of a tracked file. Both presets end with an `output = ""` catch-all so an unrecognised display comes up at its preferred mode rather than staying dark; named rules win over it whatever the order, disables included. `laptop` stays connector-keyed — it describes no particular hardware.
 
 Upgrading from v4.0.0–v4.2.0, whose `switch_monitor.sh` symlinked the preset over `monitors.lua`: `install.sh` migrates that link once — the preset it pointed at becomes the toggle file, and `monitors.lua` comes back as a real file from `monitors.lua.stock` (or Omarchy's template). `monitors.lua.stock` is left for you to delete.
 

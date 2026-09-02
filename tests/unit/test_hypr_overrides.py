@@ -171,3 +171,54 @@ def test_every_keycode_key_rebind_is_paired_with_its_unbind() -> None:
         assert text.index(expected) < m.start(), f"{expected} must come before its rebind"
         checked += 1
     assert checked >= 4, "the digit/-/= rebinds the pairing exists for were not found"
+
+
+# ---------------------------------------------------------------------------
+# Monitor presets — the desc: convention
+# ---------------------------------------------------------------------------
+
+DESK_PRESETS = ("pcMonitors.bedroom.lua", "pcMonitors.kitchen.lua")
+
+
+@pytest.mark.parametrize("name", DESK_PRESETS)
+def test_desk_presets_name_displays_by_description_not_connector(name: str) -> None:
+    """A connector name is a property of the GPU the session drives the
+    displays through — probe order, AQ_DRM_DEVICES, cabling — so moving a
+    cable between two GPUs renumbers every DP-N/HDMI-A-N and a connector-keyed
+    preset lights nothing (it happened: HDMI-A-1/DP-1/DP-2 became
+    HDMI-A-2/DP-4/DP-5 on a 3070 -> 5090 move). A description follows the
+    panel, so the desk presets key on `desc:`. The catch-all `output = ""` is
+    the one exception, and `laptop` is not a desk preset — it describes no
+    particular hardware."""
+    code = _code(HYPR / name)
+    outputs = re.findall(r'output = "([^"]*)"', code)
+    assert outputs, f"{name} declares no hl.monitor outputs"
+    for out in outputs:
+        assert out == "" or out.startswith("desc:"), f"{name}: connector-keyed output {out!r}"
+    monitors = re.findall(r'monitor = "([^"]+)"', code)
+    assert monitors, f"{name} carries no workspace rules"
+    for mon in monitors:
+        assert mon.startswith("desc:"), f"{name}: connector-keyed workspace rule {mon!r}"
+
+
+@pytest.mark.parametrize("name", DESK_PRESETS)
+def test_desk_presets_end_with_the_catch_all_safety_net(name: str) -> None:
+    """An unrecognised display must come up at its preferred mode rather than
+    staying dark — the failure mode that cost a blacked-out desk and a forced
+    logout. A named rule beats the catch-all whatever the order, so the
+    preset's own disables survive it (verified live on Hyprland 0.56.2)."""
+    code = _code(HYPR / name)
+    assert 'hl.monitor({ output = "", mode = "preferred"' in code, f"{name} has no catch-all"
+
+
+@pytest.mark.parametrize("name", DESK_PRESETS)
+def test_desk_presets_carry_no_display_serial(name: str) -> None:
+    """`desc:` PREFIX-matches Hyprland's "<make> <model> <serial>", so make +
+    model is enough — and the serial must be left off: it is PII under
+    AGENTS.md rule 4, and these files are tracked. Serials on this desk look
+    like `HCPW500583` and `0x14821A42`; both shapes are refused."""
+    code = _code(HYPR / name)
+    for desc in re.findall(r'"desc:([^"]+)"', code):
+        tail = desc.split()[-1]
+        assert not re.fullmatch(r"0x[0-9A-Fa-f]{4,}", tail), f"{name}: serial in {desc!r}"
+        assert not re.fullmatch(r"[A-Z]{2,}[0-9]{4,}[A-Z0-9]*", tail), f"{name}: serial in {desc!r}"

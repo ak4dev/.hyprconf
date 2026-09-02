@@ -2,11 +2,11 @@
 # hyprconf-monitor-preset — switch the desk's monitor layout.
 # Goes through Omarchy's Hyprland toggles seam.
 #
-#   hyprconf-monitor-preset <bedroom|kitchen|K|pc|laptop>   apply that preset
-#   hyprconf-monitor-preset stock                            Omarchy's own layout again
+#   hyprconf-monitor-preset <bedroom|kitchen|laptop>   apply that preset
+#   hyprconf-monitor-preset stock                      Omarchy's own layout again
 #
-# A preset is one of the ~/.config/hypr/{pcMonitors.<name>,pcMonitors,
-# laptopMonitors}.lua files install.sh seeds — hl.monitor lines plus the
+# A preset is one of the ~/.config/hypr/{pcMonitors.<name>,laptopMonitors}.lua
+# files install.sh seeds — hl.monitor lines plus the
 # hl.workspace_rule lines for that layout; edits survive re-selecting it. The
 # chosen one is COPIED (never linked) to
 # ~/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua, the
@@ -51,7 +51,7 @@ readonly TOGGLE="$HOME/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset
 
 if [[ -z "${1:-}" || "${1:-}" == -h || "${1:-}" == --help ]]; then
     printf '%s  Usage: %s <preset>%s\n'   "$AM" "$(basename "$0")" "$RS" >&2
-    printf '%s  Presets: bedroom, kitchen, K, pc, laptop, stock%s\n' "$AM" "$RS" >&2
+    printf '%s  Presets: bedroom, kitchen, laptop, stock%s\n' "$AM" "$RS" >&2
     printf '%s  Example: %s bedroom%s\n' "$AM" "$(basename "$0")" "$RS" >&2
     # Asking for help succeeds; arriving with no preset at all is an error.
     # Without this branch -h/--help pass the name whitelist and end at
@@ -77,8 +77,8 @@ if [[ "$1" == stock || "$1" == omarchy ]]; then
 fi
 
 # Preset resolution, in order:
-#   pcMonitors.<name>.lua  — the named presets (bedroom, kitchen, K)
-#   <name>Monitors.lua     — the two whole-machine presets, `pc` and `laptop`
+#   pcMonitors.<name>.lua  — the named desk presets (bedroom, kitchen)
+#   <name>Monitors.lua     — the whole-machine preset, `laptop`
 SOURCE="$CONFIG_DIR/pcMonitors.$1.lua"
 [[ -f "$SOURCE" ]] || SOURCE="$CONFIG_DIR/${1}Monitors.lua"
 [[ -f "$SOURCE" ]] || log_die "Preset not found: pcMonitors.$1.lua"
@@ -102,8 +102,10 @@ hyprctl reload
 # last layout had them. Walk the preset's own workspace rules and
 # move each one explicitly. `hl.dsp.workspace.move` is the Lua-parser dispatch
 # form (verified on Hyprland 0.56.2: `hyprctl dispatch 'hl.dsp.workspace.move({
-# workspace = 7, monitor = "HDMI-A-2" })'` answers ok); a rule naming an output
-# that is absent or disabled fails its dispatch and is deliberately ignored.
+# workspace = 7, monitor = "HDMI-A-2" })'` answers ok, and so does a
+# `desc:<make> <model>` selector, which is what the desk presets carry); a rule
+# naming an output that is absent or disabled fails its dispatch and is
+# deliberately ignored.
 while IFS=$'\t' read -r ws mon; do
     hyprctl dispatch "hl.dsp.workspace.move({ workspace = $ws, monitor = \"$mon\" })" \
         >/dev/null 2>&1 || true

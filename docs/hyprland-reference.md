@@ -90,7 +90,7 @@ hl.monitor({ output = NAME, mode = "RESOLUTION@HZ", position = "POSITION", scale
 
 | Field | Type | Examples |
 |---|---|---|
-| `output` | string | `"HDMI-A-1"`, `"DP-1"`, `"eDP-1"`, `""` (catch-all — any unlisted connector) |
+| `output` | string | `"HDMI-A-1"`, `"DP-1"`, `"eDP-1"`, `"desc:<make> <model>"` (see below), `""` (catch-all — any unlisted output) |
 | `mode` | string | `"3840x2160@120"`, `"1920x1200"`, `"preferred"`, `"highres"`, `"highrr"` |
 | `position` | string | `"0x0"`, `"auto"`, `"auto-right"`, `"auto-left"`, `"auto-up"`, `"auto-down"` |
 | `scale` | string \| number | `1`, `1.5`, `2`, `"auto"` |
@@ -111,17 +111,39 @@ hl.monitor({ output = NAME, mode = "RESOLUTION@HZ", position = "POSITION", scale
 
 ```lua
 -- From hypr/pcMonitors.bedroom.lua / pcMonitors.kitchen.lua
-hl.monitor({ output = "HDMI-A-2", mode = "3840x2160@119.88", position = "0x0", scale = 1.5, vrr = 2, bitdepth = 10, cm = "dcip3", sdrbrightness = 1.3 })
-hl.monitor({ output = "DP-5", mode = "3840x2160@60", position = "0x0", scale = 2, transform = 1 })
-hl.monitor({ output = "DP-4", disabled = true })
+hl.monitor({ output = "desc:LG Electronics LG TV SSCR2", mode = "3840x2160@119.88", position = "0x0", scale = 1.6, vrr = 2, bitdepth = 10, cm = "dcip3", sdrbrightness = 1.3 })
+hl.monitor({ output = "desc:Acer Technologies CB282K", mode = "3840x2160@60.00", position = "0x0", scale = 2, transform = 1 })
+hl.monitor({ output = "desc:Samsung Electric Company Odyssey G8", disabled = true })
 ```
 
 Later `hl.monitor()` calls for the same `output` override earlier ones.
 
+### `desc:` — naming a display instead of a connector
+
+`output` also takes `"desc:<text>"`, which **prefix-matches** the description
+`hyprctl monitors all` reports as `"<make> <model> <serial>"` — so make + model
+is enough and the serial can be left off (it must be: a serial is PII, and
+these files are tracked). `HL.MonitorSpec` in `/usr/share/hypr/stubs/hl.meta.lua`
+declares only `output`; the `desc:` prefix lives inside that string. The same
+selector works in `hl.workspace_rule({ monitor = ... })` and in
+`hyprctl dispatch 'hl.dsp.workspace.move({ … })'`.
+
+Why it matters: `DP-N`/`HDMI-A-N` numbering follows the GPU the session drives
+the displays through (probe order, `AQ_DRM_DEVICES`, cabling), so moving a
+cable from one GPU to another renumbers every connector — the same three panels
+went `HDMI-A-1`/`DP-1`/`DP-2` → `HDMI-A-2`/`DP-4`/`DP-5` on a 3070 → 5090 move,
+and every connector-keyed preset then lit nothing. A description follows the
+panel. Verified on Hyprland 0.56.2: a `desc:` rule re-scaled a live output, and
+the move dispatch answered `ok` for a `desc:` monitor.
+
+A named rule (`desc:` or connector) beats the `output = ""` catch-all whatever
+the order, disables included — so a preset can end with a catch-all as a
+safety net without it re-enabling what the preset turned off.
+
 ### Workspace pinning and render (per preset)
 
 ```lua
-hl.workspace_rule({ workspace = "1", monitor = "HDMI-A-2" })
+hl.workspace_rule({ workspace = "1", monitor = "desc:LG Electronics LG TV SSCR2" })
 hl.config({ render = { direct_scanout = 1, cm_auto_hdr = 1 } })
 ```
 
