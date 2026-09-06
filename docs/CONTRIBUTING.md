@@ -85,7 +85,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
-│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; the limine drop-in, /etc/default/limine read for the mapper and rewritten only by the v4.0.0–v4.2.0 inline-parameter migration; real shellcheck on the mkinitcpio drop-in)
+│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; the limine drop-in, /etc/default/limine read for the mapper and never rewritten; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias finds a relocated checkout
 └── integration/
     └── test_publish_pipeline.py  #   scripts/publish --help, --dry-run and the real promotion against a throwaway bare origin
