@@ -229,16 +229,16 @@ Only what differs from `/usr/share/omarchy/default/hypr/`:
 | `looknfeel.lua` | `general.gaps_in` / `gaps_out` | 3 / 3 | 5 / 10 |
 | | `decoration.rounding` / `rounding_power` | 1 / 3 | 0 / – |
 | | `decoration.inactive_opacity` | 0.8 | 1 |
-| | `decoration.shadow` | on (range 4, power 3) | off |
-| | `decoration.blur` | on (size 3, passes 4, vibrancy 0.1696) | off |
+| | `decoration.shadow` | on | off |
+| | `decoration.blur` | on (size 3, passes 4) | off |
 | | animations | `windows` easeOutQuint 4.79; `workspaces`/`In`/`Out` fade | workspaces animation off |
 | | `dwindle.force_split` / `precise_mouse_move` / `smart_split` | 0 / true / true | 2 / – / – |
-| | `misc.force_default_wallpaper` | 0 | – |
 | | window rules: class `steam` | **tiled** (`o.window("steam", { tile = true })`; the Friends List stays floating) | every Steam window floats (`default/hypr/apps/steam.lua`) |
 | `input.lua` | `input.natural_scroll` + `touchpad.natural_scroll` | true | false |
-| | `hl.gesture` 3-finger horizontal → workspace, plus swipe tuning | on | – |
+| | `hl.gesture` 3-finger horizontal → workspace | on | – |
+| | `gestures.workspace_swipe_min_speed_to_force` / `workspace_swipe_forever` | 15 / true | – (Hyprland: 30 / false) |
 
-Border colours stay with the active Omarchy theme; keyboard layout stays with Omarchy's `input.lua` logic.
+Border and shadow colours stay with the active Omarchy theme; keyboard layout stays with Omarchy's `input.lua` logic.
 
 ## Packages
 

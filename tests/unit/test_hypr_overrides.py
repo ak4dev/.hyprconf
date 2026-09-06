@@ -43,6 +43,43 @@ def test_natural_scroll_is_the_default() -> None:
     assert _code(HYPR / "input.lua").count("natural_scroll = true") == 2
 
 
+def test_looknfeel_and_input_state_only_deltas() -> None:
+    """looknfeel.lua and input.lua load after Omarchy's defaults, which load
+    after Hyprland's compiled-in ones — so a key set to the value already in
+    force is not a delta but drift waiting for the next retune, and one was
+    worse than inert: the shadow's range / render_power / color restated
+    Hyprland's defaults OVER the active theme's (Omarchy requires
+    omarchy.current.theme.hyprland first; lumon ships its own shadow).
+    Every key here was equal to its 0.56.2 default (`hyprctl descriptions
+    -j`) — six gestures.* values, shadow range 4 / render_power 3 / colour
+    ee1a1a1a, blur vibrancy 0.1696 — or, for force_default_wallpaper, a
+    no-op under Omarchy's misc.disable_hyprland_logo = true (and -1/0/1/2
+    picks a wallpaper, it never suppresses one). None may come back; the
+    deltas the README promises must."""
+    looknfeel = _code(HYPR / "looknfeel.lua")
+    inp = _code(HYPR / "input.lua")
+    for key in (
+        "force_default_wallpaper",
+        "vibrancy",
+        "render_power",
+        "workspace_swipe_distance",
+        "workspace_swipe_cancel_ratio",
+        "workspace_swipe_create_new",
+        "workspace_swipe_direction_lock",
+        "workspace_swipe_direction_lock_threshold",
+        "workspace_swipe_invert",
+    ):
+        assert key not in looknfeel + inp, f"{key} restates a default (deltas only)"
+    assert re.search(r"shadow\s*=\s*\{[^}]*\benabled\s*=\s*true", looknfeel)
+    assert not re.search(r"shadow\s*=\s*\{[^}]*\b(range|color)\b", looknfeel), (
+        "the shadow's range and colour are Hyprland's, or the theme's"
+    )
+    assert "size = 3" in looknfeel and "passes = 4" in looknfeel
+    assert "workspace_swipe_min_speed_to_force = 15" in inp
+    assert "workspace_swipe_forever = true" in inp
+    assert 'hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })' in inp
+
+
 def test_steam_is_tiled_like_everything_else() -> None:
     """Omarchy floats every window of class "steam" (default/hypr/apps/steam.lua).
     looknfeel.lua is loaded after Omarchy's defaults and Hyprland applies rules

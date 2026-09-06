@@ -144,7 +144,7 @@ safety net without it re-enabling what the preset turned off.
 
 ```lua
 hl.workspace_rule({ workspace = "1", monitor = "desc:LG Electronics LG TV SSCR2" })
-hl.config({ render = { direct_scanout = 1, cm_auto_hdr = 1 } })
+hl.config({ render = { direct_scanout = 1 } })
 ```
 
 `hyprconf-monitor-preset` parses a preset's `hl.workspace_rule` lines to move
@@ -162,9 +162,14 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Monitors/>
 hl.bind(keys, dispatcher)                                        -- normal
 hl.bind(keys, dispatcher, { repeating = true })                  -- repeats while held
 hl.bind(keys, dispatcher, { locked = true })                     -- fires when locked
-hl.bind(keys, dispatcher, { mouse = true })                      -- mouse-button bind
+hl.bind(mainMod .. " + mouse:272", hl.dsp.window.drag())        -- the mouse:NNN key form makes it a mouse bind
 hl.unbind(keys)                                                  -- remove a bind (matches what was declared)
 ```
+
+A mouse bind is made by the key name — `mouse:NNN`, `mouse_down`, `mouse_up` —
+not by an option: `HL.BindOptions` in the stub has no `mouse` field, and
+`hl.bind` ignores a key it does not know, so the `{ mouse = true }` the example
+config (and Omarchy's `tiling.lua`) pass alongside is inert.
 
 ### `o.bind` (Omarchy) — what this overlay uses
 
@@ -186,9 +191,9 @@ unbind_keycode(mods, key)                        -- hl.unbind(mods .. " + code:N
 ```
 
 Key forms in use there: `mainMod .. " + T"`, `" + SHIFT + F1"`, `" + SHIFT + equal"`,
-and `{ repeating = true }` for the resize keys. The mouse forms (`" + mouse:272"`
-with `{ mouse = true }`, `" + mouse_down"` / `" + mouse_up"`) are Omarchy's own
-binds in `tiling.lua` and are not restated.
+and `{ repeating = true }` for the resize keys. The mouse forms (`" + mouse:272"`,
+`" + mouse_down"` / `" + mouse_up"`) are Omarchy's own binds in `tiling.lua`
+and are not restated.
 
 ### Common dispatchers (`hl.dsp.*`)
 
@@ -205,7 +210,7 @@ binds in `tiling.lua` and are not restated.
 | `hl.dsp.window.move({direction=...})` | `"left"`/`"right"`/`"up"`/`"down"` | Move window in the layout (to the next monitor when nothing is that way) |
 | `hl.dsp.window.resize({x=,y=,relative=true})` | dx, dy | Resize active window |
 | `hl.dsp.window.swap({direction=...})` | direction | Swap with neighbour (refuses when there is none) |
-| `hl.dsp.window.drag()` | — | Mouse move (with `{ mouse = true }`) |
+| `hl.dsp.window.drag()` | — | Mouse move (bound to a `mouse:NNN` key) |
 | `hl.dsp.workspace.toggle_special(name)` | name | Show/hide scratchpad |
 | `hl.dsp.workspace.move({workspace=N, monitor="…"})` | — | Rehome a workspace (used by `hyprconf-monitor-preset`) |
 | `hl.dsp.dpms({action="enable"})` | `enable`/`disable`/`toggle` | Display power |
@@ -227,10 +232,9 @@ the file; the delta table is in `README.md`). The forms it uses:
 ```lua
 hl.config({ general = { gaps_in = N, gaps_out = N },
             decoration = { rounding = N, rounding_power = N, inactive_opacity = X,
-                           shadow = { enabled, range, render_power, color = "rgba(RRGGBBAA)" },
-                           blur = { enabled, size, passes, vibrancy } },
-            dwindle = { force_split = N, precise_mouse_move = B, smart_split = B },
-            misc = { force_default_wallpaper = N } })
+                           shadow = { enabled = B },          -- range/falloff/colour: Hyprland's, or the theme's
+                           blur = { enabled = B, size = N, passes = N } },
+            dwindle = { force_split = N, precise_mouse_move = B, smart_split = B } })
 hl.animation({ leaf = TYPE, enabled = B, speed = X, bezier = CURVE[, style = STYLE] })
 o.window("class", { tile = true })                                -- Omarchy's window-rule helper
 o.window({ class = "steam", title = "Friends List" }, { float = true })
@@ -257,7 +261,7 @@ Wiki: <https://wiki.hypr.land/Configuring/Basics/Variables/>,
 
 ```lua
 hl.config({ input = { natural_scroll = B, touchpad = { natural_scroll = B } },
-            gestures = { workspace_swipe_* = … } })
+            gestures = { workspace_swipe_min_speed_to_force = N, workspace_swipe_forever = B } })
 -- Since 0.51 there is no workspace_swipe master toggle: the gesture must be
 -- declared or the gestures.* tuning applies to nothing.
 hl.gesture({ fingers = N, direction = DIR, action = ACTION })

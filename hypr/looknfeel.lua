@@ -23,19 +23,21 @@ hl.config({
     -- Unfocused windows are translucent (Omarchy: opaque).
     inactive_opacity = 0.8,
 
-    -- Both off in Omarchy's defaults.
+    -- Both off in Omarchy's defaults (default/hypr/looknfeel.lua sets only
+    -- `enabled = false` for each). The shadow is only switched on: its range,
+    -- falloff and colour stay at Hyprland's own, and the colour is a theme's
+    -- to set — Omarchy loads the active theme's hyprland.lua
+    -- (default/hypr/omarchy.lua, `omarchy.current.theme.hyprland`) before
+    -- this file, and lumon ships its own shadow, which a value here would
+    -- have clobbered. The blur keeps its size / passes: Hyprland's are 8 / 1.
     shadow = {
       enabled = true,
-      range = 4,
-      render_power = 3,
-      color = "rgba(1a1a1aee)",
     },
 
     blur = {
       enabled = true,
       size = 3,
       passes = 4,
-      vibrancy = 0.1696,
     },
   },
 })
@@ -65,12 +67,6 @@ hl.config({
     -- this; it is a deliberate divergence, chosen for predictability.
     smart_split = true,
   },
-
-  misc = {
-    -- Never draw Hyprland's own wallpaper; Omarchy's background is set by
-    -- omarchy-theme-bg-next / the active theme.
-    force_default_wallpaper = 0,
-  },
 })
 
 -- Window rules --------------------------------------------------------------
@@ -86,7 +82,10 @@ hl.config({
 --
 -- The Friends List keeps floating: Omarchy sizes it as a 460x800 panel
 -- (same file), which only makes sense floating, and a tiled friends list is
--- a column of nothing. Omarchy's idle_inhibit and opacity rules for Steam
--- games (steam_app_*) are untouched.
+-- a column of nothing. Omarchy's other two rules in that file — the
+-- `idle_inhibit = "fullscreen"` on class "steam" and the opaque
+-- `opacity = "1 1"` on "steam.*" — are untouched: a rule sets only the
+-- effects it names. (Omarchy has no rule for the `steam_app_*` classes
+-- games run under; that shape appears only in apps/battlenet.lua.)
 o.window("steam", { tile = true })
 o.window({ class = "steam", title = "Friends List" }, { float = true })

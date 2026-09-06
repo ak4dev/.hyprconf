@@ -17,18 +17,18 @@ hl.config({
 
 -- Touchpad gestures. Since the 0.51 gesture rework the swipe itself must be
 -- declared with hl.gesture(); the gestures.* tuning below applies to nothing
--- without it.
+-- without it. Omarchy declares no gesture and sets no gestures.* key (its
+-- config/hypr/input.lua carries this line commented out), so the baseline
+-- here is Hyprland's own — inverted direction, 300 px distance, 0.5 cancel
+-- ratio, a new workspace past the last, direction lock at 10 px — and only
+-- the two values that differ from it are stated.
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })
 
 hl.config({
   gestures = {
-    workspace_swipe_invert = true,                  -- Matches macOS natural swipe direction (touchpad)
-    workspace_swipe_distance = 300,                 -- Distance for swipe gesture (adjust for sensitivity)
-    workspace_swipe_min_speed_to_force = 15,        -- Minimum speed to force a swipe
-    workspace_swipe_cancel_ratio = 0.5,             -- Prevents accidental swipes
-    workspace_swipe_create_new = true,              -- Create new workspaces on swipe
-    workspace_swipe_direction_lock = true,          -- Locks swipe direction after threshold
-    workspace_swipe_direction_lock_threshold = 10,  -- Distance before locking direction
-    workspace_swipe_forever = true,                 -- Allows swiping through all workspaces
+    -- A quick flick commits the switch (Hyprland: 30 px per timepoint).
+    workspace_swipe_min_speed_to_force = 15,
+    -- Keep swiping past the neighbouring workspace (Hyprland clamps to it).
+    workspace_swipe_forever = true,
   },
 })
