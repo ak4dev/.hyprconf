@@ -23,8 +23,10 @@ Verifies:
 - `prompt`: silent when nothing is at risk or the ignore marker exists, one
   info line and no gum without a terminal or inside omarchy-update (its
   OMARCHY_UPDATE_LOGGED marker; script(1) gives the hook's run a pty), gum's
-  three Fix/Alt/Ignore options applied when there is one; `alt`, `ignore`,
-  `remove`, `help`
+  three Fix/Alt/Ignore options applied when there is one; it probes
+  vulkaninfo only once the marker, the GPU count, a display GPU and an
+  existing configuration leave the question open (`status` always probes:
+  it prints device 0); `alt`, `ignore`, `remove`, `help`
 
 HERMETIC: every path the tool reads — the PCI and DRM sysfs trees, uwsm's
 env.d and env, systemd's environment.d, the state dir — is a tmp tree behind
@@ -129,12 +131,13 @@ class Box:
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
 
     def vulkaninfo(self, summary: str | None) -> None:
-        """A vulkaninfo printing `summary`; None: one that fails (no ICD)."""
+        """A recording vulkaninfo printing `summary`; None: one that fails (no ICD)."""
+        record = "IFS=$'\\t'; printf '%s\\n' \"vulkaninfo${IFS}$*\" >> \"$FAKE_CALLS\"\n"
         if summary is None:
-            self._fake("vulkaninfo", "echo 'ERROR: [Loader Message] no ICD' >&2\nexit 1\n")
+            self._fake("vulkaninfo", record + "echo 'ERROR: [Loader Message] no ICD' >&2\nexit 1\n")
             return
         (self.tmp / "vulkaninfo-summary").write_text(summary)
-        self._fake("vulkaninfo", '[[ $1 == --summary ]] && cat "$FAKE_VULKANINFO"\n')
+        self._fake("vulkaninfo", record + '[[ $1 == --summary ]] && cat "$FAKE_VULKANINFO"\n')
 
     @property
     def env_d(self) -> Path:
@@ -148,10 +151,17 @@ class Box:
     def marker(self) -> Path:
         return self.home / ".local" / "state" / "hyprconf" / "vulkan-gpu-ignored"
 
-    def gum_calls(self) -> list[list[str]]:
+    def calls(self, name: str) -> list[list[str]]:
         if not self.calls_file.exists():
             return []
-        return [ln.split("\t") for ln in self.calls_file.read_text().splitlines()]
+        calls = [ln.split("\t") for ln in self.calls_file.read_text().splitlines()]
+        return [c for c in calls if c[0] == name]
+
+    def gum_calls(self) -> list[list[str]]:
+        return self.calls("gum")
+
+    def vulkaninfo_calls(self) -> list[list[str]]:
+        return self.calls("vulkaninfo")
 
     def env(self, **extra: str) -> dict[str, str]:
         # The two variables the tool looks for and omarchy-update's marker:
@@ -581,6 +591,48 @@ def test_prompt_cancelled_changes_nothing(dual: Box) -> None:
     r = dual.run("prompt", _HYPRCONF_ASSUME_TTY="1")
     assert r.returncode == 0 and "nothing changed" in r.stdout
     assert dual.files() == set() and len(dual.gum_calls()) == 1
+
+
+@pytest.mark.parametrize("case", ["single-gpu", "no-output", "marker", "configured"])
+def test_prompt_never_probes_vulkaninfo_when_the_cheap_facts_settle_it(
+    tmp_path: Path, case: str
+) -> None:
+    """install.sh runs `prompt` on every apply, hook runs included, and
+    `vulkaninfo --summary` creates a Vulkan instance on every ICD (waking a
+    runtime-suspended GPU): on a single-GPU box, one with no display GPU, an
+    ignored one or an already-configured one the answer is known before it,
+    so it must not run. `status` prints device 0 for every box and still
+    probes — the same fake, called once."""
+    if case == "single-gpu":
+        box = Box(tmp_path, [NV_5090])
+    elif case == "no-output":
+        box = Box(tmp_path, [NV_3070, {**NV_5090, "connected": 0}])
+    else:
+        box = Box(tmp_path, [NV_3070, NV_5090])
+    box.vulkaninfo(vulkaninfo_summary(NV_3070, NV_5090))  # would confirm the risk if asked
+    extra: dict[str, str] = {}
+    if case == "marker":
+        assert box.run("ignore").returncode == 0
+    if case == "configured":
+        _, extra = _configured(box, "environment.d")
+    before = box.files()
+    p = box.run("prompt", _HYPRCONF_ASSUME_TTY="1", **extra)
+    assert p.returncode == 0 and p.stdout == "", p.stdout + p.stderr
+    assert box.vulkaninfo_calls() == [] and box.gum_calls() == [] and box.files() == before
+    s = box.run("status", **extra)
+    assert "Vulkan device 0:  10de:2484 (vulkaninfo GPU0)" in s.stdout, s.stdout + s.stderr
+    assert box.vulkaninfo_calls() == [["vulkaninfo", "--summary"]]
+
+
+def test_prompt_probes_vulkaninfo_once_the_cheap_facts_leave_it_open(dual: Box) -> None:
+    """Two GPUs, displays on the second, nothing configured, no marker: only
+    Vulkan's own order can settle it — and here it does, device 0 being the
+    display GPU, so the prompt stays silent after the one probe."""
+    dual.vulkaninfo(vulkaninfo_summary(NV_5090, NV_3070))
+    p = dual.run("prompt", _HYPRCONF_ASSUME_TTY="1")
+    assert p.returncode == 0 and p.stdout == "", p.stdout + p.stderr
+    assert dual.vulkaninfo_calls() == [["vulkaninfo", "--summary"]]
+    assert dual.gum_calls() == [] and dual.files() == set()
 
 
 def test_prompt_without_gum_prints_the_manual_commands(dual: Box) -> None:

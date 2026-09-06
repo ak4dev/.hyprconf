@@ -137,17 +137,28 @@ diagnose_scan() {
     done
 }
 
-diagnose() {
+# The Vulkan half, after diagnose_scan: device 0 from vulkaninfo when present
+# (assumed PCI order otherwise, saying why) and the risk bit against the
+# display GPU. This is the expensive step — `vulkaninfo --summary` creates a
+# Vulkan instance on every ICD, which wakes a runtime-suspended GPU — so the
+# callers that can settle the question without it (prompt) ask it last.
+diagnose_vulkan() {
     local why="vulkaninfo not found"
-    diagnose_scan
-    VK0=""
+    VK0="" VK0_HOW=""
     if have "$_HYPRCONF_VULKANINFO"; then why="vulkaninfo gave no GPU0"; VK0=$(vulkan_first); fi
     if [[ -n $VK0 ]]; then VK0_HOW="vulkaninfo GPU0"
     elif (( ${#GPU_ID[@]} )); then VK0=${GPU_ID[0]} VK0_HOW="assumed PCI order; $why"
     fi
-    CONFIGURED=$(configured_in)
     (( DGPU >= 0 && ${#GPU_ID[@]} >= 2 )) || return 0
     if [[ ${GPU_ID[DGPU]} != "$VK0" ]]; then AT_RISK=1; fi
+}
+
+# The whole diagnosis: status prints device 0 for every box, so it always
+# probes; fix keeps the same picture.
+diagnose() {
+    diagnose_scan
+    CONFIGURED=$(configured_in)
+    diagnose_vulkan
 }
 
 # [[ target id unique ]] || die — two identical cards cannot be separated by
@@ -371,10 +382,21 @@ cmd_remove() {
 # passes the tty test although nobody is there to answer (`-y` is "a promise
 # not to ask anything"); the marker it exports is the gate, as in install.sh's
 # show_banner.
+#
+# It runs on every apply, hook runs included, so the facts that cost nothing
+# come first — the Ignore marker, the sysfs scan (one GPU, no display GPU),
+# the config grep — and vulkaninfo is asked only once they leave the question
+# open: on the single-GPU, configured and ignored boxes, which is nearly all
+# of them, no Vulkan instance is created and no sleeping GPU is woken.
 cmd_prompt() {
     local choice
-    diagnose
-    { (( AT_RISK )) && [[ -z $CONFIGURED && ! -e $MARKER ]]; } || return 0
+    [[ ! -e $MARKER ]] || return 0
+    diagnose_scan
+    (( DGPU >= 0 && ${#GPU_ID[@]} >= 2 )) || return 0
+    CONFIGURED=$(configured_in)
+    [[ -z $CONFIGURED ]] || return 0
+    diagnose_vulkan
+    (( AT_RISK )) || return 0
     if [[ -n ${OMARCHY_UPDATE_LOGGED:-} ]] || { [[ ! -t 0 || ! -t 1 ]] && [[ -z $_HYPRCONF_ASSUME_TTY ]]; }; then
         info "hyprconf-vulkan-gpu: the display GPU ${GPU_ADDR[DGPU]} is not Vulkan device 0 — Proton games may crash at start; run from a terminal: hyprconf-vulkan-gpu prompt"
         return 0
@@ -414,7 +436,9 @@ usage: hyprconf-vulkan-gpu status [--quiet]  GPUs, display GPU, Vulkan device 0,
                                              exit 0 nothing to do, 3 at risk and unconfigured, 1 error
        hyprconf-vulkan-gpu prompt            install.sh's question, Fix / Alt / Ignore via gum; silent unless
                                              at risk; one info line and exit 0 without a terminal or inside
-                                             omarchy-update (OMARCHY_UPDATE_LOGGED set)
+                                             omarchy-update (OMARCHY_UPDATE_LOGGED set); vulkaninfo is asked
+                                             only once the marker, GPU count, display GPU and existing
+                                             configuration leave the question open (status always asks it)
        hyprconf-vulkan-gpu fix               write \$_HYPRCONF_UWSM_ENV_D/50-hyprconf-vulkan-gpu: the filter for the
                                              display GPU, plus the NVIDIA pair behind another NVIDIA GPU; drops the marker
        hyprconf-vulkan-gpu use <gpu>         the same file for a GPU you name instead of the display one:
