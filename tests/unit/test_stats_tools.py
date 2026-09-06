@@ -2,18 +2,22 @@
 hyprconf.resources bar widget (plugins/hyprconf-resources/Widget.qml).
 
 bin/hyprconf-stats is the long-lived cpu/mem/net/temp sampler (cpu temperature
-is read straight from a hwmon path resolved once at startup); all of its system
-paths are HYPRCONF_STATS_*-overridable. bin/hyprconf-gpu-info is a long-lived
-stream too: nvidia-smi --loop piped through one awk, or a pure-bash sysfs loop
-over AMD's gpu_busy_percent or Intel's xe idle-residency counter
-(HYPRCONF_GPU_*-overridable). These tests drive them hermetically with fake
-sysfs/proc trees and fake binaries.
+is read straight from a hwmon path resolved once at startup; the default-route
+interface from /proc/net/route); all of its system paths are
+HYPRCONF_STATS_*-overridable, and a tick forks nothing. bin/hyprconf-gpu-info
+is a long-lived stream too: nvidia-smi --loop piped through one awk, or a
+pure-bash sysfs loop over AMD's gpu_busy_percent or Intel's xe idle-residency
+counter (HYPRCONF_GPU_*-overridable). These tests drive them hermetically with
+fake sysfs/proc trees and fake binaries; a PATH `sleep` fake is the hook that
+runs between ticks (hyprconf-stats' loadable-sleep seam is pointed at a file
+that is not there, so the fake is what its ticks call).
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 from pathlib import Path
@@ -75,63 +79,99 @@ def _fake_net(tmp_path: Path, *, wired_up: bool = True, wifi: bool = True) -> Pa
     return net
 
 
+# /proc/net/route as the kernel prints it (net/ipv4/fib_trie.c,
+# fib_route_seq_show): a header, then one tab-separated line per route of the
+# main table — Iface, Destination and Gateway as little-endian hex, Flags,
+# RefCnt, Use, Metric, Mask, MTU, Window, IRTT — each padded to 127 columns.
+ROUTE_HEADER = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT"
+
+
+def _route(iface: str, *, gateway: bool = True, metric: int = 600, dest: str = "00000000") -> str:
+    """One route line: the default route (dest 00000000) via a gateway
+    (RTF_UP|RTF_GATEWAY, 0003), or gateway-less the way a tunnel's is
+    (Gateway 00000000, RTF_UP alone, 0001); `dest` for a non-default line."""
+    gw, flags = ("0101A8C0", "0003") if gateway else ("00000000", "0001")
+    mask = "00000000" if dest == "00000000" else "00FFFFFF"
+    return f"{iface}\t{dest}\t{gw}\t{flags}\t0\t0\t{metric}\t{mask}\t0\t0\t0".ljust(127)
+
+
 def _run_stats(
     tmp_path: Path,
     net_root: Path,
     *,
     route_dev: str | None = "wlan0",
-    route_line: str | None = None,
+    route_lines: list[str] | None = None,
     iterations: int = 2,
     hwmon_root: Path | None = None,
-    ip_body: str | None = None,
+    sleep_body: str | None = None,
+    env: dict[str, str] | None = None,
+    bare_path: bool = False,
 ) -> list[dict]:
     """Run hyprconf-stats hermetically for N samples and parse its JSON lines.
 
-    The fake `ip route show default` names `route_dev` (`route_line` replaces
-    the printed line verbatim, for shapes beyond `via <gw> dev <iface>`) and
-    on every call advances that interface's counters by 5000 rx / 1000 tx
-    bytes: a sample fed from it reads 5.0kB/s down and 1.0kB/s up, one fed
-    from any other (static) interface reads 0B/s, so the rate says which
-    interface the feeder read. `route_dev=None` prints no route.
+    The fake /proc/net/route names `route_dev` as the default-route
+    interface (`route_lines` replaces the generated route lines verbatim, for
+    tables beyond one gateway route; `route_dev=None` lists no default route),
+    and the PATH `sleep` fake that runs between ticks advances that
+    interface's counters by 5000 rx / 1000 tx bytes on every call: a sample
+    fed from it reads 5.0kB/s down and 1.0kB/s up, one fed from any other
+    (static) interface reads 0B/s, so the rate says which interface the
+    feeder read. `sleep_body` scripts the fake instead, for tests that mutate
+    the tree between ticks. `bare_path` runs the feeder with the fake bin dir
+    as the whole PATH — the pin that a tick execs nothing.
     """
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
-    ip = "#!/usr/bin/env bash\n"
-    if ip_body is not None:
-        # A scripted fake for tests that mutate the tree between ticks
-        # (interface switches, vanishing sensors); replaces the default body.
-        ip += ip_body
+    # The fake `sleep`: the seam below keeps bash's loadable sleep out, so
+    # every tick's `sleep` is this file. `command -p` then runs the real sleep
+    # off the standard PATH, never this fake again. A bare PATH cannot resolve
+    # `env`'s bash, so the shebang names the real one.
+    bash = shutil.which("bash")
+    assert bash, "bash not installed"
+    sleep = f"#!{bash}\n"
+    if sleep_body is not None:
+        sleep += sleep_body
     elif route_dev is not None:
         stats = net_root / route_dev / "statistics"
-        route_line = route_line or f"default via 192.168.1.1 dev {route_dev} proto dhcp"
-        ip += (
+        sleep += (
             f'read -r n < "{stats}/rx_bytes" && echo $((n + 5000)) > "{stats}/rx_bytes"\n'
             f'read -r n < "{stats}/tx_bytes" && echo $((n + 1000)) > "{stats}/tx_bytes"\n'
-            f'echo "{route_line}"\n'
         )
-    _write_exe(bin_dir / "ip", ip)
+    sleep += 'command -p sleep "$@"\n'
+    _write_exe(bin_dir / "sleep", sleep)
+    if route_lines is None:
+        route_lines = [_route(route_dev)] if route_dev is not None else []
+        route_lines.append(_route("wlan0", gateway=False, dest="0001A8C0"))  # the link route
+    route_f = tmp_path / "proc_net_route"
+    route_f.write_text("\n".join([ROUTE_HEADER.ljust(127), *route_lines]) + "\n")
     stat_f = tmp_path / "proc_stat"
     stat_f.write_text(PROC_STAT)
     mem_f = tmp_path / "meminfo"
     mem_f.write_text(PROC_MEMINFO)
     r = subprocess.run(
-        ["bash", str(STATS)],
+        [bash, str(STATS)],
         capture_output=True,
         text=True,
         timeout=30,
         env={
             **os.environ,
-            "PATH": f"{bin_dir}:{os.environ['PATH']}",
+            "PATH": str(bin_dir) if bare_path else f"{bin_dir}:{os.environ['PATH']}",
             "HYPRCONF_STATS_NET_ROOT": str(net_root),
             "HYPRCONF_STATS_PROC_STAT": str(stat_f),
             "HYPRCONF_STATS_PROC_MEMINFO": str(mem_f),
+            "HYPRCONF_STATS_PROC_ROUTE": str(route_f),
             # empty tree by default → temp resolves to "" (hidden module)
             "HYPRCONF_STATS_HWMON_ROOT": str(hwmon_root or _fake_hwmon(tmp_path, [])),
+            # A file that is not there: the PATH fake above is the sleep.
+            "HYPRCONF_STATS_SLEEP_BUILTIN": str(tmp_path / "no-loadable-sleep"),
             "HYPRCONF_STATS_INTERVAL": "0",
             "HYPRCONF_STATS_ITERATIONS": str(iterations),
+            **(env or {}),
         },
     )
     assert r.returncode == 0, r.stderr
+    # A feeder that complains repeats it every tick into the shell's journal.
+    assert r.stderr == "", r.stderr
     return [json.loads(ln) for ln in r.stdout.strip().splitlines()]
 
 
@@ -154,11 +194,49 @@ class TestStatsScript:
         net = _fake_net(tmp_path, wired_up=True)
         payload = _run_stats(tmp_path, net, route_dev="wlan0", iterations=1)[0]
         assert payload["down"] == "0B/s"  # eth0's static counters
-        assert (net / "wlan0/statistics/rx_bytes").read_text() == "5000\n"  # ip never ran
+        # wlan0 did move between the ticks: the 0B/s is eth0's, not a stalled hook.
+        assert (net / "wlan0/statistics/rx_bytes").read_text() == "10000\n"
 
     def test_wifi_fallback_when_no_wired_link(self, tmp_path: Path) -> None:
         net = _fake_net(tmp_path, wired_up=False)
         payload = _run_stats(tmp_path, net, route_dev="wlan0", iterations=1)[0]
+        assert (payload["down"], payload["up"]) == ("5.0kB/s", "1.0kB/s")
+
+    def test_default_route_lookup_execs_nothing(self, tmp_path: Path) -> None:
+        """The Wi-Fi/VPN path is the permanent state of most boxes and runs
+        once a second per bar surface: it must fork nothing. With the fake
+        bin dir as the whole PATH no `ip`, `awk` or coreutils exist — a
+        lookup that shells out finds no interface and reads 0B/s."""
+        net = _fake_net(tmp_path, wired_up=False)
+        payload = _run_stats(tmp_path, net, route_dev="wlan0", iterations=1, bare_path=True)[0]
+        assert (payload["down"], payload["up"]) == ("5.0kB/s", "1.0kB/s")
+
+    def test_first_default_route_wins_and_the_rest_of_the_table_is_ignored(
+        self, tmp_path: Path
+    ) -> None:
+        """The kernel lists a prefix's routes by metric (fib_insert_alias),
+        so of two default routes the first is the one `ip route show default`
+        prints first: a tether at metric 100 ahead of Wi-Fi at 600. Neither
+        the header, a link route listed before them, nor an `unreachable
+        default` (no device: "*", where `ip` prints no `dev`) may be taken
+        for the interface."""
+        net = _fake_net(tmp_path, wired_up=False)
+        tether = net / "usb0"
+        (tether / "statistics").mkdir(parents=True)
+        (tether / "statistics" / "rx_bytes").write_text("100\n")
+        (tether / "statistics" / "tx_bytes").write_text("200\n")
+        payload = _run_stats(
+            tmp_path,
+            net,
+            route_dev="usb0",
+            route_lines=[
+                _route("wlan0", gateway=False, dest="0001A8C0"),
+                _route("*", metric=0),
+                _route("usb0", metric=100),
+                _route("wlan0", metric=600),
+            ],
+            iterations=1,
+        )[0]
         assert (payload["down"], payload["up"]) == ("5.0kB/s", "1.0kB/s")
 
     def test_no_interface_and_no_route_reads_zero(self, tmp_path: Path) -> None:
@@ -167,14 +245,26 @@ class TestStatsScript:
         payload = _run_stats(tmp_path, net, route_dev=None, iterations=1)[0]
         assert (payload["down"], payload["up"]) == ("0B/s", "0B/s")
 
+    def test_missing_route_table_reads_zero_and_survives(self, tmp_path: Path) -> None:
+        """No /proc/net/route at all (a locked-down namespace): 0B/s, exit 0,
+        nothing on stderr — never a dead feeder."""
+        net = _fake_net(tmp_path, wired_up=False)
+        payload = _run_stats(
+            tmp_path,
+            net,
+            iterations=1,
+            env={"HYPRCONF_STATS_PROC_ROUTE": str(tmp_path / "absent")},
+        )[0]
+        assert (payload["down"], payload["up"]) == ("0B/s", "0B/s")
+
     def test_interface_switch_rebases_the_rate_baseline(self, tmp_path: Path) -> None:
         """Ethernet coming up while Wi-Fi held the route: the first eth0
         sample would diff eth0's lifetime counter against wlan0's baseline
         (an absurd one-tick spike, hundreds of GB/s on a real box) unless the
         baseline is rebased to the new interface — that tick must read 0B/s."""
         net = _fake_net(tmp_path, wired_up=False)
-        calls = tmp_path / "ip-calls"
-        ip_body = (
+        calls = tmp_path / "sleep-calls"
+        sleep_body = (
             f'c=0; [[ -r {calls} ]] && read -r c < "{calls}"; c=$((c + 1)); echo $c > "{calls}"\n'
             f'read -r n < "{net}/wlan0/statistics/rx_bytes" && echo $((n + 5000)) > "{net}/wlan0/statistics/rx_bytes"\n'
             f'read -r n < "{net}/wlan0/statistics/tx_bytes" && echo $((n + 1000)) > "{net}/wlan0/statistics/tx_bytes"\n'
@@ -183,18 +273,17 @@ class TestStatsScript:
             f'    echo 900000000000 > "{net}/eth0/statistics/tx_bytes"\n'
             f'    echo up > "{net}/eth0/operstate"\n'
             f"fi\n"
-            'echo "default via 192.168.1.1 dev wlan0 proto dhcp"\n'
         )
-        lines = _run_stats(tmp_path, net, iterations=2, ip_body=ip_body)
+        lines = _run_stats(tmp_path, net, iterations=2, sleep_body=sleep_body)
         assert (lines[0]["down"], lines[0]["up"]) == ("5.0kB/s", "1.0kB/s")  # wlan0, steady
         assert (lines[1]["down"], lines[1]["up"]) == ("0B/s", "0B/s")  # eth0's first tick
 
     def test_vpn_tunnel_default_route_without_gateway(self, tmp_path: Path) -> None:
-        """WireGuard/OpenVPN default routes have no gateway hop — `ip route
-        show default` prints `default dev wg0 scope link`, not `default via
-        <gw> dev wg0 ...`. The interface must be parsed as the token after
-        `dev`: a fixed `$5` parse reads "link" here, and the rates froze at
-        0B/s while the VPN carried all traffic.
+        """A WireGuard/OpenVPN default route has no gateway hop: Gateway
+        00000000 and RTF_UP alone in /proc/net/route (`default dev wg0 scope
+        link` to `ip`). The Destination alone selects it — a parse keyed on
+        the gateway once froze the rates at 0B/s while the VPN carried all
+        traffic.
         """
         net = _fake_net(tmp_path, wired_up=False, wifi=False)
         wg = net / "wg0"
@@ -205,7 +294,11 @@ class TestStatsScript:
         (wg / "statistics" / "rx_bytes").write_text("7000\n")
         (wg / "statistics" / "tx_bytes").write_text("8000\n")
         payload = _run_stats(
-            tmp_path, net, route_dev="wg0", route_line="default dev wg0 scope link", iterations=1
+            tmp_path,
+            net,
+            route_dev="wg0",
+            route_lines=[_route("wg0", gateway=False, metric=50)],
+            iterations=1,
         )[0]
         assert payload["down"] == "5.0kB/s"
 
@@ -248,13 +341,12 @@ class TestStatsCpuTemp:
         hwmon = _fake_hwmon(tmp_path, [("Tctl", "54300")])
         gone = hwmon / "hwmon0" / "temp1_input"
         net = _fake_net(tmp_path, wired_up=False)
-        calls = tmp_path / "ip-calls"
-        ip_body = (
+        calls = tmp_path / "sleep-calls"
+        sleep_body = (
             f'c=0; [[ -r {calls} ]] && read -r c < "{calls}"; c=$((c + 1)); echo $c > "{calls}"\n'
-            f'if (( c == 3 )); then rm -f "{gone}"; fi\n'
-            'echo "default via 192.168.1.1 dev wlan0 proto dhcp"\n'
+            f'if (( c == 2 )); then rm -f "{gone}"; fi\n'
         )
-        lines = _run_stats(tmp_path, net, iterations=2, hwmon_root=hwmon, ip_body=ip_body)
+        lines = _run_stats(tmp_path, net, iterations=2, hwmon_root=hwmon, sleep_body=sleep_body)
         assert lines[0]["temp"] == "54°"
         assert lines[1]["temp"] == ""
 
@@ -614,24 +706,32 @@ class TestGpuInfoScript:
             "| VRAM shared | Freq 1200MHz"
         )
 
-    def test_amd_counter_vanishing_mid_stream_dies_into_the_widget_restart(
-        self, tmp_path: Path
-    ) -> None:
-        """An emptied gpu_busy_percent kills the stream after the lines it
-        already emitted (an unguarded `read` under set -e): the widget's
-        documented restart-and-reprobe self-heal, pinned so a refactor cannot
-        silently turn a vanished card into a lie that streams on."""
+    def test_amd_refusing_card_reads_idle_and_the_stream_lives(self, tmp_path: Path) -> None:
+        """amdgpu answers gpu_busy_percent with -EPERM on a runtime-suspended
+        card: the attribute is still 0444 (so the probe and `-r` pass) and
+        the read() fails. Unguarded under set -e that killed the whole stream
+        — on a hybrid laptop before its first line, which the widget never
+        restarts, and the iGPU's reading died with it. A card whose counters
+        refuse (here: swapped for directories after the probe, a read error
+        for root too) must rank idle, 0/0, and the stream must go on — quietly,
+        or the error would repeat into the journal every interval."""
         drm = tmp_path / "drm"
-        card = self._amd_card(drm, 1, busy="42", used=100, total=8 * 1024**3)
+        self._amd_card(drm, 0, busy="5", used=None, total=None, name="Raphael")
+        dgpu = self._amd_card(drm, 1, busy="90", used=1024**3, total=8 * 1024**3, name="RX 7700S")
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir(exist_ok=True)
         _write_exe(
             bin_dir / "sleep",
-            f'#!/usr/bin/env bash\n: > "{card}/gpu_busy_percent"\ncommand -p sleep "$@"\n',
+            "#!/usr/bin/env bash\n"
+            f'for f in gpu_busy_percent mem_info_vram_used mem_info_vram_total; do [[ -f "{dgpu}/$f" ]] && rm -f "{dgpu}/$f" && mkdir "{dgpu}/$f"; done\n'
+            'command -p sleep "$@"\n',
         )
-        r = self._run(tmp_path, nvidia=False, drm_root=drm, env={"HYPRCONF_GPU_ITERATIONS": "5"})
-        assert r.returncode == 1
-        assert len(r.stdout.strip().splitlines()) == 1
+        r = self._run(tmp_path, nvidia=False, drm_root=drm, env={"HYPRCONF_GPU_ITERATIONS": "3"})
+        lines = self._lines(r)
+        assert r.stderr == ""
+        assert [ln["index"] for ln in lines] == [1, 0, 0]  # the dGPU, then the iGPU carries on
+        assert lines[0]["util"] == 90
+        assert lines[1]["util"] == 5 and lines[1]["tooltip"].endswith("| VRAM shared")
 
     def test_intel_gt_vanishing_mid_stream_reads_idle_not_pegged(self, tmp_path: Path) -> None:
         """No data must read as idle: a vanished xe residency counter once

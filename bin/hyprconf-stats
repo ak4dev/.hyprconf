@@ -2,24 +2,32 @@
 # hyprconf-stats — streaming cpu/memory/network stats for the quickshell bar.
 #
 # One JSON line per second on stdout. Long-lived so counters can be diffed
-# in-process instead of re-forking a sampler every poll.
+# in-process instead of re-forking a sampler every poll — and a tick forks
+# nothing at all: every number is a `read` of a proc/sysfs file and integer
+# arithmetic, formatted with printf -v; only the sleep is left, and that is
+# bash's loadable builtin below.
 #
 # No `set -e`: a long-lived sampler must outlive a read that fails when a
 # sensor or interface vanishes between ticks; no pipeline's status is tested,
 # so pipefail would change nothing.
 set -u
-# bash's loadable sleep builtin (package bash) saves the exec of /usr/bin/sleep
-# every tick; the external one stays in use where the loadable is missing.
-enable -f /usr/lib/bash/sleep sleep 2>/dev/null
 
 # System paths and pacing are env-overridable so the hermetic test suite can
 # point them at a fake tree (never readonly — see testing rules).
 : "${HYPRCONF_STATS_NET_ROOT:=/sys/class/net}"
 : "${HYPRCONF_STATS_PROC_STAT:=/proc/stat}"
 : "${HYPRCONF_STATS_PROC_MEMINFO:=/proc/meminfo}"
+: "${HYPRCONF_STATS_PROC_ROUTE:=/proc/net/route}"
 : "${HYPRCONF_STATS_HWMON_ROOT:=/sys/class/hwmon}"
+: "${HYPRCONF_STATS_SLEEP_BUILTIN:=/usr/lib/bash/sleep}"
 : "${HYPRCONF_STATS_INTERVAL:=1}"
 : "${HYPRCONF_STATS_ITERATIONS:=0}"   # 0 = run forever; N = exit after N samples
+
+# bash's loadable sleep builtin (package bash) saves the exec of /usr/bin/sleep
+# every tick; the external one stays in use where the loadable is missing —
+# which is also how the suite runs a hook between ticks: the seam pointed at
+# a file that is not there leaves a PATH `sleep` fake in charge.
+enable -f "$HYPRCONF_STATS_SLEEP_BUILTIN" sleep 2>/dev/null
 
 # human <bytes> <varname>: SI-decimal rate ("46.2kB/s") into the named variable
 # — printf -v, so a tick forks nothing for it.
@@ -33,10 +41,11 @@ human() {
     fi
 }
 
-# kB -> GiB with one decimal.
+# gib <kB> <varname>: GiB with one decimal into the named variable — the same
+# printf -v shape as human(), so the two memory figures cost no subshell.
 gib() {
     local g10=$(( ($1 * 10 + 524288) / 1048576 ))
-    printf '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
+    printf -v "$2" '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
 }
 
 # ---- cpu temperature source, resolved ONCE (no per-tick probe after this).
@@ -62,7 +71,7 @@ for _lbl in "$HYPRCONF_STATS_HWMON_ROOT"/hwmon*/temp*_label; do
 done
 
 prev_total=0 prev_idle=0 prev_rx=0 prev_tx=0 prev_iface=""
-first=1 iter=0 down="" up=""
+first=1 iter=0 down="" up="" mem_used="" mem_all=""
 
 while :; do
     # ---- cpu: aggregate line of /proc/stat
@@ -83,7 +92,9 @@ while :; do
             MemAvailable:) mem_avail=$val; break ;;
         esac
     done < "$HYPRCONF_STATS_PROC_MEMINFO"
-    mem="$(gib $(( mem_total - mem_avail )))/$(gib "$mem_total")G"
+    gib $(( mem_total - mem_avail )) mem_used
+    gib "$mem_total" mem_all
+    mem="$mem_used/${mem_all}G"
 
     # ---- network. Ethernet takes precedence: the counters come from the
     # first wired interface with a link up, else from the default-route
@@ -103,13 +114,26 @@ while :; do
             break
         fi
     done
-    if [[ -z $iface ]]; then
-        # The iface is the token after "dev", NOT a fixed field: gateway-less
-        # default routes (WireGuard/OpenVPN tunnels — "default dev wg0 scope
-        # link") carry no "via <gw>", which shifts a $5-based parse onto
-        # "scope"/"link" and froze the rates at 0B/s mid-VPN.
-        iface=$(ip route show default 2>/dev/null \
-            | awk '{for (i = 1; i < NF; i++) if ($i == "dev") { print $(i + 1); exit }}')
+    if [[ -z $iface && -r $HYPRCONF_STATS_PROC_ROUTE ]]; then
+        # The default-route interface from the kernel's own listing of the
+        # main table — the table `ip route show default` prints — read with
+        # no fork: a Wi-Fi or VPN box sits on this path every tick, and the
+        # `ip | awk` it replaced was three forks a second per bar surface.
+        # One line per route, "Iface Destination Gateway Flags …" in hex
+        # (net/ipv4/fib_trie.c, fib_route_seq_show): the default route is
+        # the one whose Destination is 00000000 — a gateway-less tunnel
+        # (WireGuard: Gateway 00000000, no RTF_GATEWAY) is found the same
+        # way, which the old parse once missed — and of several (Wi-Fi plus
+        # a tether) the first is the lowest metric, the kernel keeping a
+        # prefix's routes sorted by priority (fib_insert_alias), the order
+        # `ip` prints too. An `unreachable default` has no device and lists
+        # as "*", where `ip` prints no `dev`: skipped alike.
+        while read -r _rif _rdst _; do
+            if [[ $_rdst == 00000000 && $_rif != '*' ]]; then
+                iface=$_rif
+                break
+            fi
+        done < "$HYPRCONF_STATS_PROC_ROUTE"
     fi
     rx=0 tx=0
     if [[ -n $iface && -r $HYPRCONF_STATS_NET_ROOT/$iface/statistics/rx_bytes ]]; then

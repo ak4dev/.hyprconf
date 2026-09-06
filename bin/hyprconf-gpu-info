@@ -130,8 +130,19 @@ _amd_stream() {
         b_i=-1 b_util=0 b_used=0
         for i in "${!_amd_dev[@]}"; do
             util=0 used=0
-            [[ -r "${_amd_dev[i]}/gpu_busy_percent" ]] && read -r util < "${_amd_dev[i]}/gpu_busy_percent"
-            [[ -r "${_amd_dev[i]}/mem_info_vram_used" ]] && read -r used < "${_amd_dev[i]}/mem_info_vram_used"
+            # The tolerant shape the Intel and temperature reads use: amdgpu
+            # answers gpu_busy_percent with -EPERM on a runtime-suspended
+            # card (amdgpu_pm_get_access_if_active, drivers/gpu/drm/amd/pm/
+            # amdgpu_pm.c) — the attribute stays 0444, so -r passes and the
+            # read() fails — and unguarded under set -e that killed the whole
+            # stream on a hybrid laptop whose dGPU sleeps, before its first
+            # line, which the widget never restarts. A refusing (or vanished)
+            # card reads 0/0 and ranks idle, which it is; the error text stays
+            # out of the journal, where it would repeat every interval.
+            [[ -r "${_amd_dev[i]}/gpu_busy_percent" ]] &&
+                { read -r util < "${_amd_dev[i]}/gpu_busy_percent" || util=0; } 2>/dev/null
+            [[ -r "${_amd_dev[i]}/mem_info_vram_used" ]] &&
+                { read -r used < "${_amd_dev[i]}/mem_info_vram_used" || used=0; } 2>/dev/null
             [[ $util =~ ^[0-9]+$ ]] || util=0
             [[ $used =~ ^[0-9]+$ ]] || used=0
             if (( b_i < 0 || used > b_used ||
@@ -152,7 +163,8 @@ _amd_stream() {
         fi
 
         total=0
-        [[ -r "${_amd_dev[b_i]}/mem_info_vram_total" ]] && read -r total < "${_amd_dev[b_i]}/mem_info_vram_total"
+        [[ -r "${_amd_dev[b_i]}/mem_info_vram_total" ]] &&
+            { read -r total < "${_amd_dev[b_i]}/mem_info_vram_total" || total=0; } 2>/dev/null
         [[ $total =~ ^[0-9]+$ ]] || total=0
         if (( total > 0 )); then
             b_total=$total

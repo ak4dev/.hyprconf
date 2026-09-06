@@ -82,7 +82,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, workspace rehoming)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
 │   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, monitors.lua migration …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
-│   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
+│   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins the fork-free tick)
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
 │   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-mkinitcpio; the limine drop-in, /etc/default/limine read for the mapper and never rewritten; real shellcheck on the mkinitcpio drop-in)
@@ -130,12 +130,18 @@ skips in CI, and the recipe for reproducing a container-only failure, are in
   `_HYPRCONF_*` in `bin/hyprconf-vulkan-gpu` for the sysfs trees and env
   files it reads (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`, `UWSM_ENV_D`, `UWSM_ENV`,
   `ENVIRONMENT_D`, `STATE`, `ASSUME_TTY`),
-  `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders — pointed at
-  `tmp_path`. Never make such a variable `readonly`.
+  `HYPRCONF_STATS_*` in `bin/hyprconf-stats` (`NET_ROOT`, `PROC_STAT`,
+  `PROC_MEMINFO`, `PROC_ROUTE`, `HWMON_ROOT`, `INTERVAL`, `ITERATIONS`, and
+  `SLEEP_BUILTIN` — the loadable sleep's path, pointed at a file that is not
+  there so a PATH `sleep` fake runs between ticks) and `HYPRCONF_GPU_*` in
+  `bin/hyprconf-gpu-info` (`INTERVAL`, `DRM_ROOT`, `ITERATIONS`, `PCI_IDS`) —
+  pointed at `tmp_path`. Never make such a variable `readonly`.
 - The fake bins (`AGENTS.md` › Tests): `omarchy-*`, `hyprctl`, `sudo`, `chsh`,
   `fc-list`, `systemd-cryptenroll`, `limine-mkinitcpio`, `gum`, `udevadm` (the real
   one would re-apply rules on the developer's own machine), `vulkaninfo` (it
-  would answer for the host's GPUs), `git` (a clone only makes its directory —
+  would answer for the host's GPUs), `nvidia-smi` (likewise), `sleep` (the
+  feeders' hook between ticks: it advances the fake counters and mutates the
+  fake trees, then runs the real sleep), `git` (a clone only makes its directory —
   the curl-path tests let a clone of a local directory run the real git — the
   pinned fetch/checkout/rev-parse dance against the two third-party shell
   dirs is faked through marker files, and a pull is a no-op; the real git

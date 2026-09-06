@@ -61,7 +61,7 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 
 - `#!/usr/bin/env bash` and `set -euo pipefail`; a script that deviates (the hooks and `hyprconf-yubikey` drop `-e`, `hyprconf-stats` is `set -u`) says why in a comment.
 - Runtime Hyprland changes go through `hyprctl eval` and `hyprctl dispatch 'hl.dsp.…'` (quirks). A hotkey-launched script with something to say says it through `omarchy-osd` / `omarchy-notification-send` (`hyprconf-monitor-preset`); `hyprconf-gaps` says nothing — the gap change is its feedback, and its one failure (`hyprctl eval` refusing) is stderr + exit 1, invisible from the hotkey and accepted. No `pkill` / `killall`.
-- Anything outside `$HOME` a script reads or writes sits behind a `: "${_HYPRCONF_X:=/default}"` seam — the Omarchy tree through Omarchy's own `OMARCHY_PATH` (`default/bash/env-bootstrap`), the feeders through `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` — never `readonly` (lists: CONTRIBUTING › Writing hermetic tests). Two reads stay unseamed because a miss is a no-op: `is_lit`'s `/sys/class/drm` glob in `hyprconf-monitor-preset` and the loadable `sleep` in `hyprconf-stats`.
+- Anything outside `$HOME` a script reads or writes sits behind a `: "${_HYPRCONF_X:=/default}"` seam — the Omarchy tree through Omarchy's own `OMARCHY_PATH` (`default/bash/env-bootstrap`), the feeders through `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` — never `readonly` (lists: CONTRIBUTING › Writing hermetic tests). One read stays unseamed because a miss is a no-op: `is_lit`'s `/sys/class/drm` glob in `hyprconf-monitor-preset`.
 
 ## References
 
