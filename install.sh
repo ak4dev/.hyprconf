@@ -53,10 +53,6 @@ HERE_SED=${HERE//\\/\\\\}; HERE_SED=${HERE_SED//&/\\&}; HERE_SED=${HERE_SED//|/\
 # as omarchy-pkg-add: a test proving the "kitty is not installed" stop has no
 # other way to make it absent on a machine whose /usr/bin has one.
 : "${_HYPRCONF_KITTY_BIN:=kitty}"
-# Omarchy's hook installer, by name for the same reason as omarchy-pkg-add:
-# /usr/bin/omarchy-hook-install exists on every Omarchy dev box, so the test
-# for stage_hooks' plain-copy fallback has no other way to make it absent.
-: "${_HYPRCONF_HOOK_INSTALL:=omarchy-hook-install}"
 # Where the system Firefox policy lands. Root-owned, so the stage that writes
 # it goes through sudo; overridable so the hermetic suite can point it at a tmp
 # tree. _HYPRCONF_ASSUME_TTY lets that suite reach the sudo path from a non-tty
@@ -105,8 +101,9 @@ runs that checkout's install.sh with the same options. HYPRCONF_REPO,
 HYPRCONF_BRANCH and HYPRCONF_DIR override those three.
 
 Options:
-  --sync          Pull the hyprconf checkout, re-apply, then run omarchy-update.
-                  This is what the `hyprsync` alias runs.
+  --sync          Pull the hyprconf checkout, re-apply, then run omarchy-update
+                  (whose post-update hook re-applies once more, after Omarchy's
+                  migrations). This is what the `hyprsync` alias runs.
   --no-update     Apply only; never invoke omarchy-update. Used by the
                   post-update hook, which already runs inside an update.
   --no-packages   Skip the four stages that need sudo: packages, Firefox (and
@@ -231,16 +228,37 @@ bootstrap() {
 
 # ------------------------------------------------------------------ helpers
 
-# Replace the hyprconf-managed block in $1 with the contents of $2, preserving
-# everything outside the markers: the old block is stripped, then the new one
-# appended after one blank line. Byte-stable across repeated runs — trailing
-# blank lines are dropped first, so a re-run cannot accumulate whitespace
-# ahead of the block. The one block written is the zshrc one, so the markers
-# are the '#'-comment pair.
+# Put the hyprconf-managed block of $1 at the contents of $2, preserving
+# everything outside the markers WHERE IT IS. An existing block is replaced
+# in place: a line the user added after the end marker stays after it — they
+# wrote it to run after the block (after Oh My Zsh, the theme and
+# zsh-syntax-highlighting, which zsh/zshrc.block sources last for a reason),
+# and stripping the block and re-appending it would silently move that line
+# above the block on the hook's next run. A file with no block yet gets it
+# appended after one blank line, trailing blank lines dropped first so a
+# re-run cannot accumulate whitespace ahead of it. Byte-stable across
+# repeated runs. The one block written is the zshrc one, so the markers are
+# the '#'-comment pair.
 write_managed_block() {
-    local file="$1" block="$2" kept
+    local file="$1" block="$2" begin="# >>> hyprconf >>>" end="# <<< hyprconf <<<" tmp kept
     touch "$file"
-    strip_managed_block "$file" "# >>> hyprconf >>>" "# <<< hyprconf <<<"
+    if grep -qxF -e "$begin" "$file"; then
+        tmp="$(mktemp)"
+        # The first block is replaced at its own position; any further pair
+        # (never written by this installer) is dropped, so one block remains.
+        awk -v b="$begin" -v e="$end" -v blk="$block" '
+            $0 == b {
+                if (!done) { while ((getline line < blk) > 0) print line; close(blk) }
+                done = 1; skip = 1; next
+            }
+            $0 == e { skip = 0; next }
+            skip { next }
+            { print }
+        ' "$file" > "$tmp"
+        cat "$tmp" > "$file"
+        rm -f "$tmp"
+        return 0
+    fi
     kept="$(cat "$file")"   # command substitution strips trailing newlines
     {
         [[ -z $kept ]] || printf '%s\n\n' "$kept"
@@ -335,6 +353,19 @@ resolve_zsh() {
 
 stage_pull() {
     log "Updating the hyprconf checkout"
+    # First, undo any `omarchy refresh` that landed on the checkout through
+    # the override symlinks (restore_clobbered_override). A hypr/*.lua that
+    # is Omarchy's stock template byte for byte is a dirty tracked file, and
+    # `git pull --ff-only` refuses to merge over a dirty file upstream also
+    # changed ("Your local changes to the following files would be
+    # overwritten by merge") — about a file the user never edited, and on
+    # every re-run, because the guard's other callers (stage_hotkeys,
+    # stage_looknfeel) come after this stage. A no-op on anything but the
+    # template.
+    local name
+    for name in bindings.lua input.lua looknfeel.lua; do
+        restore_clobbered_override "$name"
+    done
     if ! git -C "$HERE" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then
         info "no upstream configured — skipping pull"
         return 0
@@ -935,9 +966,18 @@ stage_menu() {
     tmp="$(mktemp "$target.XXXXXX")"
     cp "$target" "$tmp"
     strip_managed_block "$tmp" "$begin" "$end"
-    if ! awk -v b="$begin" -v e="$end" -v entry="$entry" '
+    local rc=0
+    awk -v b="$begin" -v e="$end" -v entry="$entry" '
         { lines[NR] = $0 }
         END {
+            # The parser also accepts `{ "items": { … } }` and then reads
+            # ONLY that object (MenuModel.js: `parsed.items` when it is a
+            # non-array object, else `parsed`). The block goes before the
+            # LAST brace line, which in that shape is the outer one — the
+            # row would sit outside items, ignored for good, while every
+            # re-run found the file current. Refused instead.
+            for (i = 1; i <= NR; i++)
+                if (lines[i] ~ /^[[:space:]]*\{?[[:space:]]*"items"[[:space:]]*:[[:space:]]*\{/) exit 4
             close_at = 0
             for (i = NR; i >= 1; i--)
                 if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) { close_at = i; break }
@@ -962,9 +1002,14 @@ stage_menu() {
             last = NR
             while (last > close_at && lines[last] == "") last--
             for (i = close_at; i <= last; i++) print lines[i]
-        }' "$tmp" > "$tmp.new"; then
+        }' "$tmp" > "$tmp.new" || rc=$?
+    if (( rc )); then
         rm -f "$tmp" "$tmp.new"
-        warn "$file has no closing-brace line to put the hyprconf block before — add the Proton VPN row by hand"
+        if (( rc == 4 )); then
+            warn "$file wraps its rows in an \"items\" object, where a block before the closing brace is never read — add the Proton VPN row by hand, inside it"
+        else
+            warn "$file has no closing-brace line to put the hyprconf block before — add the Proton VPN row by hand"
+        fi
         return 0
     fi
     rm -f "$tmp"
@@ -1323,28 +1368,24 @@ stage_shell() {
 # ~/.config/omarchy/hooks/<type>.d/ — the directories omarchy-hook runs
 # (post-update from omarchy-update, theme-set from omarchy-theme-set) —
 # through Omarchy's own `omarchy-hook-install <type> <file>` (4.0.0-1:
-# mkdir -p the .d dir, cp under the file's basename, chmod 755). The hook is
-# rendered first, with @HYPRCONF_DIR@ substituted, into a temp dir under its
-# final basename, since the basename is the name it is installed under. The
-# same three steps by hand only when the command is absent.
+# mkdir -p the .d dir, cp under the file's basename, chmod 755; unchanged on
+# 4.0.2-1, bin/omarchy-hook-install:27-29). The hook is rendered first, with
+# @HYPRCONF_DIR@ substituted, into a temp dir under its final basename,
+# since the basename is the name it is installed under. No hand-rolled copy
+# when the command is missing (rule 1): preflight has already refused a box
+# without Omarchy, and the command has shipped since the 4.0.0-1 pin — a
+# failure is a warning, and the next run retries.
 stage_hooks() {
     log "Omarchy hooks (post-update, theme-set)"
-    local src type file dir tmp
+    local src type file tmp
     tmp="$(mktemp -d)"
     for src in "$HERE"/hooks/*.d/*; do
         type="$(basename "$(dirname "$src")")"
         type="${type%.d}"
         file="$tmp/${src##*/}"
         sed "s|@HYPRCONF_DIR@|$HERE_SED|g" "$src" > "$file"
-        if command -v "$_HYPRCONF_HOOK_INSTALL" >/dev/null 2>&1; then
-            "$_HYPRCONF_HOOK_INSTALL" "$type" "$file" >/dev/null ||
-                warn "omarchy-hook-install $type ${src##*/} failed"
-        else
-            dir="$HOME/.config/omarchy/hooks/$type.d"
-            mkdir -p "$dir"
-            cp "$file" "$dir/${src##*/}"
-            chmod 755 "$dir/${src##*/}"
-        fi
+        omarchy-hook-install "$type" "$file" >/dev/null ||
+            warn "omarchy-hook-install $type ${src##*/} failed"
     done
     rm -rf "$tmp"
 }
@@ -1417,10 +1458,14 @@ stage_theme_apps() {
 stage_update() {
     log "Updating Omarchy"
     # Omarchy's own updater, never pacman: an ALPM AbortOnFail hook blocks
-    # sysupgrade forms outside this path. HYPRCONF_SYNC_RUNNING tells the
-    # post-update hook the overlay was applied moments ago, so it skips its
-    # redundant re-apply.
-    HYPRCONF_SYNC_RUNNING=1 omarchy-update
+    # sysupgrade forms outside this path. It runs omarchy-migrate and then
+    # `omarchy-hook post-update` (bin/omarchy-update:48-49, 4.0.2-1), so the
+    # overlay's own hook re-applies every stage once more, AFTER the
+    # migrations — on purpose, not a redundancy to skip: a migration that
+    # rewrites bindings.lua, kitty.conf or shell.json does so after the
+    # apply above, and that second run is the one that puts them back. Not
+    # a loop: the hook passes --no-update.
+    omarchy-update
 }
 
 # --------------------------------------------------------------------- main

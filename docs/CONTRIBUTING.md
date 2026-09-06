@@ -81,7 +81,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, workspace rehoming)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, the `omarchy refresh` guard …), restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
+│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, the `omarchy refresh` guard …), the post-update hook end to end, restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
 │   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins the fork-free tick)
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
@@ -150,7 +150,9 @@ skips in CI, and the recipe for reproducing a container-only failure, are in
   `/usr/bin` carries
   every `omarchy-*` command (426 on Omarchy 4.0.1-1), so a PATH of fakes plus
   `/usr/bin` keeps none of them out: stub every one the code path can call
-  (`_setup` in `test_omarchy_install.py` lists the installer's;
+  (`OMARCHY_STUBS` and `_setup` in `test_omarchy_install.py` list the
+  installer's, and `test_every_omarchy_command_install_sh_calls_has_a_fake`
+  holds `install.sh`'s code to that list;
   `test_firefox_theme.py` stubs the three theme commands to prove the Firefox
   bridge calls none). Real when present, skipped otherwise: `jq`, `luac`,
   `qmllint`, `shellcheck`, `sh`, `/usr/share/omarchy/bin/omarchy-plugin-validate`

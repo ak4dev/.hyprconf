@@ -189,6 +189,46 @@ def _terminal_stub(tmp_path: Path, set_status: int = 0) -> str:
     )
 
 
+# Every external _setup fakes with the bare recording stub (exit 0). The
+# ones that need a body — omarchy-pkg-add, omarchy-pkg-present,
+# omarchy-plugin-list, omarchy-hook-install, omarchy-theme-refresh,
+# omarchy-default-terminal, jq, fc-list, git, kitty, zsh — are written
+# individually below; test_every_omarchy_command_install_sh_calls_has_a_fake
+# holds install.sh's code to the union of both.
+OMARCHY_STUBS = (
+    "omarchy-theme-set",
+    "omarchy-font-set",
+    "omarchy-default-browser",
+    "omarchy-default-editor",
+    "omarchy-shell",
+    "omarchy-plugin-enable",
+    "omarchy-plugin-catalog",
+    "omarchy-restart-shell",
+    "omarchy-bar",
+    "omarchy-update",
+    # Firefox and VS Code go in through Omarchy's own installers.
+    "omarchy-install-browser",
+    "omarchy-install-editor-vscode",
+    "sudo",
+    "hyprctl",
+    # hyprconf-monitor-preset (run by several tests here) reports through these;
+    # the real ones would put a notification and an OSD on the developer's
+    # desktop every time the suite runs.
+    "omarchy-notification-send",
+    "omarchy-osd",
+    # Asserted never to run: switching the login shell, and pacman
+    # directly (the container has a real one; a call must be seen, not
+    # reach it).
+    "chsh",
+    "pacman",
+    # hyprconf-vulkan-gpu's prompt; the real one takes over the terminal.
+    "gum",
+    # stage_keychron reloads and retriggers udev; the real one would
+    # re-apply rules on the developer's own machine.
+    "udevadm",
+)
+
+
 def _setup(
     tmp_path: Path, *, with_omarchy: bool = True, with_zsh: bool = True, with_kitty: bool = True
 ) -> dict:
@@ -201,38 +241,7 @@ def _setup(
         d.mkdir(parents=True, exist_ok=True)
     calls.write_text("")
 
-    for name in (
-        "omarchy-theme-set",
-        "omarchy-font-set",
-        "omarchy-default-browser",
-        "omarchy-default-editor",
-        "omarchy-shell",
-        "omarchy-plugin-enable",
-        "omarchy-plugin-catalog",
-        "omarchy-restart-shell",
-        "omarchy-bar",
-        "omarchy-update",
-        # Firefox and VS Code go in through Omarchy's own installers.
-        "omarchy-install-browser",
-        "omarchy-install-editor-vscode",
-        "sudo",
-        "hyprctl",
-        # hyprconf-monitor-preset (run by several tests here) reports through these;
-        # the real ones would put a notification and an OSD on the developer's
-        # desktop every time the suite runs.
-        "omarchy-notification-send",
-        "omarchy-osd",
-        # Asserted never to run: switching the login shell, and pacman
-        # directly (the container has a real one; a call must be seen, not
-        # reach it).
-        "chsh",
-        "pacman",
-        # hyprconf-vulkan-gpu's prompt; the real one takes over the terminal.
-        "gum",
-        # stage_keychron reloads and retriggers udev; the real one would
-        # re-apply rules on the developer's own machine.
-        "udevadm",
-    ):
+    for name in OMARCHY_STUBS:
         _stub(bins / name, calls)
     # Named so a "no Omarchy here" run can point the installer at a command
     # that really is absent — /usr/bin/omarchy-pkg-add exists on the machines
@@ -305,21 +314,21 @@ def _setup(
     return env
 
 
-def _run(
+def _install_env(
     env: dict,
-    *args: str,
+    *,
     zsh: str | None = None,
     zsh_bin: str | None = None,
     extra_env: dict[str, str] | None = None,
-    install_sh: Path = INSTALL_SH,
-) -> subprocess.CompletedProcess:
-    """Run install.sh against the fake tree. Returns the completed process.
+) -> dict[str, str]:
+    """The environment install.sh runs in against the fake tree: _child_env
+    plus every seam pinned at a fake. What _run passes — and what the
+    installed post-update hook, which execs install.sh, is run under.
 
     `zsh` pins the resolved zsh path outright; `zsh_bin` instead renames the
     binary the installer looks up on PATH, which is how a test can model "zsh
     does not exist until the package stage installs it" on a host whose own
-    /usr/bin/zsh would otherwise always be found. `install_sh` runs a copy of
-    the installer (see _checkout) instead of the one in this checkout.
+    /usr/bin/zsh would otherwise always be found.
     """
     child_env = {
         **_child_env(env),
@@ -348,12 +357,26 @@ def _run(
         child_env["_HYPRCONF_ZSH_BIN"] = zsh_bin
     if extra_env:
         child_env.update(extra_env)
+    return child_env
+
+
+def _run(
+    env: dict,
+    *args: str,
+    zsh: str | None = None,
+    zsh_bin: str | None = None,
+    extra_env: dict[str, str] | None = None,
+    install_sh: Path = INSTALL_SH,
+) -> subprocess.CompletedProcess:
+    """Run install.sh against the fake tree (_install_env). Returns the
+    completed process. `install_sh` runs a copy of the installer (see
+    _checkout) instead of the one in this checkout."""
     return subprocess.run(
         ["bash", str(install_sh), *args],
         capture_output=True,
         text=True,
         timeout=60,
-        env=child_env,
+        env=_install_env(env, zsh=zsh, zsh_bin=zsh_bin, extra_env=extra_env),
     )
 
 
@@ -533,25 +556,73 @@ def test_refuses_without_omarchy_path(tmp_path: Path) -> None:
 
 
 def test_full_run_succeeds_and_is_byte_stable(tmp_path: Path) -> None:
+    """Every stage on its real path, and the whole HOME inside the hash: the
+    real jq behind the three JSON stages (the Firefox merge, shell.json, the
+    clock copy) with a clock source to copy, a sudo that runs its command
+    and a terminal to ask on (the policy and the Keychron rule land under
+    tmp_path), and ~/.local/bin on PATH the way Omarchy's default/bash/envs
+    puts it in a session (4.0.2-1, lines 32-33). Then the second and third
+    runs are byte-identical AND warning-free — a stage that had fallen back
+    to a retry branch would say so with a WARNING, and the harness default
+    (a broken jq) once hid exactly that from this gate."""
     env = _setup(tmp_path)
-    first = _run(env, "--no-update")
+    _plugin_fixtures(env, tmp_path)
+    _, extra = _policy_env(tmp_path, env)
+    extra["PATH"] = f"{env['bins']}:{env['home']}/.local/bin:/usr/bin:/bin"
+    first = _run(env, "--no-update", extra_env=extra)
     assert first.returncode == 0, first.stderr
 
     after_first = _tree_hash(env["home"])
-    assert _run(env, "--no-update").returncode == 0
+    second = _run(env, "--no-update", extra_env=extra)
+    assert second.returncode == 0, second.stderr
     after_second = _tree_hash(env["home"])
-    assert _run(env, "--no-update").returncode == 0
+    third = _run(env, "--no-update", extra_env=extra)
+    assert third.returncode == 0, third.stderr
     after_third = _tree_hash(env["home"])
 
     assert after_first == after_second == after_third
+    assert "WARNING:" not in second.stderr, second.stderr
+    assert "WARNING:" not in third.stderr, third.stderr
 
 
-def test_zshrc_preserves_content_outside_the_block(tmp_path: Path) -> None:
+def test_zshrc_preserves_content_outside_the_block_in_place(tmp_path: Path) -> None:
+    """Everything outside the markers survives WHERE IT WAS. A line above the
+    block stays above it, and a line added after the end marker — the
+    natural place, since the block ends the file — is still after it on the
+    next run. The old strip-then-append moved it above the block, which
+    changed zsh's evaluation order (the block sources zsh-syntax-highlighting
+    last for a reason) silently on every omarchy-update. A stale block is
+    replaced at its own position; the third run is byte-identical."""
     env = _setup(tmp_path)
-    (env["home"] / ".zshrc").write_text("export MY_OWN_THING=1\n")
-    for _ in range(2):
-        _run(env, "--no-update")
-    assert "export MY_OWN_THING=1" in (env["home"] / ".zshrc").read_text()
+    zshrc = env["home"] / ".zshrc"
+    zshrc.write_text("export MY_OWN_THING=1\n")
+    _run(env, "--no-update")
+    text = zshrc.read_text()
+    assert text.startswith("export MY_OWN_THING=1\n\n# >>> hyprconf >>>\n")
+    assert text.endswith("# <<< hyprconf <<<\n")
+
+    zshrc.write_text(text + "source ~/.zshrc.local\n")
+    _run(env, "--no-update")
+    lines = zshrc.read_text().splitlines()
+    assert lines[0] == "export MY_OWN_THING=1"
+    assert lines.count("# >>> hyprconf >>>") == 1 and lines.count("# <<< hyprconf <<<") == 1
+    assert lines[-1] == "source ~/.zshrc.local"
+    assert lines.index("source ~/.zshrc.local") > lines.index("# <<< hyprconf <<<")
+
+    block = (REPO_ROOT / "zsh" / "zshrc.block").read_text().splitlines()
+    stale = zshrc.read_text().replace("alias hyprsync=", "alias hyprsync_old=")
+    assert stale != zshrc.read_text()
+    zshrc.write_text(stale)
+    _run(env, "--no-update")
+    lines = zshrc.read_text().splitlines()
+    begin, end = lines.index("# >>> hyprconf >>>"), lines.index("# <<< hyprconf <<<")
+    assert lines[begin : end + 1] == block
+    assert lines[:begin] == ["export MY_OWN_THING=1", ""]
+    assert lines[end + 1 :] == ["source ~/.zshrc.local"]
+
+    before = zshrc.read_bytes()
+    _run(env, "--no-update")
+    assert zshrc.read_bytes() == before
 
 
 def test_a_failed_shell_clone_warns_and_the_stages_after_it_still_run(tmp_path: Path) -> None:
@@ -922,6 +993,27 @@ def test_font_stage_is_skipped_when_the_font_is_not_installed(tmp_path: Path) ->
     assert not (env["home"] / ".local" / "state" / "hyprconf" / "font-applied").exists()
 
 
+def test_font_marker_waits_for_omarchy_font_set_to_succeed(tmp_path: Path) -> None:
+    """omarchy-font-set exits 1 on a family it cannot apply: the stage warns
+    instead of dying under set -e, writes no marker, and the next run tries
+    again — the same rule the defaults marker follows."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "omarchy-font-set", env["calls"], "exit 1")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert any(c.startswith("omarchy-font-set") for c in _calls(env))
+    assert "omarchy-font-set rejected" in proc.stderr
+    marker = env["home"] / ".local" / "state" / "hyprconf" / "font-applied"
+    assert not marker.exists()
+    assert (env["home"] / ".zshrc").exists()  # a stage well after the font one
+
+    _stub(env["bins"] / "omarchy-font-set", env["calls"], "exit 0")
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert any(c.startswith("omarchy-font-set") for c in _calls(env))
+    assert marker.exists()
+
+
 # ---------------------------------------------------------------------------
 # The bar widget
 # ---------------------------------------------------------------------------
@@ -971,6 +1063,23 @@ def test_no_update_beats_sync_in_either_order(tmp_path: Path) -> None:
         env = _setup(tmp_path / order[0].strip("-"))
         _run(env, *order)
         assert not any(c.startswith("omarchy-update") for c in _calls(env)), order
+
+
+def test_a_failed_pull_stops_the_sync_before_anything_is_applied(tmp_path: Path) -> None:
+    """--sync is pull, apply, omarchy-update — in that order, each gated on
+    the last. A pull that fails (a diverged checkout, no network) is a stop
+    with git's own error above it: never a stale checkout applied and an
+    Omarchy update run on top of it. The default git stub answers 0 to
+    everything, so the die has to be provoked."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], 'case " $* " in *" pull "*) exit 1 ;; esac; exit 0')
+    proc = _run(env, "--sync")
+    assert proc.returncode != 0
+    assert "git pull failed" in proc.stderr
+    assert any(" pull " in f" {c} " for c in _calls(env))
+    assert "omarchy-update" not in _commands(env)
+    assert "omarchy-default-terminal" not in _commands(env)  # the first stage after the pull
+    assert not (env["home"] / ".zshrc").exists()
 
 
 def _real_repo(tmp_path: Path, *, rebase: bool) -> Path:
@@ -1135,30 +1244,70 @@ def test_hooks_are_installed_through_omarchy_hook_install(tmp_path: Path) -> Non
         assert os.access(installed, os.X_OK), name
 
 
-def test_hooks_fall_back_to_a_plain_copy_without_omarchy_hook_install(tmp_path: Path) -> None:
-    """The same three steps by hand only when Omarchy has no installer
-    command — the hooks must land either way, byte for byte the same.
-
-    Absent via the _HYPRCONF_HOOK_INSTALL name seam, not by unlinking the
-    stub: /usr/bin/omarchy-hook-install is real on every Omarchy dev box, so
-    an unlinked stub would quietly hand this test to the genuine installer
-    branch (the omarchy-pkg-add-absent trap all over again) and the fallback
-    would only ever run in CI's bare container."""
-    env = _setup(tmp_path)
-    proc = _run(
-        env, "--no-update", extra_env={"_HYPRCONF_HOOK_INSTALL": "omarchy-hook-install-absent"}
+def _run_hook(env: dict, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
+    """The installed post-update hook, run the way omarchy-hook runs it —
+    `bash <hook>` (bin/omarchy-hook:26, 4.0.2-1) — under the same pinned
+    environment install.sh gets, with a terminal: the hook's own flags,
+    not the missing tty, must be what keeps the sudo stages out."""
+    hook = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
+    return subprocess.run(
+        ["bash", str(hook)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=_install_env(env, extra_env={"_HYPRCONF_ASSUME_TTY": "1", **(extra_env or {})}),
     )
+
+
+def test_post_update_hook_reapplies_the_overlay_without_update_or_sudo(tmp_path: Path) -> None:
+    """omarchy-update runs the migrations and THEN this hook
+    (bin/omarchy-update:48-49), which execs the checkout's install.sh with
+    --no-update --no-packages: a hotkey link a migration replaced comes back,
+    nothing privileged runs (with nothing installed and a terminal to ask on,
+    the sudo stages would otherwise all act), and omarchy-update is never
+    re-entered. And it re-applies on EVERY update, hyprsync's included: the
+    variable an earlier guard keyed on is inert now, because under hyprsync
+    the migrations land after --sync's own apply, so this run is the one
+    that undoes them."""
+    env = _setup(tmp_path)
+    _stub(env["bins"] / "omarchy-pkg-present", env["calls"], "exit 1")
+    assert _run(env, "--no-update").returncode == 0
+    bindings = env["home"] / ".config" / "hypr" / "bindings.lua"
+    for variable in ({}, {"HYPRCONF_SYNC_RUNNING": "1"}):
+        bindings.unlink()  # never write through the link: it points into the real checkout
+        bindings.write_text("-- a migration put the stock file back\n")
+        env["calls"].write_text("")
+        proc = _run_hook(env, variable)
+        assert proc.returncode == 0, proc.stderr
+        assert bindings.is_symlink(), variable  # the overlay was re-applied
+        commands = _commands(env)
+        assert "omarchy-default-terminal" in commands, variable
+        for forbidden in (
+            "omarchy-update",
+            "sudo",
+            "omarchy-pkg-add",
+            "omarchy-install-browser",
+            "omarchy-install-editor-vscode",
+            "udevadm",
+        ):
+            assert forbidden not in commands, (forbidden, variable)
+
+
+def test_post_update_hook_bows_out_when_the_checkout_is_gone(tmp_path: Path) -> None:
+    """A deleted or moved checkout: the hook says so on stderr and exits 0 —
+    omarchy-hook reports a failing hook, and an Omarchy update must never
+    look failed over a missing overlay. Nothing runs."""
+    env = _setup(tmp_path)
+    repo = _checkout(tmp_path)
+    assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
+    hook = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
+    assert f'HYPRCONF_DIR="{repo}"' in hook.read_text()
+    (repo / "install.sh").rename(tmp_path / "install.sh.moved")
+    env["calls"].write_text("")
+    proc = _run_hook(env)
     assert proc.returncode == 0, proc.stderr
-    hooks = env["home"] / ".config" / "omarchy" / "hooks"
-    for name in ("post-update", "theme-set"):
-        installed = hooks / f"{name}.d" / "10-hyprconf"
-        expected = (
-            (REPO_ROOT / "hooks" / f"{name}.d" / "10-hyprconf")
-            .read_text()
-            .replace("@HYPRCONF_DIR@", str(REPO_ROOT))
-        )
-        assert installed.read_text() == expected, name
-        assert os.access(installed, os.X_OK), name
+    assert "is gone" in proc.stderr
+    assert _calls(env) == []
 
 
 def test_theme_set_hook_extends_the_theme_to_firefox(tmp_path: Path) -> None:
@@ -1262,13 +1411,21 @@ def test_templates_wait_for_a_theme_when_none_is_active(tmp_path: Path) -> None:
 
 
 def test_hook_cannot_recurse_or_escalate() -> None:
-    """It runs *inside* omarchy-update, so it must not update or use sudo."""
+    """It runs *inside* omarchy-update, so it must not update or use sudo —
+    and --no-update is its ONLY recursion guard. The environment guard it
+    once carried (HYPRCONF_SYNC_RUNNING, exported by --sync around
+    omarchy-update) skipped the re-apply on exactly the run it exists for:
+    omarchy-update runs the migrations and THEN this hook
+    (bin/omarchy-update:48-49), so under hyprsync the migrations land after
+    --sync's own apply and the hook's run is the one that undoes them.
+    Neither side may bring it back."""
     code = _code_only(HOOK.read_text())
     assert "--no-update" in code and "--no-packages" in code
     # It must not re-enter the thing that invoked it, nor the wrapper for it.
     assert "omarchy-update" not in code
     assert "hyprsync" not in code
-    assert "HYPRCONF_SYNC_RUNNING" in code, "missing the hyprsync recursion guard"
+    assert "HYPRCONF_SYNC_RUNNING" not in code, "the hook must re-apply on hyprsync's update too"
+    assert "HYPRCONF_SYNC_RUNNING" not in _code_only(INSTALL_SH.read_text())
     assert "sudo" not in code
     # No `set -e`: omarchy-hook must never let a hook abort an update.
     assert "set -e" not in code
@@ -1295,6 +1452,34 @@ def _overlay_scripts() -> list[Path]:
 def test_scripts_are_syntactically_valid() -> None:
     for script in _overlay_scripts():
         assert subprocess.run(["bash", "-n", str(script)]).returncode == 0, script
+
+
+# omarchy-* names install.sh's code carries only inside data, never as a
+# command: the menu row's action string, and the extension file's name.
+OMARCHY_NAMED_NOT_CALLED = frozenset(
+    {
+        "omarchy-launch-floating-terminal-with-presentation",
+        "omarchy-menu",
+    }
+)
+
+
+def test_every_omarchy_command_install_sh_calls_has_a_fake(tmp_path: Path) -> None:
+    """The hermetic contract (AGENTS.md › Tests): /usr/bin carries every
+    omarchy-* command on a dev box, so a call the harness has not stubbed
+    reaches the real desktop from a test — silently when the call is guarded
+    with `|| true`, as several are (reload_plugins, activate_plugin_copy).
+    Every name install.sh's code can invoke must be among the fakes _setup
+    writes — OMARCHY_STUBS plus the ones it gives a body — the same
+    self-check the two bin/ suites carry."""
+    env = _setup(tmp_path)
+    fakes = {p.name for p in env["bins"].iterdir()}
+    assert set(OMARCHY_STUBS) <= fakes
+    called = set(re.findall(r"\bomarchy-[a-z0-9-]+\b", _code_only(INSTALL_SH.read_text())))
+    assert called, "no omarchy-* calls found — the scan regex is broken"
+    assert OMARCHY_NAMED_NOT_CALLED <= called, "an exception naming a token that is gone"
+    unstubbed = called - fakes - OMARCHY_NAMED_NOT_CALLED
+    assert not unstubbed, f"omarchy-* commands install.sh can run with no fake: {sorted(unstubbed)}"
 
 
 # `pacman -Syu` is blocked by Omarchy's ALPM guard, `pacman -R` would
@@ -1462,6 +1647,28 @@ def test_firefox_is_installed_through_omarchys_installer_when_absent(tmp_path: P
     assert (policies / "policies.json").is_file()
     pkg_add = [c for c in calls if c.startswith("omarchy-pkg-add")]
     assert pkg_add and not any("firefox" in c.split() for c in pkg_add)
+
+
+def test_a_failed_firefox_install_leaves_no_policy_behind(tmp_path: Path) -> None:
+    """omarchy-install-browser failing (a dead mirror, a refused password)
+    is a warning with Omarchy's retry command, and the stage stops there:
+    no policy for a Firefox that is not installed — it would shadow nothing
+    — so no sudo at all, and the run goes on. The Keychron rule is put in
+    place first, so the other sudo stage has nothing to do either."""
+    env = _setup(tmp_path)
+    policies, extra = _policy_env(tmp_path, env)
+    rule = env["udev_rules"] / "70-keychron.rules"
+    rule.parent.mkdir(parents=True)
+    shutil.copy2(KEYCHRON_RULE, rule)
+    _stub(env["bins"] / "omarchy-pkg-present", env["calls"], '[ "$1" != firefox ]')
+    _stub(env["bins"] / "omarchy-install-browser", env["calls"], "exit 1")
+    proc = _run(env, "--no-update", extra_env=extra)
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-install-browser firefox" in _calls(env)
+    assert "retry with: omarchy install browser firefox" in proc.stderr
+    assert not policies.exists()
+    assert "sudo" not in _commands(env)
+    assert (env["home"] / ".zshrc").exists()  # a stage well after the Firefox one
 
 
 def test_firefox_policy_is_skipped_without_a_terminal(tmp_path: Path) -> None:
@@ -2340,6 +2547,42 @@ def test_guard_reports_when_git_cannot_repair(tmp_path: Path) -> None:
     assert (repo / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS
 
 
+def test_sync_repairs_a_refreshed_override_before_it_pulls(tmp_path: Path) -> None:
+    """`omarchy refresh` leaves the checkout's hypr/bindings.lua as Omarchy's
+    template — a dirty tracked file — and `git pull --ff-only` refuses to
+    merge over a dirty file upstream also changed ("Your local changes …
+    would be overwritten by merge"). The overlay's own updates are mostly
+    bindings.lua changes, so hyprsync after a refresh used to die on the
+    pull, and re-running hit the same wall: the guard only ran from the
+    hotkeys stage, after the pull. stage_pull runs it first. Real git
+    against a throwaway upstream/clone pair under tmp_path — only the
+    network-touching third-party clones stay faked."""
+    env = _setup(tmp_path)
+    up = _checkout(tmp_path)
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(up), str(clone)], check=True, timeout=30)
+    git_with_pull = GIT_PASSTHROUGH.replace('case " $* " in *" pull "*) exit 0 ;; esac\n', "")
+    assert git_with_pull != GIT_PASSTHROUGH, "the pull short-circuit moved"
+    _stub(env["bins"] / "git", env["calls"], git_with_pull)
+    templates = _stock_templates(env)
+    assert _run(env, "--no-update", install_sh=clone / "install.sh").returncode == 0
+
+    _refresh_config(env, templates, "bindings.lua")  # the damage, through the symlink
+    assert (clone / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS
+    upstream = (up / "hypr" / "bindings.lua").read_text() + "\n-- upstream moved\n"
+    (up / "hypr" / "bindings.lua").write_text(upstream)
+    ident = ["-c", "user.name=t", "-c", "user.email=t@e"]
+    subprocess.run(["git", "-C", str(up), *ident, "commit", "-qam", "two"], check=True, timeout=30)
+
+    proc = _run(env, "--sync", install_sh=clone / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert "restored it from git" in proc.stderr
+    assert (clone / "hypr" / "bindings.lua").read_text() == upstream
+    live = env["home"] / ".config" / "hypr" / "bindings.lua"
+    assert live.is_symlink() and live.read_text() == upstream
+    assert "omarchy-update" in _commands(env)  # the pull did not stop the sync
+
+
 def test_omarchy_refresh_of_monitors_lua_never_reaches_a_preset(tmp_path: Path) -> None:
     """With the chosen preset in the toggles file, monitors.lua is Omarchy's
     own real file, so `omarchy refresh config hypr/monitors.lua` lands where
@@ -2747,6 +2990,26 @@ def test_menu_stage_leaves_a_file_it_cannot_extend_alone(tmp_path: Path) -> None
     assert ext.read_text() == '{"personal": {"icon":"x"}}\n'
     assert "closing-brace" in proc.stderr
     assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
+
+
+def test_menu_stage_leaves_an_items_wrapper_alone(tmp_path: Path) -> None:
+    """Omarchy's parser also accepts `{ "items": { … } }` and then reads
+    ONLY that object (shell/plugins/menu/MenuModel.js, 4.0.2-1: parsed.items
+    when it is a non-array object). The block goes before the LAST brace
+    line, which in that shape is the outer one — the row would sit outside
+    items, never shown, and every re-run would call the file current. So
+    the file is left exactly as it is, with a warning naming the shape."""
+    env = _setup(tmp_path)
+    ext = env["home"] / MENU_EXT
+    ext.parent.mkdir(parents=True)
+    before = '{\n  "items": {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n'
+    ext.write_text(before)
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert ext.read_text() == before
+    assert '"items"' in proc.stderr and "by hand" in proc.stderr
+    assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
+    assert _menu_items(ext) == {"items": {"personal": {"icon": "x", "label": "P"}}}
 
 
 def test_menu_stage_writes_through_a_symlinked_extension_file(tmp_path: Path) -> None:

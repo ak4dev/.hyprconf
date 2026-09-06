@@ -2,10 +2,18 @@
 # Re-assert hyprconf's overlay after an Omarchy update.
 #
 # Installed to ~/.config/omarchy/hooks/post-update.d/ — the directory
-# omarchy-update runs immediately after omarchy-migrate. Migrations are exactly
-# what undoes overlay work: one of them replaces ~/.config/hypr/bindings.lua
-# when it hash-matches the stock file, another appends to kitty.conf. A config
-# refresh also strips the `include hyprconf.conf` line. This puts them back.
+# omarchy-update runs immediately after omarchy-migrate (bin/omarchy-update:
+# 48-49, Omarchy 4.0.2-1). Migrations are exactly what undoes overlay work:
+# one of them replaces ~/.config/hypr/bindings.lua when it hash-matches the
+# stock file, another appends to kitty.conf. A config refresh also strips the
+# `include hyprconf.conf` line. This puts them back.
+#
+# Under hyprsync (install.sh --sync) this is the run's SECOND apply, on
+# purpose: --sync applies first, then runs omarchy-update, whose migrations
+# may rewrite what was just applied — so the apply after them is the one that
+# counts, never a redundant one to skip. There is no environment guard for
+# that case (an earlier one skipped exactly this run); --no-update below is
+# the only recursion guard, and the only one needed.
 #
 # @HYPRCONF_DIR@ is substituted with the real checkout path at install time, so
 # this works regardless of where the repo was cloned.
@@ -15,12 +23,6 @@
 set -uo pipefail
 
 readonly HYPRCONF_DIR="@HYPRCONF_DIR@"
-
-# Recursion guard. hyprsync runs omarchy-update, which runs this hook — and the
-# overlay was applied moments earlier, so there is nothing to re-assert.
-# Without this it is one redundant re-apply, not a loop (the flags below never
-# invoke omarchy-update), but the redundant run is still worth skipping.
-[[ -n ${HYPRCONF_SYNC_RUNNING:-} ]] && exit 0
 
 [[ -r $HYPRCONF_DIR/install.sh ]] || {
   echo "hyprconf post-update hook: $HYPRCONF_DIR/install.sh is gone; skipping" >&2

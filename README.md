@@ -66,7 +66,7 @@ bash ~/.hyprconf/install.sh
 | Flag | Effect |
 |---|---|
 | *(none)* | Apply every stage once. Idempotent — re-running is how you pick up changes. |
-| `--sync` | `git pull --ff-only` the checkout, re-apply, then run `omarchy-update`. This is what the `hyprsync` alias runs. |
+| `--sync` | `git pull --ff-only` the checkout (after undoing any `omarchy refresh` that landed on it — see Sync), re-apply, then run `omarchy-update` — whose post-update hook re-applies the overlay once more, after Omarchy's migrations. This is what the `hyprsync` alias runs. |
 | `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook, which already runs inside an update. |
 | `--no-packages` | Skip the four stages that need `sudo`: packages, Firefox (and its policy), VS Code and the Keychron udev rule. The hook passes this too. |
 | `-h`, `--help` | Usage: both forms and the three variables. On the curl path it answers from the served copy — nothing is cloned. |
@@ -91,7 +91,7 @@ bash ~/.hyprconf/install.sh
 | fastfetch | `~/.config/fastfetch/config.jsonc` → `fastfetch/config.jsonc` | Symlink (an existing file backed up to `config.jsonc.stock`). fastfetch reads the user directory before `/etc/fastfetch/` (`fastfetch --list-config-paths`), so Omarchy's own layout, `/etc/fastfetch/config.jsonc` (`omarchy-settings`), stays untouched as the fallback |
 | bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-monitor-preset`, `hyprconf-gaps` (the hotkey tools), `hyprconf-stats`, `hyprconf-gpu-info` (bar-widget feeders), `hyprconf-yubikey`, `hyprconf-vulkan-gpu`, `hyprconf-firefox-theme`, `hyprconf-install-service-protonvpn`, `hyprconf-help` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path; `bindings.lua` binds the hotkey tools by name, the way Omarchy binds its own commands |
 | vulkan_gpu | On a box with two GPUs whose display GPU is not Vulkan device 0: **Fix / Alt / Ignore** (gum), asked on every terminal run until you choose — nothing on one GPU, when the display GPU already is device 0, when a Vulkan setting is already configured, or after Ignore | `hyprconf-vulkan-gpu prompt`, right after `bin` installs it (below). With no terminal, or inside `omarchy-update` (the hook's run), it prints one pointer line. A tool error is a warning, never a failed install |
-| menu | A **Proton VPN** row in Omarchy's menu, Install → Service, beside NordVPN — hidden once `proton-vpn-gtk-app` is installed (below) | A managed block (`// >>> hyprconf >>>` … `// <<< hyprconf <<<`) before the closing brace of `~/.config/omarchy/extensions/omarchy-menu.jsonc`, Omarchy's own menu extension file: seeded from its template when absent, written through a symlink, rewritten only when the bytes differ. A file with no closing-brace line is left alone with a warning |
+| menu | A **Proton VPN** row in Omarchy's menu, Install → Service, beside NordVPN — hidden once `proton-vpn-gtk-app` is installed (below) | A managed block (`// >>> hyprconf >>>` … `// <<< hyprconf <<<`) before the closing brace of `~/.config/omarchy/extensions/omarchy-menu.jsonc`, Omarchy's own menu extension file: seeded from its template when absent, written through a symlink, rewritten only when the bytes differ. A file with no closing-brace line, or one that wraps its rows in an `"items"` object (the menu then reads only that object), is left alone with a warning |
 | bar_plugin | `hyprconf.resources` widget in the bar's right section | `plugins/hyprconf-resources/` synced into `~/.config/omarchy/plugins/` on every run; enabled **once**, with no placement argument — the manifest's `barWidget.defaultSection: right` places it (the shell's `defaultBarWidgetSection`) |
 | clock | `hyprconf.clock`: a copy of `omarchy.clock` patched to tick seconds, format `hh:mm:ss AP` — **set once** | Same copy mechanics as `omarchy plugin clone` (project namespace instead of `<username>.`); `omarchy-bar set`; the bar's `centerAnchor` follows only if it still pointed at `omarchy.clock` |
 | workspaces | `hyprconf.workspaces`: the overlay's own workspaces widget — only workspaces that exist, on two lines, Pac-Man on the focused one | `plugins/hyprconf-workspaces/` synced on every run (a `clonedFrom` copy the shell swaps into the stock widget's slot); enabled **once** |
@@ -118,8 +118,8 @@ hyprsync            # the checkout's install.sh --sync (found through the ~/.p10
 bash install.sh     # after any `omarchy refresh` or when you just want to re-apply
 ```
 
-- **After `omarchy-update`** the post-update hook re-applies the overlay automatically (a migration replaces `bindings.lua` when it hash-matches stock; `omarchy refresh config kitty/kitty.conf` drops the `include` line).
-- **`omarchy refresh config hypr/<file>` / `omarchy refresh hyprland` write *through* the symlinks** into the checkout. `install.sh` detects a `hypr/*.lua` that is byte-identical to Omarchy's stock template and restores it with `git checkout`. `monitors.lua` is Omarchy's own real file, so a refresh of it lands where it should.
+- **After `omarchy-update`** the post-update hook re-applies the overlay automatically (a migration replaces `bindings.lua` when it hash-matches stock; `omarchy refresh config kitty/kitty.conf` drops the `include` line) — under `hyprsync` too, where that second apply is the one that outlives the migrations, which run between `--sync`'s own apply and the hook.
+- **`omarchy refresh config hypr/<file>` / `omarchy refresh hyprland` write *through* the symlinks** into the checkout. `install.sh` detects a `hypr/*.lua` that is byte-identical to Omarchy's stock template and restores it with `git checkout` — `--sync` does this before its pull, so a refreshed file never blocks the fast-forward. `monitors.lua` is Omarchy's own real file, so a refresh of it lands where it should.
 - **Edit workflow:** the files in `~/.hyprconf/hypr/` *are* the live files — edit them there, then `bash install.sh` (or `hyprsync`) after a pull or a refresh.
 
 ## Repository layout
@@ -252,7 +252,7 @@ Firefox (`SUPER+F`) and VS Code (`SUPER+C`) are not in `packages`: they come thr
 
 ## zsh
 
-The `~/.zshrc` managed block (`# >>> hyprconf >>>` … `# <<< hyprconf <<<`, source `zsh/zshrc.block`) sources Omarchy's `default/bash/{env-bootstrap,envs,aliases}`, initialises `zoxide` (Omarchy aliases `cd` to it), loads Oh My Zsh with the `powerlevel10k` theme and `~/.p10k.zsh`, `zsh-autosuggestions`, the `hyprsync` alias, a `fastfetch` greeting, and `zsh-syntax-highlighting` last. Everything outside the markers is preserved.
+The `~/.zshrc` managed block (`# >>> hyprconf >>>` … `# <<< hyprconf <<<`, source `zsh/zshrc.block`) sources Omarchy's `default/bash/{env-bootstrap,envs,aliases}`, initialises `zoxide` (Omarchy aliases `cd` to it), loads Oh My Zsh with the `powerlevel10k` theme and `~/.p10k.zsh`, `zsh-autosuggestions`, the `hyprsync` alias, a `fastfetch` greeting, and `zsh-syntax-highlighting` last. Everything outside the markers is preserved in place: a re-run replaces the block where it stands, so a line you add after the end marker stays after it.
 
 ## Firefox settings
 
@@ -402,10 +402,10 @@ rm ~/.config/omarchy/themed/userChrome.css.tpl ~/.local/state/omarchy/current/th
 sed -i '/^# hyprconf overlay$/d; /^include hyprconf.conf$/d' ~/.config/kitty/kitty.conf; rm ~/.config/kitty/hyprconf.conf
 sed -i '/^  \/\/ >>> hyprconf >>>$/,/^  \/\/ <<< hyprconf <<<$/d' ~/.config/omarchy/extensions/omarchy-menu.jsonc  # the Proton VPN row
 rm ~/.config/omarchy/themes/dracula ~/.p10k.zsh ~/.local/bin/hyprconf-*
-rm -r ~/.config/omarchy/plugins/hyprconf.* ~/.local/state/hyprconf
+rm -rf ~/.config/omarchy/plugins/{hyprconf.*,.hyprconf.*.bak.*} ~/.local/state/hyprconf   # the dot-prefixed .bak.<timestamp> dirs are what `omarchy plugin remove` leaves of a non-git plugin folder
 rm ~/.config/omarchy/backgrounds/gruvbox/gruvbox.jpg; rmdir ~/.config/omarchy/backgrounds/gruvbox 2>/dev/null   # your own wallpapers there stay
 rm ~/.config/fastfetch/config.jsonc; [ -e ~/.config/fastfetch/config.jsonc.stock ] && mv ~/.config/fastfetch/config.jsonc.stock ~/.config/fastfetch/config.jsonc   # Omarchy's own /etc/fastfetch/config.jsonc is the default again
-omarchy default terminal <name>; omarchy font set <name>; omarchy theme set <name>
+omarchy default terminal <name>; omarchy default browser <name>; omarchy default editor <name>; omarchy font set <name>; omarchy theme set <name>
 sudo rm /etc/firefox/policies/policies.json   # Omarchy's own prefs stay in /usr/lib/firefox/distribution/policies.json, which its browser-policy migration seeds on every box that has Firefox (whoever installed it)
 # ^ this also un-manages uBlock Origin and Proton Pass (they stay installed, as ordinary add-ons you can now remove). Every captured pref was a default, never a user value, so the prefs you had changed yourself are untouched — except the search engine: setting it by policy *clears* the profile's record of any engine you had chosen yourself, so dropping the file hands it to Firefox's region default rather than back to your old pick. Set it again in Settings › Search. The toolbar arrangement also stays as you have it: installing the two extensions on the profile's first start serialized the layout as the profile's own, so dropping the file changes nothing there (a profile that never completed an online first start has nothing serialized and falls back to Firefox's stock order) — Customize Toolbar puts the stock order back if you want it
 sudo rm /etc/udev/rules.d/70-keychron.rules; sudo udevadm control --reload-rules   # every new hidraw node is root-only again; an ACL already granted to this session lasts until you re-plug the board or log out (`udevadm control --reload-rules` never touches devices that already exist)
