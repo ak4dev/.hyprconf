@@ -6,7 +6,9 @@ a managed-policy ``BrowserThemeColor``; ``grep -il firefox
 template, ``themed/userChrome.css.tpl`` in ``~/.config/omarchy/themed/``, which
 Omarchy's own ``omarchy-theme-set-templates`` renders into
 ``~/.local/state/omarchy/current/theme/userChrome.css`` on every ``omarchy
-theme set`` (bin/omarchy-theme-set:156 renders, :165 swaps the directory in).
+theme set`` (bin/omarchy-theme-set, Omarchy 4.0.2-1: the
+``omarchy-theme-set-templates`` call under its ``flock``, then the ``mv`` of
+the next-theme staging directory over the current one).
 Palette and light/dark mode are Omarchy's resolution (bin/omarchy-theme-color,
 which the renderer calls for every key); the mode comes back through the
 ``--hyprconf-theme-mode`` declaration the template carries, so nothing here
@@ -15,24 +17,28 @@ parses colors.toml.
 Run from the theme-set hook (``hooks/theme-set.d/10-hyprconf``) after Omarchy's
 own fan-out, this copies the rendered file byte-for-byte into each Firefox /
 LibreWolf profile's ``chrome/userChrome.css`` (same profile layout) and merges
-the ``user.js`` prefs that make Firefox load it and follow the mode. Verified
-on Firefox 154 (2026-08-24) with a throwaway headless profile carrying exactly
-this ``user.js``: ``extensions.activeThemeID`` does select the built-in theme.
-Firefox reads both files at startup only, so the chrome recolours on the next
-launch. Rendering is Omarchy's alone: nothing here renders, and a missing
-render is reported with the command that produces it (``omarchy theme
-refresh`` — omarchy-theme-set of the current theme.name, the wallpaper kept —
-which is also what install.sh's stage_themed runs). The system policy the
-installer ships (``infra/firefox/policies.json``) is unrelated and untouched.
+the ``user.js`` prefs that make Firefox load it and follow the mode — both
+written whole beside the target and renamed over it, never truncated first.
+Verified on Firefox 154 (2026-08-24) with a throwaway headless profile
+carrying exactly this ``user.js``: ``extensions.activeThemeID`` does select
+the built-in theme. Firefox reads both files at startup only, so the chrome
+recolours on the next launch. Rendering is Omarchy's alone: nothing here
+renders, and a missing render is reported with the command that produces it
+(``omarchy theme refresh`` — omarchy-theme-set of the current theme.name,
+the wallpaper kept — which is also what install.sh's stage_themed runs). The
+system policy the installer ships (``infra/firefox/policies.json``) is
+unrelated and untouched.
 """
 
 from __future__ import annotations
 
 import argparse
 import configparser
+import contextlib
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -44,8 +50,9 @@ BROWSER_INIS = {
     "librewolf": (".librewolf/profiles.ini", ".config/librewolf/profiles.ini"),
 }
 
-# Where omarchy-theme-set leaves the active theme (bin/omarchy-theme-set:12),
-# rendered templates included, and the one file the overlay's template yields.
+# Where omarchy-theme-set leaves the active theme (its CURRENT_THEME_PATH,
+# bin/omarchy-theme-set:12 on Omarchy 4.0.2-1), rendered templates included,
+# and the one file the overlay's template yields.
 THEME_DIR_REL = ".local/state/omarchy/current/theme"
 RENDERED_NAME = "userChrome.css"
 
@@ -76,6 +83,22 @@ _MODE_RE = re.compile(r"--hyprconf-theme-mode:\s*(light|dark)\s*;")
 _PREF_RE = re.compile(
     r"""^\s*user_pref\(\s*(?P<q>["'])(?P<key>.*?)(?P=q)\s*,(?P<value>.*?)\)\s*;(?P<tail>\s*(?://|/\*).*)?$"""
 )
+
+# Where a line ends: the terminators the file is actually written with.
+# str.splitlines() also breaks on U+0085, U+2028/9, \x0b, \x0c, \x1c–\x1e and
+# a lone \r, so a valid UTF-8 comment or string value carrying one came back
+# rewritten with a newline (a value split that way is an unterminated string
+# literal — the user's own pref lost) and a CR-only file was folded to LF,
+# against merge_user_js's promise to keep every unmanaged line as it is.
+_LINE_END_RE = re.compile(r"\r\n|\n")
+
+
+def _lines(raw: str) -> list[str]:
+    """*raw* split at its LF / CRLF terminators only, without a trailing empty line."""
+    lines = _LINE_END_RE.split(raw)
+    if lines[-1] == "":  # the file's final terminator, or an empty file
+        lines.pop()
+    return lines
 
 
 def profile_inis(home: Path) -> list[tuple[str, Path]]:
@@ -183,10 +206,38 @@ def _read_raw(path: Path, errors: str = "strict") -> str:
 
 
 def _write_if_changed(path: Path, data: bytes) -> bool:
-    """Write *data* to *path* byte-for-byte; True when the file did not already say that."""
-    if path.exists() and path.read_bytes() == data:
+    """Write *data* to *path* byte-for-byte; True when the file did not already say that.
+
+    Never in place: user.js is the user's own and Firefox never regenerates
+    it, so a truncate-then-write lost it to a crash or a full disk between
+    the two. The bytes go to a sibling temp file, are fsynced and renamed
+    over the target — the path *path* resolves to, so a dotfile manager's
+    symlinked user.js keeps its link and its target is what changes. An
+    existing file keeps its mode; a new one gets what a plain open() gives
+    (0666 under the umask — O_EXCL with the pid in the name is what makes
+    it unique; tempfile would have forced 0600).
+    """
+    target = path.resolve()
+    try:
+        mode: int | None = stat.S_IMODE(target.stat().st_mode)
+    except FileNotFoundError:
+        mode = None
+    if mode is not None and target.read_bytes() == data:
         return False
-    path.write_bytes(data)
+    tmp = target.with_name(f"{target.name}.{os.getpid()}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        if mode is not None:
+            os.chmod(tmp, mode)
+        os.replace(tmp, target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
     return True
 
 
@@ -194,17 +245,19 @@ def merge_user_js(path: Path, prefs: dict[str, object]) -> bool:
     """Rewrite the managed prefs in *path*, keeping every other line as it is.
 
     A managed pref already present is rewritten in place, its inline comment
-    kept; later duplicates go; prefs not yet there are appended. The file's
-    own line ending (LF or CRLF) is preserved, and so are non-UTF-8 bytes in
-    lines this does not manage (surrogateescape round-trips them exactly —
-    a user.js with a latin-1 comment must not kill theming). Returns True
-    when the file changed.
+    kept; later duplicates go; prefs not yet there are appended. Lines are
+    what the file's own LF or CRLF terminators delimit (a lone CR, U+2028 or
+    anything else str.splitlines would break on is content); that line
+    ending is preserved, and so are non-UTF-8 bytes in lines this does not
+    manage (surrogateescape round-trips them exactly — a user.js with a
+    latin-1 comment must not kill theming). Returns True when the file
+    changed.
     """
     raw = _read_raw(path, "surrogateescape") if path.exists() else ""
     newline = "\r\n" if "\r\n" in raw else "\n"
     pending = dict(prefs)
     kept: list[str] = []
-    for line in raw.splitlines():
+    for line in _lines(raw):
         m = _PREF_RE.match(line)
         key = m.group("key") if m else None
         if key not in prefs:
@@ -248,7 +301,7 @@ def _pref_value(path: Path, key: str) -> str | None:
     """The value Firefox last wrote for *key* into prefs.js (None when absent)."""
     if not path.exists():
         return None
-    for line in _read_raw(path, errors="replace").splitlines():
+    for line in _lines(_read_raw(path, errors="replace")):
         m = _PREF_RE.match(line)
         if m and m.group("key") == key:
             return m.group("value").strip().strip('"')
@@ -257,7 +310,7 @@ def _pref_value(path: Path, key: str) -> str | None:
 
 def _pref_key_present(path: Path, key: str) -> bool:
     raw = _read_raw(path, errors="replace") if path.exists() else ""
-    return any(_pref_key(line) == key for line in raw.splitlines())
+    return any(_pref_key(line) == key for line in _lines(raw))
 
 
 def status(home: Path) -> int:
@@ -327,10 +380,12 @@ def main(argv: list[str] | None = None) -> int:
     rendered = home / THEME_DIR_REL / RENDERED_NAME
     if not rendered.is_file():
         # Every theme set leaves every rendered template in current/theme
-        # (bin/omarchy-theme-set:156 renders, :165 swaps the dir in), so the
-        # file is missing only with no theme set, no template installed, or
-        # a failed refresh — all Omarchy's own command mends. Never rendered
-        # here: the renderer's staging dir and lock are omarchy-theme-set's.
+        # (omarchy-theme-set runs omarchy-theme-set-templates into its
+        # next-theme staging dir, then mv's that over current/theme), so
+        # the file is missing only with no theme set, no template installed,
+        # or a failed refresh — all Omarchy's own command mends. Never
+        # rendered here: the renderer's staging dir and lock are
+        # omarchy-theme-set's.
         print(
             f"hyprconf firefox theme: no {rendered} — is a theme active and "
             "~/.config/omarchy/themed/userChrome.css.tpl installed? "

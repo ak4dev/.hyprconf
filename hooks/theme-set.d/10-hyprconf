@@ -5,18 +5,19 @@
 # chromium/chrome/edge/brave; `grep -il firefox /usr/share/omarchy/bin/*`
 # finds no theming, Omarchy 4.0.0-1). VS Code needs nothing here: it is
 # installed by omarchy-install-editor-vscode and themed by
-# omarchy-theme-set-vscode in omarchy-theme-set's own post-theme commands
-# (bin/omarchy-theme-set:190-208), which run before this hook.
+# omarchy-theme-set-vscode, one of the post_theme_commands omarchy-theme-set
+# runs through run_parallel (Omarchy 4.0.2-1) before this hook.
 #
 # Installed to ~/.config/omarchy/hooks/theme-set.d/ — the directory
-# omarchy-theme-set hands to `omarchy-hook theme-set <name>` right after its
-# own post-theme commands (bin/omarchy-theme-set:211). It also runs once from
-# install.sh so the active theme lands without a switch.
+# `omarchy-hook theme-set <name>` runs, the call omarchy-theme-set makes
+# right after its run_parallel of the post-theme commands returns. It also
+# runs once from install.sh so the active theme lands without a switch.
 #
 # The palette is rendered by Omarchy itself: themed/userChrome.css.tpl, a
 # user template, becomes ~/.local/state/omarchy/current/theme/userChrome.css
-# on every theme set (bin/omarchy-theme-set-templates, run by
-# bin/omarchy-theme-set:156). The overlay's tested Python —
+# on every theme set (bin/omarchy-theme-set-templates, which
+# bin/omarchy-theme-set runs under its flock before swapping the staged
+# theme in). The overlay's tested Python —
 # lib/hyprconf/firefox_theme.py — copies it into each profile and merges the
 # user.js prefs; Firefox picks both up at its next start. No skip toggle:
 # Omarchy's are `skip-{vscode,vscode-insiders,codium,cursor}-theme-changes`

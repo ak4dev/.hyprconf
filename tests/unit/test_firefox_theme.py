@@ -21,7 +21,10 @@ provable), notify() replaced.
 
 from __future__ import annotations
 
+import errno
+import os
 import re
+import stat
 import subprocess
 from pathlib import Path
 
@@ -71,7 +74,9 @@ def notices(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 # Omarchy's theme machinery — what renders the template and swaps the theme.
 # The bridge must never call any of it: omarchy-theme-set-templates writes
 # only into omarchy-theme-set's own next-theme staging dir under its lock
-# (bin/omarchy-theme-set:139-165), and the hook runs INSIDE a theme set.
+# (bin/omarchy-theme-set on Omarchy 4.0.2-1: `flock 9`, the
+# omarchy-theme-set-templates call, then the mv of next-theme over theme),
+# and the hook runs INSIDE a theme set.
 THEME_COMMANDS = ("omarchy-theme-set-templates", "omarchy-theme-refresh", "omarchy-theme-set")
 
 
@@ -97,7 +102,8 @@ def hermetic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]
 
 def _theme(env: dict[str, Path], rendered: bytes | None = CSS_DARK) -> Path:
     """The active theme as omarchy-theme-set leaves it: colors.toml plus the
-    rendered stylesheet (bin/omarchy-theme-set:156 renders, :165 swaps in)."""
+    rendered stylesheet (omarchy-theme-set-templates renders it into
+    omarchy-theme-set's staging dir, whose mv swaps it in)."""
     theme = env["home"] / ft.THEME_DIR_REL
     theme.mkdir(parents=True, exist_ok=True)
     (theme / "colors.toml").write_text('mode = "dark"\nbackground = "#16242d"\n')
@@ -368,6 +374,89 @@ def test_merge_user_js_round_trips_non_utf8_bytes(tmp_path: Path) -> None:
     assert ft._pref_key_present(user_js, "keep.me") is True
 
 
+def test_merge_user_js_splits_on_real_line_terminators_only(tmp_path: Path) -> None:
+    """str.splitlines() also breaks on U+0085, U+2028/9, \\x0b, \\x0c,
+    \\x1c-\\x1e and a lone \\r, so a valid UTF-8 comment or pref value carrying
+    one came back rewritten with a newline (a value split that way is an
+    unterminated string literal — the user's own pref lost). Only LF and
+    CRLF delimit lines: everything else round-trips byte-for-byte, a
+    managed line's inline comment included, the re-run is a no-op, and
+    --status still reads the keys and values in such lines."""
+    user_js = tmp_path / "user.js"
+    kept = (
+        "// see\u0085also, a\u2028b, a\u2029c\n"
+        "// page\x0cbreak\x0bvt\x1c\x1d\x1e cr\rhere\n"
+        'user_pref("keep.me", "a\u2028b\u0085c");\n'
+    )
+    managed = 'user_pref("ui.systemUsesDarkTheme", %d); // was\u2028here\n'
+    user_js.write_bytes((kept + managed % 0).encode())
+    assert ft.merge_user_js(user_js, {"ui.systemUsesDarkTheme": 1}) is True
+    assert user_js.read_bytes() == (kept + managed % 1).encode()
+    assert ft.merge_user_js(user_js, {"ui.systemUsesDarkTheme": 1}) is False
+    assert ft._pref_key_present(user_js, "keep.me") is True
+    assert ft._pref_value(user_js, "keep.me") == "a\u2028b\u0085c"
+
+
+def test_writes_go_through_the_link_and_never_truncate_in_place(tmp_path: Path) -> None:
+    """user.js is the user's own and Firefox never regenerates it, so the
+    bytes are written beside the target and renamed over it — through the
+    link, so a dotfile manager's symlinked user.js keeps its link and its
+    target gets the prefs; the file's mode is kept, a new file gets the
+    umask's (as a plain open() would), no temp file is left behind, and an
+    unchanged file is not rewritten at all."""
+    dotfiles = tmp_path / "dotfiles"
+    dotfiles.mkdir()
+    target = dotfiles / "user.js"
+    target.write_bytes(b'user_pref("keep.me", 1);\n')
+    target.chmod(0o600)
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    link = profile / "user.js"
+    link.symlink_to(target)
+    assert ft.merge_user_js(link, {"ui.systemUsesDarkTheme": 1}) is True
+    assert link.is_symlink() and link.resolve() == target
+    assert target.read_bytes() == (
+        b'user_pref("keep.me", 1);\nuser_pref("ui.systemUsesDarkTheme", 1);\n'
+    )
+    assert stat.S_IMODE(target.stat().st_mode) == 0o600
+    assert [p.name for p in dotfiles.iterdir()] == ["user.js"]
+    assert [p.name for p in profile.iterdir()] == ["user.js"]
+    before = target.stat()
+    assert ft.merge_user_js(link, {"ui.systemUsesDarkTheme": 1}) is False
+    after = target.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+    # A file written from nothing: the kernel applies the umask, as for open().
+    old = os.umask(0o022)
+    try:
+        assert ft.apply(profile, CSS_DARK) is True
+    finally:
+        os.umask(old)
+    assert stat.S_IMODE((profile / "chrome" / "userChrome.css").stat().st_mode) == 0o644
+
+
+def test_a_failed_write_leaves_the_original_and_no_temp_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A crash or a full disk between the old truncate and the write left an
+    empty user.js and Firefox without the user's prefs; now the rename is
+    the only step that touches it, and a write that dies before it leaves
+    the original as it was and no temp file beside it."""
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    user_js = profile / "user.js"
+    raw = b'user_pref("keep.me", 1);\n'
+    user_js.write_bytes(raw)
+
+    def full_disk(_fd: int) -> None:
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(ft.os, "fsync", full_disk)
+    with pytest.raises(OSError):
+        ft.merge_user_js(user_js, {"ui.systemUsesDarkTheme": 1})
+    assert user_js.read_bytes() == raw
+    assert [p.name for p in profile.iterdir()] == ["user.js"]
+
+
 # ---------------------------------------------------------------------------
 # apply + main: the rendered file into the profiles
 # ---------------------------------------------------------------------------
@@ -427,7 +516,8 @@ def test_missing_rendered_file_is_an_error_and_nothing_is_rendered_here(
     hermetic: dict[str, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Rendering is Omarchy's alone: omarchy-theme-set leaves every rendered
-    template in current/theme (bin/omarchy-theme-set:156,165) and stage_themed
+    template in current/theme (omarchy-theme-set-templates, then the
+    staging-dir mv in omarchy-theme-set) and stage_themed
     re-renders through omarchy-theme-refresh, so a missing file means no
     theme, no template installed, or a failed refresh. The bridge names the
     file and `omarchy theme refresh`, exits non-zero, runs none of Omarchy's
