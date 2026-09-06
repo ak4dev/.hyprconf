@@ -462,17 +462,20 @@ stage_firefox() {
 # ~/.config/Code/User/settings.json, omarchy-theme-set-vscode, and one
 # `setsid uwsm-app -- gtk-launch code`: it opens VS Code once when it is
 # done, by design, and exits 0 whatever happened (no set -e; the launch is
-# backgrounded), so the result is read back with omarchy-pkg-present. Arch's
-# `code` (Code - OSS, what v4.0.0–v4.2.0 installed) conflicts with it (pacman
-# -Si visual-studio-code-bin: Conflicts With: code) and omarchy-pkg-add is
-# `pacman -S --noconfirm --needed`, which a conflict fails — so Code - OSS
-# goes first, through Omarchy's own remover: omarchy-pkg-drop removes only
-# names `pacman -Qq` lists, with --noconfirm, under sudo. Behind the
-# --no-packages gate with the other sudo work; bows out without a terminal.
-# Not set-once: like every package, VS Code is ensured present, so a later
-# interactive run that finds it gone and Code - OSS back swaps again. Code -
-# OSS's own user data (~/.config/Code - OSS, ~/.vscode-oss) is never touched
-# — and not migrated: VS Code reads ~/.config/Code and ~/.vscode.
+# backgrounded), so the result is read back with omarchy-pkg-present. Behind
+# the --no-packages gate with the other sudo work; bows out without a
+# terminal. Not set-once: like every package, VS Code is ensured present, so
+# a later interactive run that finds it gone installs it again.
+#
+# Nothing is removed first. Arch's `code` (Code - OSS) conflicts with the
+# package (pacman -Si visual-studio-code-bin: Conflicts With: code), but a
+# stock Omarchy never installs it — nothing in install/*.packages, bin/ or
+# migrations/ adds it (4.0.2-1) — so on a box that has it the user put it
+# there: theirs to drop, never this overlay's. The conflict then fails inside
+# Omarchy's installer — omarchy-pkg-add is `sudo pacman -S --noconfirm
+# --needed` (bin/omarchy-pkg-add:12), which pacman refuses, and
+# omarchy-install-editor-vscode carries on and exits 0 (no set -e) — and the
+# read-back below warns with the retry command.
 stage_editor() {
     log "VS Code: Omarchy's installer"
     if omarchy-pkg-present visual-studio-code-bin; then
@@ -482,13 +485,6 @@ stage_editor() {
     if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
         warn "no terminal for sudo — run \`bash install.sh\` from a terminal to install VS Code"
         return 0
-    fi
-    if omarchy-pkg-present code; then
-        info "removing Arch's code (Code - OSS) first — it conflicts with visual-studio-code-bin (omarchy-pkg-drop code); its settings and extensions under ~/.config/Code - OSS and ~/.vscode-oss stay, not migrated"
-        omarchy-pkg-drop code || {
-            warn "could not remove code — skipping VS Code (retry with: omarchy pkg drop code)"
-            return 0
-        }
     fi
     info "installing through omarchy-install-editor-vscode — Omarchy's own flow, which opens VS Code once when it is done"
     omarchy-install-editor-vscode || true
@@ -782,20 +778,10 @@ stage_font() {
 stage_hotkeys() {
     log "Hotkeys"
     mkdir -p "$HOME/.config/hypr"
+    # The hotkey tools themselves (bin/hyprconf-monitor-preset, bin/hyprconf-
+    # gaps) are PATH commands: stage_bin installs them and bindings.lua binds
+    # them by name, the way Omarchy binds its own.
     link_hypr_override bindings.lua
-    # The two hotkey scripts are PATH tools now — bin/hyprconf-monitor-preset
-    # and bin/hyprconf-gaps, installed by stage_bin and bound by name the way
-    # Omarchy binds its own commands. v4.0.0–v4.2.0 copied them to
-    # ~/.config/hypr/scripts/; swept once, and the directory with them when
-    # nothing else is left in it.
-    local old="$HOME/.config/hypr/scripts" entry f
-    for entry in switch_monitor.sh:hyprconf-monitor-preset adjust-gaps:hyprconf-gaps; do
-        f="${entry%%:*}"
-        [[ -e $old/$f || -L $old/$f ]] || continue
-        rm -f "$old/$f"
-        info "removed $old/$f — it is ~/.local/bin/${entry##*:} now"
-    done
-    if [[ -d $old ]]; then rmdir "$old" 2>/dev/null || true; fi
 }
 
 stage_looknfeel() {
@@ -829,50 +815,6 @@ stage_monitors() {
         install -m 644 "$HERE/hypr/$f" "$HOME/.config/hypr/$f"
         info "seeded $f"
     done
-    migrate_monitors_symlink
-}
-
-# The upgrade from v4.0.0–v4.2.0, whose switch_monitor.sh saved Omarchy's
-# monitors.lua as monitors.lua.stock and symlinked the chosen preset over it.
-# The preset now lives in the toggles file hyprconf-monitor-preset writes, so
-# a link found at monitors.lua is carried over once: its target becomes that
-# toggle file and Omarchy's own monitors.lua comes back as a real file — from
-# the .stock copy, or from Omarchy's template when there is none — the way
-# `switch_monitor.sh stock` restored it. The layout on screen does not
-# change: the same preset loads from the toggle, after monitors.lua, and
-# wins; main()'s hyprctl reload picks it up. A dangling link (the preset was
-# deleted) has nothing to carry over: monitors.lua is restored the same way,
-# no toggle is written, and the message says the layout is Omarchy's until
-# hyprconf-monitor-preset is run. monitors.lua.stock is left where it is —
-# it is the user's copy.
-migrate_monitors_symlink() {
-    local active="$HOME/.config/hypr/monitors.lua"
-    local toggle="$HOME/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua"
-    local template="$OMARCHY_PATH/config/hypr/monitors.lua"
-    [[ -L $active ]] || return 0
-    local preset restore target
-    preset="$(readlink -f "$active" 2>/dev/null || true)"
-    target="$(readlink -- "$active" 2>/dev/null || true)"
-    if [[ -f $active.stock ]]; then
-        restore="$active.stock"
-    elif [[ -f $template ]]; then
-        restore="$template"
-    else
-        warn "$active is a symlink from an earlier hyprconf and neither monitors.lua.stock" \
-             "nor Omarchy's template is there to restore it from — left alone"
-        return 0
-    fi
-    if [[ -n $preset && -f $preset ]]; then
-        mkdir -p "${toggle%/*}"
-        cp -- "$preset" "$toggle"
-        info "monitors.lua was a link to ${preset##*/} — that preset is the toggles file now," \
-             "and Omarchy's monitors.lua is back from ${restore##*/}"
-    else
-        warn "monitors.lua was a link to ${target##*/}, which is gone — nothing to carry over;" \
-             "Omarchy's monitors.lua is back from ${restore##*/} and its layout applies until you run: hyprconf-monitor-preset <name>"
-    fi
-    cp -- "$restore" "$active.tmp"
-    mv -f -- "$active.tmp" "$active"
 }
 
 stage_fastfetch() {

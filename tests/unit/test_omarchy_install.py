@@ -5,8 +5,8 @@ it as little as possible, so much of what is asserted here is *restraint*
 (AGENTS.md › Hard rules, 6) — what the installer must NOT do: never `chsh`,
 never rewrite Omarchy's kitty.conf beyond one `include`, never point
 `omarchy-default-terminal` at an absent kitty (it checks nothing), never
-`pacman` (Omarchy's ALPM hook blocks sysupgrade forms; the one removal goes
-through omarchy-pkg-drop), never switch the active theme.
+`pacman` (Omarchy's ALPM hook blocks sysupgrade forms), never remove a
+package, never switch the active theme.
 
 Everything runs against fake `omarchy-*` binaries in a throwaway HOME, so the
 suite is hermetic in a bare archlinux container (AGENTS.md › Tests).
@@ -212,11 +212,9 @@ def _setup(
         "omarchy-restart-shell",
         "omarchy-bar",
         "omarchy-update",
-        # Firefox and VS Code go in through Omarchy's own installers; the
-        # Code - OSS conflict is cleared with Omarchy's own remover.
+        # Firefox and VS Code go in through Omarchy's own installers.
         "omarchy-install-browser",
         "omarchy-install-editor-vscode",
-        "omarchy-pkg-drop",
         "sudo",
         "hyprctl",
         # hyprconf-monitor-preset (run by several tests here) reports through these;
@@ -827,58 +825,6 @@ def test_firefox_theme_tool_is_installed_with_the_checkout_path(tmp_path: Path) 
     assert "userChrome.css" in proc.stdout
 
 
-@pytest.mark.parametrize("restore_from", ["stock", "template"])
-def test_monitors_lua_symlink_from_an_earlier_release_is_migrated_once(
-    tmp_path: Path, restore_from: str
-) -> None:
-    """v4.0.0–v4.2.0's switch_monitor.sh saved Omarchy's monitors.lua as
-    monitors.lua.stock and symlinked the chosen preset over it. The upgrade
-    carries that over once: the link's target becomes the toggles file (so
-    the desk keeps its layout) and monitors.lua is a real file again — from
-    the .stock copy, else Omarchy's template — with the .stock left in place."""
-    env = _setup(tmp_path)
-    templates = _stock_templates(env)
-    hypr = env["home"] / ".config" / "hypr"
-    hypr.joinpath("pcMonitors.bedroom.lua").write_text("-- my desk, my monitors\n")
-    hypr.joinpath("monitors.lua").symlink_to(hypr / "pcMonitors.bedroom.lua")
-    if restore_from == "stock":
-        hypr.joinpath("monitors.lua.stock").write_text("-- omarchy auto layout\n")
-        expected = "-- omarchy auto layout\n"
-    else:
-        expected = (templates / "monitors.lua").read_text()
-
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert (env["home"] / TOGGLE).read_text() == "-- my desk, my monitors\n"
-    monitors = hypr / "monitors.lua"
-    assert not monitors.is_symlink() and monitors.read_text() == expected
-    assert hypr.joinpath("pcMonitors.bedroom.lua").read_text() == "-- my desk, my monitors\n"
-    if restore_from == "stock":
-        assert hypr.joinpath("monitors.lua.stock").exists()
-
-    before = _tree_hash(env["home"])
-    _run(env, "--no-update")
-    assert _tree_hash(env["home"]) == before
-
-
-def test_dangling_monitors_lua_symlink_is_restored_without_a_toggle(tmp_path: Path) -> None:
-    """The link's preset is gone (deleted by hand): nothing to carry over, so
-    no toggle file is written, monitors.lua still comes back as a real file,
-    and a warning points at hyprconf-monitor-preset."""
-    env = _setup(tmp_path)
-    _stock_templates(env)
-    hypr = env["home"] / ".config" / "hypr"
-    hypr.joinpath("monitors.lua").symlink_to(hypr / "pcMonitors.gone.lua")
-    hypr.joinpath("monitors.lua.stock").write_text("-- omarchy auto layout\n")
-
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert not (env["home"] / TOGGLE).exists()
-    monitors = hypr / "monitors.lua"
-    assert not monitors.is_symlink() and monitors.read_text() == "-- omarchy auto layout\n"
-    assert "hyprconf-monitor-preset" in proc.stderr
-
-
 def test_presets_are_seeded_once_and_never_overwritten(tmp_path: Path) -> None:
     """A preset describes one machine's desk, so the machine owns it after seeding.
 
@@ -1114,7 +1060,6 @@ def test_no_packages_skips_every_privileged_stage(tmp_path: Path) -> None:
         "omarchy-pkg-add",
         "omarchy-install-browser",
         "omarchy-install-editor-vscode",
-        "omarchy-pkg-drop",
         "sudo",
         "udevadm",
     ):
@@ -1612,7 +1557,7 @@ def test_keychron_rule_is_vendor_only_and_sorts_before_seat_late() -> None:
 
 
 # ---------------------------------------------------------------------------
-# VS Code — Omarchy's own installer, the Code - OSS conflict cleared first
+# VS Code — Omarchy's own installer, nothing removed ahead of it
 # ---------------------------------------------------------------------------
 
 
@@ -1637,52 +1582,50 @@ def test_vscode_already_present_is_left_alone(tmp_path: Path) -> None:
     proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
     assert proc.returncode == 0, proc.stderr
     assert "omarchy-install-editor-vscode" not in _commands(env)
-    assert "omarchy-pkg-drop" not in _commands(env)
 
 
-def test_code_oss_is_dropped_before_omarchys_vscode_installer(tmp_path: Path) -> None:
-    """Arch's `code` (Code - OSS, what v4.0.0–v4.2.0 installed) conflicts with
-    visual-studio-code-bin (pacman -Si: Conflicts With: code) and Omarchy's
-    installer is a plain `pacman -S --noconfirm --needed` that a conflict
-    fails — so Code - OSS goes first, through Omarchy's own omarchy-pkg-drop
-    (only names pacman -Qq lists, --noconfirm), then
-    omarchy-install-editor-vscode. Nothing runs pacman itself."""
+def test_vscode_is_installed_through_omarchys_installer_when_absent(tmp_path: Path) -> None:
+    """omarchy-install-editor-vscode, then the result read back with
+    omarchy-pkg-present (the installer exits 0 whatever happened). Nothing
+    runs pacman itself, and no package is removed to make room: a stock
+    Omarchy never installs Arch's conflicting `code`, so a box that has it
+    got it from the user — a conflict fails inside Omarchy's installer and
+    the read-back warns with the retry command."""
     env = _setup(tmp_path)
     _packages(env, ("firefox", "code"))
     proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
     assert proc.returncode == 0, proc.stderr
     calls = _calls(env)
-    assert "omarchy-pkg-drop code" in calls
     assert "omarchy-install-editor-vscode " in calls
-    assert calls.index("omarchy-pkg-drop code") < calls.index("omarchy-install-editor-vscode ")
     assert "pacman" not in _commands(env)
+    assert not any(c.startswith("omarchy-pkg-drop") for c in calls)
     pkg_add = [c for c in calls if c.startswith("omarchy-pkg-add")]
     assert pkg_add and not any("code" in c.split() for c in pkg_add)
 
     env["calls"].write_text("")  # installed now: nothing more to do
     _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
     assert "omarchy-install-editor-vscode" not in _commands(env)
-    assert "omarchy-pkg-drop" not in _commands(env)
 
-
-def test_vscode_is_installed_without_a_drop_when_no_editor_is_present(tmp_path: Path) -> None:
-    env = _setup(tmp_path)
-    _packages(env, ("firefox",))
+    # The installer that did not deliver (a conflict, say): the stage warns
+    # with Omarchy's retry command and the run goes on.
+    env["calls"].write_text("")
+    (env["home"].parent / "vscode-installed").unlink()
+    _stub(env["bins"] / "omarchy-install-editor-vscode", env["calls"], "exit 0")
     proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
     assert proc.returncode == 0, proc.stderr
     assert "omarchy-install-editor-vscode" in _commands(env)
-    assert "omarchy-pkg-drop" not in _commands(env)
+    assert "retry with: omarchy install editor vscode" in proc.stderr
+    assert (env["home"] / ".zshrc").exists()  # a stage well after the editor one
 
 
 def test_vscode_install_waits_for_a_terminal(tmp_path: Path) -> None:
-    """Both Omarchy commands prompt for sudo; the hook's non-interactive run
-    must not start either."""
+    """Omarchy's installer prompts for sudo; the hook's non-interactive run
+    must not start it."""
     env = _setup(tmp_path)
-    _packages(env, ("firefox", "code"))
+    _packages(env, ("firefox",))
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     assert "omarchy-install-editor-vscode" not in _commands(env)
-    assert "omarchy-pkg-drop" not in _commands(env)
 
 
 # A model of the shell's config handling, enough for the bar-widget stages.
@@ -2382,8 +2325,9 @@ def test_a_real_edit_in_the_checkout_is_never_reverted(tmp_path: Path) -> None:
 
 
 def test_guard_reports_when_git_cannot_repair(tmp_path: Path) -> None:
-    """No git to restore from (a tarball, or the stub in every other test):
-    the clobber is still reported, and the run still completes."""
+    """No git to restore from (a checkout without .git — a zip download — or
+    the stub in every other test): the clobber is still reported, and the
+    run still completes."""
     env = _setup(tmp_path)
     repo = _checkout(tmp_path)
     templates = _stock_templates(env)
@@ -2417,26 +2361,6 @@ def test_omarchy_refresh_of_monitors_lua_never_reaches_a_preset(tmp_path: Path) 
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     assert "stock template" not in proc.stderr
-
-
-def test_old_hotkey_script_copies_are_swept(tmp_path: Path) -> None:
-    """v4.0.0–v4.2.0 copied switch_monitor.sh and adjust-gaps to
-    ~/.config/hypr/scripts/; both are ~/.local/bin tools now, so the copies go
-    — and the directory with them only when nothing else is in it."""
-    env = _setup(tmp_path)
-    old = env["home"] / ".config" / "hypr" / "scripts"
-    old.mkdir(parents=True)
-    (old / "switch_monitor.sh").write_text("#!/bin/bash\n")
-    (old / "adjust-gaps").write_text("#!/bin/bash\n")
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert not old.exists()
-
-    old.mkdir()
-    (old / "adjust-gaps").write_text("#!/bin/bash\n")
-    (old / "mine.sh").write_text("#!/bin/bash\n")  # the user's own script
-    _run(env, "--no-update")
-    assert sorted(p.name for p in old.iterdir()) == ["mine.sh"]
 
 
 # ---------------------------------------------------------------------------
