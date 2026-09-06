@@ -3,7 +3,7 @@
   "id": "hyprconf.clock",
   "name": "hyprconf Clock",
   "version": "1.0.0",
-  "author": "Omarchy",
+  "author": "hyprconf",
   "description": "Date/time label with a calendar popup",
   "kinds": [
     "bar-widget"

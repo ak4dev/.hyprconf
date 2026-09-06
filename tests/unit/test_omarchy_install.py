@@ -2323,7 +2323,7 @@ def test_window_title_widget_lays_the_same_budget_out_on_two_lines() -> None:
     """Pinned statically: the stock maxWidth budget (body-size, one line) is
     rendered as two caption-size lines of half the width, word-wrapped and
     elided on the second line; stock behaviours (tooltip, click focus,
-    middle-click close, hidden when nothing is focused / vertical bar) and
+    middle- or right-click close, hidden when nothing is focused / vertical bar) and
     the stock IPC id are kept."""
     qml = _code_only_qml(
         (REPO_ROOT / "plugins" / "hyprconf-active-window" / "ActiveWindow.qml").read_text()

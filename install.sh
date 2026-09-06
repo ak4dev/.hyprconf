@@ -409,11 +409,16 @@ stage_packages() {
 
 # Firefox through Omarchy's own installer, plus the system Firefox policy.
 #
-# `omarchy-install-browser firefox` (bin/omarchy-install-browser:73-80,
-# Omarchy 4.0.0-1) is omarchy-pkg-add firefox, its own policies.json copied
-# (sudo) to /usr/lib/firefox/distribution/, and MOZ_ENABLE_WAYLAND=1 in
+# `omarchy-install-browser firefox` (bin/omarchy-install-browser, the
+# `firefox)` case, Omarchy 4.0.2-1) is omarchy-pkg-add firefox, its own
+# policies.json into /usr/lib/firefox/distribution/ through
+# install/helpers/browser-policy.sh's browser_policy_setup_firefox_distribution
+# (the directory made root-owned 0755, files not root's purged, the policy
+# `install -m 644 -o root -g root`, all as root), and MOZ_ENABLE_WAYLAND=1 in
 # ~/.config/environment.d/ — every step idempotent, and nothing is launched.
-# Run only when omarchy-pkg-present firefox fails.
+# Its browser-policy migration (migrations/1787515927.sh) hardens the same
+# directory and never touches /etc/firefox, where the file below lives. Run
+# only when omarchy-pkg-present firefox fails.
 #
 # The policy — telemetry off, tracking protection on, uBlock Origin and
 # Proton Pass force-installed, DuckDuckGo the default engine, and the UI
@@ -1243,7 +1248,7 @@ stage_workspaces() {
 
 # The focused window's title beside the workspaces, on TWO lines. Omarchy's
 # stock omarchy.active-window widget is the same thing on one line (elided
-# title, tooltip with the full one, click focuses, middle-click closes) and
+# title, tooltip with the full one, click focuses, middle- or right-click closes) and
 # reads one setting, maxWidth, so the two-line version is the overlay's own
 # copy (plugins/hyprconf-active-window, header comment there): clonedFrom the
 # stock widget, so the shell swaps it into the stock widget's slot and routes
@@ -1362,7 +1367,8 @@ stage_hooks() {
 # the current theme from its templates": omarchy-theme-set of the current
 # theme.name with OMARCHY_THEME_SKIP_BACKGROUND=1, so the wallpaper stays) —
 # the templates renderer on its own writes only into theme-set's next-theme
-# staging dir and is called from nowhere else (bin/omarchy-theme-set:156).
+# staging dir and is called from nowhere else (the omarchy-theme-set-templates
+# call under omarchy-theme-set's flock, 4.0.2-1).
 # Run only when a template changed or its render is missing, so the
 # post-update hook's re-runs cost nothing; with no active theme yet the next
 # `omarchy theme set` renders it.

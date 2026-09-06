@@ -151,7 +151,7 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   otherwise runs only inside a throwaway checkout under `tmp_path`, never
   the repository the suite runs from) …
   `/usr/bin` carries
-  every `omarchy-*` command (426 on Omarchy 4.0.1-1), so a PATH of fakes plus
+  every `omarchy-*` command (427 on Omarchy 4.0.2-1 — `pacman -Ql omarchy | grep -c /usr/bin/omarchy-`; 432 with `omarchy-settings`' and `omarchy-nvim`'s), so a PATH of fakes plus
   `/usr/bin` keeps none of them out: stub every one the code path can call
   (`OMARCHY_STUBS` and `_setup` in `test_omarchy_install.py` list the
   installer's, and `test_every_omarchy_command_install_sh_calls_has_a_fake`
@@ -227,7 +227,9 @@ Nothing is packaged: users `git clone -b stable`, so the promoted branch is the 
 against a throwaway bare origin (a recording `make` stub stands in for the
 gates): `--help`, `--dry-run` (gates run, bump reverted, nothing pushed), the
 real promotion (bump commit on `origin/dev`, `origin/stable` == `dev`,
-annotated tag), the bump flags, and the dirty-tree / off-branch refusals.
+annotated tag), the bump flags, the dirty-tree / off-branch refusals, and the
+resume of a publish that died after its bump commit (`--skip-bump`; a plain
+rerun is refused so the tag is never cut twice).
 
 ## Publishing a plugin
 
