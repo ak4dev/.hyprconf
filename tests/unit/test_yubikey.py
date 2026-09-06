@@ -7,7 +7,7 @@ Verifies:
   systemd-cryptenroll with the FIDO2 flags, the mkinitcpio drop-in, the
   limine-entry-tool drop-in with the exact rd.luks.* line (Omarchy's own
   KERNEL_CMDLINE[default]+=" ..." shape, the way omarchy-hibernation-setup
-  writes resume.conf), /etc/default/limine byte-identical, one limine-update
+  writes resume.conf), /etc/default/limine byte-identical, one limine-mkinitcpio
   rebuild, and the rebuilt image found on the ESP before success is announced
 - every KERNEL_CMDLINE[default] shape /etc/limine-entry-tool.conf documents
   (quoted, bare with inner quotes, comment after the quotes, single quotes,
@@ -20,7 +20,7 @@ Verifies:
   none at all, does not stop them
 - the mapper name comes from the read line alone (cryptdevice= cross-checked
   with root=/dev/mapper/), never from a commented or another entry's line
-- limine-update's exit-0-on-failure is caught by its message and by the
+- limine-mkinitcpio's exit-0-on-failure is caught by its message and by the
   image's mtime on the ESP (UKI on UEFI per Omarchy's omarchy-uki.conf, else
   the initramfs), with an identical unrewritten image accepted only when the
   hook set did not change
@@ -36,7 +36,7 @@ Verifies:
   -e, no .bak)
 
 HERMETIC: the tool talks to sudo, lsblk, cryptsetup, systemd-cryptenroll,
-limine-update, omarchy-pkg-add, omarchy-snapshot, fido2-token and
+limine-mkinitcpio, omarchy-pkg-add, omarchy-snapshot, fido2-token and
 omarchy-setup-security-fido2. Every one of them is a recording stub on a
 fake-bins dir put FIRST on PATH, and every system path the tool reads or
 writes — /etc/default/limine and limine's other config files,
@@ -71,7 +71,7 @@ EXTERNALS = (
     "cryptsetup",
     "systemd-cryptenroll",
     "mkinitcpio",
-    "limine-update",
+    "limine-mkinitcpio",
     "omarchy-pkg-add",
     "omarchy-snapshot",
     "fido2-token",
@@ -128,12 +128,12 @@ STUBS = {
         '  *" --fido2-device=auto "*) touch "$FAKE_STATE/fido2-slot" ;;\nesac\nexit 0\n'
     ),
     "mkinitcpio": "exit 0\n",
-    # The real one exits 0 whatever mkinitcpio did (limine-mkinitcpio-install
-    # `|| true`); "ok" writes the images the test expects, "fail" prints the
-    # failure message instead, "stale" builds nothing and says nothing.
-    "limine-update": (
-        'echo "limine-install: fake"\n'
-        "case ${FAKE_LIMINE_UPDATE:-ok} in\n"
+    # The real one is `echo rebuild | limine-mkinitcpio-install` and exits 0
+    # whatever mkinitcpio did (`|| true` there); "ok" writes the images the
+    # test expects, "fail" prints the failure message instead, "stale"
+    # builds nothing and says nothing.
+    "limine-mkinitcpio": (
+        "case ${FAKE_LIMINE_MKINITCPIO:-ok} in\n"
         f'  ok) echo "Building UKI for linux ({KERNEL_VERSION})"\n'
         '      while IFS= read -r f; do [[ -n $f ]] || continue; mkdir -p "${f%/*}" && : >"$f"; done'
         ' <<<"${FAKE_BOOT_IMAGES:-}" ;;\n'
@@ -221,7 +221,7 @@ class Box:
         self.lsblk = LSBLK_STOCK
         self.tokens = TOKEN_LINE
         self.snapshot_rc = 0
-        self.limine_update = "ok"
+        self.limine_mkinitcpio = "ok"
         self.boot_images = [self.image_path("linux", uki=uki and uefi)]
         for name, body in STUBS.items():
             fake = self.bins / name
@@ -305,7 +305,7 @@ class Box:
             "FAKE_LSBLK": self.lsblk,
             "FAKE_TOKENS": self.tokens,
             "FAKE_SNAPSHOT_RC": str(self.snapshot_rc),
-            "FAKE_LIMINE_UPDATE": self.limine_update,
+            "FAKE_LIMINE_MKINITCPIO": self.limine_mkinitcpio,
             "FAKE_BOOT_IMAGES": "\n".join(str(p) for p in self.boot_images),
             "_HYPRCONF_ASSUME_TTY": "1" if assume_tty else "",
         }
@@ -333,7 +333,7 @@ def _assert_untouched(box: Box, *, allow: tuple[str, ...] = ()) -> None:
     for name in (
         "omarchy-pkg-add",
         "systemd-cryptenroll",
-        "limine-update",
+        "limine-mkinitcpio",
         "mkinitcpio",
         "omarchy-snapshot",
     ):
@@ -358,9 +358,16 @@ def _assert_configured(box: Box, mapper: str = "root") -> None:
 
 
 def test_every_external_the_tool_calls_has_a_fake() -> None:
-    """A new external call fails here before it can reach the real system."""
+    """A new external call fails here before it can reach the real system.
+    limine-update is scanned for but deliberately not faked: the rebuild is
+    limine-mkinitcpio, the tool every Omarchy drop-in change runs
+    (omarchy-hibernation-setup says why limine-update is the wrong one), so
+    a call to it is drift, not a missing fake."""
     code = "\n".join(ln for ln in TOOL.read_text().splitlines() if not ln.lstrip().startswith("#"))
-    pattern = r"\b(sudo|lsblk|cryptsetup|systemd-cryptenroll|mkinitcpio|limine-update|fido2-token|omarchy-[a-z0-9-]+)\b"
+    pattern = (
+        r"\b(sudo|lsblk|cryptsetup|systemd-cryptenroll|mkinitcpio|limine-mkinitcpio|limine-update"
+        r"|fido2-token|omarchy-[a-z0-9-]+)\b"
+    )
     called = set(re.findall(pattern, code))
     assert called, "no external calls found — the scan regex is broken"
     assert called <= set(EXTERNALS), f"unstubbed externals: {called - set(EXTERNALS)}"
@@ -411,11 +418,11 @@ def test_enroll_happy_path(box: Box) -> None:
     assert calls.index(pkg) < calls.index("omarchy-snapshot create") < calls.index(enroll)
     assert box.enrolled
 
-    # the rebuild is limine-update alone: it runs mkinitcpio for every kernel
+    # the rebuild is limine-mkinitcpio alone: it runs mkinitcpio for every kernel
     # itself (limine-mkinitcpio-install), and the mkinitcpio on Omarchy's PATH
     # is limine's interactive wrapper
-    assert "limine-update" in calls
-    assert calls.index(enroll) < calls.index("limine-update")
+    assert "limine-mkinitcpio" in calls
+    assert calls.index(enroll) < calls.index("limine-mkinitcpio")
     assert not any(c.startswith("mkinitcpio") for c in calls)
     assert not any("wipe-slot" in c for c in calls)
 
@@ -438,7 +445,7 @@ def test_enroll_happy_path(box: Box) -> None:
     assert box.limine.read_text() == box.limine_file
     assert not any(str(box.limine) in c for c in calls), "no root command ever names the file"
 
-    # the UKI limine-update wrote (Omarchy: ENABLE_UKI=yes, CUSTOM_UKI_NAME=omarchy)
+    # the UKI limine-mkinitcpio wrote (Omarchy: ENABLE_UKI=yes, CUSTOM_UKI_NAME=omarchy)
     # was looked up on the ESP, as root, and found fresh — only then "Done"
     image = box.image_path("linux")
     assert image.is_file()
@@ -458,7 +465,7 @@ def test_enroll_rerun_is_idempotent(box: Box) -> None:
     assert res.returncode == 0, res.stderr
     calls = box.calls()
     assert not any(c.startswith("systemd-cryptenroll") for c in calls), "slot already present"
-    assert "limine-update" in calls
+    assert "limine-mkinitcpio" in calls
     assert f"{box.limine_dropin}: already in place" in res.stdout
     assert box.limine_dropin.read_text() == LIMINE_DROPIN
     assert box.dropin.read_text() == dropin_first
@@ -712,30 +719,30 @@ def test_disable_and_remove_never_read_the_cmdline_line(box: Box) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The rebuild: limine-update exits 0 whatever mkinitcpio did
+# The rebuild: limine-mkinitcpio exits 0 whatever mkinitcpio did
 # ---------------------------------------------------------------------------
 
 
-def test_rebuild_dies_on_limine_updates_failure_message(box: Box) -> None:
+def test_rebuild_dies_on_limine_mkinitcpios_failure_message(box: Box) -> None:
     """The exact error_msg limine-mkinitcpio-install prints, on stderr, with
-    limine-update still exiting 0 — the previous image stays and still boots."""
+    limine-mkinitcpio still exiting 0 — the previous image stays and still boots."""
     box.write_stale_image()
-    box.limine_update = "fail"
+    box.limine_mkinitcpio = "fail"
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
-    assert BUILD_FAILED in res.stderr, "limine-update's output is shown"
+    assert BUILD_FAILED in res.stderr, "limine-mkinitcpio's output is shown"
     assert "previous one and still boots" in res.stderr
-    assert "sudo limine-update" in res.stderr
+    assert "sudo limine-mkinitcpio" in res.stderr
     assert "Done." not in res.stdout and "verified" not in res.stdout
     # the config changes are in place — that is what the retry rebuilds
     assert box.dropin.exists() and box.limine_dropin.read_text() == LIMINE_DROPIN
 
 
-def test_rebuild_dies_on_limine_update_exit_code(box: Box) -> None:
-    box.limine_update = "exit1"
+def test_rebuild_dies_on_limine_mkinitcpio_exit_code(box: Box) -> None:
+    box.limine_mkinitcpio = "exit1"
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
-    assert "limine-update exited 1" in res.stderr and "sudo limine-update" in res.stderr
+    assert "limine-mkinitcpio exited 1" in res.stderr and "sudo limine-mkinitcpio" in res.stderr
     assert "Done." not in res.stdout
 
 
@@ -743,18 +750,18 @@ def test_rebuild_dies_when_the_image_was_not_rewritten_after_a_hook_change(box: 
     """Exit 0, no message, but the UKI on the ESP predates the run although the
     drop-in changed the hook set: not a rebuild."""
     image = box.write_stale_image()
-    box.limine_update = "stale"
+    box.limine_mkinitcpio = "stale"
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
     assert f"{image} predates this run" in res.stderr
-    assert "still boots" in res.stderr and "sudo limine-update" in res.stderr
+    assert "still boots" in res.stderr and "sudo limine-mkinitcpio" in res.stderr
     assert "Done." not in res.stdout
 
     # disable removes the drop-in, so the image must change again
-    box.limine_update = "ok"
+    box.limine_mkinitcpio = "ok"
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
     box.write_stale_image()
-    box.limine_update = "stale"
+    box.limine_mkinitcpio = "stale"
     res = box.run("disable", "--yes", "--no-snapshot")
     assert res.returncode != 0 and "predates this run" in res.stderr
 
@@ -766,7 +773,7 @@ def test_rebuild_accepts_an_identical_unrewritten_image_when_hooks_did_not_chang
     image, so a re-run that changed nothing may find the old mtime."""
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
     image = box.write_stale_image()
-    box.limine_update = "stale"
+    box.limine_mkinitcpio = "stale"
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stderr
     assert f"{image}: unchanged" in res.stdout and "Done." in res.stdout
@@ -833,7 +840,7 @@ def test_rebuild_without_esp_path_warns_and_relies_on_the_message(box: Box) -> N
     assert "ESP_PATH" in res.stderr and "not double-checked" in res.stderr
     assert "Done." in res.stdout
 
-    box.limine_update = "fail"
+    box.limine_mkinitcpio = "fail"
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0 and "still boots" in res.stderr
 
@@ -965,7 +972,7 @@ def test_disable_removes_both_dropins(box: Box) -> None:
     assert box.ran_as_root(f"rm -f -- {box.limine_dropin}")
     assert box.limine.read_text() == box.limine_file
     assert "omarchy-snapshot create" in calls
-    assert "limine-update" in calls
+    assert "limine-mkinitcpio" in calls
     assert "Boot images verified" in res.stdout
     assert not any(c.startswith("systemd-cryptenroll") for c in calls)
     assert box.enrolled, "disable keeps the LUKS slot"
@@ -990,7 +997,7 @@ def test_remove_wipes_fido2_slot_then_disables(box: Box) -> None:
     calls = box.calls()
     wipe = f"systemd-cryptenroll --wipe-slot=fido2 {DEV}"
     assert wipe in calls
-    assert calls.index(wipe) < calls.index("limine-update")
+    assert calls.index(wipe) < calls.index("limine-mkinitcpio")
     assert not any("password" in c for c in calls), "passphrase slots are never touched"
     assert not box.enrolled
     assert not box.dropin.exists() and not box.limine_dropin.exists()
@@ -1016,7 +1023,7 @@ def test_status_prints_facts(box: Box) -> None:
     assert "replaces every drop-in" not in out
     assert f"plugged in — {TOKEN_LINE}" in out
     assert "sd-btrfs-overlayfs installed" in out
-    for name in ("systemd-cryptenroll", "limine-update", "omarchy-snapshot", "mkinitcpio"):
+    for name in ("systemd-cryptenroll", "limine-mkinitcpio", "omarchy-snapshot", "mkinitcpio"):
         assert not any(c.startswith(name) for c in box.calls())
 
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
@@ -1093,11 +1100,11 @@ def test_disable_after_a_failed_enroll_rebuild_verifies_against_stock(box: Box) 
     reverts them, and the pre-enroll image on the ESP — byte-identical, not
     rewritten — is the CORRECT one. A this-run changed flag called that a
     failure; the recorded-fingerprint check accepts it against stock."""
-    box.limine_update = "fail"
+    box.limine_mkinitcpio = "fail"
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 1
     assert box.dropin.exists() and box.limine_dropin.exists()
     box.write_stale_image()  # the ESP still holds the pre-enroll image
-    box.limine_update = "stale"  # reproducible build: identical, not rewritten
+    box.limine_mkinitcpio = "stale"  # reproducible build: identical, not rewritten
     res = box.run("disable", "--yes")
     assert res.returncode == 0, res.stdout + res.stderr
     assert "unchanged (identical image" in res.stdout
@@ -1108,10 +1115,10 @@ def test_a_retried_enroll_still_refuses_a_stale_image(box: Box) -> None:
     """On the retry the drop-ins are already in place, so a this-run flag
     read 'nothing changed' and blessed the pre-enroll image silently. The
     hook set differs from the last VERIFIED rebuild: refuse."""
-    box.limine_update = "fail"
+    box.limine_mkinitcpio = "fail"
     assert box.run("enroll", "--yes", "--device", DEV).returncode == 1
     box.write_stale_image()
-    box.limine_update = "stale"
+    box.limine_mkinitcpio = "stale"
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode == 1
     assert "changed since the last verified rebuild" in res.stderr
@@ -1127,7 +1134,7 @@ def test_enroll_rerun_on_a_box_without_the_record_accepts_and_records(box: Box) 
     assert state.exists()
     state.unlink()  # what a prior-release enroll left behind
     box.write_stale_image()
-    box.limine_update = "stale"
+    box.limine_mkinitcpio = "stale"
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stdout + res.stderr
     assert "no verified-rebuild record — accepting" in res.stdout

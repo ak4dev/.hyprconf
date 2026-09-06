@@ -51,14 +51,24 @@
 #     Omarchy's included, so enroll refuses it. cryptdevice= is KEPT: each hook
 #     ignores the other's parameters, so the box still boots through `encrypt`
 #     if Omarchy ever rewrites its drop-in back to the busybox hooks.
-#   * limine-update (limine-mkinitcpio-hook) = limine-install + limine-mkinitcpio,
-#     and limine-mkinitcpio runs /usr/share/libalpm/scripts/limine-mkinitcpio-install
-#     "rebuild", which calls /usr/bin/mkinitcpio for every installed kernel
-#     (build_initramfs / build_uki) into a tmp dir and installs the result with
-#     limine-entry-tool --add-kernel / --add-uki only when the build succeeded.
-#     A failed build is `error_msg "mkinitcpio failed for kernel ..., skipping."`
-#     and `process_kernel ... || true` — so limine-update exits 0 regardless, and
-#     the previous image stays on the ESP. That is the whole rebuild: a separate
+#   * The rebuild is limine-mkinitcpio (limine-mkinitcpio-hook): it runs
+#     /usr/share/libalpm/scripts/limine-mkinitcpio-install "rebuild", which
+#     calls /usr/bin/mkinitcpio for every installed kernel (build_initramfs /
+#     build_uki) into a tmp dir, installs the result with limine-entry-tool
+#     --add-kernel / --add-uki only when the build succeeded, and refreshes
+#     the Limine entries. A failed build is `error_msg "mkinitcpio failed for
+#     kernel ..., skipping."` and `process_kernel ... || true` — so it exits 0
+#     regardless, and the previous image stays on the ESP. It is what every
+#     Omarchy path that changes a mkinitcpio or limine-entry-tool drop-in
+#     runs: omarchy-hibernation-setup (`sudo limine-mkinitcpio`, with the
+#     reason beside it — "The limine bootloader binary on the ESP doesn't
+#     change here, so we don't need limine-update (which would also re-deploy
+#     the binary and rebuild a second time)"), omarchy-hibernation-remove,
+#     omarchy-plymouth-set and migrations 1784476564/1784917531/1785944594/
+#     1786482992/1786605598. limine-update — limine-install --no-efi-register
+#     then limine-mkinitcpio (/usr/bin/limine-update) — is Omarchy's tool for
+#     resetting /boot/limine.conf (omarchy-refresh-limine), so it is not
+#     called here; the externals scan in test_yubikey.py pins that. A separate
 #     `mkinitcpio -P` would build everything twice and, on Omarchy, hit the
 #     interactive /usr/local/bin/mkinitcpio wrapper the same package installs
 #     ("Would you like to run 'limine-mkinitcpio' now?").
@@ -191,12 +201,15 @@ before anything is; cryptdevice= is kept):
      (when installed), consolefont and resume dropped, everything else kept;
      beside it, .$_HYPRCONF_FIDO2_DROPIN.verified records what the boot
      images were last verified built from (removed by disable)
-  6. limine-update — rebuilds the boot images (UKI or initramfs, per limine's
-     ENABLE_UKI) and the Limine entries. limine-update exits 0 even when a
-     build fails, so its output is checked for limine-mkinitcpio-install's
-     "mkinitcpio failed for kernel" and every installed kernel's image is
-     looked up on the ESP (limine's ESP_PATH) before success is announced; a
-     failed build leaves the previous image in place, which still boots.
+  6. limine-mkinitcpio — rebuilds the boot images (UKI or initramfs, per
+     limine's ENABLE_UKI) and the Limine entries: the same rebuild Omarchy's
+     own hibernation setup runs after changing its drop-in (the bootloader
+     binary on the ESP does not change, so nothing re-deploys it).
+     limine-mkinitcpio exits 0 even when a build fails, so its output is
+     checked for limine-mkinitcpio-install's "mkinitcpio failed for kernel"
+     and every installed kernel's image is looked up on the ESP (limine's
+     ESP_PATH) before success is announced; a failed build leaves the
+     previous image in place, which still boots.
 
 at boot: plug the key in, enter its PIN, touch it. With no key present systemd
 waits token-timeout (30 s by default, crypttab(5)) and then asks for the
@@ -346,7 +359,7 @@ check_layout() {
 preflight() {
     have omarchy-pkg-add || die "omarchy-pkg-add not found — hyprconf-yubikey runs on Omarchy only"
     have systemd-cryptenroll || die "systemd-cryptenroll not found (package systemd)"
-    have limine-update || die "limine-update not found (package limine-mkinitcpio-hook) — Omarchy boots with Limine"
+    have limine-mkinitcpio || die "limine-mkinitcpio not found (package limine-mkinitcpio-hook) — Omarchy boots with Limine"
     check_layout
 }
 
@@ -703,7 +716,7 @@ verify_boot_images() {
     local -a missing=() stale=()
     esp=$(limine_setting ESP_PATH)
     if [[ -z ${esp// /} ]]; then
-        warn "ESP_PATH is set in none of limine's config files ($_HYPRCONF_LIMINE_DEFAULT last) — the images on the ESP were not double-checked; limine-update reported no failed build"
+        warn "ESP_PATH is set in none of limine's config files ($_HYPRCONF_LIMINE_DEFAULT last) — the images on the ESP were not double-checked; limine-mkinitcpio reported no failed build"
         return 0
     fi
     mid=$(<"$_HYPRCONF_MACHINE_ID") || die "cannot read $_HYPRCONF_MACHINE_ID — cannot locate the boot images"
@@ -725,14 +738,14 @@ verify_boot_images() {
         # FAT32 keeps mtimes to 2 s.
         if ((mtime >= start - 2)); then info "  $path: rebuilt"; else stale+=("$path"); fi
     done
-    ((n)) || die "no kernel under $_HYPRCONF_MODULES_DIR (a directory with pkgbase and vmlinuz) — limine-update had nothing to build, so no boot image carries the new config"
+    ((n)) || die "no kernel under $_HYPRCONF_MODULES_DIR (a directory with pkgbase and vmlinuz) — limine-mkinitcpio had nothing to build, so no boot image carries the new config"
     if ((${#missing[@]})); then
-        die "limine-update finished, but no boot image at ${missing[*]} (ESP_PATH=$esp, ENABLE_UKI=$(limine_setting ENABLE_UKI), the way limine-mkinitcpio-install places them) — the boot config is changed but unproven: check limine-update's output above and re-run it: sudo limine-update"
+        die "limine-mkinitcpio finished, but no boot image at ${missing[*]} (ESP_PATH=$esp, ENABLE_UKI=$(limine_setting ENABLE_UKI), the way limine-mkinitcpio-install places them) — the boot config is changed but unproven: check limine-mkinitcpio's output above and re-run it: sudo limine-mkinitcpio"
     fi
     if ((${#stale[@]})); then
         recorded=$(cat "$(verified_state_path)" 2>/dev/null || true)
         if [[ -n $recorded && $(config_fingerprint) != "$recorded" ]]; then
-            die "limine-update finished, but ${stale[*]} predates this run although the hook set changed since the last verified rebuild — the boot image on the ESP is the previous one and still boots; find the cause in limine-update's output above, then: sudo limine-update"
+            die "limine-mkinitcpio finished, but ${stale[*]} predates this run although the hook set changed since the last verified rebuild — the boot image on the ESP is the previous one and still boots; find the cause in limine-mkinitcpio's output above, then: sudo limine-mkinitcpio"
         fi
         [[ -n $recorded ]] || info "  no verified-rebuild record — accepting the identical image and recording it"
         info "  ${stale[*]}: unchanged (identical image, not rewritten)"
@@ -741,21 +754,21 @@ verify_boot_images() {
     info "Boot images verified on $esp."
 }
 
-# limine-update exits 0 even when a build fails (see the header), so keep its
-# output, refuse limine-mkinitcpio-install's failure messages — error_msg
+# limine-mkinitcpio exits 0 even when a build fails (see the header), so keep
+# its output, refuse limine-mkinitcpio-install's failure messages — error_msg
 # "mkinitcpio failed for kernel ${KERNEL_VERSION}, skipping." and, for a UKI,
 # "failed to get kernel cmdline for '<name>'." — and then look for the images.
 rebuild_boot() {
     local start out rc=0
     start=$(date +%s)
-    info "Rebuilding the boot images and the Limine entries (limine-update) ..."
-    # Live on stderr and kept; pipefail hands limine-update's status through tee.
-    out=$(run_root limine-update 2>&1 | tee /dev/stderr) || rc=$?
+    info "Rebuilding the boot images and the Limine entries (limine-mkinitcpio) ..."
+    # Live on stderr and kept; pipefail hands limine-mkinitcpio's status through tee.
+    out=$(run_root limine-mkinitcpio 2>&1 | tee /dev/stderr) || rc=$?
     if ((rc != 0)); then
-        die "limine-update exited $rc — the boot images on the ESP are the previous ones and still boot (limine installs an image only after it built); fix the error above, then: sudo limine-update"
+        die "limine-mkinitcpio exited $rc — the boot images on the ESP are the previous ones and still boot (limine installs an image only after it built); fix the error above, then: sudo limine-mkinitcpio"
     fi
     if grep -q -F -e "mkinitcpio failed for kernel" -e "failed to get kernel cmdline for" <<<"$out"; then
-        die "limine-update reported a failed build (it exits 0 regardless) — the boot image on the ESP is the previous one and still boots (limine installs an image only after it built); fix the error above, then: sudo limine-update"
+        die "limine-mkinitcpio reported a failed build (it exits 0 regardless) — the boot image on the ESP is the previous one and still boots (limine installs an image only after it built); fix the error above, then: sudo limine-mkinitcpio"
     fi
     verify_boot_images "$start"
 }
@@ -774,7 +787,7 @@ cmd_enroll() {
     cmdline_check "$DEV_UUID" "$MAPPER" "$L_VALUE"
     info "Device: $DEV (LUKS2, UUID $DEV_UUID)"
     info "Drop-in $(limine_dropin_path): $(limine_dropin_content "$DEV_UUID" "$MAPPER")"
-    confirm "Enrol the plugged-in FIDO2 key to unlock $DEV at boot (installs libfido2, snapshot, LUKS slot, initramfs drop-in, cmdline drop-in, limine-update)?" ||
+    confirm "Enrol the plugged-in FIDO2 key to unlock $DEV at boot (installs libfido2, snapshot, LUKS slot, initramfs drop-in, cmdline drop-in, limine-mkinitcpio)?" ||
         die "aborted — nothing changed"
     install_libfido2
     wait_for_token

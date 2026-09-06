@@ -85,7 +85,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
-│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-update; the limine drop-in, /etc/default/limine read for the mapper and never rewritten; real shellcheck on the mkinitcpio drop-in)
+│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-mkinitcpio; the limine drop-in, /etc/default/limine read for the mapper and never rewritten; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias finds a relocated checkout
 └── integration/
     └── test_publish_pipeline.py  #   scripts/publish --help, --dry-run and the real promotion against a throwaway bare origin
@@ -133,7 +133,7 @@ skips in CI, and the recipe for reproducing a container-only failure, are in
   `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` in the feeders — pointed at
   `tmp_path`. Never make such a variable `readonly`.
 - The fake bins (`AGENTS.md` › Tests): `omarchy-*`, `hyprctl`, `sudo`, `chsh`,
-  `fc-list`, `systemd-cryptenroll`, `limine-update`, `gum`, `udevadm` (the real
+  `fc-list`, `systemd-cryptenroll`, `limine-mkinitcpio`, `gum`, `udevadm` (the real
   one would re-apply rules on the developer's own machine), `vulkaninfo` (it
   would answer for the host's GPUs), `git` (a clone only makes its directory —
   the curl-path tests let a clone of a local directory run the real git — the
