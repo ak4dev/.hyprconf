@@ -86,6 +86,7 @@ BarWidget {
         readonly property bool focused: Hyprland.focusedWorkspace !== null && Hyprland.focusedWorkspace.id === modelData
 
         text: focused ? "\u{F0BAF}" : String(modelData)
+        textFormat: Text.PlainText
         // The bar's own foreground and font, as every stock text widget uses
         // (WidgetButton binds the same two), so themes and `omarchy font set`
         // apply here too.

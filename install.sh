@@ -873,10 +873,11 @@ stage_bin() {
     # Every bin/hyprconf-* file; a new tool is one file in bin/. @HYPRCONF_DIR@
     # is substituted the way the hooks get it, for the tools that need the
     # checkout (the Python lib). Rendered beside the target and mv'd over it:
-    # the rename is atomic, so a hotkey or bar feeder exec'ing one of these
-    # mid-install runs old bytes or new, never a truncated prefix (a running
-    # feeder keeps its old inode); cmp keeps the steady-state re-run
-    # write-free, matching the byte-stable posture of the other stages.
+    # the rename is atomic, so a hotkey exec'ing one of these mid-install
+    # runs old bytes or new, never a truncated prefix (a running tool keeps
+    # its old inode); cmp keeps the steady-state re-run write-free, matching
+    # the byte-stable posture of the other stages. The bar's feeders are not
+    # here: they ship inside plugins/hyprconf-resources and land with it.
     for f in "$HERE"/bin/hyprconf-*; do
         dst="$HOME/.local/bin/${f##*/}"
         sed "s|@HYPRCONF_DIR@|$HERE_SED|g" "$f" > "$dst.hyprconf-tmp"
@@ -936,8 +937,7 @@ stage_vulkan_gpu() {
 # install.service.nordvpn) — dotted id, `when` hides it once installed, and
 # the floating presentation terminal runs bin/hyprconf-install-service-
 # protonvpn, which stage_bin put on ~/.local/bin (on PATH in the session:
-# default/bash/envs appends it, and the bar widgets find hyprconf-stats the
-# same way).
+# default/bash/envs appends it).
 stage_menu() {
     log "Omarchy menu: Proton VPN installer (Install > Service)"
     local file="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
@@ -1034,57 +1034,6 @@ stage_bar_plugin() {
     enable_plugin_once hyprconf.resources resources-applied
 }
 
-# Copy a built-in shell plugin to the project's own id — what
-# omarchy-plugin-clone does, minus its hardcoded <username>.<id> naming (a
-# username must never leak into shipped configuration; the project namespace
-# is hyprconf.*, beside hyprconf.resources). The source is resolved from
-# omarchy-plugin-catalog at runtime (never a hard-coded /usr/share path,
-# which would rot), and the manifest is rewritten the way clone's
-# update_manifest does: our id and displayName, clonedFrom pointing at the
-# built-in — which is what makes the shell route the built-in's IPC here and
-# swap the stock widget out on enable (shell/services/PluginRegistry.qml
-# resolves entries through clonedFrom). No-op when the copy already exists;
-# non-zero when the source cannot be resolved.
-copy_builtin_plugin() {
-    local source_id="$1" target_id="$2" display="$3"
-    local dir="$HOME/.config/omarchy/plugins/$target_id"
-    [[ -d $dir ]] && return 0
-
-    # `|| true` inside the substitution: under pipefail a failing jq (or an
-    # absent catalog command) would otherwise abort the whole install via
-    # set -e, when the correct answer is the caller's retry path.
-    local row src manifest
-    row="$(omarchy-plugin-catalog 2>/dev/null |
-        jq -r --arg id "$source_id" \
-            '.[] | select(.firstParty and .id == $id) | [.sourceDir, .manifestPath] | @tsv' \
-            2>/dev/null | head -n1 || true)"
-    IFS=$'\t' read -r src manifest <<<"$row"
-    [[ -n ${src:-} && -d $src && -n ${manifest:-} && -f $manifest ]] || return 1
-
-    # Plugin-directory layout only (panels/clock/: manifest.json beside its
-    # QML) — the clock is the one built-in still copied at install time.
-    # Widgets living in the shared bar/widgets/ dir keep a sibling
-    # <Name>.manifest.json instead; the one of those the overlay replaces
-    # (workspaces) ships as its own plugin under plugins/ rather than as a
-    # patched copy.
-    [[ ${manifest##*/} == manifest.json ]] || return 1
-    mkdir -p "$HOME/.config/omarchy/plugins"
-    rm -rf "$dir.tmp"
-    cp -aL "$src/." "$dir.tmp"
-    jq --arg id "$target_id" --arg name "$display" --arg sourceId "$source_id" '
-        .id = $id
-        | .name = $name
-        | (if (.barWidget | type) == "object" then .barWidget.displayName = $name else . end)
-        | .omarchy = ((if (.omarchy | type) == "object" then .omarchy else {} end) + { clonedFrom: $sourceId })
-        | del(.omarchy.clonePaths)
-    ' "$dir.tmp/manifest.json" > "$dir.tmp/manifest.json.new" &&
-        mv "$dir.tmp/manifest.json.new" "$dir.tmp/manifest.json" || {
-            rm -rf "$dir.tmp"
-            return 1
-        }
-    mv "$dir.tmp" "$dir"
-}
-
 # Make the shell pick a plugin copy up and put it on the bar. The rescan is
 # asynchronous — omarchy-plugin-clone waits for discovery before enabling
 # (up to 40 x 0.05s), and an enable issued before discovery fails with
@@ -1123,9 +1072,24 @@ reload_plugins() {
 # into place, the way omarchy-plugin-clone lands a clone (mktemp -d under the
 # plugins dir, cp -aL, mv), so the shell's directory watch never scans a
 # half-copied plugin; then the shell rescans.
+#
+# Each plugin folder is also publishable on its own (README.md inside it),
+# and `omarchy plugin add <url>` lands the same id as a git checkout
+# (bin/omarchy-plugin-add: git clone, omarchy-plugin-validate, mv to
+# plugins/<id>; 4.0.2-1). That checkout is Omarchy's to manage — `omarchy
+# plugin update` fast-forwards it and refuses a non-git folder
+# (bin/omarchy-plugin-update: `[[ -d $PLUGINS_DIR/$id/.git ]] || fail`) —
+# so it is left alone: the diff below would otherwise see its .git and
+# replace the checkout, uncommitted edits included. The other order is
+# safe on its own: with the overlay's copy in place, omarchy-plugin-add
+# refuses a duplicate id.
 sync_plugin_dir() {
     local src="$HERE/plugins/$1" id="$2"
     local dir="$HOME/.config/omarchy/plugins/$id"
+    if [[ -d $dir/.git ]]; then
+        info "$id is an \`omarchy plugin add\` checkout — left to: omarchy plugin update $id"
+        return 0
+    fi
     if [[ -d $dir ]] && diff -rq "$src" "$dir" >/dev/null 2>&1; then
         return 0
     fi
@@ -1220,34 +1184,31 @@ set_clock_format() {
         --arg id "$id" --arg format "$format"
 }
 
-# The bar clock, set ONCE to hyprconf's own format: 12-hour with seconds and
-# AM/PM ("hh:mm:ss AP" — Qt.formatDateTime tokens, which is what the widget
-# feeds its format setting to). The stock widget cannot tick seconds:
-# omarchy.clock samples SystemClock at Minutes precision (shell/plugins/
-# panels/clock/BarWidget.qml), so a seconds format would sit frozen 59s of
-# every minute — the widget is copied to hyprconf.clock and the copy
-# patched, BEFORE it is enabled, so the shell never loads the stale Minutes
-# build. Set-once marker for the same reason as the font and the default
-# apps: the post-update hook re-runs this installer, and a clock the user
-# later reformatted (right-click cycles formats; `omarchy bar set`) must
-# stay theirs.
+# The bar clock, ticking seconds: plugins/hyprconf-clock is Omarchy's own
+# clock widget (BarWidget.qml + Model.js, Omarchy 4.0.2-1 — MIT, the NOTICE
+# beside them) with two deltas its header names, clonedFrom omarchy.clock so
+# the shell swaps it into the stock slot. The stock widget cannot tick
+# seconds: omarchy.clock samples SystemClock at Minutes precision
+# (shell/plugins/panels/clock/BarWidget.qml), so a seconds format would sit
+# frozen 59 s of every minute. Shipped and SYNCED on every run like the other
+# three — an install-time copy of the stock plugin, made once, lagged the
+# 4.0.2 release's hardening of its own Panel.qml by eight lines with nothing
+# to refresh it (omarchy-plugin-update refuses a non-git folder). Only the
+# user's choices are set ONCE, behind the marker: the enable, hyprconf's
+# format — 12-hour with seconds and AM/PM, "hh:mm:ss AP" in the
+# Qt.formatDateTime tokens the widget feeds its format setting to — and the
+# centre anchor, for the same reason as the font and the default apps: the
+# post-update hook re-runs this installer, and a clock the user later
+# reformatted (right-click cycles formats; `omarchy bar set`) must stay
+# theirs. The sync comes first so the shell never loads a stale build.
 stage_clock() {
     log "Bar clock: hh:mm:ss AP (hyprconf.clock)"
+    local id="hyprconf.clock"
+    sync_plugin_dir hyprconf-clock "$id"
     local marker="$HOME/.local/state/hyprconf/clock-applied"
     if [[ -e $marker ]]; then
         info "already applied once — the clock is yours now"
         return 0
-    fi
-    local id="hyprconf.clock"
-    local dir="$HOME/.config/omarchy/plugins/$id"
-    copy_builtin_plugin omarchy.clock "$id" "hyprconf Clock" || {
-        warn "could not locate the omarchy.clock plugin source — will retry on the next run"
-        return 0
-    }
-    if [[ -f $dir/BarWidget.qml ]]; then
-        sed -i 's/SystemClock\.Minutes/SystemClock.Seconds/' "$dir/BarWidget.qml"
-    else
-        warn "no BarWidget.qml in $dir — leaving the copy unpatched"
     fi
 
     # Needs the live shell; on a TTY or over SSH there is nothing to answer,

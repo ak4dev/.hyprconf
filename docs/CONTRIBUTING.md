@@ -22,8 +22,6 @@ publish flow and the website upload.
 ├── bin/                        # Tools installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted); the hotkeys bind the first two by name
 │   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
 │   ├── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
-│   ├── hyprconf-stats          #   cpu/mem/net/temp JSON stream for the bar widget
-│   ├── hyprconf-gpu-info       #   GPU JSON stream (nvidia-smi --loop, AMD or Intel sysfs)
 │   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
 │   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU — or one you pick — via uwsm env.d (status/prompt/fix/use/toggle/run/alt/ignore/remove)
 │   ├── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)
@@ -34,9 +32,11 @@ publish flow and the website upload.
 │   ├── firefox_theme.py        # Omarchy's rendered userChrome.css into Firefox/LibreWolf profiles + user.js prefs (theme-set hook)
 │   └── __init__.py             # __version__ (bumped by scripts/publish)
 │
-├── plugins/hyprconf-resources/ # Omarchy bar-widget plugin (manifest.json + Widget.qml)
-├── plugins/hyprconf-workspaces/ # Omarchy bar-widget plugin replacing omarchy.workspaces (clonedFrom)
-├── plugins/hyprconf-active-window/ # Omarchy bar-widget plugin replacing omarchy.active-window (two-line title)
+├── plugins/                    # Omarchy bar-widget plugins, each folder a plugin on its own (manifest.json at its root, README.md, NOTICE where the code is Omarchy's — › Publishing a plugin), synced by install.sh into ~/.config/omarchy/plugins/
+│   ├── hyprconf-clock/         #   Omarchy's own clock (BarWidget.qml + Model.js) ticking seconds — clonedFrom omarchy.clock, the two deltas named in its header
+│   ├── hyprconf-resources/     #   cpu/mem/net/temp + GPU readout (Widget.qml); its two feeders in bin/ (hyprconf-stats, hyprconf-gpu-info), run by absolute path from the folder
+│   ├── hyprconf-workspaces/    #   replaces omarchy.workspaces (clonedFrom): only the workspaces that exist, two lines
+│   └── hyprconf-active-window/ #   replaces omarchy.active-window (clonedFrom): the title on two lines
 ├── themes/dracula/             # Omarchy user theme (colors.toml + backgrounds/)
 ├── themed/userChrome.css.tpl   # Omarchy user template (→ ~/.config/omarchy/themed/), rendered by omarchy-theme-set-templates on every theme set
 ├── wallpapers/                 # Extra backgrounds, filed per Omarchy theme
@@ -81,13 +81,15 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, workspace rehoming)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, the `omarchy refresh` guard …), the post-update hook end to end, restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
-│   ├── test_stats_tools.py       #   bin/hyprconf-stats, bin/hyprconf-gpu-info (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins the fork-free tick)
+│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, the `omarchy refresh` guard, the plugin sync and its `omarchy plugin add` checkout guard …), the post-update hook end to end, restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
+│   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), Omarchy 4.0.2's Text.PlainText rule over every QML, the clock's parity with the installed stock clock (skips without Omarchy)
+│   ├── test_stats_tools.py       #   plugins/hyprconf-resources/bin/{hyprconf-stats,hyprconf-gpu-info} (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins the fork-free tick)
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
 │   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-mkinitcpio; the limine drop-in, /etc/default/limine read for the mapper and never rewritten; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias finds a relocated checkout
 └── integration/
+    ├── test_plugin_split.py      #   `git subtree split` of every plugins/<name> in a throwaway repository, the split's root held to test_plugins.py's contract (› Publishing a plugin)
     └── test_publish_pipeline.py  #   scripts/publish --help, --dry-run and the real promotion against a throwaway bare origin
 ```
 
@@ -112,8 +114,8 @@ The gates need `ruff`, `shellcheck`, `python-pytest` and `python-pytest-xdist`
 `omarchy pkg add ruff shellcheck python-pytest python-pytest-xdist`. `jq`,
 `luac` and `qmllint` are used real by the tests that need them and skipped
 when absent; `git` is required. CI's own package list, with the reason each
-entry is there, lives in `.github/workflows/test.yml`; the one test that
-skips in CI, and the recipe for reproducing a container-only failure, are in
+entry is there, lives in `.github/workflows/test.yml`; the two tests that
+skip in CI, and the recipe for reproducing a container-only failure, are in
 `AGENTS.md` › Gates and CI.
 
 ### Writing hermetic tests
@@ -130,12 +132,13 @@ skips in CI, and the recipe for reproducing a container-only failure, are in
   `_HYPRCONF_*` in `bin/hyprconf-vulkan-gpu` for the sysfs trees and env
   files it reads (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`, `UWSM_ENV_D`, `UWSM_ENV`,
   `ENVIRONMENT_D`, `STATE`, `ASSUME_TTY`),
-  `HYPRCONF_STATS_*` in `bin/hyprconf-stats` (`NET_ROOT`, `PROC_STAT`,
-  `PROC_MEMINFO`, `PROC_ROUTE`, `HWMON_ROOT`, `INTERVAL`, `ITERATIONS`, and
-  `SLEEP_BUILTIN` — the loadable sleep's path, pointed at a file that is not
-  there so a PATH `sleep` fake runs between ticks) and `HYPRCONF_GPU_*` in
-  `bin/hyprconf-gpu-info` (`INTERVAL`, `DRM_ROOT`, `ITERATIONS`, `PCI_IDS`) —
-  pointed at `tmp_path`. Never make such a variable `readonly`.
+  `HYPRCONF_STATS_*` in `plugins/hyprconf-resources/bin/hyprconf-stats`
+  (`NET_ROOT`, `PROC_STAT`, `PROC_MEMINFO`, `PROC_ROUTE`, `HWMON_ROOT`,
+  `INTERVAL`, `ITERATIONS`, and `SLEEP_BUILTIN` — the loadable sleep's path,
+  pointed at a file that is not there so a PATH `sleep` fake runs between
+  ticks) and `HYPRCONF_GPU_*` in its sibling `hyprconf-gpu-info` (`INTERVAL`,
+  `DRM_ROOT`, `ITERATIONS`, `PCI_IDS`) — pointed at `tmp_path`. Never make
+  such a variable `readonly`.
 - The fake bins (`AGENTS.md` › Tests): `omarchy-*`, `hyprctl`, `sudo`, `chsh`,
   `fc-list`, `systemd-cryptenroll`, `limine-mkinitcpio`, `gum`, `udevadm` (the real
   one would re-apply rules on the developer's own machine), `vulkaninfo` (it
@@ -156,7 +159,8 @@ skips in CI, and the recipe for reproducing a container-only failure, are in
   `test_firefox_theme.py` stubs the three theme commands to prove the Firefox
   bridge calls none). Real when present, skipped otherwise: `jq`, `luac`,
   `qmllint`, `shellcheck`, `sh`, `/usr/share/omarchy/bin/omarchy-plugin-validate`
-  (reads a manifest, changes nothing) and, for the one test that builds a PATH
+  (reads a manifest, changes nothing), the installed clock plugin's files
+  (`test_plugins.py` reads them for parity) and, for the one test that builds a PATH
   without `gum` (`test_vulkan_gpu.py`), `bash`, `awk`, `grep`, `sed`,
   `readlink`, `cat`, `mkdir`, `rm`.
   A test that reads a file of the installed Omarchy falls back to a
@@ -224,6 +228,37 @@ against a throwaway bare origin (a recording `make` stub stands in for the
 gates): `--help`, `--dry-run` (gates run, bump reverted, nothing pushed), the
 real promotion (bump commit on `origin/dev`, `origin/stable` == `dev`,
 annotated tag), the bump flags, and the dirty-tree / off-branch refusals.
+
+## Publishing a plugin
+
+`omarchy plugin add <url>` clones a repository and expects `manifest.json` at
+its root — `bin/omarchy-plugin-add` (Omarchy 4.0.2-1): `git clone`,
+`omarchy-plugin-validate`, then a move to `~/.config/omarchy/plugins/<id>/`
+— so the monorepo cannot be added as it is. Each `plugins/<name>` folder is
+published as a repository of its own, split out of `dev`'s history with git's
+own tool (history and the `100755` modes travel with it):
+
+```bash
+git subtree split --prefix=plugins/hyprconf-resources -b plugins/hyprconf-resources
+git push git@github.com:ak4dev/omarchy-hyprconf-resources.git plugins/hyprconf-resources:main
+```
+
+Never run here: a push is the user's, on request, like every other. The
+folder is the whole plugin — everything a split needs lives inside it:
+`manifest.json`, `README.md` (the install line, dependencies, settings, what
+`omarchy plugin disable` / `remove` do to it), `NOTICE` where the code is
+Omarchy's (MIT requires its notice on every copy), and any script the widget
+runs, under `bin/`, resolved from the plugin's own directory and never from
+`PATH`. `tests/unit/test_plugins.py` pins that shape and the validator's own
+checks; `tests/integration/test_plugin_split.py` runs the split in a
+throwaway repository and holds the result to the same contract. The
+manifest's `version` is bumped with every change to a folder (SemVer). A
+published plugin is listed on the community directory,
+<https://omarchyplugins.com>; the URL each README names,
+`https://github.com/ak4dev/omarchy-hyprconf-<name>`, is the placeholder until
+the repositories exist. The overlay keeps syncing the same folders from the
+checkout, and `install.sh` leaves a folder that is a git checkout (`omarchy
+plugin add`'s) to `omarchy plugin update`.
 
 ## Updating the website
 

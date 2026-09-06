@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "hyprconf.resources",
   "name": "Resource Usage",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "hyprconf",
   "description": "CPU/temp/memory/GPU/network readout",
   "kinds": [

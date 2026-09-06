@@ -202,7 +202,6 @@ OMARCHY_STUBS = (
     "omarchy-default-editor",
     "omarchy-shell",
     "omarchy-plugin-enable",
-    "omarchy-plugin-catalog",
     "omarchy-restart-shell",
     "omarchy-bar",
     "omarchy-update",
@@ -558,15 +557,15 @@ def test_refuses_without_omarchy_path(tmp_path: Path) -> None:
 def test_full_run_succeeds_and_is_byte_stable(tmp_path: Path) -> None:
     """Every stage on its real path, and the whole HOME inside the hash: the
     real jq behind the three JSON stages (the Firefox merge, shell.json, the
-    clock copy) with a clock source to copy, a sudo that runs its command
-    and a terminal to ask on (the policy and the Keychron rule land under
-    tmp_path), and ~/.local/bin on PATH the way Omarchy's default/bash/envs
-    puts it in a session (4.0.2-1, lines 32-33). Then the second and third
-    runs are byte-identical AND warning-free — a stage that had fallen back
-    to a retry branch would say so with a WARNING, and the harness default
-    (a broken jq) once hid exactly that from this gate."""
+    clock's format and anchor), a sudo that runs its command and a terminal
+    to ask on (the policy and the Keychron rule land under tmp_path), and
+    ~/.local/bin on PATH the way Omarchy's default/bash/envs puts it in a
+    session (4.0.2-1, lines 32-33). Then the second and third runs are
+    byte-identical AND warning-free — a stage that had fallen back to a
+    retry branch would say so with a WARNING, and the harness default (a
+    broken jq) once hid exactly that from this gate."""
     env = _setup(tmp_path)
-    _plugin_fixtures(env, tmp_path)
+    _real_jq(env)
     _, extra = _policy_env(tmp_path, env)
     extra["PATH"] = f"{env['bins']}:{env['home']}/.local/bin:/usr/bin:/bin"
     first = _run(env, "--no-update", extra_env=extra)
@@ -1438,15 +1437,26 @@ def test_hook_cannot_recurse_or_escalate() -> None:
 
 def _overlay_scripts() -> list[Path]:
     """Every shell script the overlay ships: install.sh and the bash files
-    under the installed trees. Walked on disk, not `git ls-files`, so the scan
-    needs no git and no ownership trust (CI's root-run git refuses the
-    runner-owned workspace)."""
+    under the installed trees — a bash shebang on the first line, the rule
+    the Makefile's shellcheck target selects by, so the feeders bundled in
+    plugins/hyprconf-resources/bin are in and a plugin's NOTICE is not.
+    Walked on disk, not `git ls-files`, so the scan needs no git and no
+    ownership trust (CI's root-run git refuses the runner-owned
+    workspace)."""
     roots = ["install.sh", "hypr", "bin", "hooks", "zsh", "kitty", "plugins"]
     paths: list[Path] = []
     for root in roots:
         top = REPO_ROOT / root
         paths.extend([top] if top.is_file() else sorted(top.rglob("*")))
-    return [p for p in paths if p.is_file() and p.suffix in {".sh", ""}]
+    scripts = []
+    for p in paths:
+        if not p.is_file() or p.suffix not in {".sh", ""}:
+            continue
+        with p.open("rb") as fh:
+            first = fh.readline()
+        if first.startswith(b"#!") and b"bash" in first:
+            scripts.append(p)
+    return scripts
 
 
 def test_scripts_are_syntactically_valid() -> None:
@@ -1945,7 +1955,7 @@ def test_shell_json_edits_wait_for_the_shells_asynchronous_writes(tmp_path: Path
     0.2 s write delay under the real wait budget."""
     env = _setup(tmp_path)
     state = _shell_model(env, delay=0.2)
-    _plugin_fixtures(env, tmp_path)
+    _real_jq(env)
     # Discovered at once, so the enable's own discovery wait does not eat the budget.
     _stub(
         env["bins"] / "omarchy-plugin-list",
@@ -2015,21 +2025,22 @@ def test_fastfetch_link_without_existing_config_makes_no_backup(tmp_path: Path) 
 
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
     """Every bin/hyprconf-* file — the README › bin list — installed by glob
-    with the checkout path substituted."""
+    with the checkout path substituted. The two bar feeders are not among
+    them: they ship inside plugins/hyprconf-resources and land with it."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
     shipped = sorted(p.name for p in (REPO_ROOT / "bin").glob("hyprconf-*"))
     assert shipped == [
         "hyprconf-firefox-theme",
         "hyprconf-gaps",
-        "hyprconf-gpu-info",
         "hyprconf-help",
         "hyprconf-install-service-protonvpn",
         "hyprconf-monitor-preset",
-        "hyprconf-stats",
         "hyprconf-vulkan-gpu",
         "hyprconf-yubikey",
     ]
+    assert not list((env["home"] / ".local" / "bin").glob("hyprconf-stats*"))
+    assert not list((env["home"] / ".local" / "bin").glob("hyprconf-gpu-info*"))
     for name in shipped:
         installed = env["home"] / ".local" / "bin" / name
         assert os.access(installed, os.X_OK), name
@@ -2042,95 +2053,90 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _plugin_fixtures(env: dict, tmp_path: Path) -> Path:
-    """Real jq + a fake omarchy.clock plugin source behind a catalog stub.
-
-    The stage resolves the plugin source from omarchy-plugin-catalog at
-    runtime and rewrites its manifest with jq, so these tests need the real
-    jq and a catalog pointing at a source tree under tmp_path."""
-    _real_jq(env)
-    src = tmp_path / "clock-src"
-    src.mkdir(exist_ok=True)
-    (src / "manifest.json").write_text(
-        json.dumps(
-            {
-                "schemaVersion": 1,
-                "id": "omarchy.clock",
-                "name": "Clock",
-                "version": "1.0.0",
-                "kinds": ["bar-widget"],
-                "entryPoints": {"barWidget": "BarWidget.qml"},
-                "barWidget": {"displayName": "Clock"},
-                "omarchy": {"clonePaths": [{"source": "x", "target": "x"}]},
-            }
-        )
-    )
-    (src / "BarWidget.qml").write_text("precision: SystemClock.Minutes\n")
-    catalog = tmp_path / "catalog.json"
-    catalog.write_text(
-        json.dumps(
-            [
-                {
-                    "id": "omarchy.clock",
-                    "firstParty": True,
-                    "sourceDir": str(src),
-                    "manifestPath": str(src / "manifest.json"),
-                    "name": "Clock",
-                },
-            ]
-        )
-    )
-    _stub(env["bins"] / "omarchy-plugin-catalog", env["calls"], f'cat "{catalog}"')
-    return src
-
-
-def test_clock_is_copied_patched_and_set_once(tmp_path: Path) -> None:
+def test_clock_is_a_shipped_plugin_synced_every_run_and_set_once(tmp_path: Path) -> None:
     """The stock widget samples SystemClock at Minutes precision (shell/
     plugins/panels/clock/BarWidget.qml), so a seconds format freezes. The
-    stage copies the widget to the project's own hyprconf.clock — source
-    resolved from omarchy-plugin-catalog at runtime, manifest rewritten the
-    way omarchy-plugin-clone's update_manifest does — and patches the copy.
-    Set-once: the marker is what keeps the post-update hook from reverting a
+    overlay ships its own copy, plugins/hyprconf-clock (Omarchy's widget with
+    two deltas, clonedFrom omarchy.clock), and syncs it like the other three
+    — no install-time copy of the stock plugin, so nothing to resolve from
+    omarchy-plugin-catalog and nothing frozen at the release the first run
+    saw. The user's choices are set once behind the marker: the enable, the
+    format, the anchor — what keeps the post-update hook from reverting a
     format the user later picked."""
     env = _setup(tmp_path)
-    _plugin_fixtures(env, tmp_path)
+    _real_jq(env)
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     calls = _calls(env)
     assert "omarchy-plugin-enable hyprconf.clock" in calls
     assert "omarchy-bar set hyprconf.clock format hh:mm:ss AP" in calls
-    # The copy is patched before the enable, and the rescan that precedes it
-    # hot-reloads plugin code (shell/README.md) — no shell restart.
+    assert "omarchy-plugin-catalog" not in _commands(env)
+    # Synced before the enable, and the rescan that precedes it hot-reloads
+    # plugin code (shell/README.md) — no shell restart.
     assert "omarchy-shell shell rescanPlugins" in calls
     assert "omarchy-restart-shell" not in _commands(env)
 
     plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.clock"
+    src = REPO_ROOT / "plugins" / "hyprconf-clock"
+    for f in src.iterdir():
+        assert (plug / f.name).read_bytes() == f.read_bytes(), f.name
     widget = (plug / "BarWidget.qml").read_text()
     assert "SystemClock.Seconds" in widget
     assert "SystemClock.Minutes" not in widget
     manifest = json.loads((plug / "manifest.json").read_text())
     assert manifest["id"] == "hyprconf.clock"
     assert manifest["omarchy"]["clonedFrom"] == "omarchy.clock"
-    assert "clonePaths" not in manifest["omarchy"]
     assert manifest["barWidget"]["displayName"] == "hyprconf Clock"
 
+    # Set once: no second enable or format set. Synced every run: a stale
+    # installed copy comes back to the repo's, marker or not.
+    (plug / "BarWidget.qml").write_text("// stale\n")
     env["calls"].write_text("")
     _run(env, "--no-update")
     again = _calls(env)
-    assert not any(c.startswith("omarchy-plugin-catalog") for c in again)
     assert not any(c.startswith("omarchy-bar") for c in again)
+    assert not any(c.startswith("omarchy-plugin-enable") for c in again)
+    assert (plug / "BarWidget.qml").read_bytes() == (src / "BarWidget.qml").read_bytes()
+    assert "omarchy-shell shell rescanPlugins" in again
 
 
 def test_clock_widget_id_carries_no_username() -> None:
     """omarchy-plugin-clone names clones <username>.<id> with no way to
     choose otherwise — a username must never leak into shipped
-    configuration. The stage builds the copy itself under the project's own
-    namespace, beside hyprconf.resources."""
+    configuration. The shipped plugin carries the project's own id under
+    its namespace, beside hyprconf.resources, and install.sh never clones."""
+    manifest = json.loads((REPO_ROOT / "plugins" / "hyprconf-clock" / "manifest.json").read_text())
+    assert manifest["id"] == "hyprconf.clock"
     code = _code_only(INSTALL_SH.read_text())
     assert "hyprconf.clock" in code
     assert "omarchy-plugin-clone" not in code
     assert "id -un" not in code
     assert "$USER" not in code and "${USER" not in code
+
+
+def test_plugin_sync_leaves_an_omarchy_plugin_add_checkout_alone(tmp_path: Path) -> None:
+    """Each plugin folder is publishable on its own, and `omarchy plugin add
+    <url>` lands the same id as a git checkout (bin/omarchy-plugin-add:
+    clone, validate, mv to plugins/<id>; 4.0.2-1). That checkout is
+    Omarchy's to update (bin/omarchy-plugin-update fast-forwards it and
+    refuses a non-git folder), so the sync must not see its .git as
+    "stale" and replace it — edits and all. The enable-once marker logic is
+    untouched: the widget is still enabled on the first run."""
+    env = _setup(tmp_path)
+    plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.resources"
+    (plug / ".git").mkdir(parents=True)
+    (plug / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
+    (plug / "Widget.qml").write_text("// the user's checkout\n")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert (plug / ".git" / "HEAD").read_text() == "ref: refs/heads/main\n"
+    assert (plug / "Widget.qml").read_text() == "// the user's checkout\n"
+    assert not (plug / "manifest.json").exists()
+    assert not list(plug.parent.glob(".hyprconf.*"))
+    assert "omarchy plugin update hyprconf.resources" in proc.stdout
+    assert "omarchy-plugin-enable hyprconf.resources" in _calls(env)
+    # The other plugins are synced as before.
+    assert (plug.parent / "hyprconf.workspaces" / "manifest.json").is_file()
 
 
 def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> None:
@@ -2139,7 +2145,7 @@ def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> 
     marker may be written — so the next in-session run tries every widget
     again — and nothing is set on a clock that never landed."""
     env = _setup(tmp_path)
-    _plugin_fixtures(env, tmp_path)
+    _real_jq(env)
     _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
@@ -2156,7 +2162,7 @@ def test_discovery_wait_is_skipped_when_there_is_no_shell_to_ask(tmp_path: Path)
     not sit through the full discovery wait once per widget before every
     enable fails anyway: one list call per enable, then the retry warning."""
     env = _setup(tmp_path)
-    _plugin_fixtures(env, tmp_path)
+    _real_jq(env)
     _stub(env["bins"] / "omarchy-plugin-list", env["calls"], "exit 1")
     _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
     proc = _run(env, "--no-update", extra_env={"_HYPRCONF_PLUGIN_WAIT": "40"})
@@ -2244,12 +2250,13 @@ def test_installed_plugins_pass_omarchy_plugin_validate(tmp_path: Path) -> None:
     """Omarchy's own validator (the checks PluginRegistry.qml enforces:
     schemaVersion, required fields, entry points that exist, a valid
     defaultSection, no symlinks, no omarchy.* id) over every plugin dir the
-    overlay puts under ~/.config/omarchy/plugins — the three shipped copies
-    and the hyprconf.clock copy. Real when installed; a pure check."""
+    overlay puts under ~/.config/omarchy/plugins — the four shipped plugins
+    as installed. Real when installed; a pure check. The same checks, in
+    Python, run everywhere in tests/unit/test_plugins.py."""
     if not PLUGIN_VALIDATE.is_file():
         pytest.skip("no installed omarchy-plugin-validate")
     env = _setup(tmp_path)
-    _plugin_fixtures(env, tmp_path)
+    _real_jq(env)
     assert _run(env, "--no-update").returncode == 0
     plugins = env["home"] / ".config" / "omarchy" / "plugins"
     dirs = sorted(p for p in plugins.iterdir() if p.is_dir())
@@ -2362,10 +2369,12 @@ def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
     """The post-update hook re-runs the installer after every Omarchy update;
     an unconditional enable would undo `omarchy plugin disable <id>` each
     time. The first run enables every shipped widget, later runs leave the
-    choice alone (one implementation, enable_plugin_once, three ids)."""
+    choice alone (enable_plugin_once for three ids; the clock's set-once
+    part, which also sets the format and the anchor, sits behind its own
+    marker in stage_clock)."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
-    for widget in ("resources", "workspaces", "active-window"):
+    for widget in ("resources", "clock", "workspaces", "active-window"):
         assert f"omarchy-plugin-enable hyprconf.{widget}" in _calls(env)
     env["calls"].write_text("")
     _run(env, "--no-update")
@@ -2443,7 +2452,7 @@ def test_clock_copy_takes_the_center_anchor_with_it(tmp_path: Path) -> None:
     points at the stock id, so a user's own anchor choice is never
     overridden."""
     env = _setup(tmp_path)
-    _plugin_fixtures(env, tmp_path)
+    _real_jq(env)
     shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
     shell_json.parent.mkdir(parents=True, exist_ok=True)
     shell_json.write_text('{"bar": {"centerAnchor": "omarchy.clock"}}')

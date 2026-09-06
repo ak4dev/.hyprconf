@@ -1,11 +1,13 @@
 """Unit / functional tests for the two streaming feeders behind the
-hyprconf.resources bar widget (plugins/hyprconf-resources/Widget.qml).
+hyprconf.resources bar widget (plugins/hyprconf-resources/Widget.qml), which
+ship inside that plugin folder (plugins/hyprconf-resources/bin/) and are run
+by absolute path from it.
 
-bin/hyprconf-stats is the long-lived cpu/mem/net/temp sampler (cpu temperature
-is read straight from a hwmon path resolved once at startup; the default-route
+hyprconf-stats is the long-lived cpu/mem/net/temp sampler (cpu temperature is
+read straight from a hwmon path resolved once at startup; the default-route
 interface from /proc/net/route); all of its system paths are
-HYPRCONF_STATS_*-overridable, and a tick forks nothing. bin/hyprconf-gpu-info
-is a long-lived stream too: nvidia-smi --loop piped through one awk, or a
+HYPRCONF_STATS_*-overridable, and a tick forks nothing. hyprconf-gpu-info is a
+long-lived stream too: nvidia-smi --loop piped through one awk, or a
 pure-bash sysfs loop over AMD's gpu_busy_percent or Intel's xe idle-residency
 counter (HYPRCONF_GPU_*-overridable). These tests drive them hermetically with
 fake sysfs/proc trees and fake binaries; a PATH `sleep` fake is the hook that
@@ -23,8 +25,11 @@ import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
-GPU_INFO = REPO_ROOT / "bin" / "hyprconf-gpu-info"
-STATS = REPO_ROOT / "bin" / "hyprconf-stats"
+# The feeders ship inside the plugin that runs them, by absolute path from
+# its own folder — nothing on PATH.
+FEEDERS = REPO_ROOT / "plugins" / "hyprconf-resources" / "bin"
+GPU_INFO = FEEDERS / "hyprconf-gpu-info"
+STATS = FEEDERS / "hyprconf-stats"
 
 
 # ---------------------------------------------------------------------------

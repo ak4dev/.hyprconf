@@ -4,19 +4,34 @@
 //     <gpu>  <thermo>36°   7%   <mem>  2.3/32.6G   ↓ 1.2MB/s
 //
 // Streams JSON off two long-lived background scripts rather than polling:
-//   hyprconf-stats     — cpu%, cpu temp, mem, net down/up (one line/sec)
-//   hyprconf-gpu-info  — the ACTIVE GPU's util/temp/VRAM (one line/2s): on a
-//                        multi-GPU box the card with the most VRAM in use,
-//                        re-picked every sample, so an idle second card
-//                        never shadows the one doing the work. NVIDIA, AMD
-//                        and Intel (xe: Panther Lake and the other Xe2/Xe3
-//                        parts), which reports no VRAM of its own — the
-//                        cell then reads "shared"
-// Both are installed onto PATH by install.sh (the convention Omarchy's own
-// plugins follow — none bundles its scripts; they shell out by name). The bar
+//   bin/hyprconf-stats     — cpu%, cpu temp, mem, net down/up (one line/sec)
+//   bin/hyprconf-gpu-info  — the ACTIVE GPU's util/temp/VRAM (one line/2s):
+//                            on a multi-GPU box the card with the most VRAM
+//                            in use, re-picked every sample, so an idle
+//                            second card never shadows the one doing the
+//                            work. NVIDIA, AMD and Intel (xe: Panther Lake
+//                            and the other Xe2/Xe3 parts), which reports no
+//                            VRAM of its own — the cell then reads "shared"
+// Both ship INSIDE this plugin folder and are run by absolute path from it,
+// the way Omarchy's clipboard plugin runs its bundled capture.sh
+// (shell/plugins/clipboard/Clipboard.qml: `captureScript: root.omarchyPath +
+// "/shell/plugins/clipboard/capture.sh"`, `command: [root.captureScript]`,
+// Omarchy 4.0.2-1) — so the widget needs nothing on PATH and works installed
+// by `omarchy plugin add` as much as by hyprconf's install.sh. The folder is
+// resolved from this file's own URL: the shell loads an entry point as a
+// percent-encoded file:// URL (services/PluginRegistry.qml entryPointUrl →
+// Commons/Util.qml fileUrl), so Qt.resolvedUrl(".") is that URL's directory
+// and decodeURIComponent gives the filesystem path back — a space or a "%"
+// in the path survives the round trip (verified with the qml tool). The bar
 // is built per monitor (Bar.qml's `Variants { model: Quickshell.screens }`),
 // so each bar surface runs its own pair of feeders — the same per-instance
 // Process pattern Omarchy's KeyboardLayout.qml and SystemUpdate.qml use.
+//
+// A stream that produced output and then died is restarted after a second
+// (a driver hiccup, an OOM kill — Clipboard.qml restarts its watchers the
+// same way); one that exits without ever producing output means "no such
+// hardware" and is left alone: the GPU cells then stay blank but sized, so
+// the grid holds its shape.
 //
 // Every column has a FIXED width, measured once with TextMetrics from the
 // widest value it can show, so the line never shifts as a speed goes from
@@ -43,6 +58,10 @@ BarWidget {
   id: root
   moduleName: "hyprconf.resources"
 
+  // This plugin's own directory, with its trailing slash — see the header.
+  readonly property string pluginDir: decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, ""))
+
+  property bool statsProduced: false
   property int cpuPct: 0
   property string cpuTemp: ""
   property string memText: ""
@@ -86,11 +105,12 @@ BarWidget {
   Process {
     id: statsProc
     running: true
-    command: ["hyprconf-stats"]
+    command: [root.pluginDir + "bin/hyprconf-stats"]
     stdout: SplitParser {
       onRead: data => {
         try {
           const j = JSON.parse(data)
+          root.statsProduced = true
           root.cpuPct = j.cpu
           root.memText = j.mem
           root.netDown = j.down
@@ -99,16 +119,21 @@ BarWidget {
         } catch (e) {}
       }
     }
+    onExited: function() {
+      if (root.statsProduced) statsRestartTimer.start()
+    }
   }
 
-  // A stream that produced output and then died is restarted (driver
-  // hiccup / transient error); one that exits without ever producing
-  // output means "no such hardware" and is left alone — the GPU cells
-  // below stay blank (but sized, so the grid holds its shape).
+  Timer {
+    id: statsRestartTimer
+    interval: 1000
+    onTriggered: statsProc.running = true
+  }
+
   Process {
     id: gpuProc
     running: true
-    command: ["hyprconf-gpu-info"]
+    command: [root.pluginDir + "bin/hyprconf-gpu-info"]
     stdout: SplitParser {
       onRead: data => {
         try {
@@ -123,12 +148,12 @@ BarWidget {
       }
     }
     onExited: function() {
-      if (root.gpuProduced) restartTimer.start()
+      if (root.gpuProduced) gpuRestartTimer.start()
     }
   }
 
   Timer {
-    id: restartTimer
+    id: gpuRestartTimer
     interval: 1000
     onTriggered: gpuProc.running = true
   }
