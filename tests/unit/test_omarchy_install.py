@@ -2365,7 +2365,7 @@ def test_plugin_sync_re_asserts_a_lost_exec_bit(tmp_path: Path) -> None:
     """`diff -rq` compares bytes and says nothing about mode, so an installed
     feeder that lost its exec bit — an rsync or cloud restore of ~/.config
     without permissions, a clone git could not mark 100755 — was never
-    re-synced. Widget.qml execs it directly as an argv list, no shell, so it
+    re-synced. Service.qml execs it directly as an argv list, no shell, so it
     fails with EACCES and onExited only restarts a stream that had already
     produced output: the resources widget freezes at "0%" forever, and even
     `chmod +x` in the checkout plus a re-run changes nothing. origin/dev's
@@ -2387,9 +2387,8 @@ def test_plugin_sync_re_asserts_a_lost_exec_bit(tmp_path: Path) -> None:
     assert "omarchy-shell shell rescanPlugins" in _calls(env)
     assert not list(plugins.glob(".hyprconf.*"))
 
-    # And with nothing wrong the run is still a no-op — the mode of the
-    # plugin directory itself is mktemp -d's, not the checkout's, so the
-    # comparison must not look at it.
+    # And with nothing wrong the run is still a no-op: the comparison is
+    # -mindepth 1, and the modes it does read all came from the checkout.
     env["calls"].write_text("")
     assert _run(env, "--no-update").returncode == 0
     assert "omarchy-shell shell rescanPlugins" not in _calls(env)

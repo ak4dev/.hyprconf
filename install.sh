@@ -1214,10 +1214,14 @@ reload_plugins() {
 }
 
 # Every path under $1 as "<mode> <relative path>", sorted — the half of a
-# directory comparison `diff -rq` does not make. -mindepth 1 leaves the
-# directory itself out: the installed one carries mktemp -d's 0700, not the
-# checkout's, and never healing that is the point (it is where a plugin dir
-# is staged from), while a difference there would re-sync on every run.
+# directory comparison `diff -rq` does not make. -mindepth 1 keeps it to the
+# files the sync reproduces: the plugin directory's own mode comes from the
+# checkout either way (cp -aL copies the source directory's mode onto the
+# staging dir mktemp -d made, and mv keeps it), so including it would decide
+# nothing. No entry is ever a symlink to compare against a copy — Omarchy's
+# validator and test_plugins.py both refuse one inside a plugin folder
+# (bin/omarchy-plugin-validate, "symlinks are not allowed inside a plugin
+# folder"; 4.0.2-1) — so this and the cp -aL below cannot disagree.
 dir_modes() {
     (cd "$1" && find . -mindepth 1 -printf '%m %p\n' | sort)
 }
@@ -1244,7 +1248,7 @@ dir_modes() {
 # The freshness gate is bytes AND modes. `diff -rq` is mode-blind, so an
 # installed feeder that lost its exec bit (an rsync or cloud restore of
 # ~/.config without permissions, a clone git could not mark 100755) was
-# never re-synced: Widget.qml execs it directly as an argv list, no shell,
+# never re-synced: Service.qml execs it directly as an argv list, no shell,
 # so it fails with EACCES and the widget freezes at "0%" — and `chmod +x`
 # in the checkout plus a re-run did nothing, because the bytes still
 # matched. cp -aL below already puts the checkout's modes back.
