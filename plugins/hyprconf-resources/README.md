@@ -20,15 +20,16 @@ card is shown — the one with the most VRAM in use (ties: utilisation, then
 index), re-evaluated every sample; NVIDIA (`nvidia-smi --loop`), AMD
 (`gpu_busy_percent`) and Intel (the `xe` driver's GT idle residency) in that
 order. An Intel iGPU has no VRAM of its own, so it reads `shared`, and its
-tooltip carries the GT clock where NVIDIA's carries power draw. A feeder that exits without ever emitting a line means the hardware is
-not there and is left alone (the GPU cells stay blank but sized); one that
-emitted a line and then died is restarted on a capped backoff — 1 s, 2 s,
-4 s, 8 s, 16 s, 32 s, then parked until the shell restarts, and the ladder is
-refilled by the next line that arrives. An Intel card in runtime suspend is
-never touched: residency, hwmon and clock each resume an `xe` device on read,
-so a tick that finds `power/runtime_status` saying `suspended` or
-`suspending` reads nothing off that card and ranks it idle. Every other
-value is measured, a missing file included. Click the CPU cell for `btop`
+tooltip carries the GT clock where NVIDIA's carries power draw. A feeder
+that exits without ever emitting a line means the hardware is not there and
+is left alone (the GPU cells stay blank but sized); one that emitted a line
+and then died is restarted on a capped backoff — 1 s, 2 s, 4 s, 8 s, 16 s,
+32 s, then parked until the shell restarts, and the ladder is refilled by
+the next line that arrives. An Intel card in runtime suspend is never
+touched: residency, hwmon and clock each resume an `xe` device on read, so a
+tick that finds `power/runtime_status` saying `suspended` or `suspending`
+reads nothing off that card and ranks it idle. Every other value is
+measured, a missing file included. Click the CPU cell for `btop`
 (`omarchy-launch-or-focus-tui btop`).
 
 ## Install
