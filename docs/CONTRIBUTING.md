@@ -82,7 +82,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, workspace rehoming)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
 │   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, the `omarchy refresh` guard, the plugin sync and its `omarchy plugin add` checkout guard …), the post-update hook end to end, restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
-│   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), Omarchy 4.0.2's Text.PlainText rule over every QML, the clock's parity with the installed stock clock (skips without Omarchy)
+│   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), Omarchy 4.0.2's Text.PlainText rule over every QML, the clock's parity with the installed stock clock (skips without Omarchy), the resources feeders' capped-backoff restart shape
 │   ├── test_stats_tools.py       #   plugins/hyprconf-resources/bin/{hyprconf-stats,hyprconf-gpu-info} (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins hyprconf-stats' fork-free tick)
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
@@ -254,8 +254,10 @@ runs, under `bin/`, resolved from the plugin's own directory and never from
 `PATH`. `tests/unit/test_plugins.py` pins that shape and the validator's own
 checks; `tests/integration/test_plugin_split.py` runs the split in a
 throwaway repository and holds the result to the same contract. The
-manifest's `version` is bumped with every change to a folder (SemVer). A
-published plugin is listed on the community directory,
+manifest's `version` (SemVer) is bumped once per set of changes that reaches
+a consumer and is never left behind a shipped one — a series of commits on
+`dev` takes one bump between publishes, not one each. A published plugin is
+listed on the community directory,
 <https://omarchyplugins.com>; the URL each README names,
 `https://github.com/ak4dev/omarchy-hyprconf-<name>`, is the placeholder until
 the repositories exist. The overlay keeps syncing the same folders from the
