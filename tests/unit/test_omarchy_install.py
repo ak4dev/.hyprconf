@@ -2594,6 +2594,58 @@ def test_a_real_edit_in_the_checkout_is_never_reverted(tmp_path: Path) -> None:
     assert "stock template" not in proc.stderr
 
 
+def test_a_clobber_is_still_repaired_after_omarchy_ships_a_new_template(tmp_path: Path) -> None:
+    """`cmp` against the INSTALLED template alone only recognises a clobber
+    until Omarchy ships the next version of that file — and omarchy-update
+    upgrades the package BEFORE it runs the post-update hook
+    (/usr/bin/omarchy-update: omarchy-update-system-pkgs, then omarchy-hook
+    post-update, 4.0.2-1). So a file refreshed at template A and not repaired
+    the same day read as a real user edit the moment B landed: no repair, no
+    warning, every hyprconf hotkey gone, and every later hyprsync dead at the
+    fast-forward pull, permanently — the guard could never fire again. The
+    installer keeps the last template it saw under
+    ~/.local/state/hyprconf/stock/ and accepts that one too."""
+    env = _setup(tmp_path)
+    repo = _checkout(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_PASSTHROUGH)
+    templates = _stock_templates(env)
+    committed = (repo / "hypr" / "bindings.lua").read_text()
+    assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
+
+    _refresh_config(env, templates, "bindings.lua")  # the damage, at template A
+    bumped = STOCK_BINDINGS + "-- Omarchy 4.1 says something new here.\n"
+    (templates / "bindings.lua").write_text(bumped)  # the package upgrade
+
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert "stock template" in proc.stderr
+    assert (repo / "hypr" / "bindings.lua").read_text() == committed
+    # And the cache moved on with Omarchy, so the next bump is covered too.
+    cached = env["home"] / ".local" / "state" / "hyprconf" / "stock" / "bindings.lua"
+    assert cached.read_text() == bumped
+
+
+def test_a_real_edit_survives_a_template_bump(tmp_path: Path) -> None:
+    """The cached template only ever ADDS a way to recognise Omarchy's own
+    bytes: anything the user wrote is still left alone, before and after a
+    bump."""
+    env = _setup(tmp_path)
+    repo = _checkout(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_PASSTHROUGH)
+    templates = _stock_templates(env)
+    assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
+
+    live = env["home"] / ".config" / "hypr" / "bindings.lua"
+    edited = live.read_text() + '\no.bind("SUPER + SHIFT + R", "SSH", "kitty -e ssh box")\n'
+    live.write_text(edited)  # through the symlink, like an editor would
+    (templates / "bindings.lua").write_text(STOCK_BINDINGS + "-- 4.1\n")
+
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert "stock template" not in proc.stderr
+    assert (repo / "hypr" / "bindings.lua").read_text() == edited
+
+
 def test_guard_reports_when_git_cannot_repair(tmp_path: Path) -> None:
     """No git to restore from (a checkout without .git — a zip download — or
     the stub in every other test): the clobber is still reported, and the

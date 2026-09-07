@@ -349,9 +349,33 @@ restore_clobbered_override() {
     local name="$1"
     local ours="$HERE/hypr/$name"
     local stock="$OMARCHY_PATH/config/hypr/$name"
+    # The last template this installer saw. Comparing against the INSTALLED
+    # one alone recognises a clobber only until Omarchy ships the next
+    # version of that file — and omarchy-update upgrades the package BEFORE
+    # it runs the post-update hook (bin/omarchy-update: omarchy-update-
+    # system-pkgs, then omarchy-hook post-update; 4.0.2-1). So a file
+    # refreshed at template A and not repaired the same day read as a real
+    # user edit the moment B landed: no repair, no warning, every hyprconf
+    # hotkey gone, and every later hyprsync dead at the fast-forward pull —
+    # permanently, because the guard could never fire again.
+    local cached="$HOME/.local/state/hyprconf/stock/$name"
     [[ -f $ours && -f $stock ]] || return 0
-    cmp -s "$ours" "$stock" || return 0
-    if git -C "$HERE" checkout -q -- "hypr/$name" 2>/dev/null && ! cmp -s "$ours" "$stock"; then
+    local matched=""
+    if cmp -s "$ours" "$stock"; then
+        matched="$stock"
+    elif [[ -f $cached ]] && cmp -s "$ours" "$cached"; then
+        matched="$cached"
+    fi
+    # Remember what the template looks like NOW, for the run after the next
+    # Omarchy release replaces it. Written only when it changed, so a re-run
+    # stays byte-stable. The whole directory goes with the rest of the state
+    # (README > Reverting to stock).
+    if ! cmp -s "$stock" "$cached" 2>/dev/null; then
+        mkdir -p "${cached%/*}"
+        cp "$stock" "$cached"
+    fi
+    [[ -n $matched ]] || return 0
+    if git -C "$HERE" checkout -q -- "hypr/$name" 2>/dev/null && ! cmp -s "$ours" "$matched"; then
         warn "hypr/$name in the checkout had been replaced by Omarchy's stock template" \
              "(omarchy refresh writes through the symlink) — restored it from git"
     else
