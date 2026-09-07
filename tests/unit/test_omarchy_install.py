@@ -3098,17 +3098,31 @@ def test_menu_stage_leaves_a_file_it_cannot_extend_alone(tmp_path: Path) -> None
     assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
 
 
-def test_menu_stage_leaves_an_items_wrapper_alone(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "before",
+    [
+        '{\n  "items": {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
+        # The brace on its own line — JSON says nothing about where it goes,
+        # and a per-line guard never sees this one.
+        '{\n  "items":\n  {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
+        # Both braces split off, the shape a formatter leaves behind.
+        '{\n  "items"\n  :\n  {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
+    ],
+    ids=["one-line", "split-brace", "split-colon"],
+)
+def test_menu_stage_leaves_an_items_wrapper_alone(tmp_path: Path, before: str) -> None:
     """Omarchy's parser also accepts `{ "items": { … } }` and then reads
     ONLY that object (shell/plugins/menu/MenuModel.js, 4.0.2-1: parsed.items
     when it is a non-array object). The block goes before the LAST brace
     line, which in that shape is the outer one — the row would sit outside
     items, never shown, and every re-run would call the file current. So
-    the file is left exactly as it is, with a warning naming the shape."""
+    the file is left exactly as it is, with a warning naming the shape.
+
+    The wrapper is a JSON fact, not a line fact: `"items":` and its `{` may
+    sit on different lines, so the guard runs over the joined file."""
     env = _setup(tmp_path)
     ext = env["home"] / MENU_EXT
     ext.parent.mkdir(parents=True)
-    before = '{\n  "items": {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n'
     ext.write_text(before)
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr

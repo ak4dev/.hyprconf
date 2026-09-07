@@ -1038,8 +1038,15 @@ stage_menu() {
             # LAST brace line, which in that shape is the outer one — the
             # row would sit outside items, ignored for good, while every
             # re-run found the file current. Refused instead.
-            for (i = 1; i <= NR; i++)
-                if (lines[i] ~ /^[[:space:]]*\{?[[:space:]]*"items"[[:space:]]*:[[:space:]]*\{/) exit 4
+            #
+            # The wrapper is a JSON fact, not a line fact: `"items"`, its
+            # colon and its `{` may each sit on a line of their own. So the
+            # test runs over the joined file, where [[:space:]] spans the
+            # newlines too; the leading "\n" is what makes the anchor hold
+            # for the first line as well.
+            joined = "\n"
+            for (i = 1; i <= NR; i++) joined = joined lines[i] "\n"
+            if (joined ~ /\n[[:space:]]*\{?[[:space:]]*"items"[[:space:]]*:[[:space:]]*\{/) exit 4
             close_at = 0
             for (i = NR; i >= 1; i--)
                 if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) { close_at = i; break }
