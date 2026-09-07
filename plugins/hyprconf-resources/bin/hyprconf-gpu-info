@@ -8,8 +8,12 @@ set -euo pipefail
 # Service.qml owns this Process and the shell loads a service entry point
 # once (Service.qml's header has the seam). It used to run once per bar
 # surface, justified as "the per-instance Process pattern KeyboardLayout.qml
-# and SystemUpdate.qml use" — which was wrong: those two are a six-hour
-# timer and a one-shot startup read, not permanent streams.
+# and SystemUpdate.qml use" — which was wrong: neither of those is a
+# permanent stream. SystemUpdate.qml polls on a six-hour repeating Timer
+# (interval 21600000); KeyboardLayout.qml reads xkbcli once at startup and
+# then runs `hyprctl -j devices` on Hyprland's own events, adding a 10 s
+# Timer only while the seat is ambiguous (Omarchy 4.0.2-1,
+# shell/plugins/bar/widgets/).
 #
 # Streaming keeps ONE nvidia-smi (`--loop` mode, one NVML session) piped
 # through ONE awk instead of a process tree per poll; the AMD and Intel paths
