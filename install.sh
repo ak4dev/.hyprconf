@@ -1158,6 +1158,15 @@ reload_plugins() {
         omarchy-restart-shell >/dev/null 2>&1 || true
 }
 
+# Every path under $1 as "<mode> <relative path>", sorted — the half of a
+# directory comparison `diff -rq` does not make. -mindepth 1 leaves the
+# directory itself out: the installed one carries mktemp -d's 0700, not the
+# checkout's, and never healing that is the point (it is where a plugin dir
+# is staged from), while a difference there would re-sync on every run.
+dir_modes() {
+    (cd "$1" && find . -mindepth 1 -printf '%m %p\n' | sort)
+}
+
 # Install (or refresh) one of the overlay's own bar-widget plugins, shipped
 # in plugins/<src>, as ~/.config/omarchy/plugins/<id>. SYNCED on every run —
 # a `git pull` updates the widget the way it updates everything else the
@@ -1176,6 +1185,14 @@ reload_plugins() {
 # replace the checkout, uncommitted edits included. The other order is
 # safe on its own: with the overlay's copy in place, omarchy-plugin-add
 # refuses a duplicate id.
+#
+# The freshness gate is bytes AND modes. `diff -rq` is mode-blind, so an
+# installed feeder that lost its exec bit (an rsync or cloud restore of
+# ~/.config without permissions, a clone git could not mark 100755) was
+# never re-synced: Widget.qml execs it directly as an argv list, no shell,
+# so it fails with EACCES and the widget freezes at "0%" — and `chmod +x`
+# in the checkout plus a re-run did nothing, because the bytes still
+# matched. cp -aL below already puts the checkout's modes back.
 sync_plugin_dir() {
     local src="$HERE/plugins/$1" id="$2"
     local dir="$HOME/.config/omarchy/plugins/$id"
@@ -1183,7 +1200,8 @@ sync_plugin_dir() {
         info "$id is an \`omarchy plugin add\` checkout — left to: omarchy plugin update $id"
         return 0
     fi
-    if [[ -d $dir ]] && diff -rq "$src" "$dir" >/dev/null 2>&1; then
+    if [[ -d $dir ]] && diff -rq "$src" "$dir" >/dev/null 2>&1 &&
+        [[ "$(dir_modes "$src")" == "$(dir_modes "$dir")" ]]; then
         return 0
     fi
     mkdir -p "$HOME/.config/omarchy/plugins"

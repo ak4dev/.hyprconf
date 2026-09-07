@@ -29,6 +29,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "install.sh"
 HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
+PLUGIN_FEEDER = Path("plugins") / "hyprconf-resources" / "bin" / "hyprconf-stats"
 PROTONVPN_INSTALLER = REPO_ROOT / "bin" / "hyprconf-install-service-protonvpn"
 # Omarchy's own validator for a plugin folder (pure: reads the manifest and
 # the tree, touches nothing); real when installed, the test skips otherwise.
@@ -2286,6 +2287,40 @@ def test_plugin_sync_stages_a_sibling_temp_dir_and_rescans(tmp_path: Path) -> No
     assert "omarchy-shell shell rescanPlugins" in _calls(env)
     assert "omarchy-restart-shell" in _commands(env)
     assert not list(plugins.glob(".hyprconf.*"))
+
+
+def test_plugin_sync_re_asserts_a_lost_exec_bit(tmp_path: Path) -> None:
+    """`diff -rq` compares bytes and says nothing about mode, so an installed
+    feeder that lost its exec bit — an rsync or cloud restore of ~/.config
+    without permissions, a clone git could not mark 100755 — was never
+    re-synced. Widget.qml execs it directly as an argv list, no shell, so it
+    fails with EACCES and onExited only restarts a stream that had already
+    produced output: the resources widget freezes at "0%" forever, and even
+    `chmod +x` in the checkout plus a re-run changes nothing. origin/dev's
+    stage_bin re-asserted the mode on the cmp-equal path; the feeders lost
+    that self-heal when they moved into the plugin folder. Asserted on
+    st_mode, not os.access: CI runs as root, which bypasses the exec bit."""
+    env = _setup(tmp_path)
+    assert _run(env, "--no-update").returncode == 0
+    plugins = env["home"] / ".config" / "omarchy" / "plugins"
+    feeder = plugins / "hyprconf.resources" / "bin" / "hyprconf-stats"
+    assert feeder.stat().st_mode & 0o111
+
+    feeder.chmod(0o644)
+    env["calls"].write_text("")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert feeder.stat().st_mode & 0o111, "the exec bit was never re-asserted"
+    assert feeder.read_bytes() == (REPO_ROOT / PLUGIN_FEEDER).read_bytes()
+    assert "omarchy-shell shell rescanPlugins" in _calls(env)
+    assert not list(plugins.glob(".hyprconf.*"))
+
+    # And with nothing wrong the run is still a no-op — the mode of the
+    # plugin directory itself is mktemp -d's, not the checkout's, so the
+    # comparison must not look at it.
+    env["calls"].write_text("")
+    assert _run(env, "--no-update").returncode == 0
+    assert "omarchy-shell shell rescanPlugins" not in _calls(env)
 
 
 def test_resources_widget_declares_its_bar_section_in_the_manifest() -> None:
