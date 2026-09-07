@@ -27,10 +27,24 @@ jobs:
       - name: Install toolchain
         run: pacman -Syu --noconfirm --needed git make ruff shellcheck
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # Teed and republished for the same reason as the suite job below.
       - name: ShellCheck (all bash scripts)
-        run: make shellcheck
+        run: |
+          set -o pipefail
+          make shellcheck 2>&1 | tee /tmp/hyprconf-lint.log
       - name: Ruff (lint + format check)
-        run: make lint
+        run: |
+          set -o pipefail
+          make lint 2>&1 | tee -a /tmp/hyprconf-lint.log
+      - name: Publish the failure to the job summary
+        if: failure()
+        run: |
+          {
+            echo '### lint failed'
+            echo '```'
+            tail -n 150 /tmp/hyprconf-lint.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   unit-integration:
     name: "Unit + Integration"
@@ -53,6 +67,22 @@ jobs:
             qt6-declarative
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Same target scripts/publish gates on, so CI and a release run identically.
+      # Teed, because the raw job log needs admin rights to download
+      # (`/actions/jobs/<id>/logs` answers 403 "Must have admin rights to
+      # Repository" to anyone else) — so a CI-only failure would otherwise be
+      # invisible to the person fixing it. The step below republishes the tail
+      # into the job summary, which rides out on the check run and IS public.
       - name: Run unit + integration
-        run: make test
+        run: |
+          set -o pipefail
+          make test 2>&1 | tee /tmp/hyprconf-test.log
+      - name: Publish the failure to the job summary
+        if: failure()
+        run: |
+          {
+            echo '### `make test` failed'
+            echo '```'
+            tail -n 150 /tmp/hyprconf-test.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
