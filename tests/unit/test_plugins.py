@@ -408,7 +408,7 @@ def test_resources_feeders_restart_on_a_capped_backoff() -> None:
     GPU cells paint, so it can never be cleared — and a flat 1 s retry behind
     a latched flag never gives up: an NVIDIA box whose driver stops answering
     makes `nvidia-smi --loop` exit at once, and the respawn is then ~78,000
-    execs a day per bar surface, each paying a failing NVML init. So the
+    execs a day, each paying a failing NVML init. So the
     ladder (1 s, 2 s, 4 s, 8 s, 16 s, 32 s, then parked) and its refill on a
     line that parses are pinned here. Verified running under quickshell
     0.3.1 against a feeder that exits at once: 7 execs in 63 s, then nothing;

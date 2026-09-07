@@ -27,6 +27,7 @@ overlays are plugins inside it (`/usr/share/omarchy/shell/README.md`). Layout:
   Ui/        BarWidget.qml …      `import qs.Ui` — the base every bar widget extends
   services/  PluginRegistry.qml   discovery, validation, enabled state, clonedFrom resolution
   plugins/   bar/ panels/ …       first-party plugins (plugins/README.md lists ids and entry points)
+  plugins/services/                 first-party services; media/ is `service` + `bar-widget` in one manifest
 ```
 
 User plugins live in `~/.config/omarchy/plugins/<plugin-id>/`; the bar layout and
@@ -49,8 +50,8 @@ resources one (`plugins/hyprconf-resources/manifest.json`) relies on:
 {
   "schemaVersion": 1,
   "id": "hyprconf.resources",
-  "kinds": ["bar-widget"],
-  "entryPoints": { "barWidget": "Widget.qml" },
+  "kinds": ["bar-widget", "service"],
+  "entryPoints": { "barWidget": "Widget.qml", "service": "Service.qml" },
   "barWidget": {
     "displayName": "Resource Usage",
     "category": "System",
@@ -61,7 +62,8 @@ resources one (`plugins/hyprconf-resources/manifest.json`) relies on:
 ```
 
 `defaultSection` is what places `hyprconf.resources` on an enable with no
-placement flag (`stage_bar_plugin` passes none). Other optional `barWidget` keys:
+placement flag (`stage_bar_plugin` passes none). The second kind is the
+service seam below; it changes nothing about how the plugin is enabled. Other optional `barWidget` keys:
 `defaults` (per-widget settings the widget reads via `setting()`), `schema` (what
 `omarchy bar set` accepts). Validate with `omarchy plugin validate <plugin-folder>`
 (`bin/omarchy-plugin-validate`: `schemaVersion` the number 1, the five required
@@ -69,6 +71,51 @@ fields, the id's regex and the reserved `omarchy.*` namespace, relative
 `..`-free entry points that exist, one per kind, `defaultSection`'s domain, no
 symlink anywhere in the folder — `tests/unit/test_plugins.py` re-implements the
 list so CI pins it without Omarchy).
+
+### One instance for the session: `kinds: ["bar-widget", "service"]`
+
+The bar is built **per monitor** (`plugins/bar/Bar.qml`: `Variants { model:
+Quickshell.screens }`), so everything a widget owns — a `Process`, a poll
+timer, a D-Bus session — exists once per bar surface. Where the data is
+global, the second copy is waste; where it is a permanent stream it is
+measurable waste (`hyprconf.resources`: two processes and ~12 MB per screen,
+and on NVIDIA an independent NVML session per screen).
+
+Omarchy's seam for that is the **service** kind, and it has no first-party
+gate: `shell.qml`'s `_syncServices()` / `ensureService()` load
+`entryPoints.service` of any plugin whose manifest lists `service` and whose
+id `PluginRegistry.isEnabled` finds in `shell.json` — "third-party services
+are enabled by adding the plugin id to shell.json", its own comment — into a
+hidden `serviceHost` **once**. A layout entry counts as enabled
+(`findEntryLocation`), so a bar widget that is on the bar already has its
+service loaded, and `omarchy plugin disable` (which drops the layout entry
+and, for a third-party plugin, nothing else) destroys it again. One id, one
+switch. `omarchy-plugin-validate` carries `service` in its kind → entry-point
+table, so the folder still validates.
+
+The widget reads it back through the bar's `shell`:
+
+```qml
+readonly property var feed: root.bar?.shell?.serviceFor("hyprconf.resources") ?? null
+readonly property int cpuPct: root.feed ? root.feed.cpuPct : 0
+```
+
+`serviceFor(id)` is `shell.qml`'s accessor; `firstPartyServiceFor(id)`, which
+the stock `omarchy.media` bar widget uses on its own service
+(`shell/plugins/services/media/BarWidget.qml`), is a one-line alias for it.
+It returns `null` until the service is up, so **every** derived property needs
+a fallback — the binding re-evaluates on its own when the service arrives,
+because `_services` is a QML property reassigned wholesale. Verified under
+quickshell 0.3.1 against a reduced copy of `shell.qml`'s host: three surfaces
+built before the service saw `feed === null`, then the same single instance
+and one feeder pair between them.
+
+`shell` is injected into the bar by `shell.qml`'s `configureBar`
+(`if ("shell" in target) target.shell = shell`), so a third-party bar that
+declares no `shell` property leaves the widget on its fallbacks — the same
+exposure `omarchy.media` has. `ensureService` likewise offers the service
+`shell`, `manifest`, `omarchyPath`, `barWidgetRegistry` and `pluginRegistry`
+by property injection; declare only what you use.
 
 ### Copies of built-in widgets (`clonedFrom`)
 
@@ -244,9 +291,10 @@ Restarter { id: statsRestartTimer; proc: statsProc }
   `clearEnvironment`, `stdinEnabled`, `write(data)`, `signal(n)`, `exec(argv)`,
   `startDetached()`; signals `started`, `exited(exitCode, exitStatus)`.
   `StdioCollector` collects whole output instead of lines.
-- Pattern used by `plugins/hyprconf-resources/Widget.qml`: one long-lived JSON
-  stream per feeder (`bin/hyprconf-stats`, `bin/hyprconf-gpu-info` inside the
-  plugin folder), one pair per bar surface (the bar is built per monitor). A
+- Pattern used by `plugins/hyprconf-resources/Service.qml`: one long-lived
+  JSON stream per feeder (`bin/hyprconf-stats`, `bin/hyprconf-gpu-info` inside
+  the plugin folder), one pair for the whole session — they live in the
+  plugin's `service` entry point, not its widget, for the reason above. A
   stream that exits without output means "no such hardware": its cells stay
   blank but sized, and it is not restarted. One that produced output and then
   died IS restarted (Clipboard.qml restarts its watchers the same way) — but
@@ -254,8 +302,8 @@ Restarter { id: statsRestartTimer; proc: statsProc }
   flag stays latched (it also decides what the cells paint), so nothing else
   ever stops the loop, and the dead-hardware case is a feeder that exits
   *instantly*: `nvidia-smi --loop` returns at once when the driver stops
-  answering, so a 1 s retry is ~78,000 execs a day per bar surface, each
-  paying a failing NVML init. Upstream's `Clipboard.qml` has neither a
+  answering, so a 1 s retry is ~78,000 execs a day, each paying a failing
+  NVML init. Upstream's `Clipboard.qml` has neither a
   backoff nor a produced-output gate, so this is the stricter shape, not a
   relaxation of it.
 - `SystemClock { precision: SystemClock.Seconds }` (`quickshell-core.qmltypes`:

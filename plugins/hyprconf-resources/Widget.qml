@@ -3,45 +3,21 @@
 //     <cpu>  <thermo>41°   3%   <mem> 12.7/94.2G   ↑ 12.3kB/s
 //     <gpu>  <thermo>36°   7%   <mem>  2.3/32.6G   ↓ 1.2MB/s
 //
-// Streams JSON off two long-lived background scripts rather than polling:
-//   bin/hyprconf-stats     — cpu%, cpu temp, mem, net down/up (one line/sec)
-//   bin/hyprconf-gpu-info  — the ACTIVE GPU's util/temp/VRAM (one line/2s):
-//                            on a multi-GPU box the card with the most VRAM
-//                            in use, re-picked every sample, so an idle
-//                            second card never shadows the one doing the
-//                            work. NVIDIA, AMD and Intel (xe: Panther Lake
-//                            and the other Xe2/Xe3 parts), which reports no
-//                            VRAM of its own — the cell then reads "shared"
-// Both ship INSIDE this plugin folder and are run by absolute path from it,
-// the way Omarchy's clipboard plugin runs its bundled capture.sh
-// (shell/plugins/clipboard/Clipboard.qml: `captureScript: root.omarchyPath +
-// "/shell/plugins/clipboard/capture.sh"`, `command: [root.captureScript]`,
-// Omarchy 4.0.2-1) — so the widget needs nothing on PATH and works installed
-// by `omarchy plugin add` as much as by hyprconf's install.sh. The folder is
-// resolved from this file's own URL: the shell loads an entry point as a
-// percent-encoded file:// URL (services/PluginRegistry.qml entryPointUrl →
-// Commons/Util.qml fileUrl), so Qt.resolvedUrl(".") is that URL's directory
-// and decodeURIComponent gives the filesystem path back — a space or a "%"
-// in the path survives the round trip (verified with the qml tool). The bar
-// is built per monitor (Bar.qml's `Variants { model: Quickshell.screens }`),
-// so each bar surface runs its own pair of feeders — the same per-instance
-// Process pattern Omarchy's KeyboardLayout.qml and SystemUpdate.qml use.
+// Layout only. The numbers come from Service.qml, this plugin's other entry
+// point, which the shell loads ONCE for the session (see its header for the
+// seam and why): the bar is built per monitor (Bar.qml's `Variants { model:
+// Quickshell.screens }`), so anything owned by this file runs once per bar
+// surface, and two long-lived feeder processes per screen for globally
+// identical numbers is exactly what the service kind exists to avoid.
 //
-// A stream that exits without ever producing output means "no such
-// hardware" and is left alone: the GPU cells then stay blank but sized, so
-// the grid holds its shape. One that produced output and then died IS
-// restarted (a driver hiccup, an OOM kill — Clipboard.qml restarts its
-// watchers the same way), but on a backoff that gives up: 1 s, 2 s, 4 s,
-// 8 s, 16 s, 32 s, then parked until the next shell restart, and the ladder
-// is refilled the moment a fresh line arrives. The flat 1 Hz retry this
-// replaces never gave up, because the "it produced output once" flag is
-// latched — it also decides what the GPU cells paint, so it cannot be
-// cleared — and a feeder that dies instantly is the normal shape of dead
-// hardware: nvidia-smi --loop exits at once when the driver stops
-// answering, the awk behind it exits with no input, and each respawn pays a
-// failing NVML init for nothing, forever, once per bar surface. Upstream's
-// Clipboard.qml has no backoff and no produced-output gate at all, so this
-// is stricter than the pattern it follows, not looser.
+// The accessor is the one Omarchy's own `omarchy.media` bar widget uses on
+// its own service (shell/plugins/services/media/BarWidget.qml:10) —
+// `bar?.shell?.firstPartyServiceFor(id)`, spelled here with its real name,
+// `serviceFor` (shell.qml, 4.0.2-1: firstPartyServiceFor is a one-line
+// alias for it). It is null until the service is up, and on a third-party
+// bar that carries no `shell`: every cell then shows the blank/zero it
+// shows before the first line arrives, which is the same reading the widget
+// gives during the second between startup and the first sample.
 //
 // Every column has a FIXED width, measured once with TextMetrics from the
 // widest value it can show, so the line never shifts as a speed goes from
@@ -60,7 +36,6 @@
 // renders in the bar's foreground, matching Omarchy's own text widgets.
 
 import QtQuick
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -68,22 +43,24 @@ BarWidget {
   id: root
   moduleName: "hyprconf.resources"
 
-  // This plugin's own directory, with its trailing slash — see the header.
-  readonly property string pluginDir: decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, ""))
+  // The one service instance behind every bar surface — see the header.
+  // Literal id, not `moduleName`: the bar overwrites a widget's moduleName
+  // from its slot id (Bar.qml's ModuleSlot.injectProps), and the service is
+  // keyed by the manifest id, which is what this plugin is registered under.
+  readonly property var feed: root.bar?.shell?.serviceFor("hyprconf.resources") ?? null
 
-  property bool statsProduced: false
-  property int cpuPct: 0
-  property string cpuTemp: ""
-  property string memText: ""
-  property string netDown: "0B/s"
-  property string netUp: "0B/s"
+  readonly property int cpuPct: root.feed ? root.feed.cpuPct : 0
+  readonly property string cpuTemp: root.feed ? root.feed.cpuTemp : ""
+  readonly property string memText: root.feed ? root.feed.memText : ""
+  readonly property string netDown: root.feed ? root.feed.netDown : "0B/s"
+  readonly property string netUp: root.feed ? root.feed.netUp : "0B/s"
 
-  property bool gpuProduced: false
-  property int gpuUtil: 0
-  property string gpuTemp: ""
-  property string gpuVramUsed: ""
-  property string gpuVramTotal: ""
-  property string gpuTooltip: ""
+  readonly property bool gpuProduced: root.feed ? root.feed.gpuProduced : false
+  readonly property int gpuUtil: root.feed ? root.feed.gpuUtil : 0
+  readonly property string gpuTemp: root.feed ? root.feed.gpuTemp : ""
+  readonly property string gpuVramUsed: root.feed ? root.feed.gpuVramUsed : ""
+  readonly property string gpuVramTotal: root.feed ? root.feed.gpuVramTotal : ""
+  readonly property string gpuTooltip: root.feed ? root.feed.gpuTooltip : ""
 
   readonly property string glyphCpu: "\u{F2DB}"
   readonly property string glyphGpu: "\u{F08AE}"
@@ -110,83 +87,6 @@ BarWidget {
   function vramText() {
     if (root.gpuVramTotal === "" || root.gpuVramTotal === "0") return "shared"
     return root.gpuVramUsed + "/" + root.gpuVramTotal + "G"
-  }
-
-  // The restart ladder of one feeder — see the header. `attempt` is the
-  // number of restarts since the last line that parsed, so a stream that is
-  // delivering data always starts again after a second and one that is only
-  // dying walks 1 s → 32 s and then stops.
-  component Restarter: Timer {
-    id: restarter
-    property var proc: null
-    property int attempt: 0
-    // 1 s, 2 s, 4 s, 8 s, 16 s, 32 s — a bit over a minute of trying.
-    readonly property int maxAttempts: 6
-    interval: 1000
-    onTriggered: if (restarter.proc) restarter.proc.running = true
-    function produced() { restarter.attempt = 0 }
-    function died() {
-      if (restarter.attempt >= restarter.maxAttempts) return
-      restarter.interval = 1000 * (1 << restarter.attempt)
-      restarter.attempt++
-      restarter.start()
-    }
-  }
-
-  Process {
-    id: statsProc
-    running: true
-    command: [root.pluginDir + "bin/hyprconf-stats"]
-    stdout: SplitParser {
-      onRead: data => {
-        try {
-          const j = JSON.parse(data)
-          root.statsProduced = true
-          root.cpuPct = j.cpu
-          root.memText = j.mem
-          root.netDown = j.down
-          root.netUp = j.up
-          root.cpuTemp = j.temp ?? ""
-          statsRestartTimer.produced()
-        } catch (e) {}
-      }
-    }
-    onExited: function() {
-      if (root.statsProduced) statsRestartTimer.died()
-    }
-  }
-
-  Restarter {
-    id: statsRestartTimer
-    proc: statsProc
-  }
-
-  Process {
-    id: gpuProc
-    running: true
-    command: [root.pluginDir + "bin/hyprconf-gpu-info"]
-    stdout: SplitParser {
-      onRead: data => {
-        try {
-          const j = JSON.parse(data)
-          root.gpuProduced = true
-          root.gpuUtil = Number(j.util ?? 0)
-          root.gpuTemp = (j.temp === null || j.temp === undefined) ? "" : String(j.temp) + "°"
-          root.gpuVramUsed = String(j.vram_used ?? "")
-          root.gpuVramTotal = String(j.vram_total ?? "")
-          root.gpuTooltip = String(j.tooltip ?? "")
-          gpuRestartTimer.produced()
-        } catch (e) {}
-      }
-    }
-    onExited: function() {
-      if (root.gpuProduced) gpuRestartTimer.died()
-    }
-  }
-
-  Restarter {
-    id: gpuRestartTimer
-    proc: gpuProc
   }
 
   // Column widths: the widest thing each column can ever say, in the bar's

@@ -211,7 +211,7 @@ class TestStatsScript:
 
     def test_default_route_lookup_execs_nothing(self, tmp_path: Path) -> None:
         """The Wi-Fi/VPN path is the permanent state of most boxes and runs
-        once a second per bar surface: it must fork nothing. With the fake
+        once a second for the whole session: it must fork nothing. With the fake
         bin dir as the whole PATH no `ip`, `awk` or coreutils exist — a
         lookup that shells out finds no interface and reads 0B/s."""
         net = _fake_net(tmp_path, wired_up=False)

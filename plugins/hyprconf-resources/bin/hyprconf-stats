@@ -118,7 +118,7 @@ while :; do
         # The default-route interface from the kernel's own listing of the
         # main table — the table `ip route show default` prints — read with
         # no fork: a Wi-Fi or VPN box sits on this path every tick, and the
-        # `ip | awk` it replaced was three forks a second per bar surface.
+        # `ip | awk` it replaced was three forks a second, every second.
         # One line per route, "Iface Destination Gateway Flags …" in hex
         # (net/ipv4/fib_trie.c, fib_route_seq_show): the default route is
         # the one whose Destination is 00000000 — a gateway-less tunnel

@@ -34,7 +34,7 @@ publish flow and the website upload.
 │
 ├── plugins/                    # Omarchy bar-widget plugins, each folder a plugin on its own (manifest.json at its root, README.md, NOTICE where the code is Omarchy's — › Publishing a plugin), synced by install.sh into ~/.config/omarchy/plugins/
 │   ├── hyprconf-clock/         #   Omarchy's own clock (BarWidget.qml + Model.js) ticking seconds — clonedFrom omarchy.clock, the three deltas named in its header
-│   ├── hyprconf-resources/     #   cpu/mem/net/temp + GPU readout (Widget.qml); its two feeders in bin/ (hyprconf-stats, hyprconf-gpu-info), run by absolute path from the folder
+│   ├── hyprconf-resources/     #   cpu/mem/net/temp + GPU readout: Widget.qml draws, Service.qml (kinds bar-widget + service — loaded once, not per bar surface) owns its two feeders in bin/ (hyprconf-stats, hyprconf-gpu-info), run by absolute path from the folder
 │   ├── hyprconf-workspaces/    #   replaces omarchy.workspaces (clonedFrom): only the workspaces that exist, two lines
 │   └── hyprconf-active-window/ #   replaces omarchy.active-window (clonedFrom): the title on two lines
 ├── themes/dracula/             # Omarchy user theme (colors.toml + backgrounds/)

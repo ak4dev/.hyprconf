@@ -3,10 +3,13 @@ set -euo pipefail
 
 # hyprconf-gpu-info — streaming GPU stats for the quickshell bar.
 #
-# One JSON line per interval on stdout, long-lived — one instance per bar
-# surface (Omarchy builds the bar
-# per monitor, and the widget starts its Process per instance the way
-# Omarchy's own KeyboardLayout.qml / SystemUpdate.qml do).
+# One JSON line per interval on stdout, long-lived — ONE instance for the
+# whole session, however many monitors the bar is drawn on: the plugin's
+# Service.qml owns this Process and the shell loads a service entry point
+# once (Service.qml's header has the seam). It used to run once per bar
+# surface, justified as "the per-instance Process pattern KeyboardLayout.qml
+# and SystemUpdate.qml use" — which was wrong: those two are a six-hour
+# timer and a one-shot startup read, not permanent streams.
 #
 # Streaming keeps ONE nvidia-smi (`--loop` mode, one NVML session) piped
 # through ONE awk instead of a process tree per poll; the AMD and Intel paths
@@ -220,8 +223,8 @@ _amd_stream() {
 # SYNCHRONOUS resume (verified by disassembling the installed
 # drivers/gpu/drm/xe/xe.ko and .../amd/amdgpu/amdgpu.ko, kernel
 # 7.1.8-arch1-2-ptl). Ungated, a 2 s tick against a dGPU whose
-# autosuspend_delay_ms is 1000 keeps it awake about half the time, times the
-# number of bar surfaces, for a card the user is not using.
+# autosuspend_delay_ms is 1000 keeps it awake about half the time, for a
+# card the user is not using.
 _intel_dev=()    # cardN/device (for hwmon and the PCI ids)
 _intel_idx=()
 _intel_name=()

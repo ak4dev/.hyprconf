@@ -2480,17 +2480,52 @@ def test_resources_widget_layout_is_fixed_width_and_ordered() -> None:
     VRAM · download; the thermometer is the solid Material Design glyph
     (U+F050F), not the Weather-Icons outline (U+E350), a hairline at caption
     size; the GPU cells read the structured fields the feeder emits (no
-    pre-rendered "text")."""
-    qml = _code_only_qml((REPO_ROOT / "plugins" / "hyprconf-resources" / "Widget.qml").read_text())
+    pre-rendered "text"), which the service parses out of the JSON."""
+    folder = REPO_ROOT / "plugins" / "hyprconf-resources"
+    qml = _code_only_qml((folder / "Widget.qml").read_text())
     assert "\\u{F050F}" in qml and "\\ue350" not in qml.lower()
     # Row-major order: the upload cell precedes every GPU cell, the download cell is last.
     up = qml.index('"↑ " + root.netUp')
     down = qml.index('"↓ " + root.netDown')
     gpu = qml.index('root.glyphGpu + " " + root.tempText')
     assert up < gpu < down
+    service = _code_only_qml((folder / "Service.qml").read_text())
     for field in ("j.util", "j.temp", "j.vram_used", "j.vram_total", "j.tooltip"):
-        assert field in qml, field
-    assert "j.text" not in qml
+        assert field in service, field
+    assert "j.text" not in service
+
+
+def test_resources_feeders_run_once_for_the_session_not_once_per_monitor() -> None:
+    """Bar.qml is `Variants { model: Quickshell.screens }`, so a Process the
+    WIDGET owns runs once per bar surface — for hyprconf.resources two
+    permanent streams and an NVML session per monitor, all reporting the same
+    numbers. Omarchy's seam for that is the service kind, and it has no
+    first-party gate: shell.qml's _syncServices()/ensureService() load
+    entryPoints.service of any enabled plugin whose manifest lists "service"
+    once into a hidden serviceHost, and a bar-layout entry is what "enabled"
+    means for a bar widget (PluginRegistry.findEntryLocation), so the one
+    `omarchy plugin enable` / `disable` still covers both kinds. So: both
+    Processes live in Service.qml, the widget owns none and reads the values
+    back through bar.shell.serviceFor(<id>) — the accessor omarchy.media's
+    own BarWidget uses (as firstPartyServiceFor, its alias). Omarchy 4.0.2-1;
+    verified under quickshell 0.3.1 against a reduced copy of shell.qml's
+    service host: three surfaces, one service instance, one feeder pair."""
+    folder = REPO_ROOT / "plugins" / "hyprconf-resources"
+    manifest = json.loads((folder / "manifest.json").read_text())
+    assert manifest["kinds"] == ["bar-widget", "service"]
+    assert manifest["entryPoints"] == {"barWidget": "Widget.qml", "service": "Service.qml"}
+
+    widget = _code_only_qml((folder / "Widget.qml").read_text())
+    service = _code_only_qml((folder / "Service.qml").read_text())
+    assert "Process {" not in widget, "a Process in the widget runs once per bar surface"
+    assert service.count("Process {") == 2
+    for feeder in ("bin/hyprconf-stats", "bin/hyprconf-gpu-info"):
+        assert f'command: [root.pluginDir + "{feeder}"]' in service
+    assert 'root.bar?.shell?.serviceFor("hyprconf.resources")' in widget
+    # Every value the widget paints comes off the service, with a fallback for
+    # the window before it is loaded (and for a bar that carries no `shell`).
+    for prop in ("cpuPct", "memText", "netUp", "netDown", "gpuProduced", "gpuTooltip"):
+        assert f"root.feed ? root.feed.{prop} :" in widget, prop
 
 
 def test_plugin_qml_parses() -> None:

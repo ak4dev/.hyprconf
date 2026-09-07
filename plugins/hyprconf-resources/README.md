@@ -38,7 +38,8 @@ omarchy plugin add https://github.com/ak4dev/omarchy-hyprconf-resources --enable
 
 It lands in the right section (`barWidget.defaultSection`); move it with
 `omarchy bar move hyprconf.resources …`. `omarchy plugin disable
-hyprconf.resources` takes it off the bar and sticks. `omarchy plugin remove
+hyprconf.resources` takes it off the bar and sticks — and with it the
+service below, which the same id switches on and off. `omarchy plugin remove
 hyprconf.resources` deletes a git checkout; a folder copied in by hand is
 moved to `~/.config/omarchy/plugins/.hyprconf.resources.bak.<timestamp>`
 instead.
@@ -52,6 +53,18 @@ add`, which it leaves to `omarchy plugin update`.
 
 None: the widget reads no `omarchy bar set` key. The bar's own font and
 foreground apply.
+
+## How it runs
+
+The manifest declares two kinds. `Widget.qml` is the `bar-widget` and is
+built once per monitor, like every bar widget; `Service.qml` is the
+`service`, which Omarchy's shell loads **once** for the session into its
+hidden service host, and it is the one that runs the two feeders. The widget
+reads the numbers back with `bar.shell.serviceFor("hyprconf.resources")` —
+the accessor Omarchy's own `omarchy.media` widget uses on its service. So a
+six-monitor desk pays for one pair of feeders, not six, and on NVIDIA for
+one NVML session rather than six. There is still only one id and one on/off
+switch.
 
 ## Dependencies
 
