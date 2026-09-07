@@ -397,7 +397,7 @@ omarchy bar set omarchy.clock format 'dddd HH:mm'   # the disable copies the clo
 omarchy plugin disable hyprconf.workspaces
 omarchy plugin disable hyprconf.resources
 omarchy plugin disable hyprconf.active-window
-f=~/.config/omarchy/shell.json; jq 'if .bar.centerAnchor == "hyprconf.clock" then .bar.centerAnchor = "omarchy.clock" else . end' "$f" > "$f.tmp" && mv "$f.tmp" "$f"   # the centre anchor does not follow back and Omarchy has no command for the key. AFTER every disable above: each one rewrites the file from the shell's own copy, and this edit does not go through the shell — `omarchy bar defaults` is the blunt alternative, and replaces the whole `bar:` subtree, your layout included
+sleep 1; f=~/.config/omarchy/shell.json; jq 'if .bar.centerAnchor == "hyprconf.clock" then .bar.centerAnchor = "omarchy.clock" else . end' "$f" > "$f.tmp" && mv "$f.tmp" "$f"   # the centre anchor does not follow back and Omarchy has no command for the key. AFTER every disable above, and a beat behind the last of them: each disable goes through the shell, which persists `shell.json` asynchronously (a Quickshell `FileView`, landing on the next event-loop turn), so an edit that beats that write reads the pre-disable file and the shell's write then takes it back — `install.sh` waits the same way before its own anchor edit. `omarchy bar defaults` is the blunt alternative, and replaces the whole `bar:` subtree, your layout included
 hyprconf-monitor-preset stock   # removes ~/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua
 for f in bindings input looknfeel; do mv ~/.config/hypr/$f.lua.stock ~/.config/hypr/$f.lua; done
 rm ~/.config/hypr/{pcMonitors*,laptopMonitors}.lua

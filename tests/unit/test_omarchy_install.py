@@ -2212,6 +2212,13 @@ def test_the_documented_clock_revert_undoes_what_the_stage_applied() -> None:
         assert anchors, f"{where} never resets bar.centerAnchor"
         for i in anchors:
             assert '"hyprconf.clock"' in lines[i] and '"omarchy.clock"' in lines[i], where
+            # The disables go through the shell, which persists shell.json
+            # asynchronously (a Quickshell FileView lands the write on the
+            # next event-loop turn — measured on 0.3.1), so a hand edit that
+            # beats it reads the pre-disable file and is taken straight back.
+            # install.sh waits (wait_for_shell_json) before its own anchor
+            # edit; the documented one has to wait too.
+            assert "sleep" in lines[i], f"{where}'s anchor edit does not wait for the shell"
 
     # The reset does not go through the shell, and every `omarchy plugin`
     # command rewrites shell.json from the shell's own copy — so in the
