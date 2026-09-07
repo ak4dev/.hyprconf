@@ -2112,7 +2112,8 @@ def test_clock_is_a_shipped_plugin_synced_every_run_and_set_once(tmp_path: Path)
     """The stock widget samples SystemClock at Minutes precision (shell/
     plugins/panels/clock/BarWidget.qml), so a seconds format freezes. The
     overlay ships its own copy, plugins/hyprconf-clock (Omarchy's widget with
-    two deltas, clonedFrom omarchy.clock), and syncs it like the other three
+    three deltas, clonedFrom omarchy.clock), and syncs it like the other
+    three
     — no install-time copy of the stock plugin, so nothing to resolve from
     omarchy-plugin-catalog and nothing frozen at the release the first run
     saw. The user's choices are set once behind the marker: the enable, the

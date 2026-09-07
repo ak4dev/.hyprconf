@@ -1,6 +1,6 @@
 hyprconf.clock is derived from Omarchy (https://omarchy.org), release 4.0.2:
 
-  shell/plugins/panels/clock/BarWidget.qml  ->  BarWidget.qml here (two deltas, named in its header)
+  shell/plugins/panels/clock/BarWidget.qml  ->  BarWidget.qml here (three deltas, named in its header)
   shell/plugins/panels/clock/Model.js       ->  Model.js here (unchanged)
 
 and loads Omarchy's own shell/plugins/panels/clock/Panel.qml from the running

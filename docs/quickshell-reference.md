@@ -92,13 +92,29 @@ manifest already in them: `plugins/hyprconf-workspaces/` and
 `plugins/hyprconf-active-window/` are the overlay's own QML derived from the
 two sibling-manifest widgets, and `plugins/hyprconf-clock/` is the
 plugin-directory clock itself — the stock `BarWidget.qml` and `Model.js` with
-exactly two deltas (`precision: SystemClock.Seconds`, and the calendar panel
+exactly three deltas (`precision: SystemClock.Seconds`; the calendar panel
 loaded from the RUNNING Omarchy's own `Panel.qml` through
 `"file://" + Quickshell.env("OMARCHY_PATH") + "/shell/plugins/panels/clock/Panel.qml"`,
-which imports its own `Model.js` relative to itself), so one `Model.js` beside
+which imports its own `Model.js` relative to itself; and `injectPanel()`
+forwarding the widget's `moduleName` to that panel), so one `Model.js` beside
 `BarWidget.qml` (its static `import "Model.js"`) is the whole fork, and a
 `NOTICE` carries Omarchy's MIT notice. All four are synced into
-`~/.config/omarchy/plugins/` on every run. Two contract facts drive the install
+`~/.config/omarchy/plugins/` on every run.
+
+A clone keeps the built-in ids that are written into the QML: `omarchy plugin
+clone` rewrites only `manifest.json` and the `entryPoints` filenames, on
+purpose — "keep built-in ids inside the plugin code as stable IPC targets",
+its `update_manifest` comment — and `clonedFrom` routes the IPC half. What
+`clonedFrom` does **not** route is a *settings write*: a nested panel whose
+own `moduleName` is still the built-in id hands that id to `shell.qml`'s
+`updateEntryInline(moduleName, entry)`, which writes only an entry already
+carrying it in `bar.layout` or `config.plugins` — and the live slot carries
+the clone's id. So a copy with a settings-writing panel has to forward its
+own `moduleName` down (the clock plugin's third delta): the bar sets the
+*widget's* `moduleName` from the slot id in `ModuleSlot.injectProps`, the
+widget passes it on.
+
+Two more contract facts drive the install
 order: the registry swaps a `clonedFrom` copy into the stock entry **at enable
 time** (`setEnabled`), and the bar's `centerAnchor` in `shell.json` is a plain
 id with no clone resolution (`Util.canonicalWidgetId` is a string cast) — after
@@ -216,7 +232,7 @@ Timer { id: statsRestartTimer; interval: 1000; onTriggered: statsProc.running = 
   output means "no such hardware": its cells stay blank but sized, and it is
   not restarted.
 - `SystemClock { precision: SystemClock.Seconds }` (`quickshell-core.qmltypes`:
-  `Hours | Minutes | Seconds`) is one of the clock plugin's two deltas — the
+  `Hours | Minutes | Seconds`) is one of the clock plugin's three deltas — the
   stock clock samples at `Minutes`. `Quickshell.env("NAME")` (core) reads the
   shell's environment: `OMARCHY_PATH` is how Omarchy's plugins locate their
   tree, and how the clock plugin loads the stock `Panel.qml`.

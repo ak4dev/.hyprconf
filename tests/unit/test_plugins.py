@@ -400,13 +400,14 @@ def test_the_text_format_scan_catches_what_it_should(tmp_path: Path) -> None:
 
 
 def test_clock_plugin_ticks_seconds_and_loads_omarchys_own_panel() -> None:
-    """The two deltas the clock plugin exists for, pinned without Omarchy:
+    """The three deltas the clock plugin exists for, pinned without Omarchy:
     SystemClock at Seconds (the stock Minutes would freeze a seconds format
-    59 s of every minute), and the calendar panel loaded from the running
+    59 s of every minute), the calendar panel loaded from the running
     Omarchy's own Panel.qml through OMARCHY_PATH — the way Omarchy's plugins
     find their tree (Clipboard.qml's omarchyPath) — so the panel is never a
-    stale copy. Model.js sits beside BarWidget.qml because its static
-    `import "Model.js"` needs it there."""
+    stale copy, and the panel told which module id it is mounted as, so what
+    the calendar writes reaches shell.json. Model.js sits beside
+    BarWidget.qml because its static `import "Model.js"` needs it there."""
     folder = PLUGINS / "hyprconf-clock"
     widget = folder / "BarWidget.qml"
     code = "\n".join(
@@ -419,6 +420,13 @@ def test_clock_plugin_ticks_seconds_and_loads_omarchys_own_panel() -> None:
         in code
     )
     assert 'Qt.resolvedUrl("Panel.qml")' not in code
+    # Delta 3: without the forward the panel keeps Panel.qml's literal
+    # "omarchy.clock", and its persistSettings() then writes through
+    # shell.qml's updateEntryInline() against an id no live entry carries —
+    # a week start or a birth year redraws and is never saved. The trigger
+    # covers a moduleName that arrives after the panel has loaded.
+    assert 'if ("moduleName" in target) target.moduleName = root.moduleName' in code
+    assert "onModuleNameChanged: injectPanel()" in code
     assert 'import "Model.js" as Model' in code and (folder / "Model.js").is_file()
     assert not (folder / "Panel.qml").exists()
     manifest = json.loads((folder / "manifest.json").read_text())
@@ -429,7 +437,7 @@ def test_clock_plugin_ticks_seconds_and_loads_omarchys_own_panel() -> None:
 def test_clock_plugin_tracks_omarchys_stock_clock() -> None:
     """plugins/hyprconf-clock is Omarchy's own clock (shell/plugins/panels/
     clock, 4.0.2-1): Model.js byte-identical, BarWidget.qml the stock file
-    plus a header comment and exactly the two deltas above, nothing else.
+    plus a header comment and exactly the three deltas above, nothing else.
     An Omarchy release that changes its clock turns this red on a box with
     that release, and the header carries the refresh recipe. Skips without
     an installed Omarchy — one of the two skips CI shows."""
@@ -448,6 +456,8 @@ def test_clock_plugin_tracks_omarchys_stock_clock() -> None:
         '    source: Qt.resolvedUrl("Panel.qml")',
     ], "\n".join(diff)
     assert [ln[1:] for ln in diff if ln.startswith("+")] == [
+        '    if ("moduleName" in target) target.moduleName = root.moduleName',
+        "  onModuleNameChanged: injectPanel()",
         "    precision: SystemClock.Seconds",
         '    source: "file://" + Quickshell.env("OMARCHY_PATH") + "/shell/plugins/panels/clock/Panel.qml"',
     ], "\n".join(diff)

@@ -1309,7 +1309,7 @@ set_clock_format() {
 
 # The bar clock, ticking seconds: plugins/hyprconf-clock is Omarchy's own
 # clock widget (BarWidget.qml + Model.js, Omarchy 4.0.2-1 — MIT, the NOTICE
-# beside them) with two deltas its header names, clonedFrom omarchy.clock so
+# beside them) with three deltas its header names, clonedFrom omarchy.clock so
 # the shell swaps it into the stock slot. The stock widget cannot tick
 # seconds: omarchy.clock samples SystemClock at Minutes precision
 # (shell/plugins/panels/clock/BarWidget.qml), so a seconds format would sit

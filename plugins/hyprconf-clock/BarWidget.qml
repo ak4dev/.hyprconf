@@ -1,7 +1,7 @@
 // hyprconf.clock — Omarchy's own clock widget, ticking seconds.
 //
 // A copy of Omarchy 4.0.2-1's shell/plugins/panels/clock/BarWidget.qml with
-// exactly two deltas and nothing else, so it behaves as the stock widget
+// exactly three deltas and nothing else, so it behaves as the stock widget
 // does (the calendar on click, right-click cycles the format, middle-click
 // the timezone picker, the same shell.json settings):
 //   1. `precision: SystemClock.Seconds` — stock samples at Minutes, so a
@@ -14,6 +14,20 @@
 //      Model.js relative to itself, so it needs no copy, and one Model.js
 //      beside THIS file (the static `import "Model.js"` below) is the whole
 //      fork.
+//   3. injectPanel() forwards this widget's moduleName to that panel. The
+//      panel's own is the literal "omarchy.clock" (its line 19), and it is
+//      the id its persistSettings() hands to shell.qml's
+//      updateEntryInline(moduleName, entry), which writes only an entry
+//      whose id already matches in bar.layout or config.plugins — and the
+//      live slot reads "hyprconf.clock" once the copy is enabled, so a week
+//      start or a birth year set from the calendar redrew and was never
+//      written. The bar overwrites the WIDGET's moduleName with the slot id
+//      (shell/plugins/bar/Bar.qml, ModuleSlot.injectProps), so forwarding
+//      it is the whole fix; onModuleNameChanged makes the ordering explicit
+//      for a moduleName that arrives after the panel loads. hyprconf's own
+//      delta, not an Omarchy bug: `omarchy plugin clone` leaves the same
+//      built-in ids in the QML on purpose, as its update_manifest comment
+//      says, and clonedFrom routes the IPC half.
 // manifest.json names it clonedFrom omarchy.clock, so the shell swaps it
 // into the stock widget's slot and routes the stock IPC target here
 // (shell/services/PluginRegistry.qml, setEnabled / resolveEnabledId).
@@ -21,7 +35,7 @@
 // Refresh, when an Omarchy release changes the clock (tests/unit/
 // test_plugins.py's parity test turns red on a box with that release):
 // copy the stock BarWidget.qml and Model.js over these two, re-apply the
-// two deltas above, bump manifest.json's version. NOTICE carries Omarchy's
+// three deltas above, bump manifest.json's version. NOTICE carries Omarchy's
 // MIT notice, which every copy of its code must.
 import QtQuick
 import Quickshell
@@ -123,6 +137,7 @@ BarWidget {
     var target = panelLoader.item
     if (!target) return
     if ("bar" in target) target.bar = root.bar
+    if ("moduleName" in target) target.moduleName = root.moduleName
     if ("settings" in target) target.settings = root.settings
     if ("anchorItem" in target) target.anchorItem = button
     if ("hostWidget" in target) target.hostWidget = root
@@ -132,6 +147,7 @@ BarWidget {
   implicitHeight: button.implicitHeight
 
   onBarChanged: injectPanel()
+  onModuleNameChanged: injectPanel()
   onSettingsChanged: injectPanel()
 
   SystemClock {
