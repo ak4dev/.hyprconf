@@ -23,11 +23,23 @@ It takes `omarchy.clock`'s place on the bar. The bar centres on an anchor
 id in `~/.config/omarchy/shell.json` (`bar.centerAnchor`, `omarchy.clock` by
 default), and that value is a plain id with no clone resolution — set it to
 `"hyprconf.clock"` there to keep the clock dead centre (Omarchy ships no
-command for the key). `omarchy plugin disable hyprconf.clock` puts the stock
-clock back and sticks. `omarchy plugin remove hyprconf.clock` restores the
-stock clock too, and deletes a git checkout; a folder copied in by hand is
-moved to `~/.config/omarchy/plugins/.hyprconf.clock.bak.<timestamp>`
-instead.
+command for the key).
+
+`omarchy plugin disable hyprconf.clock` puts the stock widget back in the
+slot, and `omarchy plugin remove hyprconf.clock` does that too and deletes a
+git checkout (a folder copied in by hand is moved to
+`~/.config/omarchy/plugins/.hyprconf.clock.bak.<timestamp>` instead). Neither
+is the whole way back, and both leave the same two things behind:
+
+```bash
+omarchy bar set omarchy.clock format 'dddd HH:mm'   # the disable copies this plugin's WHOLE bar entry onto omarchy.clock and rewrites only its id, so a seconds format rides along onto a widget that samples once a minute
+f=~/.config/omarchy/shell.json; jq 'if .bar.centerAnchor == "hyprconf.clock" then .bar.centerAnchor = "omarchy.clock" else . end' "$f" > "$f.tmp" && mv "$f.tmp" "$f"   # the anchor is a plain id: it keeps naming a widget the bar no longer carries, and the centre section falls back to centring the whole group
+```
+
+Run the anchor line after every `omarchy plugin` command you mean to run:
+each one rewrites `shell.json` from the shell's own copy, and this edit does
+not go through the shell. `omarchy bar defaults` does both at once and
+replaces the whole `bar:` subtree with Omarchy's, your layout included.
 
 With the [hyprconf](https://github.com/ak4dev/.hyprconf) overlay installed,
 its `install.sh` syncs this folder from the checkout on every run, and once

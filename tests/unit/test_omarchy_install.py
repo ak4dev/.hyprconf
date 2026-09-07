@@ -2113,10 +2113,9 @@ def test_clock_is_a_shipped_plugin_synced_every_run_and_set_once(tmp_path: Path)
     plugins/panels/clock/BarWidget.qml), so a seconds format freezes. The
     overlay ships its own copy, plugins/hyprconf-clock (Omarchy's widget with
     three deltas, clonedFrom omarchy.clock), and syncs it like the other
-    three
-    — no install-time copy of the stock plugin, so nothing to resolve from
-    omarchy-plugin-catalog and nothing frozen at the release the first run
-    saw. The user's choices are set once behind the marker: the enable, the
+    three — no install-time copy of the stock plugin, so nothing to resolve
+    from omarchy-plugin-catalog and nothing frozen at the release the first
+    run saw. The user's choices are set once behind the marker: the enable, the
     format, the anchor — what keeps the post-update hook from reverting a
     format the user later picked."""
     env = _setup(tmp_path)
@@ -2154,6 +2153,57 @@ def test_clock_is_a_shipped_plugin_synced_every_run_and_set_once(tmp_path: Path)
     assert not any(c.startswith("omarchy-plugin-enable") for c in again)
     assert (plug / "BarWidget.qml").read_bytes() == (src / "BarWidget.qml").read_bytes()
     assert "omarchy-shell shell rescanPlugins" in again
+
+
+def test_the_documented_clock_revert_undoes_what_the_stage_applied() -> None:
+    """`omarchy plugin disable hyprconf.clock` alone is not stock, so nothing
+    may say it is. Omarchy's restoreCloneSource copies the clone's WHOLE bar
+    entry onto omarchy.clock and rewrites only its id (shell/services/
+    PluginRegistry.qml, 4.0.2-1), so the format this stage set rides along
+    onto the Minutes-precision widget; and bar.centerAnchor is a plain id
+    with no clone resolution (Bar.qml reads it through Util.canonicalWidgetId,
+    a string cast), so it keeps naming a widget the bar no longer carries and
+    hasAnchor goes false. Both undo steps must therefore appear wherever the
+    revert is documented — README and the plugin's own README, which ships to
+    strangers on its own.
+
+    The stock format is read from the widget's own `setting("format", ...)`
+    fallback rather than restated: BarWidget.qml is Omarchy's file byte for
+    byte (test_plugins.py's parity test), so the fallback is Omarchy's
+    default, "dddd HH:mm" in config/omarchy/shell.json at 4.0.2-1. Hermetic:
+    every fact comes out of the checkout."""
+    install = INSTALL_SH.read_text()
+    applied = re.search(r'set_clock_format\(\) \{\n\s*local id="\$1" format="([^"]+)"', install)
+    assert applied, "set_clock_format no longer states the format it applies"
+    widget = (REPO_ROOT / "plugins" / "hyprconf-clock" / "BarWidget.qml").read_text()
+    stock = re.search(r'setting\("format", "([^"]+)"\)', widget)
+    assert stock, "BarWidget.qml no longer carries Omarchy's format fallback"
+    assert applied.group(1) != stock.group(1), "nothing to undo if they match"
+
+    reset_format = f"omarchy bar set omarchy.clock format '{stock.group(1)}'"
+    revert = (REPO_ROOT / "README.md").read_text()
+    revert = revert.split("## Reverting to stock", 1)[1].split("\n## ", 1)[0]
+    plugin_readme = (REPO_ROOT / "plugins" / "hyprconf-clock" / "README.md").read_text()
+    for where, text in (("README", revert), ("the plugin README", plugin_readme)):
+        lines = text.splitlines()
+        assert any(ln.startswith(reset_format) for ln in lines), where
+        anchors = [i for i, ln in enumerate(lines) if ".bar.centerAnchor" in ln]
+        assert anchors, f"{where} never resets bar.centerAnchor"
+        for i in anchors:
+            assert '"hyprconf.clock"' in lines[i] and '"omarchy.clock"' in lines[i], where
+
+    # The reset does not go through the shell, and every `omarchy plugin`
+    # command rewrites shell.json from the shell's own copy — so in the
+    # README's paste-in-order block it has to come after the last of them,
+    # or be taken straight back.
+    lines = revert.splitlines()
+    last_anchor = max(i for i, ln in enumerate(lines) if ".bar.centerAnchor" in ln)
+    disables = [i for i, ln in enumerate(lines) if ln.startswith("omarchy plugin disable")]
+    assert disables and last_anchor > max(disables), "the anchor reset runs before a disable"
+
+    # And the installer's own closing line no longer promises the disable is
+    # the whole way back.
+    assert "back to stock with: omarchy plugin disable $id" not in _stage_body("stage_clock")
 
 
 def test_clock_widget_id_carries_no_username() -> None:

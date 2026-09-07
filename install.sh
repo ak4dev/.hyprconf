@@ -1324,6 +1324,17 @@ set_clock_format() {
 # post-update hook re-runs this installer, and a clock the user later
 # reformatted (right-click cycles formats; `omarchy bar set`) must stay
 # theirs. The sync comes first so the shell never loads a stale build.
+#
+# `omarchy plugin disable` is NOT the whole way back, so the closing line
+# does not say it is: restoreCloneSource copies the clone's whole bar entry
+# onto omarchy.clock and rewrites only its id
+# (shell/services/PluginRegistry.qml), so "hh:mm:ss AP" rides along onto the
+# Minutes-precision widget, and bar.centerAnchor keeps naming a widget the
+# bar no longer carries (hasAnchor goes false and the centre section centres
+# the group instead — shell/plugins/bar/Bar.qml). The two undo steps are in
+# README › Reverting to stock; the format there is Omarchy's own default,
+# "dddd HH:mm" (config/omarchy/shell.json, 4.0.2-1 — the same fallback the
+# widget's own setting("format", ...) carries).
 stage_clock() {
     log "Bar clock: hh:mm:ss AP (hyprconf.clock)"
     local id="hyprconf.clock"
@@ -1346,7 +1357,7 @@ stage_clock() {
 
     mkdir -p "$(dirname "$marker")"
     : > "$marker"
-    info "seconds tick via the $id widget (back to stock with: omarchy plugin disable $id)"
+    info "seconds tick via the $id widget (undo: omarchy plugin disable $id, then the format and the centre anchor — README › Reverting to stock)"
 }
 
 # Only ACTIVE workspaces on the bar, on two lines, Pac-Man on the focused
