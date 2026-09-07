@@ -431,8 +431,20 @@ stage_pull() {
     # every re-run, because the guard's other callers (stage_hotkeys,
     # stage_looknfeel) come after this stage. A no-op on anything but the
     # template.
-    local name
-    for name in bindings.lua input.lua looknfeel.lua; do
+    #
+    # The set is DERIVED, never re-listed: a hand list here would sit 450
+    # lines from the link_hypr_override calls that decide it, with nothing
+    # coupling the two, and a fourth override added without editing it would
+    # block every later pull. The monitor presets fall out on their own —
+    # restore_clobbered_override returns at its [[ -f $stock ]] test, since
+    # Omarchy ships no config/hypr template for them. An untracked
+    # look-alike is skipped: `git checkout --` can restore nothing for it,
+    # so all the guard could do is warn, once per run, forever.
+    local path name
+    for path in "$HERE"/hypr/*.lua; do
+        [[ -f $path ]] || continue
+        name="${path##*/}"
+        git -C "$HERE" ls-files --error-unmatch -- "hypr/$name" >/dev/null 2>&1 || continue
         restore_clobbered_override "$name"
     done
     if ! git -C "$HERE" rev-parse --abbrev-ref '@{upstream}' >/dev/null 2>&1; then

@@ -2733,6 +2733,73 @@ def test_sync_repairs_a_refreshed_override_before_it_pulls(tmp_path: Path) -> No
     assert "omarchy-update" in _commands(env)  # the pull did not stop the sync
 
 
+# The overrides install.sh links into ~/.config/hypr, read from its own
+# link_hypr_override call sites — the set stage_pull has to repair before it
+# pulls, and the whole point of deriving that set rather than re-listing it.
+LINKED_OVERRIDES = tuple(
+    sorted(
+        set(re.findall(r"^\s*link_hypr_override\s+(\S+\.lua)\s*$", INSTALL_SH.read_text(), re.M))
+    )
+)
+
+
+def test_every_linked_hypr_override_ships_in_the_checkout() -> None:
+    """stage_pull derives what to repair from the checkout's own hypr/*.lua,
+    so every file link_hypr_override points at has to be one of them — the
+    coupling that used to be a hand-written list 450 lines away."""
+    assert LINKED_OVERRIDES == ("bindings.lua", "input.lua", "looknfeel.lua")
+    for name in LINKED_OVERRIDES:
+        assert (REPO_ROOT / "hypr" / name).is_file(), name
+
+
+def test_sync_repairs_any_clobbered_override_not_just_three_named_ones(
+    tmp_path: Path,
+) -> None:
+    """stage_pull used to re-list bindings/input/looknfeel by hand, 450 lines
+    from the link_hypr_override calls that decide them and with nothing
+    coupling the two. A fourth override — hypr/autostart.lua is the obvious
+    one, Omarchy ships config/hypr/autostart.lua — plus its link call, with
+    the list forgotten, would leave `omarchy refresh` damage in place: the
+    dirty file blocks `git pull --ff-only` on every hyprsync, and the
+    repairing link stage never runs because stage_pull dies first. The set
+    is derived from "$HERE"/hypr/*.lua now, so a new override is covered the
+    day it is added. An UNTRACKED look-alike is not: git can restore
+    nothing, and warning about it once per run is noise."""
+    env = _setup(tmp_path)
+    up = _checkout(tmp_path)
+    (up / "hypr" / "autostart.lua").write_text('hl.exec_once("waybar")\n')
+    ident = ["-c", "user.name=t", "-c", "user.email=t@e"]
+    subprocess.run(["git", "-C", str(up), "add", "-A"], check=True, timeout=30)
+    git_up = ["git", "-C", str(up), *ident]
+    subprocess.run([*git_up, "commit", "-qm", "four"], check=True, timeout=30)
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(up), str(clone)], check=True, timeout=30)
+    git_with_pull = GIT_PASSTHROUGH.replace('case " $* " in *" pull "*) exit 0 ;; esac\n', "")
+    assert git_with_pull != GIT_PASSTHROUGH, "the pull short-circuit moved"
+    _stub(env["bins"] / "git", env["calls"], git_with_pull)
+    templates = _stock_templates(env)
+    stock = "-- Omarchy's own autostart.lua\n"
+    (templates / "autostart.lua").write_text(stock)
+    # What `omarchy refresh config hypr/autostart.lua` would leave behind
+    # once the file is linked: the checkout's copy IS Omarchy's template.
+    (clone / "hypr" / "autostart.lua").write_text(stock)
+    # And an untracked look-alike beside it, which must stay a silent no-op.
+    (templates / "spare.lua").write_text(stock)
+    (clone / "hypr" / "spare.lua").write_text(stock)
+
+    upstream = 'hl.exec_once("waybar")\n-- upstream moved\n'
+    (up / "hypr" / "autostart.lua").write_text(upstream)
+    subprocess.run([*git_up, "commit", "-qam", "five"], check=True, timeout=30)
+
+    proc = _run(env, "--sync", install_sh=clone / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert "hypr/autostart.lua" in proc.stderr and "restored it from git" in proc.stderr
+    assert (clone / "hypr" / "autostart.lua").read_text() == upstream
+    assert "omarchy-update" in _commands(env)  # the pull did not stop the sync
+    assert "spare.lua" not in proc.stderr
+    assert (clone / "hypr" / "spare.lua").read_text() == stock
+
+
 def test_omarchy_refresh_of_monitors_lua_never_reaches_a_preset(tmp_path: Path) -> None:
     """With the chosen preset in the toggles file, monitors.lua is Omarchy's
     own real file, so `omarchy refresh config hypr/monitors.lua` lands where
