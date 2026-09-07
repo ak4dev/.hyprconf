@@ -27,11 +27,21 @@
 // so each bar surface runs its own pair of feeders — the same per-instance
 // Process pattern Omarchy's KeyboardLayout.qml and SystemUpdate.qml use.
 //
-// A stream that produced output and then died is restarted after a second
-// (a driver hiccup, an OOM kill — Clipboard.qml restarts its watchers the
-// same way); one that exits without ever producing output means "no such
+// A stream that exits without ever producing output means "no such
 // hardware" and is left alone: the GPU cells then stay blank but sized, so
-// the grid holds its shape.
+// the grid holds its shape. One that produced output and then died IS
+// restarted (a driver hiccup, an OOM kill — Clipboard.qml restarts its
+// watchers the same way), but on a backoff that gives up: 1 s, 2 s, 4 s,
+// 8 s, 16 s, 32 s, then parked until the next shell restart, and the ladder
+// is refilled the moment a fresh line arrives. The flat 1 Hz retry this
+// replaces never gave up, because the "it produced output once" flag is
+// latched — it also decides what the GPU cells paint, so it cannot be
+// cleared — and a feeder that dies instantly is the normal shape of dead
+// hardware: nvidia-smi --loop exits at once when the driver stops
+// answering, the awk behind it exits with no input, and each respawn pays a
+// failing NVML init for nothing, forever, once per bar surface. Upstream's
+// Clipboard.qml has no backoff and no produced-output gate at all, so this
+// is stricter than the pattern it follows, not looser.
 //
 // Every column has a FIXED width, measured once with TextMetrics from the
 // widest value it can show, so the line never shifts as a speed goes from
@@ -102,6 +112,27 @@ BarWidget {
     return root.gpuVramUsed + "/" + root.gpuVramTotal + "G"
   }
 
+  // The restart ladder of one feeder — see the header. `attempt` is the
+  // number of restarts since the last line that parsed, so a stream that is
+  // delivering data always starts again after a second and one that is only
+  // dying walks 1 s → 32 s and then stops.
+  component Restarter: Timer {
+    id: restarter
+    property var proc: null
+    property int attempt: 0
+    // 1 s, 2 s, 4 s, 8 s, 16 s, 32 s — a bit over a minute of trying.
+    readonly property int maxAttempts: 6
+    interval: 1000
+    onTriggered: if (restarter.proc) restarter.proc.running = true
+    function produced() { restarter.attempt = 0 }
+    function died() {
+      if (restarter.attempt >= restarter.maxAttempts) return
+      restarter.interval = 1000 * (1 << restarter.attempt)
+      restarter.attempt++
+      restarter.start()
+    }
+  }
+
   Process {
     id: statsProc
     running: true
@@ -116,18 +147,18 @@ BarWidget {
           root.netDown = j.down
           root.netUp = j.up
           root.cpuTemp = j.temp ?? ""
+          statsRestartTimer.produced()
         } catch (e) {}
       }
     }
     onExited: function() {
-      if (root.statsProduced) statsRestartTimer.start()
+      if (root.statsProduced) statsRestartTimer.died()
     }
   }
 
-  Timer {
+  Restarter {
     id: statsRestartTimer
-    interval: 1000
-    onTriggered: statsProc.running = true
+    proc: statsProc
   }
 
   Process {
@@ -144,18 +175,18 @@ BarWidget {
           root.gpuVramUsed = String(j.vram_used ?? "")
           root.gpuVramTotal = String(j.vram_total ?? "")
           root.gpuTooltip = String(j.tooltip ?? "")
+          gpuRestartTimer.produced()
         } catch (e) {}
       }
     }
     onExited: function() {
-      if (root.gpuProduced) gpuRestartTimer.start()
+      if (root.gpuProduced) gpuRestartTimer.died()
     }
   }
 
-  Timer {
+  Restarter {
     id: gpuRestartTimer
-    interval: 1000
-    onTriggered: gpuProc.running = true
+    proc: gpuProc
   }
 
   // Column widths: the widest thing each column can ever say, in the bar's

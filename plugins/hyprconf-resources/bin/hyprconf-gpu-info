@@ -29,7 +29,9 @@ set -euo pipefail
 # Emits nothing and exits 0 when no supported GPU exists — the widget keeps
 # its GPU cells blank (sized, so the grid holds) and does NOT restart it. A
 # stream that produced output and then died IS restarted by the widget, so a
-# driver hiccup self-heals.
+# driver hiccup self-heals — on a capped backoff (1 s to 32 s, then parked),
+# because a driver that has stopped answering for good makes this exit
+# instantly every time.
 #
 # Env knobs are test overrides (hermetic suite drives this with fake trees).
 : "${HYPRCONF_GPU_INTERVAL:=2}"

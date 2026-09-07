@@ -20,6 +20,9 @@ the same folders out of the checkout.
 - The clock plugin's parity with the installed Omarchy's own clock (skips
   without one — with test_installed_plugins_pass_omarchy_plugin_validate,
   the two skips CI shows).
+- The resources plugin's feeder restart policy, which is a source shape
+  because a behavioural check would need a running shell: a capped backoff,
+  never a flat retry, with the latched produced-output flags left alone.
 
 HERMETIC: reads of the checkout only. The exec-bit check reads the on-disk
 mode — what a git checkout gives a 100755 blob and what install.sh's
@@ -397,6 +400,33 @@ def test_the_text_format_scan_catches_what_it_should(tmp_path: Path) -> None:
     assert caught["component.qml"] == ["inline component root Text declares no textFormat"]
     assert caught["inline.qml"] == ["inline Text block without textFormat"]
     assert caught["unscannable.qml"] == ["Text block in a form this scanner cannot read"]
+
+
+def test_resources_feeders_restart_on_a_capped_backoff() -> None:
+    """A feeder that produced output once and then dies is restarted, but the
+    flag that says it produced output is latched — it also decides what the
+    GPU cells paint, so it can never be cleared — and a flat 1 s retry behind
+    a latched flag never gives up: an NVIDIA box whose driver stops answering
+    makes `nvidia-smi --loop` exit at once, and the respawn is then ~78,000
+    execs a day per bar surface, each paying a failing NVML init. So the
+    ladder (1 s, 2 s, 4 s, 8 s, 16 s, 32 s, then parked) and its refill on a
+    line that parses are pinned here. Verified running under quickshell
+    0.3.1 against a feeder that exits at once: 7 execs in 63 s, then nothing;
+    and against one that emits a line every time: a steady 1 s."""
+    qml = sorted((PLUGINS / "hyprconf-resources").glob("*.qml"))
+    assert qml, "no resources plugin QML found"
+    code = "\n".join(_strip_comment(ln) for path in qml for ln in path.read_text().splitlines())
+    assert "component Restarter: Timer" in code
+    assert "readonly property int maxAttempts: 6" in code
+    assert "if (restarter.attempt >= restarter.maxAttempts) return" in code
+    assert "restarter.interval = 1000 * (1 << restarter.attempt)" in code
+    assert "function produced() { restarter.attempt = 0 }" in code
+    # Both feeders go through it, and neither restarts a Process any other way.
+    assert code.count("RestartTimer.died()") == 2
+    assert code.count("RestartTimer.produced()") == 2
+    assert "RestartTimer.start()" not in code
+    # The latched flags stay latched: clearing one would blank the cells.
+    assert not re.search(r"root\.(?:gpu|stats)Produced\s*=\s*false", code)
 
 
 def test_clock_plugin_ticks_seconds_and_loads_omarchys_own_panel() -> None:

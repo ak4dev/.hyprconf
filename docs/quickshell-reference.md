@@ -206,9 +206,29 @@ Process {
     stdout: SplitParser {                          // DataStreamParser; splitMarker defaults to "\n"
         onRead: data => { /* one line */ }
     }
-    onExited: function(exitCode, exitStatus) { if (root.statsProduced) statsRestartTimer.start() }
+    onExited: function(exitCode, exitStatus) { if (root.statsProduced) statsRestartTimer.died() }
 }
-Timer { id: statsRestartTimer; interval: 1000; onTriggered: statsProc.running = true }
+
+// The restart ladder: 1 s, 2 s, 4 s, 8 s, 16 s, 32 s, then parked. `attempt`
+// is refilled by the parser (`produced()`) on every line that arrives, so a
+// stream that is delivering data restarts after a second and one that is only
+// dying stops costing anything.
+component Restarter: Timer {
+    id: restarter
+    property var proc: null
+    property int attempt: 0
+    readonly property int maxAttempts: 6
+    interval: 1000
+    onTriggered: if (restarter.proc) restarter.proc.running = true
+    function produced() { restarter.attempt = 0 }
+    function died() {
+        if (restarter.attempt >= restarter.maxAttempts) return
+        restarter.interval = 1000 * (1 << restarter.attempt)
+        restarter.attempt++
+        restarter.start()
+    }
+}
+Restarter { id: statsRestartTimer; proc: statsProc }
 ```
 
 - A plugin's scripts ship inside its folder and are run by absolute path from
@@ -227,10 +247,17 @@ Timer { id: statsRestartTimer; interval: 1000; onTriggered: statsProc.running = 
 - Pattern used by `plugins/hyprconf-resources/Widget.qml`: one long-lived JSON
   stream per feeder (`bin/hyprconf-stats`, `bin/hyprconf-gpu-info` inside the
   plugin folder), one pair per bar surface (the bar is built per monitor). A
-  stream that produced output and then died is restarted after a second
-  (Clipboard.qml restarts its watchers the same way); one that exits without
-  output means "no such hardware": its cells stay blank but sized, and it is
-  not restarted.
+  stream that exits without output means "no such hardware": its cells stay
+  blank but sized, and it is not restarted. One that produced output and then
+  died IS restarted (Clipboard.qml restarts its watchers the same way) — but
+  **on a backoff with a cap**, never a flat retry. The "it produced output"
+  flag stays latched (it also decides what the cells paint), so nothing else
+  ever stops the loop, and the dead-hardware case is a feeder that exits
+  *instantly*: `nvidia-smi --loop` returns at once when the driver stops
+  answering, so a 1 s retry is ~78,000 execs a day per bar surface, each
+  paying a failing NVML init. Upstream's `Clipboard.qml` has neither a
+  backoff nor a produced-output gate, so this is the stricter shape, not a
+  relaxation of it.
 - `SystemClock { precision: SystemClock.Seconds }` (`quickshell-core.qmltypes`:
   `Hours | Minutes | Seconds`) is one of the clock plugin's three deltas — the
   stock clock samples at `Minutes`. `Quickshell.env("NAME")` (core) reads the
