@@ -178,7 +178,7 @@ swapping `omarchy.clock` for `hyprconf.clock` the anchor must follow
 | `bar` | The host Bar instance (`plugins/bar/Bar.qml`). `bar.run(command)` launches a command the shell's way (`root.bar.run("omarchy-launch-or-focus-tui btop")`); `bar.moduleWidgets(id)` lists live instances |
 | `bar.showTooltip(target, text)` / `bar.hideTooltip(target)` | The bar's own tooltip, anchored on `target` (the widget root) — call from a `MouseArea`'s `onEntered` / `onExited` with `hoverEnabled: true` |
 | `bar.barForeground` (color) / `bar.fontFamily` (string) | The bar's current text colour (theme, transparency-aware) and font family — bind `color` and `font.family` to these, with `Color.foreground` / `Style.fontFamily` as the `bar`-less fallback, as every stock text widget does |
-| `moduleName` | The widget's canonical id — set it to the manifest id; a `clonedFrom` copy keeps the **stock** id (the IPC target the shell routes to the copy) |
+| `moduleName` | The widget's canonical id. Write the **stock** id in a `clonedFrom` copy's QML (a clone rewrites only `manifest.json` and the `entryPoints` filenames), but do not read it back as one: the bar overwrites the property with the *slot* id at runtime (`ModuleSlot.injectProps`), and it is not the IPC target — that is the widget's own `IpcHandler { target: … }`, or a panel's `ipcTarget` (`Ui/Panel.qml`). What that costs a nested panel: § Copies of built-in widgets, above |
 | `settings` | This widget's inline `shell.json` entry; read with `setting(name, fallback)` |
 | `vertical` | `true` when the bar is a side rail — switch layouts on it |
 | `barSize` | Bar thickness in px |
