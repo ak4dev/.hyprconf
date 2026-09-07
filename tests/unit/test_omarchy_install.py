@@ -650,28 +650,49 @@ def test_a_backslash_in_the_checkout_path_keeps_the_zshrc_block(tmp_path: Path) 
         assert lines[begin : end + 1] == block, f"run {run}"
 
 
-def test_a_half_marker_pair_in_zshrc_is_refused_not_truncated(tmp_path: Path) -> None:
+def _unpaired_markers(text: str, begin: str, end: str) -> dict[str, str]:
+    """The three ways a marker pair stops bounding a block: either line gone,
+    or the two of them in the wrong order. All three leave the rewrite's
+    skip=1 latch with nothing to clear it."""
+    lines = text.splitlines(keepends=True)
+    b = next(i for i, ln in enumerate(lines) if ln.rstrip() == begin)
+    e = next(i for i, ln in enumerate(lines) if ln.rstrip() == end)
+    swapped = list(lines)
+    swapped[b], swapped[e] = swapped[e], swapped[b]
+    return {
+        "no end marker": "".join(ln for ln in lines if ln.rstrip() != end),
+        "no begin marker": "".join(ln for ln in lines if ln.rstrip() != begin),
+        "markers swapped": "".join(swapped),
+    }
+
+
+def test_marker_lines_that_are_not_an_ordered_pair_leave_zshrc_alone(tmp_path: Path) -> None:
     """One marker line gone (a botched manual revert, a dotfiles merge, a
     trimmed tail) used to cost the user everything from the marker to EOF:
     the rewrite latches skip=1 at the begin marker and clears it only at an
     end marker, so with no end marker the tail was dropped at exit 0, with no
     warning and no backup — and the post-update hook runs this after every
-    `omarchy-update`. A half pair is a file the installer does not
-    understand: it is left byte for byte as it is, with a warning."""
+    `omarchy-update`. Presence alone is not the test: an end marker ABOVE the
+    begin marker is consumed with skip already 0 and never clears the latch,
+    so it costs the same tail — which is where the warning's own "put the
+    missing line back" advice leads if it is followed carelessly. None of the
+    three is a file the installer understands: it is left byte for byte as it
+    is, with a warning."""
     env = _setup(tmp_path)
     zshrc = env["home"] / ".zshrc"
     zshrc.write_text("export MY_OWN_THING=1\n")
     assert _run(env, "--no-update").returncode == 0
     full = zshrc.read_text() + "source ~/.zshrc.local\nexport SECOND_OWN_THING=2\n"
 
-    for missing in ("# <<< hyprconf <<<", "# >>> hyprconf >>>"):
-        maimed = "".join(ln for ln in full.splitlines(keepends=True) if ln.strip() != missing)
+    for shape, maimed in _unpaired_markers(
+        full, "# >>> hyprconf >>>", "# <<< hyprconf <<<"
+    ).items():
         assert maimed != full
         zshrc.write_text(maimed)
         proc = _run(env, "--no-update")
         assert proc.returncode == 0, proc.stderr
-        assert zshrc.read_text() == maimed, missing
-        assert "marker" in proc.stderr and ".zshrc" in proc.stderr, missing
+        assert zshrc.read_text() == maimed, shape
+        assert "marker" in proc.stderr and ".zshrc" in proc.stderr, shape
 
     # The pair back: the block is rewritten in place and the tail survives.
     zshrc.write_text(full)
@@ -3333,14 +3354,15 @@ def test_a_stale_menu_block_is_replaced_not_duplicated(tmp_path: Path) -> None:
     }
 
 
-def test_menu_stage_leaves_a_half_marker_pair_alone(tmp_path: Path) -> None:
+def test_menu_stage_leaves_markers_that_are_not_an_ordered_pair_alone(tmp_path: Path) -> None:
     """The same latch runs over omarchy-menu.jsonc, where losing the tail
     costs the outer closing brace: the bottom-up scan then latches onto a
     NESTED brace instead of hitting its exit-3 guard, and the row lands
     inside the user's own object. The result is invalid JSON, and
     MenuModel.js swallows that whole (parseMenuJsonc returns [] on a
-    JSON.parse throw, 4.0.2-1) — the user's ENTIRE menu gone. A half pair is
-    refused: the file is untouched and still parses."""
+    JSON.parse throw, 4.0.2-1) — the user's ENTIRE menu gone. A missing
+    marker and a swapped pair both do it: the file is untouched and still
+    parses."""
     env = _setup(tmp_path)
     ext = env["home"] / MENU_EXT
     ext.parent.mkdir(parents=True)
@@ -3356,15 +3378,14 @@ def test_menu_stage_leaves_a_half_marker_pair_alone(tmp_path: Path) -> None:
         + MENU_END
         + "\n}\n"
     )
-    for missing in (MENU_END, MENU_BEGIN):
-        maimed = "".join(ln for ln in whole.splitlines(keepends=True) if ln.rstrip() != missing)
+    for shape, maimed in _unpaired_markers(whole, MENU_BEGIN, MENU_END).items():
         assert maimed != whole
         ext.write_text(maimed)
         proc = _run(env, "--no-update")
         assert proc.returncode == 0, proc.stderr
-        assert ext.read_text() == maimed, missing
-        assert "marker" in proc.stderr, missing
-        assert _menu_items(ext)["personal"] == {"icon": "x", "sub": {"a": 1}}, missing
+        assert ext.read_text() == maimed, shape
+        assert "marker" in proc.stderr, shape
+        assert _menu_items(ext)["personal"] == {"icon": "x", "sub": {"a": 1}}, shape
         assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
 
     # The pair back: the stale row is replaced, the user's entry survives.

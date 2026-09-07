@@ -228,22 +228,28 @@ bootstrap() {
 
 # ------------------------------------------------------------------ helpers
 
-# How $1's hyprconf-managed block looks: "both" markers, a "half" pair, or
-# "none". Every marker state machine below latches skip=1 at the begin marker
-# and clears it only at an end marker, so rewriting a file that has lost one
-# of the pair — a botched manual revert, a dotfiles merge, a trimmed tail —
-# deletes everything from the marker to EOF, at exit 0, with no backup and
-# nothing said. A half pair is a file this installer does not understand:
-# every caller leaves it exactly as it is and says so.
+# How $1's hyprconf-managed block looks: a usable "pair", an "unpaired" one,
+# or "none". Every marker state machine below latches skip=1 at the begin
+# marker and clears it only at an end marker, so rewriting a file whose pair
+# is not a pair — one marker lost to a botched manual revert, a dotfiles
+# merge or a trimmed tail, or the two of them left in the wrong order —
+# deletes everything from the begin marker to EOF, at exit 0, with no backup
+# and nothing said. Presence is therefore not enough: an end marker ABOVE
+# the begin marker is consumed with skip already 0 and never clears the
+# latch, so the tail goes exactly as if it were missing. Both shapes are a
+# file this installer does not understand: every caller leaves it exactly as
+# it is and says so.
 managed_block_state() {
-    local file="$1" begin="$2" end="$3" b=0 e=0
+    local file="$1" begin="$2" end="$3" b e
     [[ -f $file ]] || { printf 'none'; return 0; }
     # -e: defensive — a marker starting with a dash would read as an option
-    # (today's markers start with "#" and "  //").
-    if grep -qxF -e "$begin" "$file"; then b=1; fi
-    if grep -qxF -e "$end" "$file"; then e=1; fi
-    if (( b && e )); then printf 'both'
-    elif (( b || e )); then printf 'half'
+    # (today's markers start with "#" and "  //"). First line of each: a
+    # duplicate pair below the first is dropped by the rewrite anyway.
+    b="$(grep -nxF -e "$begin" "$file" | head -1 | cut -d: -f1)"
+    e="$(grep -nxF -e "$end" "$file" | head -1 | cut -d: -f1)"
+    if [[ -n $b && -n $e ]]; then
+        if (( b < e )); then printf 'pair'; else printf 'unpaired'; fi
+    elif [[ -n $b || -n $e ]]; then printf 'unpaired'
     else printf 'none'; fi
 }
 
@@ -259,19 +265,20 @@ managed_block_state() {
 # repeated runs. The one block written is the zshrc one, so the markers are
 # the '#'-comment pair.
 #
-# Both preservation promises hold only over a COMPLETE pair: with one marker
-# line hand-removed the file is refused untouched (managed_block_state), not
-# rewritten — see there for what the alternative costs.
+# Both preservation promises hold only over a marker pair that is ordered and
+# complete: with one marker line hand-removed, or the two swapped, the file
+# is refused untouched (managed_block_state), not rewritten — see there for
+# what the alternative costs.
 write_managed_block() {
     local file="$1" block="$2" begin="# >>> hyprconf >>>" end="# <<< hyprconf <<<" tmp kept state
     touch "$file"
     state="$(managed_block_state "$file" "$begin" "$end")"
-    if [[ $state == half ]]; then
-        warn "$file has one hyprconf marker line but not the other — left untouched;" \
-             "put the missing '$begin' / '$end' line back (or delete the odd one) and re-run"
+    if [[ $state == unpaired ]]; then
+        warn "$file has no usable '$begin' … '$end' pair — left untouched;" \
+             "put the missing marker line back, in that order (or delete the odd one), and re-run"
         return 0
     fi
-    if [[ $state == both ]]; then
+    if [[ $state == pair ]]; then
         tmp="$(mktemp)"
         # The first block is replaced at its own position; any further pair
         # (never written by this installer) is dropped, so one block remains.
@@ -306,13 +313,14 @@ write_managed_block() {
 }
 
 # Remove a managed block from $1 (markers $2/$3), preserving everything else.
-# Returns 1 without touching the file on a half marker pair, which is the
-# caller's signal to leave the whole file alone (managed_block_state).
+# Returns 1 without touching the file when the markers are not an ordered
+# pair, which is the caller's signal to leave the whole file alone
+# (managed_block_state).
 strip_managed_block() {
     local file="$1" begin="$2" end="$3" tmp state
     state="$(managed_block_state "$file" "$begin" "$end")"
-    [[ $state == half ]] && return 1
-    [[ $state == both ]] || return 0
+    [[ $state == unpaired ]] && return 1
+    [[ $state == pair ]] || return 0
     tmp="$(mktemp)"
     awk -v b="$begin" -v e="$end" '
         $0 == b { skip = 1; next }
@@ -1076,17 +1084,18 @@ stage_menu() {
     target="$(readlink -f "$file")"
     tmp="$(mktemp "$target.XXXXXX")"
     cp "$target" "$tmp"
-    # A half marker pair costs this file more than the tail: with the end
-    # marker gone the strip eats the outer closing brace too, the bottom-up
-    # scan below then latches onto a NESTED brace instead of reaching its
-    # exit-3 guard, and the row lands inside the user's own object. The
-    # result is invalid JSON, and Omarchy swallows that whole — MenuModel.js
-    # parseMenuJsonc returns [] on a JSON.parse throw (4.0.2-1) — so the
-    # user loses their ENTIRE menu, not one row.
+    # Markers that are not an ordered pair cost this file more than the tail:
+    # with the end marker gone (or above the begin marker) the strip eats the
+    # outer closing brace too, the bottom-up scan below then latches onto a
+    # NESTED brace instead of reaching its exit-3 guard, and the row lands
+    # inside the user's own object. The result is invalid JSON, and Omarchy
+    # swallows that whole — MenuModel.js parseMenuJsonc returns [] on a
+    # JSON.parse throw (4.0.2-1) — so the user loses their ENTIRE menu, not
+    # one row.
     if ! strip_managed_block "$tmp" "$begin" "$end"; then
         rm -f "$tmp"
-        warn "$file has one hyprconf marker line but not the other — left untouched;" \
-             "put the missing marker line back (or delete the odd one) and re-run"
+        warn "$file has no usable hyprconf marker pair — left untouched;" \
+             "put the missing marker line back, in that order (or delete the odd one), and re-run"
         return 0
     fi
     local rc=0

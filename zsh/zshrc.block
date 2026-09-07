@@ -2,8 +2,9 @@
 # Managed block — regenerate with: bash ~/.hyprconf/install.sh
 # Everything between these markers is replaced on each run; edit the source at
 # zsh/zshrc.block instead. Anything outside the markers is preserved — as long
-# as BOTH marker lines are here: with only one the installer leaves this file
-# alone and says so, because it cannot tell where the block ends.
+# as BOTH marker lines are here, in this order: with only one, or the two
+# swapped, the installer leaves this file alone and says so, because it
+# cannot tell where the block ends.
 #
 # Omarchy is bash-only. hyprconf runs zsh inside kitty and leaves the LOGIN
 # shell as bash, so Omarchy's session, uwsm, SSH and scripts are untouched.
