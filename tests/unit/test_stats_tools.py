@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -827,3 +828,49 @@ class TestGpuInfoScript:
         r = self._run(tmp_path, nvidia=False)
         assert r.returncode == 0
         assert r.stdout.strip() == ""
+
+
+# ---------------------------------------------------------------------------
+# What the READMEs may claim about a tick
+# ---------------------------------------------------------------------------
+
+# "forks nothing" and its variants, and the two feeder names, as tokens.
+FORK_CLAIM = re.compile(r"forks? nothing|fork-free")
+FEEDER_NAME = re.compile(r"hyprconf-(?:stats|gpu-info)")
+# Every doc that describes a feeder's tick. The plugin README ships to
+# strangers on its own (`omarchy plugin add`), so it is held to the same rule.
+TICK_DOCS = (
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "docs" / "CONTRIBUTING.md",
+    FEEDERS.parent / "README.md",
+)
+
+
+def test_only_the_stats_feeder_paces_itself_without_a_fork() -> None:
+    """The fact the READMEs are held to below, read off the two scripts:
+    hyprconf-stats loads bash's `sleep` builtin, so its whole tick is reads
+    and integer arithmetic; hyprconf-gpu-info's AMD and Intel loops exec
+    /usr/bin/sleep once per interval and load no builtin."""
+    stats = STATS.read_text()
+    assert 'enable -f "$HYPRCONF_STATS_SLEEP_BUILTIN" sleep' in stats
+    gpu = GPU_INFO.read_text()
+    assert "enable -f" not in gpu, "the GPU feeder gained a sleep builtin — re-word the READMEs"
+    assert len(re.findall(r'^\s*sleep "\$HYPRCONF_GPU_INTERVAL"$', gpu, re.M)) == 2
+
+
+def test_readmes_never_claim_a_fork_free_tick_for_the_gpu_feeder() -> None:
+    """A fork-free tick is hyprconf-stats' property alone, so the feeder
+    named last before the claim must be hyprconf-stats — the shape that
+    turned false when both names were put in front of one "a tick ... forks
+    nothing". The docs ship as the user contract (rule 7) and the plugin
+    README ships on its own, so a wrong claim there reaches strangers."""
+    for doc in TICK_DOCS:
+        text = doc.read_text(encoding="utf-8")
+        claims = list(FORK_CLAIM.finditer(text))
+        assert claims, f"{doc.name} no longer describes a tick's cost"
+        for claim in claims:
+            names = FEEDER_NAME.findall(text[: claim.start()])
+            assert names and names[-1] == "hyprconf-stats", (
+                f"{doc.name}: '{claim.group(0)}' reads as a claim about "
+                f"{names[-1] if names else 'both feeders'}"
+            )

@@ -9,11 +9,13 @@ two aligned lines, in the bar's right section.
 Top line: CPU temperature and utilisation, RAM used/total, upload rate.
 Bottom line: the active GPU's temperature and utilisation, VRAM used/total,
 download rate. Fed by two long-lived JSON streams bundled in `bin/`
-(`hyprconf-stats`, one line a second; `hyprconf-gpu-info`, one every two) —
-a tick reads `/proc` and `/sys` and forks nothing. The network rates are the
-first wired link that is up, else the default-route interface from
-`/proc/net/route` (Wi-Fi, a tunnel). Columns are fixed-width, sized from
-their widest value, so nothing shifts as the numbers change. On a multi-GPU
+(`hyprconf-gpu-info`, one line every two seconds; `hyprconf-stats`, one a
+second, whose tick reads `/proc` and `/sys` and forks nothing — it paces
+itself on bash's loadable `sleep` builtin, where the GPU feeder's sysfs
+loops exec `/usr/bin/sleep`). The network rates are the first wired link
+that is up, else the default-route interface from `/proc/net/route`
+(Wi-Fi, a tunnel). Columns are fixed-width, sized from their widest value,
+so nothing shifts as the numbers change. On a multi-GPU
 box the **active** card is shown — the one with the most VRAM in use (ties:
 utilisation, then index), re-evaluated every sample; NVIDIA (`nvidia-smi
 --loop`), AMD (`gpu_busy_percent`) and Intel (the `xe` driver's GT idle
@@ -46,8 +48,9 @@ foreground apply.
 
 ## Dependencies
 
-- `bash` ≥ 5 (the feeders; the package's loadable `sleep` builtin is used when
-  present, `/usr/bin/sleep` otherwise) — Omarchy's base.
+- `bash` ≥ 5 (both feeders; `hyprconf-stats` paces itself on the package's
+  loadable `sleep` builtin when present and `/usr/bin/sleep` otherwise, which
+  is the one `hyprconf-gpu-info`'s sysfs loops always use) — Omarchy's base.
 - `hwdata` (`/usr/share/hwdata/pci.ids`, an Intel card's name; a base
   dependency of `systemd`). Without it the card reads "Intel Graphics".
 - `btop` for the click — Omarchy's base.
