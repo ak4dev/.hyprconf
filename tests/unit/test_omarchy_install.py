@@ -2226,6 +2226,21 @@ def test_the_documented_clock_revert_undoes_what_the_stage_applied() -> None:
     # the whole way back.
     assert "back to stock with: omarchy plugin disable $id" not in _stage_body("stage_clock")
 
+    # Nor does the Bar-widgets table, where a reader looking up one widget
+    # never sees the section above: its Revert cell for the clock has to
+    # carry the two extra steps or point at the section that does.
+    rows = [
+        ln
+        for ln in (REPO_ROOT / "README.md").read_text().splitlines()
+        if ln.startswith("| `hyprconf.clock` |")
+    ]
+    assert len(rows) == 1, "the Bar-widgets row for hyprconf.clock moved"
+    revert_cell = rows[0].rsplit("|", 2)[1]
+    assert "omarchy plugin disable hyprconf.clock" in revert_cell
+    assert "#reverting-to-stock" in revert_cell or "centerAnchor" in revert_cell, (
+        "the Bar-widgets Revert cell still calls the bare disable the way back"
+    )
+
 
 def test_clock_widget_id_carries_no_username() -> None:
     """omarchy-plugin-clone names clones <username>.<id> with no way to
