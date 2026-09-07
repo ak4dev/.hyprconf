@@ -5,12 +5,12 @@
 sits frozen 59 seconds of every one; this is that widget with its precision
 raised to seconds — the calendar on click, right-click cycling the formats,
 middle-click the timezone picker, the same settings, and what the calendar
-saves (week start, birth year) written under this plugin's own id. `BarWidget.qml` and `Model.js` are Omarchy's (the header of the
-first names the three deltas; NOTICE carries Omarchy's MIT notice), and the
-calendar panel is loaded from the running Omarchy's own `Panel.qml`, so it
-is never behind the installed release. A `clonedFrom` copy: enabling it
-swaps it into the stock clock's slot on the bar, and the stock IPC target
-keeps working.
+saves (week start, birth year) written under this plugin's own id.
+`BarWidget.qml` and `Model.js` are Omarchy's (the header of the first names
+the three deltas; NOTICE carries Omarchy's MIT notice), and the calendar
+panel is loaded from the running Omarchy's own `Panel.qml`, so it is never
+behind the installed release. A `clonedFrom` copy: enabling it swaps it into
+the stock clock's slot on the bar, and the stock IPC target keeps working.
 
 ## Install
 
