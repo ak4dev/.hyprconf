@@ -363,16 +363,32 @@ restore_clobbered_override() {
     local matched=""
     if cmp -s "$ours" "$stock"; then
         matched="$stock"
-    elif [[ -f $cached ]] && cmp -s "$ours" "$cached"; then
+    elif [[ -f $cached && ! -L $cached ]] && cmp -s "$ours" "$cached"; then
         matched="$cached"
     fi
     # Remember what the template looks like NOW, for the run after the next
     # Omarchy release replaces it. Written only when it changed, so a re-run
-    # stays byte-stable. The whole directory goes with the rest of the state
-    # (README > Reverting to stock).
-    if ! cmp -s "$stock" "$cached" 2>/dev/null; then
-        mkdir -p "${cached%/*}"
-        cp "$stock" "$cached"
+    # stays byte-stable, and never through a symlink out of the state
+    # directory — both the read above and this write stay inside it. The
+    # whole directory goes with the rest of the state (README > Reverting to
+    # stock).
+    #
+    # Best-effort, like every other state write here: a cache it cannot
+    # write degrades the guard to the installed template alone, it does not
+    # stop the run. Unguarded (`set -e`), a ~/.local/state/hyprconf/stock
+    # that is a regular file, or one entry the user cannot write, killed the
+    # whole install at the first hypr override — hooks, plugins and clock
+    # never reached, on every post-update run.
+    #
+    # The cache is user-writable and it is an input to `git checkout --`:
+    # planting the checkout's own current bindings.lua there makes the next
+    # run revert an uncommitted edit. Accepted, and no trust boundary
+    # (CONTRIBUTING > Security): the same actor can write $HERE/hypr/*.lua
+    # directly, which is the file this would restore.
+    if [[ ! -L $cached ]] && ! cmp -s "$stock" "$cached" 2>/dev/null; then
+        { mkdir -p "${cached%/*}" && cp "$stock" "$cached"; } 2>/dev/null ||
+            warn "could not cache Omarchy's hypr/$name template under ${cached%/*} —" \
+                 "the refresh guard will not survive the next template bump"
     fi
     [[ -n $matched ]] || return 0
     # Whether the repair took is "did hypr/$name change", not "does it still

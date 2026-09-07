@@ -2746,6 +2746,33 @@ def test_a_clobber_is_still_repaired_after_omarchy_ships_a_new_template(tmp_path
     assert cached.read_text() == bumped
 
 
+def test_a_cache_the_installer_cannot_write_warns_and_the_run_goes_on(tmp_path: Path) -> None:
+    """The stock cache is an optimisation for the NEXT template bump, and
+    every other state write in the installer warns and carries on. Unguarded
+    under `set -e` it was the one that did not: with
+    ~/.local/state/hyprconf/stock occupied by a regular file, `mkdir -p`
+    failed and the whole run died at the first hypr override — no hooks, no
+    plugins, no clock, on every post-update run from then on. The guard
+    itself still works off the installed template."""
+    env = _setup(tmp_path)
+    repo = _checkout(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_PASSTHROUGH)
+    templates = _stock_templates(env)
+    committed = (repo / "hypr" / "bindings.lua").read_text()
+    stock_dir = env["home"] / ".local" / "state" / "hyprconf" / "stock"
+    stock_dir.parent.mkdir(parents=True, exist_ok=True)
+    stock_dir.write_text("not a directory\n")  # mkdir -p fails here for root too
+    assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
+
+    _refresh_config(env, templates, "bindings.lua")
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert "could not cache" in proc.stderr
+    assert (repo / "hypr" / "bindings.lua").read_text() == committed
+    assert stock_dir.read_text() == "not a directory\n"
+    assert "omarchy-hook-install" in _commands(env)  # the stages after it still ran
+
+
 def test_a_clobber_git_cannot_undo_is_reported_as_unrepaired_after_a_bump(
     tmp_path: Path,
 ) -> None:
