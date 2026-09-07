@@ -328,13 +328,14 @@ strip_managed_block() {
         skip { next }
         { print }
     ' "$file" > "$tmp"
-    # Trailing blank lines go with the block: the command substitution
-    # strips every trailing newline and printf puts exactly one back. That
-    # is what stage_menu — the one caller — needs, because its own awk drops
-    # them too (see its comment), so the block it writes on the FIRST run is
-    # already what a re-run over the stripped file produces
+    # Write the stripped file back, over the file itself and not through a
+    # rename, so a symlinked target keeps its link (write_managed_block does
+    # the same). Trailing blank lines are left alone: stage_menu — the one
+    # caller — drops them in its own awk, after the closing brace, which is
+    # what makes the block it writes on the FIRST run byte-identical to a
+    # re-run over the stripped file
     # (test_menu_block_is_byte_stable_from_the_first_run_after_trailing_blank_lines).
-    printf '%s\n' "$(cat "$tmp")" > "$file"
+    cat "$tmp" > "$file"
     rm -f "$tmp"
 }
 
