@@ -3421,8 +3421,12 @@ def test_menu_stage_leaves_a_file_it_cannot_extend_alone(tmp_path: Path) -> None
         '{\n  "items":\n  {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
         # Both braces split off, the shape a formatter leaves behind.
         '{\n  "items"\n  :\n  {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
+        # A whole-line comment between the key and its brace: the parser
+        # drops those before parsing (MenuModel.js stripJsonc), so this is a
+        # wrapper too — and [[:space:]] does not span a comment.
+        '{\n  "items":\n  // the rows\n  {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
     ],
-    ids=["one-line", "split-brace", "split-colon"],
+    ids=["one-line", "split-brace", "split-colon", "comment-before-brace"],
 )
 def test_menu_stage_leaves_an_items_wrapper_alone(tmp_path: Path, before: str) -> None:
     """Omarchy's parser also accepts `{ "items": { … } }` and then reads
@@ -3433,7 +3437,9 @@ def test_menu_stage_leaves_an_items_wrapper_alone(tmp_path: Path, before: str) -
     the file is left exactly as it is, with a warning naming the shape.
 
     The wrapper is a JSON fact, not a line fact: `"items":` and its `{` may
-    sit on different lines, so the guard runs over the joined file."""
+    sit on different lines, with a whole-line comment between them, so the
+    guard runs over the joined file with those comments dropped the way
+    stripJsonc drops them."""
     env = _setup(tmp_path)
     ext = env["home"] / MENU_EXT
     ext.parent.mkdir(parents=True)

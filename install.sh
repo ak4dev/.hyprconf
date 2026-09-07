@@ -1110,12 +1110,20 @@ stage_menu() {
             # re-run found the file current. Refused instead.
             #
             # The wrapper is a JSON fact, not a line fact: `"items"`, its
-            # colon and its `{` may each sit on a line of their own. So the
-            # test runs over the joined file, where [[:space:]] spans the
-            # newlines too; the leading "\n" is what makes the anchor hold
-            # for the first line as well.
+            # colon and its `{` may each sit on a line of their own, with a
+            # whole-line comment anywhere between them — the parser drops
+            # those before it parses (MenuModel.js stripJsonc, 4.0.2-1:
+            # /^\s*\/\/[^\n]*(\n|$)/gm), so the test drops them too, or a
+            # `"items":` with a comment before its brace reads as no wrapper
+            # at all and the block goes outside it. So the test runs over the
+            # joined file, where [[:space:]] spans the newlines too; the
+            # leading "\n" is what makes the anchor hold for the first line
+            # as well.
             joined = "\n"
-            for (i = 1; i <= NR; i++) joined = joined lines[i] "\n"
+            for (i = 1; i <= NR; i++) {
+                if (lines[i] ~ /^[[:space:]]*\/\//) continue
+                joined = joined lines[i] "\n"
+            }
             if (joined ~ /\n[[:space:]]*\{?[[:space:]]*"items"[[:space:]]*:[[:space:]]*\{/) exit 4
             close_at = 0
             for (i = NR; i >= 1; i--)
