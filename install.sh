@@ -375,7 +375,16 @@ restore_clobbered_override() {
         cp "$stock" "$cached"
     fi
     [[ -n $matched ]] || return 0
-    if git -C "$HERE" checkout -q -- "hypr/$name" 2>/dev/null && ! cmp -s "$ours" "$matched"; then
+    # Whether the repair took is "did hypr/$name change", not "does it still
+    # look like a template". Two shapes make those differ: a clobber the user
+    # committed (git checkout succeeds and restores the clobber itself), and
+    # the cache refresh above, which has already replaced the bytes $matched
+    # names with the newer template — so comparing against $matched reported
+    # every cached-match clobber repaired, the unrepairable ones included.
+    local before
+    before="$(cksum < "$ours")"
+    if git -C "$HERE" checkout -q -- "hypr/$name" 2>/dev/null &&
+        [[ "$(cksum < "$ours")" != "$before" ]]; then
         warn "hypr/$name in the checkout had been replaced by Omarchy's stock template" \
              "(omarchy refresh writes through the symlink) — restored it from git"
     else

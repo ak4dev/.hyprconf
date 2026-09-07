@@ -2746,6 +2746,32 @@ def test_a_clobber_is_still_repaired_after_omarchy_ships_a_new_template(tmp_path
     assert cached.read_text() == bumped
 
 
+def test_a_clobber_git_cannot_undo_is_reported_as_unrepaired_after_a_bump(
+    tmp_path: Path,
+) -> None:
+    """The guard's two messages must stay honest: it says it restored the
+    file only when the file changed. A clobber the user committed (`git
+    commit -am` over a refreshed checkout) is one git checkout cannot undo,
+    and the cached template makes it recognisable long after Omarchy has
+    shipped a new one — so this is exactly the run that must print "could
+    not be restored" and the `git status` pointer, not an all-clear over a
+    checkout that still holds Omarchy's template."""
+    env = _setup(tmp_path)
+    repo = _checkout(tmp_path)
+    _stub(env["bins"] / "git", env["calls"], GIT_PASSTHROUGH)
+    templates = _stock_templates(env)
+    assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
+
+    _refresh_config(env, templates, "bindings.lua")  # the damage, at template A
+    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "oops"], check=True, timeout=30)
+    (templates / "bindings.lua").write_text(STOCK_BINDINGS + "-- 4.1\n")  # the package upgrade
+
+    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
+    assert proc.returncode == 0, proc.stderr
+    assert (repo / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS  # still clobbered
+    assert "could not be" in proc.stderr and "restored it from git" not in proc.stderr
+
+
 def test_a_real_edit_survives_a_template_bump(tmp_path: Path) -> None:
     """The cached template only ever ADDS a way to recognise Omarchy's own
     bytes: anything the user wrote is still left alone, before and after a
