@@ -27,7 +27,7 @@ overlays are plugins inside it (`/usr/share/omarchy/shell/README.md`). Layout:
   Ui/        BarWidget.qml …      `import qs.Ui` — the base every bar widget extends
   services/  PluginRegistry.qml   discovery, validation, enabled state, clonedFrom resolution
   plugins/   bar/ panels/ …       first-party plugins (plugins/README.md lists ids and entry points)
-  plugins/services/                 first-party services; media/ is `service` + `bar-widget` in one manifest
+  plugins/services/               first-party services; media/ is `service` + `bar-widget` in one manifest
 ```
 
 User plugins live in `~/.config/omarchy/plugins/<plugin-id>/`; the bar layout and
@@ -63,14 +63,15 @@ resources one (`plugins/hyprconf-resources/manifest.json`) relies on:
 
 `defaultSection` is what places `hyprconf.resources` on an enable with no
 placement flag (`stage_bar_plugin` passes none). The second kind is the
-service seam below; it changes nothing about how the plugin is enabled. Other optional `barWidget` keys:
-`defaults` (per-widget settings the widget reads via `setting()`), `schema` (what
-`omarchy bar set` accepts). Validate with `omarchy plugin validate <plugin-folder>`
-(`bin/omarchy-plugin-validate`: `schemaVersion` the number 1, the five required
-fields, the id's regex and the reserved `omarchy.*` namespace, relative
-`..`-free entry points that exist, one per kind, `defaultSection`'s domain, no
-symlink anywhere in the folder — `tests/unit/test_plugins.py` re-implements the
-list so CI pins it without Omarchy).
+service seam below; it changes nothing about how the plugin is enabled.
+Other optional `barWidget` keys: `defaults` (per-widget settings the widget
+reads via `setting()`), `schema` (what `omarchy bar set` accepts). Validate
+with `omarchy plugin validate <plugin-folder>` (`bin/omarchy-plugin-validate`:
+`schemaVersion` the number 1, the five required fields, the id's regex and the
+reserved `omarchy.*` namespace, relative `..`-free entry points that exist, one
+per kind, `defaultSection`'s domain, no symlink anywhere in the folder —
+`tests/unit/test_plugins.py` re-implements the list so CI pins it without
+Omarchy).
 
 ### One instance for the session: `kinds: ["bar-widget", "service"]`
 
@@ -303,9 +304,8 @@ Restarter { id: statsRestartTimer; proc: statsProc }
   ever stops the loop, and the dead-hardware case is a feeder that exits
   *instantly*: `nvidia-smi --loop` returns at once when the driver stops
   answering, so a 1 s retry is ~78,000 execs a day, each paying a failing
-  NVML init. Upstream's `Clipboard.qml` has neither a
-  backoff nor a produced-output gate, so this is the stricter shape, not a
-  relaxation of it.
+  NVML init. Upstream's `Clipboard.qml` has neither a backoff nor a
+  produced-output gate, so this is the stricter shape, not a relaxation of it.
 - `SystemClock { precision: SystemClock.Seconds }` (`quickshell-core.qmltypes`:
   `Hours | Minutes | Seconds`) is one of the clock plugin's three deltas — the
   stock clock samples at `Minutes`. `Quickshell.env("NAME")` (core) reads the
