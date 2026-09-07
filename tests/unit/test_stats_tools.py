@@ -9,7 +9,8 @@ interface from /proc/net/route); all of its system paths are
 HYPRCONF_STATS_*-overridable, and a tick forks nothing. hyprconf-gpu-info is a
 long-lived stream too: nvidia-smi --loop piped through one awk, or a
 pure-bash sysfs loop over AMD's gpu_busy_percent or Intel's xe idle-residency
-counter (HYPRCONF_GPU_*-overridable). These tests drive them hermetically with
+counter, the latter gated on power/runtime_status because every xe read
+resumes the card (HYPRCONF_GPU_*-overridable). These tests drive them hermetically with
 fake sysfs/proc trees and fake binaries; a PATH `sleep` fake is the hook that
 runs between ticks (hyprconf-stats' loadable-sleep seam is pointed at a file
 that is not there, so the fake is what its ticks call).
@@ -613,10 +614,14 @@ class TestGpuInfoScript:
         device_id: str | None = "0xb0a0",
         act_freq: str | None = "1200",
         temp: str | None = None,
+        runtime_status: str | None = None,
     ) -> Path:
         """Fake xe sysfs for one Intel card: the render/compute GT (gt0-rc)
         with its idle-residency counter, optionally the media GT (gt1-mc) that
-        must be ignored, the PCI ids the name is looked up from, hwmon."""
+        must be ignored, the PCI ids the name is looked up from, hwmon, and
+        optionally the PM core's power/runtime_status. Left out by default:
+        a card with no runtime_status is assumed awake, so every fixture
+        written before the PM gate keeps its behaviour."""
         dev = drm / f"card{n}" / "device"
         rc = dev / "tile0" / "gt0"
         (rc / "gtidle").mkdir(parents=True)
@@ -637,7 +642,25 @@ class TestGpuInfoScript:
             hw = dev / "hwmon" / "hwmon2"
             hw.mkdir(parents=True)
             (hw / "temp1_input").write_text(temp + "\n")
+        if runtime_status is not None:
+            pm = dev / "power"
+            pm.mkdir(parents=True)
+            (pm / "runtime_status").write_text(runtime_status + "\n")
         return dev
+
+    @staticmethod
+    def _runtime_status(drm: Path, n: int) -> Path:
+        return drm / f"card{n}" / "device" / "power" / "runtime_status"
+
+    @staticmethod
+    def _trap(path: Path) -> None:
+        """Turn an existing sysfs attribute into a blocking trap: a FIFO with
+        no writer. `[[ -r ]]` still passes and the probe still accepts the
+        card, but any open() for reading hangs — so a feeder that touches the
+        attribute never emits a line and the test times out instead of
+        quietly passing on a read that should never have happened."""
+        path.unlink()
+        os.mkfifo(path)
 
     @staticmethod
     def _pci_ids(tmp_path: Path) -> Path:
@@ -813,6 +836,80 @@ class TestGpuInfoScript:
         assert line["name"] == "Intel Graphics"
         assert line["temp"] is None
         assert line["tooltip"] == "Intel Graphics (GPU 3) | Util 100% | Temp n/a | VRAM shared"
+
+    def test_intel_suspended_card_is_never_read_and_ranks_idle(self, tmp_path: Path) -> None:
+        """xe resumes the card on every one of the three reads this feeder
+        makes: idle_residency_ms_show, act_freq_show and xe_hwmon_read all
+        call xe_pm_runtime_get, which tail-calls __pm_runtime_resume(dev, 0)
+        (disassembled from the installed xe.ko, kernel 7.1.8-arch1-2-ptl).
+        amdgpu's handler returns early instead, so the AMD path's "a
+        suspended card just refuses the read" does not transfer. With
+        power/runtime_status saying "suspended" none of the three may be
+        opened — all three are FIFO traps here, so a feeder that opens one
+        blocks and emits nothing — and the card ranks idle rather than
+        reading 100% off a counter that is standing still."""
+        drm = tmp_path / "drm"
+        dev = self._intel_card(drm, 0, temp="47000", runtime_status="suspended")
+        self._trap(self._idle_file(drm, 0))
+        self._trap(dev / "tile0" / "gt0" / "freq0" / "act_freq")
+        self._trap(dev / "hwmon" / "hwmon2" / "temp1_input")
+        lines = self._run_intel(tmp_path, drm)
+        assert [ln["util"] for ln in lines] == [0, 0]
+        assert lines[0]["temp"] is None
+        assert lines[0]["tooltip"].endswith("| Temp n/a | VRAM shared")
+
+    def test_intel_resumed_card_re_baselines_instead_of_reading_pegged(
+        self, tmp_path: Path
+    ) -> None:
+        """The counter freezes while the GT is off but the wall clock does
+        not, so the first delta after a resume covers a window the card slept
+        through — a card that just woke would read 100% busy. The first
+        sample after a suspend is a baseline: 0% here, then the genuine 100%
+        of a counter that really is not advancing."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0, runtime_status="suspended")
+        status = self._runtime_status(drm, 0)
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir(exist_ok=True)
+        # The card wakes between the baseline and the first sample; its
+        # residency counter is left exactly where it was.
+        _write_exe(
+            bin_dir / "sleep",
+            f'#!/usr/bin/env bash\necho active > "{status}"\ncommand -p sleep "$@"\n',
+        )
+        lines = self._lines(
+            self._run(
+                tmp_path,
+                nvidia=False,
+                drm_root=drm,
+                env={
+                    "HYPRCONF_GPU_INTERVAL": "0.2",
+                    "HYPRCONF_GPU_PCI_IDS": str(self._pci_ids(tmp_path)),
+                },
+            )
+        )
+        assert [ln["util"] for ln in lines] == [0, 100]
+
+    def test_intel_active_runtime_status_changes_nothing(self, tmp_path: Path) -> None:
+        """The gate is a gate, not a new reading: a card the PM core calls
+        active is measured exactly as one with no runtime_status at all."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0, temp="47000", runtime_status="active")
+        line = self._run_intel(tmp_path, drm)[0]
+        assert line["util"] == 100
+        assert line["temp"] == 47
+        assert line["tooltip"].endswith("| Temp 47° | VRAM shared | Freq 1200MHz")
+
+    def test_intel_suspended_card_loses_to_an_awake_one(self, tmp_path: Path) -> None:
+        """Two cards, the sleeping one first: it ranks idle, so the reading
+        follows the card that is actually running something."""
+        drm = tmp_path / "drm"
+        self._intel_card(drm, 0, device_id="0xb080", runtime_status="suspended")
+        self._intel_card(drm, 1, runtime_status="active")
+        self._trap(self._idle_file(drm, 0))
+        line = self._run_intel(tmp_path, drm)[0]
+        assert line["index"] == 1
+        assert line["util"] == 100
 
     def test_nvidia_wins_over_an_intel_igpu(self, tmp_path: Path) -> None:
         """A hybrid laptop: the discrete card is the one worth watching, and

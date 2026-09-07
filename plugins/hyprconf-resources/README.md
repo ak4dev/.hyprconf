@@ -21,7 +21,11 @@ utilisation, then index), re-evaluated every sample; NVIDIA (`nvidia-smi
 --loop`), AMD (`gpu_busy_percent`) and Intel (the `xe` driver's GT idle
 residency) in that order. An Intel iGPU has no VRAM of its own, so it reads
 `shared`, and its tooltip carries the GT clock where NVIDIA's carries power
-draw. Click the CPU cell for `btop` (`omarchy-launch-or-focus-tui btop`).
+draw. An Intel card in runtime suspend is never touched: residency, hwmon
+and clock each resume an `xe` device on read, so a tick that finds
+`power/runtime_status` saying anything but `active` reads nothing off that
+card and ranks it idle. Click the CPU cell for `btop`
+(`omarchy-launch-or-focus-tui btop`).
 
 ## Install
 

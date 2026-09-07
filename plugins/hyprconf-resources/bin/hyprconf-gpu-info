@@ -208,11 +208,38 @@ _amd_stream() {
 # the media GT is "gt<N>-mc" and idles through a graphics workload). No VRAM:
 # an iGPU carves from system RAM — already on the widget's CPU line — and this
 # kernel's xe exposes no VRAM size attribute at all, so total is 0 ("shared").
+#
+# Every one of those reads WAKES a runtime-suspended xe card, so none of them
+# happens without checking power/runtime_status first (_intel_awake). The
+# AMD comment above does not transfer: amdgpu_get_gpu_busy_percent calls
+# amdgpu_pm_get_access_if_active and returns its error, while xe's
+# idle_residency_ms_show, act_freq_show and xe_hwmon_read all call
+# xe_pm_runtime_get, which tail-calls __pm_runtime_resume(dev, 0) — a
+# SYNCHRONOUS resume (verified by disassembling the installed
+# drivers/gpu/drm/xe/xe.ko and .../amd/amdgpu/amdgpu.ko, kernel
+# 7.1.8-arch1-2-ptl). Ungated, a 2 s tick against a dGPU whose
+# autosuspend_delay_ms is 1000 keeps it awake about half the time, times the
+# number of bar surfaces, for a card the user is not using.
 _intel_dev=()    # cardN/device (for hwmon and the PCI ids)
 _intel_idx=()
 _intel_name=()
 _intel_gt=()     # cardN/device/tile<N>/gt<N> of the render/compute GT
 _intel_temp=()
+_intel_pm=()     # cardN/device/power/runtime_status, "" when there is none
+
+# Is card $1 awake? runtime_status is the PM core's own attribute — it prints
+# the recorded state and takes no runtime reference, so reading it costs
+# nothing and resumes nothing (measured: 200 reads of a suspended PCI
+# device's runtime_status left its runtime_active_time unchanged). A card
+# with no such file is assumed awake, which is every card on a kernel or a
+# bus that does not do runtime PM. Only "active" counts: "suspending" and
+# "resuming" are transient, and a tick that skips one of those loses nothing.
+_intel_awake() {
+    local st=""
+    [[ -n "${_intel_pm[$1]}" && -r "${_intel_pm[$1]}" ]] &&
+        { read -r st < "${_intel_pm[$1]}" || st=""; } 2>/dev/null
+    [[ -z $st || $st == active ]]
+}
 
 # hwdata's pci.ids is the database lspci itself reads, and hwdata is a
 # dependency of systemd and of base — always installed. Vendor lines start at
@@ -246,6 +273,8 @@ _intel_probe() {
         _intel_dev+=("$d")
         _intel_idx+=("${BASH_REMATCH[1]}")
         _intel_gt+=("$chosen")
+        _intel_pm+=("")
+        [[ -r "$d/power/runtime_status" ]] && _intel_pm[-1]="$d/power/runtime_status"
         vendor="" device=""
         [[ -r "$d/vendor" ]] && { read -r vendor < "$d/vendor" || vendor=""; }
         [[ -r "$d/device" ]] && { read -r device < "$d/device" || device=""; }
@@ -265,16 +294,22 @@ _intel_probe() {
 _intel_stream() {
     local iter=0 i idle now d_idle d_wall util
     local b_i b_util b_temp temp_raw temp_json temp_tip freq freq_tip
-    local -a p_idle=() p_wall=()
+    local -a p_idle=() p_wall=() p_stale=() p_awake=()
 
     # Baseline: a residency counter only means something as a delta, so the
     # first sample lands one interval in (the widget holds its GPU cells blank
-    # until then, which is what it already does before any line arrives).
+    # until then, which is what it already does before any line arrives). A
+    # card that is already asleep gets no baseline read — it is marked stale
+    # instead, and the first tick that finds it awake takes one.
     for i in "${!_intel_gt[@]}"; do
         p_idle[i]=0
-        [[ -r "${_intel_gt[i]}/gtidle/idle_residency_ms" ]] &&
-            { read -r "p_idle[i]" < "${_intel_gt[i]}/gtidle/idle_residency_ms" || p_idle[i]=0; }
-        [[ ${p_idle[i]} =~ ^[0-9]+$ ]] || p_idle[i]=0
+        p_stale[i]=1
+        if _intel_awake "$i"; then
+            [[ -r "${_intel_gt[i]}/gtidle/idle_residency_ms" ]] &&
+                { read -r "p_idle[i]" < "${_intel_gt[i]}/gtidle/idle_residency_ms" || p_idle[i]=0; }
+            [[ ${p_idle[i]} =~ ^[0-9]+$ ]] || p_idle[i]=0
+            p_stale[i]=0
+        fi
         # EPOCHREALTIME with its separator removed is microseconds as an
         # integer (the separator is the locale's, hence the [.,] class).
         p_wall[i]=${EPOCHREALTIME//[.,]/}
@@ -284,49 +319,68 @@ _intel_stream() {
         sleep "$HYPRCONF_GPU_INTERVAL"
         b_i=-1 b_util=-1
         for i in "${!_intel_gt[@]}"; do
-            idle=""
-            [[ -r "${_intel_gt[i]}/gtidle/idle_residency_ms" ]] &&
-                { read -r idle < "${_intel_gt[i]}/gtidle/idle_residency_ms" || idle=""; }
             now=${EPOCHREALTIME//[.,]/}
             d_wall=$(( now - p_wall[i] ))
-            if [[ $idle =~ ^[0-9]+$ ]]; then
-                d_idle=$(( (idle - p_idle[i]) * 1000 ))   # ms -> µs, the wall unit
-                p_idle[i]=$idle
-            else
-                # A vanished or unreadable residency counter is "no data",
-                # and no data must read as idle: d_idle=0 here would report
-                # a GPU that no longer exists pegged at 100% forever.
-                d_idle=$d_wall
-            fi
             p_wall[i]=$now
-            # Clamped both ways: a driver reload restarts the counter (negative
-            # delta), and idle can overrun the window by a tick of rounding.
-            (( d_idle < 0 )) && d_idle=0
-            (( d_idle > d_wall )) && d_idle=$d_wall
             util=0
-            (( d_wall > 0 )) && util=$(( (100 * (d_wall - d_idle) + d_wall / 2) / d_wall ))
+            p_awake[i]=0
+            if _intel_awake "$i"; then
+                p_awake[i]=1
+                idle=""
+                [[ -r "${_intel_gt[i]}/gtidle/idle_residency_ms" ]] &&
+                    { read -r idle < "${_intel_gt[i]}/gtidle/idle_residency_ms" || idle=""; }
+                if [[ $idle =~ ^[0-9]+$ ]]; then
+                    d_idle=$(( (idle - p_idle[i]) * 1000 ))   # ms -> µs, the wall unit
+                    p_idle[i]=$idle
+                else
+                    # A vanished or unreadable residency counter is "no data",
+                    # and no data must read as idle: d_idle=0 here would report
+                    # a GPU that no longer exists pegged at 100% forever.
+                    d_idle=$d_wall
+                fi
+                # First read after a suspend: the counter stood still while
+                # the GT was off but the wall clock did not, so the delta says
+                # "busy the whole window" about a card that was asleep. Take
+                # this sample as the new baseline and report idle for it.
+                (( p_stale[i] )) && { d_idle=$d_wall; p_stale[i]=0; }
+                # Clamped both ways: a driver reload restarts the counter
+                # (negative delta), and idle can overrun the window by a tick
+                # of rounding.
+                (( d_idle < 0 )) && d_idle=0
+                (( d_idle > d_wall )) && d_idle=$d_wall
+                (( d_wall > 0 )) && util=$(( (100 * (d_wall - d_idle) + d_wall / 2) / d_wall ))
+            else
+                # Runtime-suspended: nothing under the GT is read (each of
+                # those reads resumes the card — see the header), and a card
+                # that is powered down is idle, which is what util=0 says.
+                p_stale[i]=1
+            fi
             # Strictly greater, so a tie keeps the lower card index (the glob
             # walks cardN in order).
             (( util > b_util )) && { b_i=$i b_util=$util; }
         done
 
+        # hwmon and act_freq resume the card exactly as the residency counter
+        # does, so a sleeping winner reports no temperature and no clock.
         temp_json=null temp_tip=n/a
-        if [[ -n "${_intel_temp[b_i]}" && -r "${_intel_temp[b_i]}" ]]; then
-            temp_raw=""
-            read -r temp_raw < "${_intel_temp[b_i]}" || temp_raw=""
-            if [[ $temp_raw =~ ^[0-9]+$ ]]; then
-                b_temp=$(( (temp_raw + 500) / 1000 ))
-                temp_json=$b_temp temp_tip="${b_temp}°"
-            fi
-        fi
-
-        # Frequency instead of NVIDIA's power draw: an Intel iGPU rarely
-        # exposes a temperature, and act_freq is what is left to see.
         freq_tip=""
-        if [[ -r "${_intel_gt[b_i]}/freq0/act_freq" ]]; then
-            freq=""
-            read -r freq < "${_intel_gt[b_i]}/freq0/act_freq" || freq=""
-            [[ $freq =~ ^[0-9]+$ ]] && freq_tip=" | Freq ${freq}MHz"
+        if (( p_awake[b_i] )); then
+            if [[ -n "${_intel_temp[b_i]}" && -r "${_intel_temp[b_i]}" ]]; then
+                temp_raw=""
+                read -r temp_raw < "${_intel_temp[b_i]}" || temp_raw=""
+                if [[ $temp_raw =~ ^[0-9]+$ ]]; then
+                    b_temp=$(( (temp_raw + 500) / 1000 ))
+                    temp_json=$b_temp temp_tip="${b_temp}°"
+                fi
+            fi
+
+            # Frequency instead of NVIDIA's power draw: an Intel iGPU rarely
+            # exposes a temperature, and act_freq is what is left to see.
+            if [[ -r "${_intel_gt[b_i]}/freq0/act_freq" ]]; then
+                freq=""
+                read -r freq < "${_intel_gt[b_i]}/freq0/act_freq" || freq=""
+                [[ $freq =~ ^[0-9]+$ ]] && freq_tip=" | Freq ${freq}MHz"
+            fi
         fi
 
         printf '{"index":%d,"name":"%s","util":%d,"temp":%s,"vram_used":"0.0","vram_total":"0","tooltip":"%s (GPU %d) | Util %d%% | Temp %s | VRAM shared%s"}\n' \
