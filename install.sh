@@ -280,7 +280,12 @@ strip_managed_block() {
         skip { next }
         { print }
     ' "$file" > "$tmp"
-    # Drop the blank line the writer put in front of the block.
+    # Trailing blank lines go with the block: the command substitution
+    # strips every trailing newline and printf puts exactly one back. That
+    # is what stage_menu — the one caller — needs, because its own awk drops
+    # them too (see its comment), so the block it writes on the FIRST run is
+    # already what a re-run over the stripped file produces
+    # (test_menu_block_is_byte_stable_from_the_first_run_after_trailing_blank_lines).
     printf '%s\n' "$(cat "$tmp")" > "$file"
     rm -f "$tmp"
 }
