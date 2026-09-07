@@ -36,7 +36,7 @@ jobs:
         run: |
           set -o pipefail
           make lint 2>&1 | tee -a /tmp/hyprconf-lint.log
-      - name: Publish the failure to the job summary
+      - name: Publish the failure where a non-admin can read it
         if: failure()
         run: |
           {
@@ -45,6 +45,10 @@ jobs:
             tail -n 150 /tmp/hyprconf-lint.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          tail -n 40 /tmp/hyprconf-lint.log \
+            | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+            | awk '{ printf "%s%%0A", $0 }' \
+            | { read -r -d '' msg || true; echo "::error title=lint failed::$msg"; }
 
   unit-integration:
     name: "Unit + Integration"
@@ -76,7 +80,7 @@ jobs:
         run: |
           set -o pipefail
           make test 2>&1 | tee /tmp/hyprconf-test.log
-      - name: Publish the failure to the job summary
+      - name: Publish the failure where a non-admin can read it
         if: failure()
         run: |
           {
@@ -85,4 +89,12 @@ jobs:
             tail -n 150 /tmp/hyprconf-test.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # The job summary shows only in the web UI. An ::error:: annotation
+          # is the one piece of a red run the public API hands back
+          # (/check-runs/<id>/annotations), so mirror the tail into one —
+          # newlines as %0A, literal % first, per the workflow-command escaping.
+          tail -n 40 /tmp/hyprconf-test.log \
+            | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+            | awk '{ printf "%s%%0A", $0 }' \
+            | { read -r -d '' msg || true; echo "::error title=make test failed::$msg"; }
 
