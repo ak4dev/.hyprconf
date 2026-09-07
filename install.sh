@@ -246,9 +246,19 @@ write_managed_block() {
         tmp="$(mktemp)"
         # The first block is replaced at its own position; any further pair
         # (never written by this installer) is dropped, so one block remains.
-        awk -v b="$begin" -v e="$end" -v blk="$block" '
+        # The block path goes through the ENVIRONMENT, never `-v blk=`: awk
+        # applies POSIX escape processing to a -v assignment, so a checkout
+        # under a path with a backslash (~/my\stuff — HYPRCONF_DIR is the
+        # user's to choose) names a file getline cannot open, and every
+        # marker line is consumed with nothing printed in its place: the
+        # block and both markers gone, at exit 0. ENVIRON is POSIX awk and
+        # takes the bytes as they are. Same class of hazard as HERE_SED.
+        blk="$block" awk -v b="$begin" -v e="$end" '
             $0 == b {
-                if (!done) { while ((getline line < blk) > 0) print line; close(blk) }
+                if (!done) {
+                    while ((getline line < ENVIRON["blk"]) > 0) print line
+                    close(ENVIRON["blk"])
+                }
                 done = 1; skip = 1; next
             }
             $0 == e { skip = 0; next }

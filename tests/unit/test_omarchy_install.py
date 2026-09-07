@@ -624,6 +624,31 @@ def test_zshrc_preserves_content_outside_the_block_in_place(tmp_path: Path) -> N
     assert zshrc.read_bytes() == before
 
 
+def test_a_backslash_in_the_checkout_path_keeps_the_zshrc_block(tmp_path: Path) -> None:
+    """HYPRCONF_DIR is the user's to choose, so the checkout path reaches the
+    awk that rewrites the block — as the file it reads the block from. Passed
+    with `-v blk=...` awk runs it through POSIX escape processing, so a
+    checkout under ~/my\\stuff makes `getline < blk` open nothing: run 1
+    appends a correct block, run 2 consumes both marker lines and prints
+    neither the block nor them (exit 0, no warning), run 3 re-appends. Every
+    other omarchy-update would leave ~/.zshrc with no Oh My Zsh, no
+    powerlevel10k and no Omarchy env sourcing. Same class as HERE_SED."""
+    env = _setup(tmp_path)
+    odd = tmp_path / "my\\stuff"
+    _checkout(tmp_path).rename(odd)
+    assert "\\" in str(odd)
+    block = (REPO_ROOT / "zsh" / "zshrc.block").read_text().splitlines()
+    zshrc = env["home"] / ".zshrc"
+
+    for run in range(1, 4):
+        proc = _run(env, "--no-update", install_sh=odd / "install.sh")
+        assert proc.returncode == 0, proc.stderr
+        lines = zshrc.read_text().splitlines()
+        assert lines.count("# >>> hyprconf >>>") == 1, f"run {run}: {proc.stderr}"
+        begin, end = lines.index("# >>> hyprconf >>>"), lines.index("# <<< hyprconf <<<")
+        assert lines[begin : end + 1] == block, f"run {run}"
+
+
 def test_a_failed_shell_clone_warns_and_the_stages_after_it_still_run(tmp_path: Path) -> None:
     """A dead network must not abort the apply — or the post-update hook run.
 
