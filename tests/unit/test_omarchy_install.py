@@ -1568,6 +1568,38 @@ def test_every_omarchy_command_install_sh_calls_has_a_fake(tmp_path: Path) -> No
     assert not unstubbed, f"omarchy-* commands install.sh can run with no fake: {sorted(unstubbed)}"
 
 
+def test_every_git_commit_in_the_suites_carries_its_own_identity() -> None:
+    """Ambient state again (AGENTS.md › Tests), and the one axis a dev box
+    cannot show: a `git commit` with no `-c user.email` takes the committer
+    from ~/.gitconfig, which every developer has and the archlinux:latest
+    container does not — there `git` dies "unable to auto-detect email
+    address (got 'root@<container>.(none)')" and the run is red only in CI.
+    Walked with ast rather than grepped, so a call split over lines counts."""
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(REPO_ROOT.joinpath("tests").rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for arg in node.args:
+                if not isinstance(arg, ast.List):
+                    continue
+                words = [e.value for e in arg.elts if isinstance(e, ast.Constant)]
+                names = [e.id for e in arg.elts if isinstance(e, ast.Name)] + [
+                    e.value.id
+                    for e in arg.elts
+                    if isinstance(e, ast.Starred) and isinstance(e.value, ast.Name)
+                ]
+                if "git" not in words or "commit" not in words:
+                    continue
+                if any("user.email" in w for w in words) or names:
+                    continue  # inline identity, or one spread in from a helper
+                offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
+    assert not offenders, f"git commit with no identity — red in CI only: {offenders}"
+
+
 # `pacman -Syu` is blocked by Omarchy's ALPM guard, `pacman -R` would
 # dismantle Omarchy, and the AUR is never used (AGENTS.md › Hard rules, 3).
 FORBIDDEN_TOKENS = (
@@ -2832,7 +2864,13 @@ def test_a_clobber_git_cannot_undo_is_reported_as_unrepaired_after_a_bump(
     assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
 
     _refresh_config(env, templates, "bindings.lua")  # the damage, at template A
-    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "oops"], check=True, timeout=30)
+    # Identity on the command line, the way every other committing test here
+    # does it: CI runs as root in a bare container with no ~/.gitconfig, where
+    # a bare `git commit` dies "unable to auto-detect email address".
+    ident = ["-c", "user.name=t", "-c", "user.email=t@e"]
+    subprocess.run(
+        ["git", "-C", str(repo), *ident, "commit", "-qam", "oops"], check=True, timeout=30
+    )
     (templates / "bindings.lua").write_text(STOCK_BINDINGS + "-- 4.1\n")  # the package upgrade
 
     proc = _run(env, "--no-update", install_sh=repo / "install.sh")
