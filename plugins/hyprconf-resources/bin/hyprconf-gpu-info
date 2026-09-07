@@ -237,13 +237,22 @@ _intel_pm=()     # cardN/device/power/runtime_status, "" when there is none
 # nothing and resumes nothing (measured: 200 reads of a suspended PCI
 # device's runtime_status left its runtime_active_time unchanged). A card
 # with no such file is assumed awake, which is every card on a kernel or a
-# bus that does not do runtime PM. Only "active" counts: "suspending" and
-# "resuming" are transient, and a tick that skips one of those loses nothing.
+# bus that does not do runtime PM.
+#
+# The test is for being DOWN, not for being up: skipping the reads is only
+# ever needed for a card that is off or going off, which is "suspended" and
+# "suspending". Every other value — "active", "resuming", "unsupported",
+# "error", whatever a later kernel adds — is measured, the same default an
+# absent, unreadable or empty file already gets. An allowlist on "active"
+# would instead rank a card it does not recognise idle forever, and
+# "unsupported" is exactly a card that never sleeps (measured: of 400
+# devices reporting it, all 400 had power/runtime_suspended_time 0, against
+# 50 of 50 "suspended" ones with a non-zero one).
 _intel_awake() {
     local st=""
     [[ -n "${_intel_pm[$1]}" && -r "${_intel_pm[$1]}" ]] &&
         { read -r st < "${_intel_pm[$1]}" || st=""; } 2>/dev/null
-    [[ -z $st || $st == active ]]
+    [[ $st != suspended && $st != suspending ]]
 }
 
 # hwdata's pci.ids is the database lspci itself reads, and hwdata is a

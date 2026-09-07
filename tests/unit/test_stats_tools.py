@@ -900,6 +900,32 @@ class TestGpuInfoScript:
         assert line["temp"] == 47
         assert line["tooltip"].endswith("| Temp 47° | VRAM shared | Freq 1200MHz")
 
+    def test_intel_gate_only_skips_a_card_the_pm_core_says_is_down(self, tmp_path: Path) -> None:
+        """The gate asks whether the card is DOWN, not whether it is up. An
+        allowlist on "active" ranks every status it does not recognise idle
+        forever, and `unsupported` is the PM core's word for a device whose
+        runtime PM is off — a card that never sleeps, so it must be measured
+        (of 400 devices reporting it on the box this was written on, all 400
+        had power/runtime_suspended_time 0, against 50 of 50 `suspended` ones
+        with a non-zero one). So `unsupported` measures exactly as no file at
+        all, while `suspending` — a card on its way down — is still left
+        alone: its residency counter is a FIFO trap here, so a read hangs."""
+        up = tmp_path / "unsupported"
+        up.mkdir()
+        self._intel_card(up / "drm", 0, temp="47000", runtime_status="unsupported")
+        line = self._run_intel(up, up / "drm")[0]
+        assert line["util"] == 100
+        assert line["temp"] == 47
+        assert line["tooltip"].endswith("| Temp 47° | VRAM shared | Freq 1200MHz")
+
+        down = tmp_path / "suspending"
+        down.mkdir()
+        self._intel_card(down / "drm", 0, temp="47000", runtime_status="suspending")
+        self._trap(self._idle_file(down / "drm", 0))
+        line = self._run_intel(down, down / "drm")[0]
+        assert line["util"] == 0
+        assert line["temp"] is None
+
     def test_intel_suspended_card_loses_to_an_awake_one(self, tmp_path: Path) -> None:
         """Two cards, the sleeping one first: it ranks idle, so the reading
         follows the card that is actually running something."""
