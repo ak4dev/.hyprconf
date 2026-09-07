@@ -58,19 +58,28 @@
 #     --add-kernel / --add-uki only when the build succeeded, and refreshes
 #     the Limine entries. A failed build is `error_msg "mkinitcpio failed for
 #     kernel ..., skipping."` and `process_kernel ... || true` — so it exits 0
-#     regardless, and the previous image stays on the ESP. It is what every
-#     Omarchy path that changes a mkinitcpio or limine-entry-tool drop-in
-#     runs: omarchy-hibernation-setup (`sudo limine-mkinitcpio`, with the
-#     reason beside it — "The limine bootloader binary on the ESP doesn't
-#     change here, so we don't need limine-update (which would also re-deploy
-#     the binary and rebuild a second time)"), omarchy-hibernation-remove,
-#     omarchy-plymouth-set and migrations 1784476564/1784917531/1785944594/
-#     1786482992/1786605598. limine-update — limine-install --no-efi-register
-#     then limine-mkinitcpio (/usr/bin/limine-update) — is Omarchy's tool for
-#     resetting /boot/limine.conf (omarchy-refresh-limine), so it is not
-#     called here; the externals scan in test_yubikey.py pins that. A separate
-#     `mkinitcpio -P` would build everything twice and, on Omarchy, hit the
-#     interactive /usr/local/bin/mkinitcpio wrapper the same package installs
+#     regardless, and the previous image stays on the ESP. It is the rebuild
+#     Omarchy runs after its own drop-in changes: omarchy-hibernation-setup
+#     (`sudo limine-mkinitcpio`, with the reason beside it — "The limine
+#     bootloader binary on the ESP doesn't change here, so we don't need
+#     limine-update (which would also re-deploy the binary and rebuild a
+#     second time)"), omarchy-hibernation-remove and migrations 1784476564/
+#     1784917531/1785944594/1786482992/1786605598. (omarchy-plymouth-set and
+#     omarchy-upgrade-to-quattro run it too, for a plymouth theme and for
+#     root= appended to /etc/default/limine — neither one a drop-in.) It is
+#     not what every drop-in change runs, and that is the part to re-check on
+#     an Omarchy bump: migration 1785273276.sh edits
+#     /etc/mkinitcpio.conf.d/apple-t2.conf and rebuilds with `sudo
+#     limine-update`, to redo what the failed hook skipped. That is what
+#     limine-update — limine-install --no-efi-register, then limine-mkinitcpio
+#     (/usr/bin/limine-update) — is for: repairing a failed hook, or
+#     re-deploying the bootloader binary and /boot/limine.conf
+#     (omarchy-refresh-limine; omarchy-provision-owner and
+#     omarchy-system-factory-reset, each beside its reset_limine_config).
+#     Neither is the case here, so it is not called; the externals scan in
+#     test_yubikey.py pins that. A separate `mkinitcpio -P` would build
+#     everything twice and, on Omarchy, hit the interactive
+#     /usr/local/bin/mkinitcpio wrapper the same package installs
 #     ("Would you like to run 'limine-mkinitcpio' now?").
 #   * Where the image lands (limine-entry-tool README, --add-kernel/--add-uki):
 #     ENABLE_UKI=yes on UEFI — Omarchy's /etc/limine-entry-tool.d/omarchy-uki.conf

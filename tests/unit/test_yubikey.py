@@ -360,9 +360,10 @@ def _assert_configured(box: Box, mapper: str = "root") -> None:
 def test_every_external_the_tool_calls_has_a_fake() -> None:
     """A new external call fails here before it can reach the real system.
     limine-update is scanned for but deliberately not faked: the rebuild is
-    limine-mkinitcpio, the tool every Omarchy drop-in change runs
-    (omarchy-hibernation-setup says why limine-update is the wrong one), so
-    a call to it is drift, not a missing fake."""
+    limine-mkinitcpio, the tool Omarchy runs after its own drop-in changes
+    (omarchy-hibernation-setup says why limine-update is the wrong one here —
+    it would re-deploy the bootloader binary and build a second time), so a
+    call to it is drift, not a missing fake."""
     code = "\n".join(ln for ln in TOOL.read_text().splitlines() if not ln.lstrip().startswith("#"))
     pattern = (
         r"\b(sudo|lsblk|cryptsetup|systemd-cryptenroll|mkinitcpio|limine-mkinitcpio|limine-update"
