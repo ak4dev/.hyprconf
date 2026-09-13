@@ -114,7 +114,7 @@ bash ~/.hyprconf/install.sh
 ## Sync
 
 ```bash
-hyprsync            # the checkout's install.sh --sync (found through the ~/.p10k.zsh link, so a relocated checkout works)
+hyprsync            # the checkout's install.sh --sync (the path is rendered into the ~/.zshrc block, so a relocated checkout works after one re-apply)
 bash install.sh     # after any `omarchy refresh` or when you just want to re-apply
 ```
 

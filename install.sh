@@ -1589,7 +1589,19 @@ stage_shell() {
 
     backup_before_link "$HOME/.p10k.zsh" "$HERE/zsh/.p10k.zsh"
     ln -sfn "$HERE/zsh/.p10k.zsh" "$HOME/.p10k.zsh"
-    write_managed_block "$HOME/.zshrc" "$HERE/zsh/zshrc.block"
+    # The block names the checkout (the hyprsync alias), so it is rendered the
+    # way every other payload that does is — @HYPRCONF_DIR@, as in stage_bin
+    # and stage_hooks. It used to derive the path from `readlink -f
+    # ~/.p10k.zsh`, which GNU readlink happily answers for a file that is not
+    # there: with the link gone (the documented revert removes it several steps
+    # before the .zshrc block) the two dirnames left `/home` and the alias ran
+    # `bash /home/install.sh --sync`. A relocated checkout is re-applied from
+    # its new location, which rewrites the block, so nothing is lost.
+    local rendered
+    rendered="$(mktemp)"
+    sed "s|@HYPRCONF_DIR@|$HERE_SED|g" "$HERE/zsh/zshrc.block" > "$rendered"
+    write_managed_block "$HOME/.zshrc" "$rendered"
+    rm -f -- "$rendered"
 }
 
 # Every hook the overlay ships, hooks/<type>.d/<file>, into the matching

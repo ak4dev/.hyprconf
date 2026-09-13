@@ -669,6 +669,14 @@ def test_full_run_succeeds_and_is_byte_stable(tmp_path: Path) -> None:
     assert "WARNING:" not in third.stderr, third.stderr
 
 
+def _zshrc_block(checkout: Path = REPO_ROOT) -> list[str]:
+    """zsh/zshrc.block as stage_shell writes it: the @HYPRCONF_DIR@ of the
+    hyprsync alias rendered to the checkout that installed it, the same `sed`
+    pass stage_bin and stage_hooks run on their own payloads."""
+    text = (REPO_ROOT / "zsh" / "zshrc.block").read_text()
+    return text.replace("@HYPRCONF_DIR@", str(checkout)).splitlines()
+
+
 def test_zshrc_preserves_content_outside_the_block_in_place(tmp_path: Path) -> None:
     """Everything outside the markers survives WHERE IT WAS. A line above the
     block stays above it, and a line added after the end marker — the
@@ -693,7 +701,7 @@ def test_zshrc_preserves_content_outside_the_block_in_place(tmp_path: Path) -> N
     assert lines[-1] == "source ~/.zshrc.local"
     assert lines.index("source ~/.zshrc.local") > lines.index("# <<< hyprconf <<<")
 
-    block = (REPO_ROOT / "zsh" / "zshrc.block").read_text().splitlines()
+    block = _zshrc_block()
     stale = zshrc.read_text().replace("alias hyprsync=", "alias hyprsync_old=")
     assert stale != zshrc.read_text()
     zshrc.write_text(stale)
@@ -722,7 +730,7 @@ def test_a_backslash_in_the_checkout_path_keeps_the_zshrc_block(tmp_path: Path) 
     odd = tmp_path / "my\\stuff"
     _checkout(tmp_path).rename(odd)
     assert "\\" in str(odd)
-    block = (REPO_ROOT / "zsh" / "zshrc.block").read_text().splitlines()
+    block = _zshrc_block(odd)
     zshrc = env["home"] / ".zshrc"
 
     for run in range(1, 4):
