@@ -16,30 +16,17 @@ is pushed.
 
 from __future__ import annotations
 
-import importlib.util
-import os
 import shutil
 from pathlib import Path
 
 import pytest
 
 from conftest import git
+from tests.unit.test_plugins import publishable_problems, validator_problems
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 PLUGINS = REPO_ROOT / "plugins"
 PLUGIN_NAMES = sorted(p.name for p in PLUGINS.iterdir() if p.is_dir())
-
-
-def _contract():
-    """The unit suite's contract functions, loaded by path: the integration
-    suite runs on its own (`make test-integration`), with no package path
-    to tests/unit on sys.path."""
-    source = REPO_ROOT / "tests" / "unit" / "test_plugins.py"
-    spec = importlib.util.spec_from_file_location("plugin_contract", source)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
 
 
 @pytest.fixture
@@ -69,10 +56,7 @@ def test_subtree_split_of_each_plugin_is_an_installable_repository(
     assert sorted(p.name for p in clone.iterdir() if p.name != ".git") == sorted(
         p.name for p in (PLUGINS / name).iterdir()
     )
-    contract = _contract()
-    assert contract.validator_problems(clone) == []
-    assert contract.publishable_problems(clone) == []
-    for script in (clone / "bin").glob("*") if (clone / "bin").is_dir() else ():
-        assert os.access(script, os.X_OK), (
-            f"{name}/bin/{script.name} lost its exec bit in the split"
-        )
+    # The same contract the folders keep in place — publishable_problems
+    # includes the exec bit a split could drop (a shebang that is not 100755).
+    assert validator_problems(clone) == []
+    assert publishable_problems(clone) == []

@@ -1962,9 +1962,20 @@ def test_the_clock_copy_is_enabled_and_formatted_once(tmp_path: Path) -> None:
     assert "omarchy-plugin-enable hyprconf.clock" in calls
     assert "omarchy-bar set hyprconf.clock format hh:mm:ss AP" in calls
     assert "omarchy-plugin-catalog" not in _commands(env)
+    # The three deltas the copy exists for, on the installed copy — the only
+    # place they are pinned where there is no Omarchy to diff against
+    # (test_plugins.py's parity test is the authority on a box that has one).
     plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.clock"
     widget = (plug / "BarWidget.qml").read_text()
     assert "SystemClock.Seconds" in widget and "SystemClock.Minutes" not in widget
+    # The calendar panel comes from the running Omarchy, never a stale copy…
+    assert 'Quickshell.env("OMARCHY_PATH")' in widget
+    assert not (plug / "Panel.qml").exists()
+    # …and is told which module id it is mounted as, or persistSettings()
+    # writes through an id no live bar entry carries and the calendar's own
+    # settings (a week start, a birth year) are never saved.
+    assert 'if ("moduleName" in target) target.moduleName = root.moduleName' in widget
+    assert "onModuleNameChanged: injectPanel()" in widget
 
 
 def test_the_documented_clock_revert_undoes_what_the_stage_applied() -> None:
