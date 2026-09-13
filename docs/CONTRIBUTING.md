@@ -124,17 +124,17 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   (`OMARCHY_TREE` there holds what the scripts read out of it) and a fakes
   directory FIRST on PATH with a recording stub for every `omarchy-*` name the
   shipped scripts and payload carry — derived from them, so a new call cannot
-  slip past the fakes — plus `omarchy`, `sudo`, `hyprctl`, `udevadm`, `gum`,
+  slip past the fakes — plus `omarchy`, `sudo`, `hyprctl`, `udevadm`,
   `fc-list`, `git`, `nvidia-smi` and `vulkaninfo`. PATH is those fakes, then
   only `/usr/bin` and `/bin`, and the environment is built from scratch, so
   nothing of the developer's session reaches a run. `box.stub(name, body)`
-  gives one fake something to do (a `sudo` that execs its arguments, a `gum`
-  that answers) ahead of the shared ones; `box.run(script, *args, tty=,
-  env=, stdin=)` runs a script against the box (`box.core()` the installer,
-  `box.undo(module)` a module's undo branch); `box.calls`, `box.commands`,
-  `box.calls_of(name)` and `box.reset()` read back what ran; `box.files()` is
-  every file under its HOME; `box.fakes` is what a suite's "every external the
-  tool names has a fake" self-check holds the script to. Its git identity
+  gives one fake something to do (a `sudo` that execs its arguments) ahead of
+  the shared ones; `box.run(script, *args, tty=, env=, stdin=)` runs a script
+  against the box (`box.core()` the installer, `box.undo(module)` a module's
+  undo branch); `box.calls`, `box.commands`, `box.calls_of(name)` and
+  `box.reset()` read back what ran; `box.files()` is every file under its
+  HOME; `box.fakes` is what a suite's "every external the tool names has a
+  fake" self-check holds the script to. Its git identity
   (`GIT_AUTHOR_*`/`GIT_COMMITTER_*`, `os.environ.setdefault` at import) covers
   the whole session, CI's identity-less container included.
 
@@ -159,12 +159,11 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   such a variable `readonly`.
 - The fake bins (`AGENTS.md` › Tests): `omarchy-*`, `hyprctl`, `sudo`, `chsh`,
   `systemd-cryptenroll`, `limine-mkinitcpio`, `limine-entry-tool` (the fake
-  assembles `--get-cmdline` from the box's own limine config files), `gum`,
-  `udevadm` (the real
-  one would re-apply rules on the developer's own machine), `vulkaninfo` (it
-  would answer for the host's GPUs), `nvidia-smi` (likewise), `sleep` (the
-  feeders' hook between ticks: it advances the fake counters and mutates the
-  fake trees, then runs the real sleep), `git` (a clone only makes its directory —
+  assembles `--get-cmdline` from the box's own limine config files), `udevadm`
+  (the real one would re-apply rules on the developer's own machine),
+  `vulkaninfo` (it would answer for the host's GPUs), `nvidia-smi` (likewise),
+  `sleep` (the feeders' hook between ticks: it advances the fake counters and
+  mutates the fake trees, then runs the real sleep), `git` (a clone only makes its directory —
   the curl-path tests let a clone of a local directory run the real git — the
   pinned fetch/checkout/rev-parse dance against the two third-party shell
   dirs is faked through marker files, and a pull is a no-op; the real git
