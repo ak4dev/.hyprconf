@@ -9,12 +9,6 @@
   <a href="https://omarchy.org"><img alt="omarchy overlay" src="https://img.shields.io/badge/omarchy-overlay-3a7f2e?style=for-the-badge" /></a>
 </p>
 
-<p align="center">
-  <img src="assets/screenshot.svg" width="920" alt=".hyprconf — screenshot coming soon" />
-</p>
-
-<p align="center"><sub>A desktop capture is coming; the placeholder holds its place.</sub></p>
-
 # .hyprconf
 
 **hyprconf** is an overlay for [Omarchy](https://omarchy.org): one idempotent

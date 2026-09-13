@@ -51,7 +51,7 @@ publish flow and the website upload.
 ├── scripts/publish             # Lint + test → promote dev → stable
 ├── docs/                       # This file, hyprland-reference.md, quickshell-reference.md
 ├── .github/                    # CI workflow
-├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg, screenshot.svg (placeholder shown by the README and the page)
+├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg (the README's and the page's brand art)
 ├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff config
 ├── .gitignore                  # Python caches, `.vscode/`, editor swap files and Claude Code's local session state
 ├── .claude/settings.json       # Agent deny/ask rules — the layer bypass permission mode still honours
@@ -308,14 +308,12 @@ external requests:
 | `install.sh` | `git show stable:install.sh` | `text/plain; charset=utf-8`, `Cache-Control: no-cache, no-store` |
 | `index.html` | `web/index.html` | `text/html; charset=utf-8`, `Cache-Control: public, max-age=300` — without a max-age browsers keep the previous page for days (heuristic freshness) |
 | `favicon.svg` | `web/favicon.svg` | `image/svg+xml`, `Cache-Control: public, max-age=31536000, immutable` |
-| `screenshot.svg` | `assets/screenshot.svg` | `image/svg+xml`, `Cache-Control: public, max-age=300` — the placeholder; the real capture replaces it under the same key. If that capture is a raster, the key, `web/index.html`'s `src` and the README path change together |
 
 ```bash
 git show stable:install.sh | aws s3 cp - s3://hyprconf-sh/install.sh \
   --content-type 'text/plain; charset=utf-8' --cache-control 'no-cache, no-store'
 aws s3 cp web/index.html        s3://hyprconf-sh/index.html     --content-type 'text/html; charset=utf-8' --cache-control 'public, max-age=300'
 aws s3 cp web/favicon.svg       s3://hyprconf-sh/favicon.svg    --content-type image/svg+xml --cache-control 'public, max-age=31536000, immutable'
-aws s3 cp assets/screenshot.svg s3://hyprconf-sh/screenshot.svg --content-type image/svg+xml --cache-control 'public, max-age=300'
 
 DIST=$(aws cloudfront list-distributions \
   --query "DistributionList.Items[?contains(Aliases.Items,'hyprconf.sh')].Id" --output text)
@@ -328,5 +326,4 @@ Verify both routes once the invalidation has completed — the curl UA must get
 ```bash
 curl -fsSL https://hyprconf.sh | cmp - <(git show stable:install.sh) && echo installer-ok
 curl -fsSL -A 'Mozilla/5.0' https://hyprconf.sh | cmp - web/index.html && echo page-ok
-curl -sSI -A 'Mozilla/5.0' https://hyprconf.sh/screenshot.svg | grep -i '^content-type: image/svg+xml'
 ```
