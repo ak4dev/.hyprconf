@@ -44,6 +44,17 @@ GIT_IDENTITY = {
 for _name, _value in GIT_IDENTITY.items():
     os.environ.setdefault(_name, _value)
 
+
+def git(cwd: Path, *args: str) -> str:
+    """Run git in a THROWAWAY tree and return its stdout, asserting success.
+    The one git helper the suites share — the identity above is already in the
+    environment, so nothing per-call is needed. Never pointed at this
+    checkout: every caller builds its own repository under tmp_path."""
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
+    return result.stdout.strip()
+
+
 # Not omarchy-*, and every one of them reaches the real machine: sudo and
 # udevadm change the system, hyprctl the running desktop, git the
 # network, and fc-list, nvidia-smi and vulkaninfo answer for the host's

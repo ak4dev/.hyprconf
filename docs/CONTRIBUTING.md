@@ -28,7 +28,7 @@ publish flow and the website upload.
 │
 ├── lib/hyprconf/               # Python package, used in place via PYTHONPATH (theme-set hook, hyprconf-firefox-theme)
 │   ├── firefox_theme.py        # Omarchy's rendered userChrome.css into Firefox/LibreWolf profiles + user.js prefs (theme-set hook)
-│   └── __init__.py             # __version__ (bumped by scripts/publish)
+│   └── __init__.py             # __version__ — a copy of VERSION, read by nothing else
 │
 ├── plugins/                    # Omarchy bar-widget plugins, each folder a plugin on its own (manifest.json at its root, README.md, NOTICE where the code is Omarchy's — › Publishing a plugin), synced by install.sh into ~/.config/omarchy/plugins/
 │   ├── hyprconf-clock/         #   Omarchy's own clock (BarWidget.qml + Model.js) ticking seconds — clonedFrom omarchy.clock, the three deltas named in its header
@@ -47,7 +47,8 @@ publish flow and the website upload.
 ├── infra/udev/70-keychron.rules # hidraw uaccess for Keychron (0x3434) / Lemokey (0x362d), so the WebHID launcher can reach the boards
 │
 ├── tests/                      # Unit + integration (see below)
-├── scripts/publish             # Lint + test → promote dev → stable
+├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
+├── scripts/publish             # The three gates → tag → one atomic push of dev, stable and the tag
 ├── docs/                       # This file, hyprland-reference.md, quickshell-reference.md
 ├── .github/                    # CI workflow
 ├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg (the README's and the page's brand art)
@@ -88,7 +89,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias names the checkout through @HYPRCONF_DIR@
 └── integration/
     ├── test_plugin_split.py      #   `git subtree split` of every plugins/<name> in a throwaway repository, the split's root held to test_plugins.py's contract (› Publishing a plugin)
-    └── test_publish_pipeline.py  #   scripts/publish --help, --dry-run and the real promotion against a throwaway bare origin
+    └── test_publish_pipeline.py  #   scripts/publish: the gates, the tag, the atomic promotion and its refusals, against a throwaway bare origin
 ```
 
 ### Running tests
@@ -202,7 +203,7 @@ The overlay is published: strangers clone `stable` and run `install.sh` with the
 
 1. **Unprivileged → root, on the local box.** The four sudo stages and `hyprconf-yubikey`'s `run_root` surface (rule 6 names both) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned in `test_yubikey.py`'s restraint scan); installed tools are rendered beside the target and `mv`'d, never truncated in place; the `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo stage names itself in README (rule 6) and lands with a pin.
 2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`textFormat: Text.PlainText`, stock parity); nothing shipped fetches-and-executes — `test_overlay_never_fetches_and_executes` forbids curl/wget/pipe-to-shell/`base64 -d`/`eval` in shipped bash, with the allowed exceptions written down in full inside the test. A new exception is added there verbatim, with its why, or the change does not land.
-3. **Publish pipeline → strangers' boxes.** The bootstrap is https-only (`--proto '=https'`; `test_published_one_liners_are_https_only`, `test_bootstrap_defaults_are_pinned_https_and_stable` — schemeless, curl's first request is plaintext port 80 and an on-path attacker answers it before the redirect exists). Oh My Zsh and powerlevel10k are pinned to reviewed commits in `stage_shell` — bumping a pin is a deliberate commit through the publish gates, never an auto-pull (`test_shell_third_party_repos_are_pinned_and_never_pulled`) — and `zsh/zshrc.block` disables the updater that ships inside Oh My Zsh itself (`zstyle ':omz:update' mode disabled`, pinned in `test_supply_chain.py`), which would otherwise re-open the channel with one keypress. CI actions are sha-pinned under a read-only token (`test_ci_workflow_is_least_privilege`); `scripts/publish` refuses `--skip-tests` outside the harness marker; `web/` stays self-contained (`test_web_page_is_self_contained`); secret-shaped material anywhere in the tree fails `test_no_secret_material_anywhere`; `install.sh` refuses to run as root (the curl|bash sudo-prefix habit half-installs into /root).
+3. **Publish pipeline → strangers' boxes.** The bootstrap is https-only (`--proto '=https'`; `test_published_one_liners_are_https_only`, `test_bootstrap_defaults_are_pinned_https_and_stable` — schemeless, curl's first request is plaintext port 80 and an on-path attacker answers it before the redirect exists). Oh My Zsh and powerlevel10k are pinned to reviewed commits in `stage_shell` — bumping a pin is a deliberate commit through the publish gates, never an auto-pull (`test_shell_third_party_repos_are_pinned_and_never_pulled`) — and `zsh/zshrc.block` disables the updater that ships inside Oh My Zsh itself (`zstyle ':omz:update' mode disabled`, pinned in `test_supply_chain.py`), which would otherwise re-open the channel with one keypress. CI actions are sha-pinned under a read-only token (`test_ci_workflow_is_least_privilege`); `web/` stays self-contained (`test_web_page_is_self_contained`); secret-shaped material anywhere in the tree fails `test_no_secret_material_anywhere`; `install.sh` refuses to run as root (the curl|bash sudo-prefix habit half-installs into /root).
 
 The checklist for any change: does it add a network touch, execute anything it did not ship with, widen a root path or a udev match, or move bytes from an untrusted source toward a shell, QML or root sink? Then the matching pin above changes in the same commit, its reasoning beside it. A pin loosened without its why is a finding, not a diff.
 
@@ -222,8 +223,10 @@ bash scripts/publish            # from a clean, pushed `dev` checkout
 1. Verifies the working branch, a clean tree, and that local `dev` matches its remote
 2. Lint gates: `make lint` + `make shellcheck`
 3. Test suites: `make test`
-4. Bumps the version in `lib/hyprconf/__init__.py`, commits it and pushes the commit to `origin/dev` (after the suite is green)
-5. Creates the annotated tag `v<version>` and promotes `HEAD` to `origin/stable`
+4. Creates the annotated tag `v<VERSION>` at HEAD (reusing one already there)
+5. Moves `dev`, `stable` and the tag in one `git push --atomic
+   --force-with-lease` — all three or none, so `stable` carries the exact sha
+   the gates went green on and a run that dies is simply rerun
 6. **When the user asks for a deploy, right after: upload `stable`'s
    `install.sh` and invalidate CloudFront** (the objects under "Updating the
    website" below). `scripts/publish` deploys nothing, so until that upload
@@ -232,21 +235,16 @@ bash scripts/publish            # from a clean, pushed `dev` checkout
 
 Nothing is packaged: users `git clone -b stable`, so the promoted branch is the release.
 
-| Flag | Effect |
-|------|--------|
-| `--patch` / `--minor` / `--major` | Which version component to bump (default: patch) |
-| `--skip-bump` | Skip the version bump (version must be pre-bumped manually) |
-| `--skip-tests` | Skip the lint gates and test suites (nested harness calls only — the suite must still have passed) |
-| `--skip-tag` | Skip annotated release-tag creation |
-| `--dry-run` | Run every gate and resolve the tag, but push nothing (the version bump is reverted) |
+The script takes no options. `VERSION` is bumped by hand, in the commit that
+earns it; a publish whose tag already exists on another commit is refused
+naming it. The local `stable` branch is never moved — `git branch -f` exits
+128 while `stable` is checked out in another worktree, and nothing reads it.
 
 `tests/integration/test_publish_pipeline.py` runs the script end to end
 against a throwaway bare origin (a recording `make` stub stands in for the
-gates): `--help`, `--dry-run` (gates run, bump reverted, nothing pushed), the
-real promotion (bump commit on `origin/dev`, `origin/stable` == `dev`,
-annotated tag), the bump flags, the dirty-tree / off-branch refusals, and the
-resume of a publish that died after its bump commit (`--skip-bump`; a plain
-rerun is refused so the tag is never cut twice).
+gates): the real promotion and its rerun, a rejected push moving no ref at
+all, the tag-on-another-commit refusal, and the argument / dirty-tree /
+off-branch refusals.
 
 ## Publishing a plugin
 

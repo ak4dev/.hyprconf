@@ -19,20 +19,15 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
+from conftest import git
+
 REPO_ROOT = Path(__file__).parent.parent.parent
 PLUGINS = REPO_ROOT / "plugins"
 PLUGIN_NAMES = sorted(p.name for p in PLUGINS.iterdir() if p.is_dir())
-
-
-def _git(cwd: Path, *args: str) -> str:
-    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=120)
-    assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
-    return result.stdout.strip()
 
 
 def _contract():
@@ -53,9 +48,9 @@ def payload_repo(tmp_path: Path) -> Path:
     the shape the split runs against."""
     repo = tmp_path / "repo"
     shutil.copytree(PLUGINS, repo / "plugins")
-    _git(repo, "init", "-q", "-b", "dev")
-    _git(repo, "add", "-A")
-    _git(repo, "commit", "-q", "-m", "plugins")
+    git(repo, "init", "-q", "-b", "dev")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "plugins")
     return repo
 
 
@@ -64,9 +59,9 @@ def test_subtree_split_of_each_plugin_is_an_installable_repository(
     payload_repo: Path, name: str, tmp_path: Path
 ) -> None:
     branch = f"plugins/{name}"
-    _git(payload_repo, "subtree", "split", f"--prefix=plugins/{name}", "-b", branch)
+    git(payload_repo, "subtree", "split", f"--prefix=plugins/{name}", "-b", branch)
     clone = tmp_path / "clone" / name
-    _git(tmp_path, "clone", "-q", "--branch", branch, str(payload_repo), str(clone))
+    git(tmp_path, "clone", "-q", "--branch", branch, str(payload_repo), str(clone))
 
     # The folder's own files are the repository's root — manifest.json where
     # omarchy-plugin-add looks for it — and nothing of the monorepo around it.

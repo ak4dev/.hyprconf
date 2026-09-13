@@ -70,13 +70,13 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 
 ## Branches, publish, deploy
 
-- `dev` is the working branch; `stable` is what users clone and what `hyprconf.sh` serves. Only `scripts/publish` writes `stable` (lint + test → SemVer bump → tag → promote `dev` → `stable`), and only when the user says "publish", with CI green on `dev`. Never push to `stable` by hand; never push anywhere unless the user asks; commit when asked.
+- `dev` is the working branch; `stable` is what users clone and what `hyprconf.sh` serves. Only `scripts/publish` writes `stable` (the three gates → tag `v$(<VERSION)` → one atomic push of `dev`, `stable` and the tag), and only when the user says "publish", with CI green on `dev`. Never push to `stable` by hand; never push anywhere unless the user asks; commit when asked.
 - The website — `hyprconf-sh` S3 bucket behind a CloudFront User-Agent router: `install.sh` to curl/wget, `index.html` to browsers — is uploaded by hand with the `aws` CLI, only when the user explicitly asks for a deploy, after a publish, and always `stable`'s `install.sh`. Procedure and objects: CONTRIBUTING › Updating the website. Nothing in the repo deploys.
 
 ## Commits and versions
 
 - [Conventional Commits](https://www.conventionalcommits.org/): `<tag>(<scope>): <message>`, subject ≤ 140 characters; tags `feat fix docs style refactor perf test build ci chore revert`; `!` or a `BREAKING CHANGE:` footer for removed or renamed hotkeys, stages, flags, plugin ids or paths. Name the Omarchy version the change was verified against.
-- [SemVer](https://semver.org/) in `lib/hyprconf/__init__.py`, bumped by `scripts/publish --patch|--minor|--major` (patch is the default; the script reads no commit message): pass `--minor` for a `feat`, `--major` for a breaking change.
+- [SemVer](https://semver.org/) in the top-level `VERSION` file, bumped by hand in the commit that earns it — minor for a `feat`, major for a breaking change. `scripts/publish` reads it and takes no options; it refuses a tag that already exists on another commit.
 
 ## Tests
 
