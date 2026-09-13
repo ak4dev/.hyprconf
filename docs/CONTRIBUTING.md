@@ -75,7 +75,7 @@ conftest.py                       # the `box` fixture every test builds on (repo
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
 │   ├── test_config_exec_targets.py  # every hyprconf-* command a shipped hypr/*.lua binds ships in bin/, bound by name
-│   ├── test_firefox.py           #   infra/firefox/policies.json: the captured settings, both force-installed extensions, every pref against Firefox's own allowlist (the merge with Omarchy's own policy runs with the real jq in the install suite)
+│   ├── test_firefox.py           #   infra/firefox/policies.json: every pref against Firefox's own allowlist and its `Type` rule, the force-installed shape, the seeded layout's crash conditions (the merge with Omarchy's own policy runs with the real jq in the install suite)
 │   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + bin/hyprconf-firefox-theme + the template's render
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom
@@ -176,8 +176,9 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   (`OMARCHY_STUBS` and `_setup` in `test_omarchy_install.py` list the
   installer's, and `test_every_omarchy_command_install_sh_calls_has_a_fake`
   holds `install.sh`'s code to that list;
-  `test_firefox_theme.py` stubs the three theme commands to prove the Firefox
-  bridge calls none). Real when present, skipped otherwise: `jq`, `luac`,
+  `test_firefox_theme.py` stubs the three theme commands in the one test that
+  runs the theme-set hook as a real subprocess, where /usr/bin's copies are
+  reachable). Real when present, skipped otherwise: `jq`, `luac`,
   `qmllint`, `shellcheck`, `sh`, `/usr/share/omarchy/bin/omarchy-plugin-validate`
   (reads a manifest, changes nothing), the installed clock plugin's files
   (`test_plugins.py` reads them for parity).

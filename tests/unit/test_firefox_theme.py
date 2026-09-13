@@ -13,10 +13,10 @@ render is an error naming `omarchy theme refresh`, the command that renders
 the current theme's templates), and be idempotent, since the hook re-runs on
 every theme switch and every install.sh run.
 
-Hermetic: HOME relocated, PATH pinned to a fake-bins dir plus /usr/bin, with
-a recording stub of every Omarchy theme command first on it (/usr/bin holds
-a copy of every omarchy-* command, so the stubs are what make "never runs"
-provable), notify() replaced.
+Hermetic: HOME relocated, PATH pinned to a fake-bins dir plus /usr/bin,
+notify() replaced. In-process, notify() is the module's only subprocess at
+all; the hook test below runs as a real bash subprocess and stubs Omarchy's
+theme commands there, where it can prove none of them ran.
 """
 
 from __future__ import annotations
@@ -71,33 +71,16 @@ def notices(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return sent
 
 
-# Omarchy's theme machinery — what renders the template and swaps the theme.
-# The bridge must never call any of it: omarchy-theme-set-templates writes
-# only into omarchy-theme-set's own next-theme staging dir under its lock
-# (bin/omarchy-theme-set on Omarchy 4.0.2-1: `flock 9`, the
-# omarchy-theme-set-templates call, then the mv of next-theme over theme),
-# and the hook runs INSIDE a theme set.
-THEME_COMMANDS = ("omarchy-theme-set-templates", "omarchy-theme-refresh", "omarchy-theme-set")
-
-
 @pytest.fixture(autouse=True)
 def hermetic(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, Path]:
-    """A relocated HOME and a fake-bins dir first on a pinned PATH, holding a
-    recording stub of every Omarchy theme command so a test can prove none
-    of them ran."""
+    """A relocated HOME and an (empty) fake-bins dir first on a pinned PATH."""
     home = tmp_path / "home"
     bins = tmp_path / "bins"
     for d in (home, bins):
         d.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("PATH", f"{bins}:/usr/bin:/bin")
-    calls = tmp_path / "calls"
-    calls.write_text("")
-    for name in THEME_COMMANDS:
-        stub = bins / name
-        stub.write_text(f'#!/usr/bin/env bash\nprintf \'%s\\n\' "{name} $*" >> "{calls}"\nexit 0\n')
-        stub.chmod(0o755)
-    return {"home": home, "bins": bins, "calls": calls}
+    return {"home": home, "bins": bins}
 
 
 def _theme(env: dict[str, Path], rendered: bytes | None = CSS_DARK) -> Path:
@@ -264,9 +247,10 @@ def test_theme_prefs_follow_the_mode() -> None:
     )
 
 
-def test_format_pref_literals() -> None:
-    assert ft.format_pref("a.b", True) == 'user_pref("a.b", true);'
-    assert ft.format_pref("a.b", 0) == 'user_pref("a.b", 0);'
+def test_format_pref_escapes_quotes_in_a_string_value() -> None:
+    """The bool and int forms ride out through the merge tests below; no
+    managed pref's value is a string with a quote in it, so this is the only
+    exercise of the escape branch."""
     assert ft.format_pref("a.b", 'say "hi"') == 'user_pref("a.b", "say \\"hi\\"");'
 
 
@@ -280,13 +264,23 @@ def test_merge_user_js_replaces_managed_keys_and_keeps_the_rest(tmp_path: Path) 
     user_js.write_text(
         "// mine\n"
         'user_pref("browser.startup.homepage", "about:blank");\n'
+        # Neither of these sets a pref, so neither is a managed line to
+        # replace: a commented-out one, and `pref(` (the default branch,
+        # which user.js may not use at all).
+        '// user_pref("ui.systemUsesDarkTheme", 0);\n'
+        'pref("ui.systemUsesDarkTheme", 0);\n'
         'user_pref("ui.systemUsesDarkTheme", 0);\n'
     )
     ft.merge_user_js(user_js, {"ui.systemUsesDarkTheme": 1, "x.y": True})
     body = user_js.read_text()
     assert "// mine" in body
     assert 'user_pref("browser.startup.homepage", "about:blank");' in body
-    assert body.count("ui.systemUsesDarkTheme") == 1
+    assert '// user_pref("ui.systemUsesDarkTheme", 0);' in body
+    assert 'pref("ui.systemUsesDarkTheme", 0);' in body
+    managed = [
+        ln for ln in body.splitlines() if ln.startswith('user_pref("ui.systemUsesDarkTheme"')
+    ]
+    assert managed == ['user_pref("ui.systemUsesDarkTheme", 1);']
     assert 'user_pref("ui.systemUsesDarkTheme", 1);' in body
     assert 'user_pref("x.y", true);' in body
 
@@ -294,16 +288,6 @@ def test_merge_user_js_replaces_managed_keys_and_keeps_the_rest(tmp_path: Path) 
 def test_merge_user_js_creates_the_file(tmp_path: Path) -> None:
     ft.merge_user_js(tmp_path / "user.js", {"a": 1})
     assert (tmp_path / "user.js").read_text() == 'user_pref("a", 1);\n'
-
-
-def test_merge_user_js_recognises_single_quoted_keys() -> None:
-    """Firefox's pref parser takes either quote style; a single-quoted managed
-    pref must be replaced, not left behind as a duplicate."""
-    assert ft._pref_key("user_pref('ui.systemUsesDarkTheme', 0);") == "ui.systemUsesDarkTheme"
-    assert ft._pref_key('user_pref("ui.systemUsesDarkTheme", 0);') == "ui.systemUsesDarkTheme"
-    assert ft._pref_key("user_pref(\"a\", 'x');") == "a"
-    assert ft._pref_key('// user_pref("a", 1);') is None
-    assert ft._pref_key('pref("a", 1);') is None
 
 
 def test_merge_user_js_replaces_a_single_quoted_managed_line(tmp_path: Path) -> None:
@@ -486,6 +470,7 @@ def test_apply_copies_the_rendered_file_byte_for_byte_and_is_idempotent(
     hermetic: dict[str, Path],
 ) -> None:
     profile = _profile(hermetic)
+    (profile / "user.js").write_text('user_pref("keep.me", 1);\n')
     assert ft.apply(profile, CSS_DARK) is True
     assert (profile / "chrome" / "userChrome.css").read_bytes() == CSS_DARK
     js = (profile / "user.js").read_text()
@@ -496,9 +481,14 @@ def test_apply_copies_the_rendered_file_byte_for_byte_and_is_idempotent(
     assert ft.apply(profile, CSS_DARK) is False  # nothing to rewrite, nothing to announce
     assert (profile / "chrome" / "userChrome.css").read_bytes() == CSS_DARK
     assert (profile / "user.js").read_text() == js
-    # A re-render (new theme) is a change again.
+    # A re-render (new theme) is a change again, and the prefs follow the
+    # mode the new file declares — over the user's own, which stays.
     assert ft.apply(profile, CSS_LIGHT) is True
     assert (profile / "chrome" / "userChrome.css").read_bytes() == CSS_LIGHT
+    js = (profile / "user.js").read_text()
+    assert f'user_pref("extensions.activeThemeID", "{ft.THEME_ID_LIGHT}");' in js
+    assert 'user_pref("ui.systemUsesDarkTheme", 0);' in js
+    assert 'user_pref("keep.me", 1);' in js
 
 
 def test_main_copies_into_every_installs_profile_and_announces_the_browser_once(
@@ -512,8 +502,6 @@ def test_main_copies_into_every_installs_profile_and_announces_the_browser_once(
         assert ft.THEME_ID_DARK in (profile / "user.js").read_text()
     out = capsys.readouterr().out
     assert out.count("firefox: ") == 2 and "restart firefox" in out.lower()
-    # Nothing of Omarchy's theme machinery runs from here.
-    assert hermetic["calls"].read_text() == ""
     # Firefox reads userChrome.css at startup only: the change is announced
     # once, through Omarchy's notification command, and not on a no-op re-run.
     assert notices == ["Restart firefox to apply the new theme"]
@@ -521,28 +509,16 @@ def test_main_copies_into_every_installs_profile_and_announces_the_browser_once(
     assert len(notices) == 1
 
 
-def test_light_theme_gets_the_light_prefs(hermetic: dict[str, Path]) -> None:
-    _theme(hermetic, rendered=CSS_LIGHT)
-    profile = _profile(hermetic)
-    (profile / "user.js").write_text('user_pref("keep.me", 1);\n')
-    assert ft.main([]) == 0
-    js = (profile / "user.js").read_text()
-    assert f'user_pref("extensions.activeThemeID", "{ft.THEME_ID_LIGHT}");' in js
-    assert 'user_pref("ui.systemUsesDarkTheme", 0);' in js
-    assert 'user_pref("keep.me", 1);' in js
-
-
 def test_missing_rendered_file_is_an_error_and_nothing_is_rendered_here(
     hermetic: dict[str, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Rendering is Omarchy's alone: omarchy-theme-set leaves every rendered
     template in current/theme (omarchy-theme-set-templates, then the
-    staging-dir mv in omarchy-theme-set) and stage_themed
-    re-renders through omarchy-theme-refresh, so a missing file means no
-    theme, no template installed, or a failed refresh. The bridge names the
-    file and `omarchy theme refresh`, exits non-zero, runs none of Omarchy's
-    theme commands (the stubs would record it) and leaves the profile
-    untouched — with a theme active, and with none at all."""
+    staging-dir mv in omarchy-theme-set) and stage_themed re-renders through
+    omarchy-theme-refresh, so a missing file means no theme, no template
+    installed, or a failed refresh. The bridge names the file and `omarchy
+    theme refresh`, exits non-zero and leaves the profile untouched — with a
+    theme active, and with none at all."""
     theme = _theme(hermetic, rendered=None)
     profile = _profile(hermetic)
     assert ft.main([]) == 1
@@ -552,7 +528,6 @@ def test_missing_rendered_file_is_an_error_and_nothing_is_rendered_here(
     (theme / "colors.toml").unlink()
     assert ft.main([]) == 1
     assert "userChrome.css" in capsys.readouterr().err
-    assert hermetic["calls"].read_text() == ""
 
 
 def test_main_without_a_profile_is_a_noop(
@@ -568,16 +543,30 @@ def test_main_without_a_profile_is_a_noop(
 # ---------------------------------------------------------------------------
 
 
-def test_status_reports_the_source_and_the_restart_state(
+def test_status_reports_every_profile_the_source_and_the_restart_state(
     hermetic: dict[str, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """--status answers three questions: which profiles, what is in them, and
+    whether Firefox has picked it up — the last read out of prefs.js, which
+    Firefox rewrites with the theme it activated from user.js."""
+    # Nothing at all: still exit 0, since --status is what a user runs when
+    # something looks wrong.
+    assert ft.main(["--status"]) == 0
+    out = capsys.readouterr().out
+    assert "rendered: MISSING" in out and "no Firefox/LibreWolf profile" in out
+
     theme = _theme(hermetic)
-    profile = _profile(hermetic)
+    release, dev = _two_install_profiles(hermetic)
+    assert ft.main(["--status"]) == 0
+    out = capsys.readouterr().out
+    assert f"firefox: profile {release}" in out and f"firefox: profile {dev}" in out
+    assert out.count("userChrome.css: MISSING") == 2
+    assert out.count("0/3 managed prefs present") == 2
+
     assert ft.main([]) == 0
     capsys.readouterr()
-
     # Firefox has not been restarted: prefs.js still names the default theme.
-    (profile / "prefs.js").write_text(
+    (release / "prefs.js").write_text(
         'user_pref("extensions.activeThemeID", "default-theme@mozilla.org");\n'
     )
     assert ft.main(["--status"]) == 0
@@ -587,8 +576,7 @@ def test_status_reports_the_source_and_the_restart_state(
     assert "3/3 managed prefs present" in out
     assert "restarted since the files were written: NO" in out
 
-    # After a restart Firefox writes the theme it activated from user.js.
-    (profile / "prefs.js").write_text(
+    (release / "prefs.js").write_text(
         f'user_pref("extensions.activeThemeID", "{ft.THEME_ID_DARK}");\n'
     )
     assert ft.main(["--status"]) == 0
@@ -599,26 +587,6 @@ def test_status_reports_the_source_and_the_restart_state(
     assert ft.main(["--status"]) == 0
     out = capsys.readouterr().out
     assert "(light)" in out and "userChrome.css: STALE" in out
-
-
-def test_status_reports_every_installs_profile(
-    hermetic: dict[str, Path], capsys: pytest.CaptureFixture[str]
-) -> None:
-    _theme(hermetic)
-    release, dev = _two_install_profiles(hermetic)
-    assert ft.main(["--status"]) == 0
-    out = capsys.readouterr().out
-    assert f"firefox: profile {release}" in out and f"firefox: profile {dev}" in out
-    assert out.count("userChrome.css: MISSING") == 2
-    assert out.count("0/3 managed prefs present") == 2
-
-
-def test_status_without_a_profile_or_rendered_file_still_exits_zero(
-    hermetic: dict[str, Path], capsys: pytest.CaptureFixture[str]
-) -> None:
-    assert ft.main(["--status"]) == 0
-    out = capsys.readouterr().out
-    assert "rendered: MISSING" in out and "no Firefox/LibreWolf profile" in out
 
 
 # ---------------------------------------------------------------------------
@@ -639,12 +607,12 @@ def _sed_render(tpl: str, palette: dict[str, str]) -> str:
     return out
 
 
-def test_template_renders_the_firefox_variables_and_selectors() -> None:
-    """The template is the whole palette now: it must use only keys
-    omarchy-theme-color resolves for every theme (bin/omarchy-theme-color
-    :176-281 — background, foreground, accent, dark_background,
-    lighter_background, mode), declare the mode firefox_theme reads back, and
-    render every variable and selector asserted below."""
+def test_template_renders_with_only_the_keys_omarchy_resolves() -> None:
+    """A template token Omarchy cannot resolve renders as itself, so the CSS
+    ships `{{ … }}` to Firefox and the rule is dropped. The token set is
+    pinned to the keys omarchy-theme-color answers for every theme
+    (/usr/bin/omarchy-theme-color:176-281, Omarchy 4.0.3-1) rather than
+    derived from it — the container CI runs in has no Omarchy."""
     tpl = TEMPLATE.read_text()
     assert tpl.startswith("/* Generated by hyprconf from Omarchy's active theme")
     tokens = set(re.findall(r"\{\{\s*([A-Za-z0-9_]+)\s*\}\}", tpl))
@@ -658,35 +626,15 @@ def test_template_renders_the_firefox_variables_and_selectors() -> None:
     }
 
     css = _sed_render(tpl, PALETTE)
+    # Nothing left unresolved, nothing unbalanced, and every palette value the
+    # template asked for reaches the stylesheet. What it paints, and why the
+    # direct selectors carry it rather than the --lwt-* variables, is the
+    # template's own comment to make.
     assert "{{" not in css and css.count("{") == css.count("}")
+    for token in tokens - {"mode"}:
+        assert PALETTE[token] in css, token
     assert ft.rendered_mode(css.encode()) == "dark"
     assert ft.rendered_mode(_sed_render(tpl, {**PALETTE, "mode": "light"}).encode()) == "light"
-    for line in (
-        "--hyprconf-theme-mode: dark;",
-        "--lwt-accent-color: #16242d !important;",
-        "--lwt-text-color: #d6e2ee !important;",
-        "--toolbar-bgcolor: #16242d !important;",
-        "--toolbar-color: #d6e2ee !important;",
-        "--tab-selected-bgcolor: #1b2d40 !important;",
-        "--toolbar-field-background-color: #101b21 !important;",
-        "--toolbar-field-color: #d6e2ee !important;",
-        "--toolbar-field-focus-background-color: #101b21 !important;",
-        "--toolbar-field-focus-color: #d6e2ee !important;",
-        "--lwt-sidebar-background-color: #16242d !important;",
-        "--lwt-sidebar-text-color: #d6e2ee !important;",
-        "--focus-outline-color: #8bc9eb !important;",
-        # Direct chrome selectors too, so the colours hold under any active theme.
-        "#navigator-toolbox, #TabsToolbar, #nav-bar, #PersonalToolbar {",
-        "#urlbar-background, #searchbar {",
-        ".tab-background[selected] {",
-        "#sidebar-box, #sidebar-main {",
-    ):
-        assert line in css, line
-    # The direct rules (indented declarations, not the --*-background-color
-    # variables): toolbox + sidebar, URL bar + search, selected tab.
-    assert css.count("\n  background-color: #16242d !important;") == 2
-    assert css.count("\n  background-color: #101b21 !important;") == 1
-    assert css.count("\n  background-color: #1b2d40 !important;") == 1
 
 
 def _installed_hook(tmp_path: Path) -> Path:
@@ -696,52 +644,45 @@ def _installed_hook(tmp_path: Path) -> Path:
     return hook
 
 
-def _run_hook(hermetic: dict[str, Path], hook: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["bash", str(hook), "lumon"],
+def test_theme_set_hook_never_fails_the_theme_switch(
+    tmp_path: Path, hermetic: dict[str, Path]
+) -> None:
+    """No rendered file: the bridge exits non-zero, the hook says so on stderr
+    and still exits 0 — omarchy-hook must never see an abort. Nothing else
+    pins that; the hook's rendering and its success path run end to end in
+    the install suite.
+
+    It must also never re-enter the theme machinery it is running inside of:
+    omarchy-theme-set-templates writes only into omarchy-theme-set's own
+    next-theme staging dir under its lock (/usr/bin/omarchy-theme-set,
+    Omarchy 4.0.3-1: `flock 9`, the omarchy-theme-set-templates call, then
+    the mv of next-theme over theme). This is the one test that can prove it
+    — it runs the hook as a real subprocess, where /usr/bin's copy of every
+    omarchy-* command is reachable and these stubs shadow it.
+    """
+    # A hook runs inside a theme set, as the user: it may never escalate.
+    code = "\n".join(ln for ln in HOOK.read_text().splitlines() if not ln.lstrip().startswith("#"))
+    assert "sudo" not in code
+
+    calls = tmp_path / "calls"
+    calls.write_text("")
+    for name in ("omarchy-theme-set-templates", "omarchy-theme-refresh", "omarchy-theme-set"):
+        stub = hermetic["bins"] / name
+        stub.write_text(f'#!/usr/bin/env bash\nprintf \'%s\\n\' "{name} $*" >> "{calls}"\n')
+        stub.chmod(0o755)
+
+    _theme(hermetic, rendered=None)
+    _profile(hermetic)
+    proc = subprocess.run(
+        ["bash", str(_installed_hook(tmp_path)), "lumon"],
         capture_output=True,
         text=True,
         timeout=60,
         env={"HOME": str(hermetic["home"]), "PATH": f"{hermetic['bins']}:/usr/bin:/bin"},
     )
-
-
-def test_theme_set_hook_runs_the_firefox_bridge_and_only_that(
-    tmp_path: Path, hermetic: dict[str, Path]
-) -> None:
-    """The hook runs the bridge and nothing else (VS Code is themed by
-    Omarchy's own omarchy-theme-set-vscode); it must not abort a theme switch
-    (no set -e) and must never escalate."""
-    code = "\n".join(
-        line for line in HOOK.read_text().splitlines() if not line.lstrip().startswith("#")
-    )
-    for forbidden in ("set -e", "sudo"):
-        assert forbidden not in code, forbidden
-    assert "hyprconf.firefox_theme" in code
-
-    _theme(hermetic)
-    (hermetic["bins"] / "omarchy-notification-send").write_text("#!/usr/bin/env bash\nexit 0\n")
-    (hermetic["bins"] / "omarchy-notification-send").chmod(0o755)
-    profile = _profile(hermetic)
-    proc = _run_hook(hermetic, _installed_hook(tmp_path))
-    assert proc.returncode == 0, proc.stderr
-    assert (profile / "chrome" / "userChrome.css").read_bytes() == CSS_DARK
-    assert ft.THEME_ID_DARK in (profile / "user.js").read_text()
-    assert "failed" not in proc.stderr
-
-
-def test_theme_set_hook_never_fails_the_theme_switch(
-    tmp_path: Path, hermetic: dict[str, Path]
-) -> None:
-    """No rendered file: the bridge exits non-zero, the hook says so on stderr
-    and still exits 0 — omarchy-hook must never see an abort — and it never
-    re-enters the theme machinery it runs inside of."""
-    _theme(hermetic, rendered=None)
-    _profile(hermetic)
-    proc = _run_hook(hermetic, _installed_hook(tmp_path))
     assert proc.returncode == 0
     assert "Firefox theming failed" in proc.stderr and "userChrome.css" in proc.stderr
-    assert hermetic["calls"].read_text() == ""
+    assert calls.read_text() == ""
 
 
 def test_the_installed_launcher_runs_the_module(tmp_path: Path, hermetic: dict[str, Path]) -> None:
