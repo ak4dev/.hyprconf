@@ -30,7 +30,7 @@
 # a Wayland-capable Proton (native Wayland presents from either GPU).
 #
 # Paths are env-overridable (never read-only) so the hermetic suite points
-# them at tmp trees; gum and vulkaninfo are looked up on PATH.
+# them at tmp trees; vulkaninfo is looked up on PATH.
 set -euo pipefail
 
 : "${_HYPRCONF_SYS_PCI:=/sys/bus/pci/devices}"
@@ -39,11 +39,8 @@ set -euo pipefail
 : "${_HYPRCONF_UWSM_ENV_D:=$HOME/.config/uwsm/env.d}"
 : "${_HYPRCONF_UWSM_ENV:=$HOME/.config/uwsm/env}"
 : "${_HYPRCONF_ENVIRONMENT_D:=$HOME/.config/environment.d}"
-: "${_HYPRCONF_STATE:=$HOME/.local/state}"
-: "${_HYPRCONF_ASSUME_TTY:=}"
 
 ENV_FILE=$_HYPRCONF_UWSM_ENV_D/50-hyprconf-vulkan-gpu
-MARKER=$_HYPRCONF_STATE/hyprconf/vulkan-gpu-ignored
 
 # Filled by diagnose: per GPU in PCI order its address, vendor:device (no 0x)
 # and connected outputs; the display GPU's index (-1 = none); Vulkan device 0
@@ -140,8 +137,8 @@ diagnose_scan() {
 # The Vulkan half, after diagnose_scan: device 0 from vulkaninfo when present
 # (assumed PCI order otherwise, saying why) and the risk bit against the
 # display GPU. This is the expensive step — `vulkaninfo --summary` creates a
-# Vulkan instance on every ICD, which wakes a runtime-suspended GPU — so the
-# callers that can settle the question without it (prompt) ask it last.
+# Vulkan instance on every ICD, which wakes a runtime-suspended GPU — so only
+# status and fix pay for it; use/toggle/run call diagnose_scan alone.
 diagnose_vulkan() {
     local why="vulkaninfo not found"
     VK0="" VK0_HOW=""
@@ -276,7 +273,6 @@ warn_conflicts() {
 }
 
 write_env() {  # $1 = content; identical content is left untouched
-    rm -f "$MARKER"
     if [[ -f $ENV_FILE && $(cat "$ENV_FILE") == "$1" ]]; then info "$ENV_FILE already current"; return 0; fi
     mkdir -p "$_HYPRCONF_UWSM_ENV_D"
     printf '%s\n' "$1" > "$ENV_FILE"
@@ -362,69 +358,14 @@ cmd_alt() {
 export PROTON_ENABLE_WAYLAND=1"
 }
 
-cmd_ignore() {
-    mkdir -p "${MARKER%/*}" && : > "$MARKER"
-    info "wrote $MARKER — install.sh will not ask again; hyprconf-vulkan-gpu fix stays available"
-}
-
 cmd_remove() {
-    local f any=0
-    for f in "$ENV_FILE" "$MARKER"; do
-        if [[ -e $f ]]; then rm -f "$f"; info "removed $f"; any=1; fi
-    done
-    if (( any )); then info "re-login to apply"; else info "nothing to remove ($ENV_FILE, $MARKER)"; fi
-}
-
-# install.sh's stage: asks only at risk, unconfigured, not ignored, on a
-# terminal — and never inside omarchy-update, where the post-update hook runs
-# install.sh: it re-execs itself under script(1) (bin/omarchy-update, Omarchy
-# 4.0.0-1: `exec env OMARCHY_UPDATE_LOGGED=1 script -qefc ...`), so every child
-# passes the tty test although nobody is there to answer (`-y` is "a promise
-# not to ask anything"); the marker it exports is the gate.
-#
-# It runs on every apply, hook runs included, so the facts that cost nothing
-# come first — the Ignore marker, the sysfs scan (one GPU, no display GPU),
-# the config grep — and vulkaninfo is asked only once they leave the question
-# open: on the single-GPU, configured and ignored boxes, which is nearly all
-# of them, no Vulkan instance is created and no sleeping GPU is woken.
-cmd_prompt() {
-    local choice
-    [[ ! -e $MARKER ]] || return 0
-    diagnose_scan
-    (( DGPU >= 0 && ${#GPU_ID[@]} >= 2 )) || return 0
-    CONFIGURED=$(configured_in)
-    [[ -z $CONFIGURED ]] || return 0
-    diagnose_vulkan
-    (( AT_RISK )) || return 0
-    if [[ -n ${OMARCHY_UPDATE_LOGGED:-} ]] || { [[ ! -t 0 || ! -t 1 ]] && [[ -z $_HYPRCONF_ASSUME_TTY ]]; }; then
-        info "hyprconf-vulkan-gpu: the display GPU ${GPU_ADDR[DGPU]} is not Vulkan device 0 — Proton games may crash at start; run from a terminal: hyprconf-vulkan-gpu prompt"
-        return 0
+    if [[ -e $ENV_FILE ]]; then
+        rm -f "$ENV_FILE"
+        info "removed $ENV_FILE"
+        info "re-login to apply"
+    else
+        info "nothing to remove ($ENV_FILE)"
     fi
-    cat <<EOF
-Dual-GPU Vulkan check: the displays are on ${GPU_ADDR[DGPU]} ($(vendor_name "${GPU_ID[DGPU]}") ${GPU_ID[DGPU]}), but
-Vulkan device 0 is $VK0 ($VK0_HOW). Wine under Xwayland sees no RandR providers, so
-it binds every monitor to Vulkan device 0, and a Proton game then has no output on its adapter and
-dies at CreateSwapChainForHwnd (E_INVALIDARG, "No display detected for current GPU") while the
-launcher works. Hiding the other GPU from Vulkan fixes it — on NVIDIA the driver must also be
-allowed to present from a GPU other than its own GPU 0.
-
-  Fix     writes $ENV_FILE (uwsm sources it at login):
-$(fix_content | grep '^export' | sed 's/^/            /')
-          The hidden GPU keeps driving its monitors (KMS/EGL); Vulkan compute no longer sees it.
-  Alt     writes 'export PROTON_ENABLE_WAYLAND=1' to the same file instead — no filter; only for a
-          Wayland-capable Proton (native Wayland presentation works from either GPU).
-  Ignore  writes $MARKER so this is never asked again;
-          'hyprconf-vulkan-gpu fix' stays available.
-
-EOF
-    have gum || { info "gum not found — run one of: hyprconf-vulkan-gpu fix | alt | ignore"; return 0; }
-    choice=$(gum choose --header "Pin Vulkan (Steam/Proton) to the display GPU?" \
-        "Fix — write the Vulkan filter to ${ENV_FILE##*/}" \
-        "Alt — PROTON_ENABLE_WAYLAND=1 instead (Wayland-capable Proton only)" \
-        "Ignore — never ask again") || choice=""
-    case ${choice%% *} in
-        Fix) cmd_fix ;; Alt) cmd_alt ;; Ignore) cmd_ignore ;; *) info "nothing changed" ;;
-    esac
 }
 
 usage() {
@@ -433,13 +374,8 @@ hyprconf-vulkan-gpu — pin Vulkan (Steam/Proton under Xwayland) to the GPU that
 
 usage: hyprconf-vulkan-gpu status [--quiet]  GPUs, display GPU, Vulkan device 0, configuration (default);
                                              exit 0 nothing to do, 3 at risk and unconfigured, 1 error
-       hyprconf-vulkan-gpu prompt            install.sh's question, Fix / Alt / Ignore via gum; silent unless
-                                             at risk; one info line and exit 0 without a terminal or inside
-                                             omarchy-update (OMARCHY_UPDATE_LOGGED set); vulkaninfo is asked
-                                             only once the marker, GPU count, display GPU and existing
-                                             configuration leave the question open (status always asks it)
        hyprconf-vulkan-gpu fix               write \$_HYPRCONF_UWSM_ENV_D/50-hyprconf-vulkan-gpu: the filter for the
-                                             display GPU, plus the NVIDIA pair behind another NVIDIA GPU; drops the marker
+                                             display GPU, plus the NVIDIA pair behind another NVIDIA GPU
        hyprconf-vulkan-gpu use <gpu>         the same file for a GPU you name instead of the display one:
                                              display | other | index | pci-address | vendor:device
        hyprconf-vulkan-gpu toggle            swap to the next GPU in PCI order after the pinned one — the
@@ -449,8 +385,7 @@ usage: hyprconf-vulkan-gpu status [--quiet]  GPUs, display GPU, Vulkan device 0,
                                              switch that needs no re-login ("run other -- steam"), and usable as a
                                              Steam launch option: hyprconf-vulkan-gpu run other -- %command%
        hyprconf-vulkan-gpu alt               the same file with PROTON_ENABLE_WAYLAND=1 only (Wayland-capable Proton)
-       hyprconf-vulkan-gpu ignore            write \$_HYPRCONF_STATE/hyprconf/vulkan-gpu-ignored: never ask again
-       hyprconf-vulkan-gpu remove            delete the env.d file and the marker
+       hyprconf-vulkan-gpu remove            delete the env.d file
        hyprconf-vulkan-gpu help
 
 Wine under Xwayland sees no RandR providers, so it binds every monitor to Vulkan physical device 0 — the
@@ -463,7 +398,7 @@ environment in uwsm's env.d, inherited at login; the compositor still drives mon
 env seams (never read-only; the hermetic suite points them at tmp trees):
   _HYPRCONF_SYS_PCI ($_HYPRCONF_SYS_PCI)  _HYPRCONF_SYS_DRM ($_HYPRCONF_SYS_DRM)
   _HYPRCONF_VULKANINFO ($_HYPRCONF_VULKANINFO, looked up on PATH)  _HYPRCONF_UWSM_ENV_D  _HYPRCONF_UWSM_ENV
-  _HYPRCONF_ENVIRONMENT_D  _HYPRCONF_STATE  _HYPRCONF_ASSUME_TTY (non-empty: prompt as on a terminal)
+  _HYPRCONF_ENVIRONMENT_D
 EOF
 }
 
@@ -473,7 +408,7 @@ main() {
     case $cmd in
         status) cmd_status "$@" ;;
         use | run) "cmd_$cmd" "$@" ;;
-        prompt | fix | alt | ignore | remove | toggle)
+        fix | alt | remove | toggle)
             if (($#)); then die "$cmd takes no arguments (did you mean: use $1?)"; fi
             "cmd_$cmd" ;;
         help | -h | --help) usage ;;

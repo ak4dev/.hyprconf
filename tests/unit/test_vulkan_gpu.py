@@ -9,11 +9,11 @@ sits on every game launch, and a probe creates a Vulkan instance on every
 ICD, waking a runtime-suspended GPU.
 
 HERMETIC: the `box` fixture (conftest.py) plus `gpus()` below — the PCI and
-DRM sysfs trees, uwsm's env.d and env, systemd's environment.d and the state
-dir are tmp trees behind their _HYPRCONF_* seams, gum and vulkaninfo are
-recording fakes, and the box's environment is built from scratch, so the two
-variables the tool looks for cannot leak in from the developer's session. One
-test points every seam at an empty tree and checks the tool sees nothing.
+DRM sysfs trees, uwsm's env.d and env and systemd's environment.d are tmp
+trees behind their _HYPRCONF_* seams, vulkaninfo is a recording fake, and
+the box's environment is built from scratch, so the two variables the tool
+looks for cannot leak in from the developer's session. One test points every
+seam at an empty tree and checks the tool sees nothing.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ NV_LINES = [
 ]
 FIX_LINES = LOADER_LINES + NV_LINES
 ALT_LINES = ["export PROTON_ENABLE_WAYLAND=1"]
-# The tool's own file and marker, under the seams.
+# The tool's own env.d file, under the seams.
 ENV_NAME = "50-hyprconf-vulkan-gpu"
 
 
@@ -68,8 +68,7 @@ def gpus(box: Box, *cards: dict) -> Box:
     class/vendor/device, a DRM card<N> linking to it, and one connected
     connector per requested output plus one disconnected — and point the
     tool's seams at it. A non-GPU PCI device and a non-GPU card go in too:
-    both must be ignored. The gum fake answers from $FAKE_GUM_ANSWER and
-    fails without one, the way gum exits on Esc."""
+    both must be ignored."""
     pci, drm = box.tmp / "sys-pci", box.tmp / "sys-drm"
     for d in (pci, drm):
         d.mkdir()
@@ -101,12 +100,9 @@ def gpus(box: Box, *cards: dict) -> Box:
             "_HYPRCONF_UWSM_ENV_D": str(env_file(box).parent),
             "_HYPRCONF_UWSM_ENV": str(box.home / ".config" / "uwsm" / "env"),
             "_HYPRCONF_ENVIRONMENT_D": str(box.home / ".config" / "environment.d"),
-            "_HYPRCONF_STATE": str(box.home / ".local" / "state"),
-            "FAKE_GUM_ANSWER": str(box.tmp / "gum-answer"),
             "FAKE_VULKANINFO": str(box.tmp / "vulkaninfo-summary"),
         }
     )
-    box.stub("gum", '[[ -r $FAKE_GUM_ANSWER ]] || exit 1\ncat "$FAKE_GUM_ANSWER"\n')
     return box
 
 
@@ -123,17 +119,8 @@ def vulkaninfo(box: Box, summary: str | None) -> None:
     box.stub("vulkaninfo", '[[ $1 == --summary ]] && cat "$FAKE_VULKANINFO"\n')
 
 
-def answer(box: Box, text: str) -> None:
-    """What gum echoes back for the choice it was given."""
-    Path(box.env["FAKE_GUM_ANSWER"]).write_text(text)
-
-
 def env_file(box: Box) -> Path:
     return box.home / ".config" / "uwsm" / "env.d" / ENV_NAME
-
-
-def marker(box: Box) -> Path:
-    return box.home / ".local" / "state" / "hyprconf" / "vulkan-gpu-ignored"
 
 
 @pytest.fixture
@@ -174,9 +161,6 @@ def test_single_gpu_nothing_to_do(box: Box) -> None:
     assert r.returncode == 0, r.stdout + r.stderr
     assert "0000:0a:00.0  10de:2b85  NVIDIA  connected outputs: 2" in r.stdout
     assert "nothing to do — 1 GPU" in r.stdout
-    p = run(box, "prompt", tty=True)
-    assert p.returncode == 0 and p.stdout == "" and box.files() == set()
-    assert box.calls_of("gum") == []
 
 
 def test_display_on_second_gpu_is_at_risk(dual: Box) -> None:
@@ -284,7 +268,7 @@ def test_unreadable_sysfs_is_an_error(dual: Box, sub: str) -> None:
     r = run(dual, sub, tty=True, env={"_HYPRCONF_SYS_PCI": str(broken)})
     assert r.returncode == 1, r.stdout + r.stderr
     assert "hyprconf-vulkan-gpu: cannot read sysfs" in r.stderr and str(broken) in r.stderr
-    assert r.stdout == "" and dual.files() == set() and dual.calls_of("gum") == []
+    assert r.stdout == "" and dual.files() == set()
 
 
 # ---------------------------------------------------------------------------
@@ -319,16 +303,14 @@ def _configured(box: Box, where: str) -> tuple[str, dict[str, str]]:
 
 
 @pytest.mark.parametrize("where", ["environment.d", "uwsm/env.d", "uwsm/env", "live"])
-def test_already_configured_is_reported_and_never_prompted(dual: Box, where: str) -> None:
+def test_already_configured_is_reported(dual: Box, where: str) -> None:
     mention, extra = _configured(dual, where)
     before = dual.files()
     r = run(dual, "status", env=extra)
     assert r.returncode == 0, r.stdout + r.stderr
     assert f"configured:       {mention}" in r.stdout
     assert "already configured" in r.stdout
-    p = run(dual, "prompt", tty=True, env=extra)
-    assert p.returncode == 0 and p.stdout == ""
-    assert dual.files() == before and dual.calls_of("gum") == []
+    assert dual.files() == before
 
 
 def test_commented_lines_do_not_count(dual: Box) -> None:
@@ -340,7 +322,7 @@ def test_commented_lines_do_not_count(dual: Box) -> None:
 
 
 # ---------------------------------------------------------------------------
-# fix / alt / ignore / remove
+# fix / alt / remove
 # ---------------------------------------------------------------------------
 
 
@@ -422,12 +404,6 @@ def test_fix_refuses_on_a_single_gpu_box(box: Box) -> None:
     assert r.returncode == 1 and "single-GPU" in r.stderr and box.files() == set()
 
 
-def test_fix_drops_the_ignore_marker(dual: Box) -> None:
-    assert run(dual, "ignore").returncode == 0 and marker(dual).exists()
-    assert run(dual, "fix").returncode == 0
-    assert not marker(dual).exists()
-
-
 def test_alt_writes_proton_wayland_only(dual: Box) -> None:
     r = run(dual, "alt")
     assert r.returncode == 0, r.stdout + r.stderr
@@ -444,148 +420,14 @@ def test_alt_writes_proton_wayland_only(dual: Box) -> None:
     assert s.returncode == 0 and f"PROTON_ENABLE_WAYLAND in {env_file(dual)}" in s.stdout
 
 
-def test_ignore_writes_the_marker_and_silences_prompt(dual: Box) -> None:
-    r = run(dual, "ignore")
-    assert r.returncode == 0 and marker(dual).exists() and f"wrote {marker(dual)}" in r.stdout
-    assert (
-        run(dual, "status", "--quiet").returncode == 3
-    )  # still at risk, only the question is gone
-    p = run(dual, "prompt", tty=True)
-    assert p.returncode == 0 and p.stdout == ""
-    assert dual.files() == {marker(dual)} and dual.calls_of("gum") == []
-
-
-def test_remove_deletes_file_and_marker(dual: Box) -> None:
-    assert run(dual, "fix").returncode == 0 and run(dual, "ignore").returncode == 0
+def test_remove_deletes_the_env_file(dual: Box) -> None:
+    assert run(dual, "fix").returncode == 0
     r = run(dual, "remove")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert f"removed {env_file(dual)}" in r.stdout and f"removed {marker(dual)}" in r.stdout
+    assert f"removed {env_file(dual)}" in r.stdout
     assert dual.files() == set()
     again = run(dual, "remove")
     assert again.returncode == 0 and "nothing to remove" in again.stdout
-
-
-# ---------------------------------------------------------------------------
-# prompt (install.sh's stage)
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("tty", "extra"),
-    [(False, {}), (True, {"OMARCHY_UPDATE_LOGGED": "1"})],
-    ids=["no-terminal", "omarchy-update"],
-)
-def test_prompt_without_a_terminal_is_one_line_and_no_gum(
-    dual: Box, tty: bool, extra: dict[str, str]
-) -> None:
-    """No terminal — or the post-update hook's run inside omarchy-update,
-    which has a pty (it re-execs under script(1), so the tty test passes) but
-    nobody to answer: its OMARCHY_UPDATE_LOGGED marker wins over the tty."""
-    r = run(dual, "prompt", tty=tty, env=extra)
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert r.stdout.count("\n") == 1 and r.stdout.startswith("hyprconf-vulkan-gpu: ")
-    assert "0000:0a:00.0" in r.stdout
-    assert dual.files() == set() and dual.calls_of("gum") == []
-
-
-def test_prompt_explains_and_offers_three_options(dual: Box) -> None:
-    answer(dual, "Fix — write the Vulkan filter to 50-hyprconf-vulkan-gpu\n")
-    r = run(dual, "prompt", tty=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-    text = r.stdout
-    assert "0000:0a:00.0 (NVIDIA 10de:2b85)" in text and "10de:2484 (assumed PCI order" in text
-    assert "RandR" in text and "CreateSwapChainForHwnd" in text
-    assert str(env_file(dual)) in text and str(marker(dual)) in text
-    for ln in FIX_LINES:
-        assert ln in text
-    assert "PROTON_ENABLE_WAYLAND=1" in text and "Wayland-capable Proton" in text
-    assert "never asked again" in text and "'hyprconf-vulkan-gpu fix' stays available" in text
-    calls = dual.calls_of("gum")
-    assert len(calls) == 1
-    gum = calls[0]
-    assert gum[:3] == ["gum", "choose", "--header"]
-    assert [o.split()[0] for o in gum[4:]] == ["Fix", "Alt", "Ignore"]
-
-
-@pytest.mark.parametrize(
-    ("choice", "expect"),
-    [
-        ("Fix", FIX_LINES),
-        ("Alt", ALT_LINES),
-        ("Ignore", None),
-    ],
-)
-def test_prompt_applies_the_choice(dual: Box, choice: str, expect: list[str] | None) -> None:
-    answer(dual, f"{choice} — whatever gum echoes back\n")
-    r = run(dual, "prompt", tty=True)
-    assert r.returncode == 0, r.stdout + r.stderr
-    if expect is None:
-        assert dual.files() == {marker(dual)}
-    else:
-        assert dual.files() == {env_file(dual)} and exports(env_file(dual)) == expect
-        assert "re-login to apply" in r.stdout
-
-
-def test_prompt_cancelled_changes_nothing(dual: Box) -> None:
-    # gum exits non-zero with no output on Esc: the fake does so without an answer file.
-    r = run(dual, "prompt", tty=True)
-    assert r.returncode == 0 and "nothing changed" in r.stdout
-    assert dual.files() == set() and len(dual.calls_of("gum")) == 1
-
-
-@pytest.mark.parametrize("case", ["single-gpu", "no-output", "marker", "configured"])
-def test_prompt_never_probes_vulkaninfo_when_the_cheap_facts_settle_it(box: Box, case: str) -> None:
-    """install.sh runs `prompt` on every apply, hook runs included, and
-    `vulkaninfo --summary` creates a Vulkan instance on every ICD (waking a
-    runtime-suspended GPU): on a single-GPU box, one with no display GPU, an
-    ignored one or an already-configured one the answer is known before it,
-    so it must not run. `status` prints device 0 for every box and still
-    probes — the same fake, called once."""
-    if case == "single-gpu":
-        gpus(box, NV_5090)
-    elif case == "no-output":
-        gpus(box, NV_3070, {**NV_5090, "connected": 0})
-    else:
-        gpus(box, NV_3070, NV_5090)
-    vulkaninfo(box, vulkaninfo_summary(NV_3070, NV_5090))  # would confirm the risk if asked
-    extra: dict[str, str] = {}
-    if case == "marker":
-        assert run(box, "ignore").returncode == 0
-    if case == "configured":
-        _, extra = _configured(box, "environment.d")
-    before = box.files()
-    p = run(box, "prompt", tty=True, env=extra)
-    assert p.returncode == 0 and p.stdout == "", p.stdout + p.stderr
-    assert box.calls_of("vulkaninfo") == [] and box.calls_of("gum") == [] and box.files() == before
-    s = run(box, "status", env=extra)
-    assert "Vulkan device 0:  10de:2484 (vulkaninfo GPU0)" in s.stdout, s.stdout + s.stderr
-    assert box.calls_of("vulkaninfo") == [["vulkaninfo", "--summary"]]
-
-
-def test_prompt_probes_vulkaninfo_once_the_cheap_facts_leave_it_open(dual: Box) -> None:
-    """Two GPUs, displays on the second, nothing configured, no marker: only
-    Vulkan's own order can settle it — and here it does, device 0 being the
-    display GPU, so the prompt stays silent after the one probe."""
-    vulkaninfo(dual, vulkaninfo_summary(NV_5090, NV_3070))
-    p = run(dual, "prompt", tty=True)
-    assert p.returncode == 0 and p.stdout == "", p.stdout + p.stderr
-    assert dual.calls_of("vulkaninfo") == [["vulkaninfo", "--summary"]]
-    assert dual.calls_of("gum") == [] and dual.files() == set()
-
-
-def test_prompt_without_gum_prints_the_manual_commands(dual: Box) -> None:
-    # A PATH of just the tools the script needs, so gum is really absent.
-    tools = dual.tmp / "tools"
-    tools.mkdir()
-    for name in ("bash", "awk", "grep", "sed", "readlink", "cat", "mkdir", "rm"):
-        real = shutil.which(name)
-        if real is None:
-            pytest.skip(f"{name} not installed")
-        (tools / name).symlink_to(real)
-    r = run(dual, "prompt", tty=True, env={"PATH": str(tools)})
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "gum not found" in r.stdout and "hyprconf-vulkan-gpu fix | alt | ignore" in r.stdout
-    assert dual.files() == set()
 
 
 # ---------------------------------------------------------------------------
@@ -599,13 +441,11 @@ def test_help(dual: Box, arg: str) -> None:
     assert r.returncode == 0
     for sub in (
         "status [--quiet]",
-        "prompt",
         "fix",
         "use <gpu>",
         "toggle",
         "run <gpu>",
         "alt",
-        "ignore",
         "remove",
     ):
         assert f"hyprconf-vulkan-gpu {sub}" in r.stdout
@@ -616,12 +456,9 @@ def test_help(dual: Box, arg: str) -> None:
         "_HYPRCONF_UWSM_ENV_D",
         "_HYPRCONF_UWSM_ENV",
         "_HYPRCONF_ENVIRONMENT_D",
-        "_HYPRCONF_STATE",
-        "_HYPRCONF_ASSUME_TTY",
     ):
         assert seam in r.stdout
     assert "RandR" in r.stdout and "VK_LOADER_DEVICE_ID_FILTER" in r.stdout
-    assert "OMARCHY_UPDATE_LOGGED" in r.stdout
 
 
 def test_unknown_subcommand(dual: Box) -> None:
@@ -784,14 +621,14 @@ def test_no_arg_subcommands_reject_leftover_arguments(dual: Box) -> None:
     assert r.returncode == 1
     assert "toggle takes no arguments (did you mean: use other?)" in r.stderr
     assert not env_file(dual).exists()
-    for cmd in ("fix", "alt", "ignore", "remove", "prompt"):
+    for cmd in ("fix", "alt", "remove"):
         r = run(dual, cmd, "stray")
         assert r.returncode == 1 and f"{cmd} takes no arguments" in r.stderr, cmd
 
 
 def test_use_toggle_run_never_probe_vulkan(dual: Box) -> None:
     """`run` sits on every game launch: probing every ICD there would wake a
-    runtime-suspended GPU. Only status/prompt/fix may pay for vulkaninfo."""
+    runtime-suspended GPU. Only status and fix may pay for vulkaninfo."""
     vulkaninfo(dual, vulkaninfo_summary(NV_3070, NV_5090))
     for args in (("use", "other"), ("toggle",), ("run", "other", "--", "true")):
         dual.reset()

@@ -23,7 +23,7 @@ publish flow and the website upload.
 │   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
 │   ├── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
 │   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
-│   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU — or one you pick — via uwsm env.d (status/prompt/fix/use/toggle/run/alt/ignore/remove)
+│   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU — or one you pick — via uwsm env.d (status/fix/use/toggle/run/alt/remove)
 │   └── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)
 │
 ├── lib/hyprconf/               # Python package, used in place via PYTHONPATH (theme-set hook, hyprconf-firefox-theme)
@@ -83,7 +83,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), Omarchy 4.0.2's Text.PlainText rule over every QML, every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent), the clock's parity with the installed stock clock (skips without Omarchy), the resources feeders' capped-backoff restart shape
 │   ├── test_stats_tools.py       #   plugins/hyprconf-resources/bin/{hyprconf-stats,hyprconf-gpu-info} (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins hyprconf-stats' fork-free tick)
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
-│   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs, gum and vulkaninfo; uwsm env.d / environment.d seams)
+│   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs and vulkaninfo; uwsm env.d / environment.d seams)
 │   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-mkinitcpio; the limine drop-in, /etc/default/limine read for the mapper and never rewritten; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias names the checkout through @HYPRCONF_DIR@
 └── integration/
@@ -148,7 +148,7 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   `EFI_DIR`);
   `_HYPRCONF_*` in `bin/hyprconf-vulkan-gpu` for the sysfs trees and env
   files it reads (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`, `UWSM_ENV_D`, `UWSM_ENV`,
-  `ENVIRONMENT_D`, `STATE`, `ASSUME_TTY`),
+  `ENVIRONMENT_D`),
   `HYPRCONF_STATS_*` in `plugins/hyprconf-resources/bin/hyprconf-stats`
   (`NET_ROOT`, `PROC_STAT`, `PROC_MEMINFO`, `PROC_ROUTE`, `HWMON_ROOT`,
   `INTERVAL`, `ITERATIONS`, and `SLEEP_BUILTIN` — the loadable sleep's path,
@@ -179,9 +179,7 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   bridge calls none). Real when present, skipped otherwise: `jq`, `luac`,
   `qmllint`, `shellcheck`, `sh`, `/usr/share/omarchy/bin/omarchy-plugin-validate`
   (reads a manifest, changes nothing), the installed clock plugin's files
-  (`test_plugins.py` reads them for parity) and, for the one test that builds a PATH
-  without `gum` (`test_vulkan_gpu.py`), `bash`, `awk`, `grep`, `sed`,
-  `readlink`, `cat`, `mkdir`, `rm`.
+  (`test_plugins.py` reads them for parity).
   A test that reads a file of the installed Omarchy falls back to a
   fixture instead of skipping (`test_firefox.py` reuses `OMARCHY_FIREFOX_POLICY`
   and, with Omarchy present, checks it against the real file). Never invoke

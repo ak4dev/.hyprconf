@@ -5,14 +5,14 @@ directory FIRST on PATH carrying a recording stub for every command the tree
 can run: every `omarchy-*` name the shipped scripts and payload carry
 (derived from them, so a call the fakes do not cover cannot slip past), plus
 the handful that are just as able to touch the real machine — `omarchy`
-itself, `sudo`, `hyprctl`, `udevadm`, `gum`, `fc-list`, `git`, `nvidia-smi`,
+itself, `sudo`, `hyprctl`, `udevadm`, `fc-list`, `git`, `nvidia-smi`,
 `vulkaninfo`. PATH is those fakes, then only `/usr/bin` and `/bin` — never
 the host's, where `/usr/share/omarchy/bin` would answer — and the whole
 environment is built from scratch, so nothing of the developer's session
 (HOME, a live `VK_LOADER_*`, `OMARCHY_UPDATE_LOGGED`) reaches a run.
 
 A test that needs a fake to DO something — a `sudo` that execs its arguments,
-a `gum` that answers — overrides it with `box.stub(name, body)`, which lands
+a `vulkaninfo` that answers — overrides it with `box.stub(name, body)`, which lands
 in the box's own dir ahead of the shared one. Everything a script reads
 outside `$HOME` reaches the box through that script's own `_HYPRCONF_*` seam,
 which the suite adds to `box.env` (AGENTS.md › Scripts, CONTRIBUTING ›
@@ -45,7 +45,7 @@ for _name, _value in GIT_IDENTITY.items():
     os.environ.setdefault(_name, _value)
 
 # Not omarchy-*, and every one of them reaches the real machine: sudo and
-# udevadm change the system, hyprctl and gum the running desktop, git the
+# udevadm change the system, hyprctl the running desktop, git the
 # network, and fc-list, nvidia-smi and vulkaninfo answer for the host's
 # fonts and GPUs instead of the box's.
 EXTRA_FAKES = (
@@ -53,7 +53,6 @@ EXTRA_FAKES = (
     "sudo",
     "hyprctl",
     "udevadm",
-    "gum",
     "fc-list",
     "git",
     "nvidia-smi",
