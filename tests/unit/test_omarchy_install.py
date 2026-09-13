@@ -987,6 +987,67 @@ def test_hypr_overrides_are_symlinked_with_a_stock_backup(tmp_path: Path) -> Non
         assert hypr.joinpath(f"{name}.stock").read_text() == f"-- stock omarchy {name}\n"
 
 
+def test_a_dotfiles_link_at_an_override_path_is_backed_up_as_a_link(
+    tmp_path: Path,
+) -> None:
+    """A stow-style link at ~/.config/hypr/bindings.lua (or ~/.config/fastfetch/
+    config.jsonc, or ~/.p10k.zsh) is somebody's own arrangement. The backup
+    guard used to be `[[ -e $target && ! -L $target ]]`, which skipped every
+    link — `ln -sfn` then overwrote it with no backup and no message, while
+    README:90 promises a symlinked monitors.lua is yours and stage_menu writes
+    THROUGH a link. `cp -P` keeps it a link, so the README revert line (`mv
+    …stock`) hands it back pointing where it pointed."""
+    env = _setup(tmp_path)
+    theirs = tmp_path / "dotfiles"
+    theirs.mkdir()
+    (theirs / "bindings.lua").write_text("-- their own bindings\n")
+    (theirs / "config.jsonc").write_text('{"their": "fastfetch"}\n')
+    (theirs / "p10k.zsh").write_text("# their own prompt\n")
+    links = {
+        env["home"] / ".config" / "hypr" / "bindings.lua": theirs / "bindings.lua",
+        env["home"] / ".config" / "fastfetch" / "config.jsonc": theirs / "config.jsonc",
+        env["home"] / ".p10k.zsh": theirs / "p10k.zsh",
+    }
+    for link, src in links.items():
+        link.parent.mkdir(parents=True, exist_ok=True)
+        link.unlink(missing_ok=True)
+        link.symlink_to(src)
+
+    for _ in range(2):  # a re-run must not overwrite the backup with our link
+        assert _run(env, "--no-update").returncode == 0
+
+    for link, src in links.items():
+        backup = link.with_name(link.name + ".stock")
+        assert backup.is_symlink(), f"{backup} is not a link"
+        assert Path(os.readlink(backup)) == src
+        assert link.is_symlink() and link.resolve() != src
+    # And the revert line puts each one back unchanged.
+    for link, src in links.items():
+        backup = link.with_name(link.name + ".stock")
+        link.unlink()
+        backup.rename(link)
+        assert Path(os.readlink(link)) == src
+
+
+def test_a_backup_a_user_re_created_their_link_over_is_never_overwritten(
+    tmp_path: Path,
+) -> None:
+    """The first .stock is the one that matters: a user who puts their own link
+    back after an install, then re-runs, must not have the first backup
+    replaced by the second (or, later, by ours)."""
+    env = _setup(tmp_path)
+    hypr = env["home"] / ".config" / "hypr"
+    _run(env, "--no-update")
+    assert hypr.joinpath("bindings.lua.stock").read_text() == "-- stock omarchy bindings.lua\n"
+
+    theirs = tmp_path / "their-bindings.lua"
+    theirs.write_text("-- their own bindings\n")
+    hypr.joinpath("bindings.lua").unlink()
+    hypr.joinpath("bindings.lua").symlink_to(theirs)
+    _run(env, "--no-update")
+    assert hypr.joinpath("bindings.lua.stock").read_text() == "-- stock omarchy bindings.lua\n"
+
+
 def test_monitor_presets_are_installed_without_touching_the_active_layout(
     tmp_path: Path,
 ) -> None:

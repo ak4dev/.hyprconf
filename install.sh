@@ -418,6 +418,28 @@ restore_clobbered_override() {
     fi
 }
 
+# Keep a one-time .stock backup of whatever was at an override path before the
+# overlay linked over it, so README › Reverting to stock puts it back with a
+# plain `mv`. `cp -P` copies a SYMLINK as a symlink: a stow-style dotfiles link
+# is somebody's own arrangement and has to survive the round trip unchanged —
+# the old `[[ -e $target && ! -L $target ]]` guard skipped every link, so
+# `ln -sfn` overwrote it with no backup and no message. README:90 already
+# promises a symlinked monitors.lua is yours, and stage_menu writes THROUGH a
+# link; this was the one place that did not.
+#
+# Two further tests keep a re-run honest: never back up a link that is already
+# ours (it would fire on every run), and never overwrite a backup that exists
+# (a user who re-creates their own link after an install must not lose the
+# first backup).
+backup_before_link() {
+    local target="$1" src="$2"
+    [[ -e $target || -L $target ]] || return 0
+    [[ "$(readlink "$target" 2>/dev/null)" != "$src" ]] || return 0
+    [[ ! -e $target.stock && ! -L $target.stock ]] || return 0
+    cp -P "$target" "$target.stock"
+    info "backed up $(basename "$target") -> $(basename "$target").stock"
+}
+
 # Point one of Omarchy's ~/.config/hypr override files at the overlay's own
 # copy, keeping a one-time .stock backup of whatever real file was there first.
 #
@@ -429,10 +451,7 @@ link_hypr_override() {
     local name="$1"
     local target="$HOME/.config/hypr/$name"
     restore_clobbered_override "$name"
-    if [[ -e $target && ! -L $target ]]; then
-        cp "$target" "$target.stock"
-        info "backed up stock $name -> $name.stock"
-    fi
+    backup_before_link "$target" "$HERE/hypr/$name"
     ln -sfn "$HERE/hypr/$name" "$target"
 }
 
@@ -1002,10 +1021,7 @@ stage_fastfetch() {
     local dir="$HOME/.config/fastfetch"
     local target="$dir/config.jsonc"
     mkdir -p "$dir"
-    if [[ -e $target && ! -L $target ]]; then
-        cp "$target" "$target.stock"
-        info "backed up existing config.jsonc -> config.jsonc.stock"
-    fi
+    backup_before_link "$target" "$HERE/fastfetch/config.jsonc"
     ln -sfn "$HERE/fastfetch/config.jsonc" "$target"
 }
 
@@ -1571,6 +1587,7 @@ stage_shell() {
     mkdir -p "$(dirname "$p10k")"
     clone_pinned https://github.com/romkatv/powerlevel10k.git "$p10k" "$p10k_pin" "powerlevel10k" || return 0
 
+    backup_before_link "$HOME/.p10k.zsh" "$HERE/zsh/.p10k.zsh"
     ln -sfn "$HERE/zsh/.p10k.zsh" "$HOME/.p10k.zsh"
     write_managed_block "$HOME/.zshrc" "$HERE/zsh/zshrc.block"
 }
