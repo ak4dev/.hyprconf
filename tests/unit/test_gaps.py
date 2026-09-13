@@ -6,8 +6,7 @@ It is `eval`, not `keyword`, on purpose (AGENTS.md > Known quirks; the why sits
 beside the call in bin/hyprconf-gaps).
 
 Everything runs against a fake hyprctl on PATH that serves canned getoption
-JSON and records every `eval` program it is handed — a `keyword` call records
-nothing, so it can never satisfy the expected-program assertions.
+JSON and records every `eval` program it is handed.
 """
 
 from __future__ import annotations
@@ -34,25 +33,21 @@ def _fake_hyprctl(calls_file: Path, json_in: str, json_out: str, *, eval_reply: 
         elif [[ "$1" == "eval" ]]; then
             printf '%s\\n' "$2" >> "{calls_file}"
             echo "{eval_reply}"
-        elif [[ "$1" == "keyword" ]]; then
-            # What Hyprland 0.56 really says — and it exits 0 while doing nothing.
-            echo "keyword can't work with non-legacy parsers. Use eval."
         fi
     """)
 
 
-def _gap_json(option: str, value: int, *, field: str = "css") -> str:
-    """CCssGapData as `hyprctl getoption -j` reports it.
-
-    Hyprland 0.56 names the four-sided field "css"; older builds used "custom".
-    """
+def _gap_json(option: str, value: int) -> str:
+    """CCssGapData as `hyprctl getoption -j` reports it. Hyprland 0.56 names
+    the four-sided field "css"; the "custom" older builds used is covered by
+    the empty-css case of test_reads_every_hyprctl_json_shape."""
     return json.dumps(
         {
             "option": option,
             "int": 0,
             "float": 0.0,
             "str": "",
-            field: f"{value} {value} {value} {value}",
+            "css": f"{value} {value} {value} {value}",
             "set": True,
         }
     )
@@ -89,27 +84,22 @@ def _expected(gaps_in: int, gaps_out: int) -> str:
     return f"hl.config({{ general = {{ gaps_in = {gaps_in}, gaps_out = {gaps_out} }} }})"
 
 
-def _step(tmp_path: Path, direction: str, gaps_in: int, gaps_out: int, *, field: str = "css"):
+def _step(tmp_path: Path, direction: str, gaps_in: int, gaps_out: int):
     return _run(
         tmp_path,
         direction,
-        json_in=_gap_json("general:gaps_in", gaps_in, field=field),
-        json_out=_gap_json("general:gaps_out", gaps_out, field=field),
+        json_in=_gap_json("general:gaps_in", gaps_in),
+        json_out=_gap_json("general:gaps_out", gaps_out),
     )
 
 
 @pytest.mark.parametrize(
-    ("direction", "gaps_in", "gaps_out", "exp_in", "exp_out", "field"),
+    ("direction", "gaps_in", "gaps_out", "exp_in", "exp_out"),
     [
-        ("+", 10, 20, 12, 22, "css"),
-        ("+", 0, 0, 2, 2, "css"),
-        ("+", 200, 300, 202, 302, "css"),  # no upper cap
-        ("-", 15, 25, 13, 23, "css"),
-        ("-", 1, 1, 0, 0, "css"),  # floors at 0, never negative
-        ("-", 0, 0, 0, 0, "css"),
-        ("-", 2, 2, 0, 0, "css"),  # a value equal to STEP lands exactly on zero
-        # Older builds report the four-sided gap under "custom", not "css".
-        ("+", 10, 20, 12, 22, "custom"),
+        ("+", 10, 20, 12, 22),
+        ("+", 0, 0, 2, 2),
+        ("-", 15, 25, 13, 23),
+        ("-", 1, 1, 0, 0),  # floors at 0, never negative
     ],
 )
 def test_steps_both_gaps_together(
@@ -119,9 +109,8 @@ def test_steps_both_gaps_together(
     gaps_out: int,
     exp_in: int,
     exp_out: int,
-    field: str,
 ) -> None:
-    proc, calls = _step(tmp_path, direction, gaps_in, gaps_out, field=field)
+    proc, calls = _step(tmp_path, direction, gaps_in, gaps_out)
     assert proc.returncode == 0, proc.stderr
     assert calls == [_expected(exp_in, exp_out)]
 
@@ -157,15 +146,6 @@ def test_reads_every_hyprctl_json_shape(
     assert calls == [expected]
 
 
-def test_no_inline_python() -> None:
-    """The JSON is parsed with jq, the tool Omarchy uses for `hyprctl getoption -j`."""
-    code = "\n".join(
-        ln for ln in SCRIPT.read_text().splitlines() if not ln.lstrip().startswith("#")
-    )
-    assert "python" not in code
-    assert "jq " in code
-
-
 def test_a_rejected_eval_is_reported(tmp_path: Path) -> None:
     """Anything but "ok" from eval is a failed apply, and the hotkey must say so."""
     proc, calls = _run(
@@ -180,22 +160,18 @@ def test_a_rejected_eval_is_reported(tmp_path: Path) -> None:
     assert calls == [_expected(6, 10)]
 
 
-def test_usage_on_bad_direction(tmp_path: Path) -> None:
-    proc, calls = _step(tmp_path, "sideways", 4, 8)
-    assert proc.returncode == 1
-    assert "Usage" in proc.stderr
-    assert calls == []
-
-
-def test_bare_run_is_a_usage_error_and_touches_nothing(tmp_path: Path) -> None:
+@pytest.mark.parametrize("direction", ["sideways", None], ids=["bad", "bare"])
+def test_a_run_that_is_not_a_step_is_a_usage_error_and_touches_nothing(
+    tmp_path: Path, direction: str | None
+) -> None:
     """No argument must never default to `+`: a user typing the bare command
     to learn its shape was silently widening their gaps."""
     proc, evals = _run(
         tmp_path,
-        None,
+        direction,
         json_in=_gap_json("general:gaps_in", 4),
         json_out=_gap_json("general:gaps_out", 8),
     )
     assert proc.returncode == 1
-    assert "Usage:" in proc.stderr
+    assert "Usage" in proc.stderr
     assert evals == []

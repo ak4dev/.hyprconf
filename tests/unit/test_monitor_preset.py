@@ -72,13 +72,9 @@ def _calls(tmp: Path) -> list[str]:
     return f.read_text().splitlines() if f.exists() else []
 
 
-def _run(tmp: Path, config_dir: Path, *args: str) -> subprocess.CompletedProcess:
+def _run(tmp: Path, *args: str) -> subprocess.CompletedProcess:
     bins = _make_fake_bins(tmp)
     home = tmp / "home"
-    cfg = home / ".config" / "hypr"
-    cfg.mkdir(parents=True, exist_ok=True)
-    for f in config_dir.iterdir():
-        (cfg / f.name).write_text(f.read_text())
     # The fakes first, then only /usr/bin and /bin — never the host's PATH,
     # where /usr/share/omarchy/bin would answer.
     env = {"PATH": f"{bins}:/usr/bin:/bin", "HOME": str(home)}
@@ -88,11 +84,13 @@ def _run(tmp: Path, config_dir: Path, *args: str) -> subprocess.CompletedProcess
 
 
 def _cfg(tmp_path: Path, **files: str) -> Path:
-    cfg_src = tmp_path / "cfg_src"
-    cfg_src.mkdir()
+    """The presets where the tool reads them — the fake HOME's ~/.config/hypr,
+    which is also where an edit between two runs lands."""
+    cfg = tmp_path / "home" / ".config" / "hypr"
+    cfg.mkdir(parents=True, exist_ok=True)
     for name, body in files.items():
-        (cfg_src / name).write_text(body)
-    return cfg_src
+        (cfg / name).write_text(body)
+    return cfg
 
 
 PRESET = 'hl.monitor({ output = "HDMI-A-1", mode = "preferred" })\n'
@@ -127,11 +125,9 @@ def test_valid_preset_is_copied_to_the_toggles_file_and_monitors_lua_is_untouche
     and Omarchy's own monitors.lua is left exactly as it was — Omarchy keeps
     writing to it (omarchy-hyprland-monitor-scaling seds the scale lines in
     place), so the tool never replaces it."""
-    cfg_src = _cfg(
-        tmp_path, **{"pcMonitors.bedroom.lua": PRESET, "monitors.lua": "-- omarchy auto\n"}
-    )
+    _cfg(tmp_path, **{"pcMonitors.bedroom.lua": PRESET, "monitors.lua": "-- omarchy auto\n"})
 
-    res = _run(tmp_path, cfg_src, "bedroom")
+    res = _run(tmp_path, "bedroom")
     assert res.returncode == 0, f"Tool failed: {res.stderr}"
 
     home = tmp_path / "home"
@@ -145,17 +141,13 @@ def test_valid_preset_is_copied_to_the_toggles_file_and_monitors_lua_is_untouche
     assert "hyprctl reload" in calls
     assert any(c.startswith("omarchy-osd") and "bedroom" in c for c in calls)
 
-
-def test_a_preset_edit_is_what_the_next_switch_applies(tmp_path: Path) -> None:
-    """Edits to a preset survive re-selecting it: the toggle is re-copied
-    from the preset file every time."""
-    cfg_src = _cfg(tmp_path, **{"pcMonitors.bedroom.lua": PRESET})
-    assert _run(tmp_path, cfg_src, "bedroom").returncode == 0
-    preset = tmp_path / "home" / ".config" / "hypr" / "pcMonitors.bedroom.lua"
-    preset.write_text(PRESET + "-- edited on this desk\n")
-    (tmp_path / "cfg_src" / "pcMonitors.bedroom.lua").write_text(preset.read_text())
-    assert _run(tmp_path, cfg_src, "bedroom").returncode == 0
-    assert (tmp_path / "home" / TOGGLE).read_text() == preset.read_text()
+    # An edit to a preset is what the next switch applies (README › Monitor
+    # presets): the copy is unconditional, and this is the only run that
+    # overwrites an existing toggle file.
+    edited = PRESET + "-- edited on this desk\n"
+    (home / ".config" / "hypr" / "pcMonitors.bedroom.lua").write_text(edited)
+    assert _run(tmp_path, "bedroom").returncode == 0
+    assert toggle.read_text() == edited
 
 
 def test_stock_hands_over_to_omarchys_own_toggle(tmp_path: Path) -> None:
@@ -163,14 +155,12 @@ def test_stock_hands_over_to_omarchys_own_toggle(tmp_path: Path) -> None:
     than a copy of it (rule 1): the file goes, Hyprland reloads, and Omarchy's
     monitors.lua — untouched — is the only layout left. Idempotent — a second
     `stock` with nothing to remove still delegates, reloads and reports."""
-    cfg_src = _cfg(
-        tmp_path, **{"pcMonitors.bedroom.lua": PRESET, "monitors.lua": "-- omarchy auto\n"}
-    )
-    assert _run(tmp_path, cfg_src, "bedroom").returncode == 0
+    _cfg(tmp_path, **{"pcMonitors.bedroom.lua": PRESET, "monitors.lua": "-- omarchy auto\n"})
+    assert _run(tmp_path, "bedroom").returncode == 0
     toggle = tmp_path / "home" / TOGGLE
     assert toggle.exists()
 
-    res = _run(tmp_path, cfg_src, "stock")
+    res = _run(tmp_path, "stock")
     assert res.returncode == 0, res.stderr
     assert not toggle.exists()
     assert (
@@ -181,7 +171,7 @@ def test_stock_hands_over_to_omarchys_own_toggle(tmp_path: Path) -> None:
     assert _calls(tmp_path).count("hyprctl reload") == 2  # the preset's, then the toggle's
     assert any(c.startswith("omarchy-osd") and "stock" in c for c in _calls(tmp_path))
 
-    res = _run(tmp_path, cfg_src, "stock")  # again, with nothing to remove
+    res = _run(tmp_path, "stock")  # again, with nothing to remove
     assert res.returncode == 0, res.stderr
     assert _calls(tmp_path).count(off) == 2
     assert _calls(tmp_path).count("hyprctl reload") == 3
@@ -191,9 +181,9 @@ def test_help_flags_print_usage_without_a_notification(tmp_path: Path) -> None:
     """-h/--help fit the preset-name whitelist, so without their own branch
     they fell through to log_die's critical desktop notification
     ("Preset not found: pcMonitors.--help.lua")."""
-    cfg_src = _cfg(tmp_path)
+    _cfg(tmp_path)
     for flag in ("-h", "--help"):
-        res = _run(tmp_path, cfg_src, flag)
+        res = _run(tmp_path, flag)
         assert res.returncode == 0, (flag, res.stderr)
         assert "Usage:" in res.stderr and "Presets:" in res.stderr
         assert not any(c.startswith("omarchy-notification-send") for c in _calls(tmp_path)), flag
@@ -202,9 +192,9 @@ def test_help_flags_print_usage_without_a_notification(tmp_path: Path) -> None:
 def test_preset_not_found_exits_nonzero_and_notifies(tmp_path: Path) -> None:
     """A missing preset fails, and the failure is a desktop notification —
     the hotkey path has no terminal to read stderr from."""
-    cfg_src = _cfg(tmp_path)
+    _cfg(tmp_path)
 
-    res = _run(tmp_path, cfg_src, "nonexistent")
+    res = _run(tmp_path, "nonexistent")
     assert res.returncode != 0, "Expected non-zero exit for missing preset"
     assert "Preset not found: pcMonitors.nonexistent.lua" in res.stderr
     assert any(
@@ -215,14 +205,16 @@ def test_preset_not_found_exits_nonzero_and_notifies(tmp_path: Path) -> None:
 
 
 def test_no_preset_argument_exits_nonzero(tmp_path: Path) -> None:
-    res = _run(tmp_path, _cfg(tmp_path))
+    _cfg(tmp_path)
+    res = _run(tmp_path)
     assert res.returncode != 0
     assert "Usage" in res.stderr and "stock" in res.stderr
 
 
 def test_preset_name_is_whitelisted(tmp_path: Path) -> None:
     """`$1` is a path component; anything outside [A-Za-z0-9_-] is refused."""
-    res = _run(tmp_path, _cfg(tmp_path), "../evil")
+    _cfg(tmp_path)
+    res = _run(tmp_path, "../evil")
     assert res.returncode != 0
     assert "Invalid preset name" in res.stderr
 
@@ -244,11 +236,9 @@ def test_existing_workspaces_are_moved_to_the_presets_monitors(tmp_path: Path) -
     body = KITCHEN.read_text()
     rules = _kitchen_rules(body)
     assert rules, "kitchen preset carries no workspace rules"
-    cfg_src = _cfg(
-        tmp_path, **{"pcMonitors.kitchen.lua": body, "monitors.lua": "-- omarchy auto\n"}
-    )
+    _cfg(tmp_path, **{"pcMonitors.kitchen.lua": body, "monitors.lua": "-- omarchy auto\n"})
 
-    assert _run(tmp_path, cfg_src, "kitchen").returncode == 0
+    assert _run(tmp_path, "kitchen").returncode == 0
     calls = _calls(tmp_path)
     for ws, mon in rules:
         expected = (
@@ -266,9 +256,9 @@ def test_commented_out_workspace_rules_are_skipped(tmp_path: Path) -> None:
     rules = _kitchen_rules(body)
     assert len(rules) >= 2, "kitchen preset needs two workspace rules for this test"
     edited = body.replace("hl.workspace_rule(", "-- hl.workspace_rule(", 1)
-    cfg_src = _cfg(tmp_path, **{"pcMonitors.kitchen.lua": edited})
+    _cfg(tmp_path, **{"pcMonitors.kitchen.lua": edited})
 
-    assert _run(tmp_path, cfg_src, "kitchen").returncode == 0
+    assert _run(tmp_path, "kitchen").returncode == 0
     moves = [c for c in _calls(tmp_path) if "workspace.move" in c]
     assert not any(f"workspace = {rules[0][0]}," in m for m in moves)
     assert any(f"workspace = {rules[1][0]}," in m for m in moves)
