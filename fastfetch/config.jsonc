@@ -55,7 +55,7 @@
     },
     {
       "type": "gpu",
-      "format": "{1} {2}",
+      "format": "{name}",
       "key": "  󰊴 GPU",
       "keyColor": "blue"
     },
