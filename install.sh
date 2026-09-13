@@ -193,8 +193,8 @@ managed_block_state() {
     local file="$1" begin="$2" end="$3" b e
     [[ -f $file ]] || { printf 'none'; return 0; }
     # -e: defensive — a marker starting with a dash would read as an option
-    # (today's markers start with "#" and "  //"). First line of each: a
-    # duplicate pair below the first is dropped by the rewrite anyway.
+    # (today's pair starts with "#"). First line of each: a duplicate pair
+    # below the first is dropped by the rewrite anyway.
     b="$(grep -nxF -e "$begin" "$file" | head -1 | cut -d: -f1)"
     e="$(grep -nxF -e "$end" "$file" | head -1 | cut -d: -f1)"
     if [[ -n $b && -n $e ]]; then
@@ -260,33 +260,6 @@ write_managed_block() {
         [[ -z $kept ]] || printf '%s\n\n' "$kept"
         cat "$block"
     } > "$file"
-}
-
-# Remove a managed block from $1 (markers $2/$3), preserving everything else.
-# Returns 1 without touching the file when the markers are not an ordered
-# pair, which is the caller's signal to leave the whole file alone
-# (managed_block_state).
-strip_managed_block() {
-    local file="$1" begin="$2" end="$3" tmp state
-    state="$(managed_block_state "$file" "$begin" "$end")"
-    [[ $state == unpaired ]] && return 1
-    [[ $state == pair ]] || return 0
-    tmp="$(mktemp)"
-    awk -v b="$begin" -v e="$end" '
-        $0 == b { skip = 1; next }
-        $0 == e { skip = 0; next }
-        skip { next }
-        { print }
-    ' "$file" > "$tmp"
-    # Write the stripped file back, over the file itself and not through a
-    # rename, so a symlinked target keeps its link (write_managed_block does
-    # the same). Trailing blank lines are left alone: stage_menu — the one
-    # caller — drops them in its own awk, after the closing brace, which is
-    # what makes the block it writes on the FIRST run byte-identical to a
-    # re-run over the stripped file
-    # (test_menu_block_is_byte_stable_from_the_first_run_after_trailing_blank_lines).
-    cat "$tmp" > "$file"
-    rm -f "$tmp"
 }
 
 # Undo an `omarchy refresh` that landed on the checkout.
@@ -374,8 +347,8 @@ restore_clobbered_override() {
 # is somebody's own arrangement and has to survive the round trip unchanged —
 # the old `[[ -e $target && ! -L $target ]]` guard skipped every link, so
 # `ln -sfn` overwrote it with no backup and no message. README:90 already
-# promises a symlinked monitors.lua is yours, and stage_menu writes THROUGH a
-# link; this was the one place that did not.
+# promises a symlinked monitors.lua is yours; this was the one place that did
+# not keep one.
 #
 # Two further tests keep a re-run honest: never back up a link that is already
 # ours (it would fire on every run), and never overwrite a backup that exists
@@ -1026,141 +999,6 @@ stage_vulkan_gpu() {
         warn "hyprconf-vulkan-gpu did not complete — see: hyprconf-vulkan-gpu status"
 }
 
-# hyprconf's rows in Omarchy's menu, through Omarchy's own seam for them:
-# ~/.config/omarchy/extensions/omarchy-menu.jsonc, the one user file the menu
-# merges over its defaults (shell/plugins/menu/Menu.qml, userMenuPath; the
-# FileView watches it, so an edit shows up with no shell restart). Omarchy
-# 4.0.0-1 ships no command that edits that file — `omarchy commands --json`
-# has no menu-extension route, and omarchy-menu only summons — so it is
-# edited here, in a managed block kept immediately before the closing brace.
-# The shape is dictated by the parser (shell/plugins/menu/MenuModel.js,
-# stripJsonc): it drops only comment lines that START with //, and only a
-# comma right before a } or ], and one parse failure silently drops the WHOLE
-# user file. Hence: markers on comment lines of their own, every entry in the
-# block ending with a comma, and the user's own last entry ahead of the block
-# given the comma it then needs. Seeded from Omarchy's template (all
-# comments) when the user has no file yet; the previous block is stripped
-# first, and the file is left untouched when nothing would change.
-#
-# One row: Proton VPN under Install > Service, beside Omarchy's own NordVPN
-# row and shaped exactly like it (default/omarchy/omarchy-menu.jsonc,
-# install.service.nordvpn) — dotted id, `when` hides it once installed, and
-# the floating presentation terminal runs bin/hyprconf-install-service-
-# protonvpn, which stage_bin put on ~/.local/bin (on PATH in the session:
-# default/bash/envs appends it).
-stage_menu() {
-    log "Omarchy menu: Proton VPN installer (Install > Service)"
-    local file="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
-    local template="$OMARCHY_PATH/config/omarchy/extensions/omarchy-menu.jsonc"
-    local begin='  // >>> hyprconf >>>' end='  // <<< hyprconf <<<'
-    local entry='  "install.service.protonvpn": {"icon":"󰦝","label":"Proton VPN","when":"! omarchy-pkg-present proton-vpn-gtk-app","action":"omarchy-launch-floating-terminal-with-presentation hyprconf-install-service-protonvpn"},'
-
-    mkdir -p "${file%/*}"
-    # Absent or empty — a touched or truncated file holds nothing of the
-    # user's and is unparseable for the menu as it is — it is seeded.
-    if [[ ! -s $file ]]; then
-        if [[ -f $template ]]; then
-            cp "$template" "$file"
-            info "seeded omarchy-menu.jsonc from Omarchy's template"
-        else
-            printf '{\n}\n' > "$file"
-        fi
-        chmod 644 "$file"
-    fi
-
-    # Through a symlink (a stow-style dotfiles checkout), never over it. The
-    # rewrite is done on a copy beside the real file — the block stripped,
-    # then re-inserted — and moved into place only when the bytes differ.
-    local target tmp
-    target="$(readlink -f "$file")"
-    tmp="$(mktemp "$target.XXXXXX")"
-    cp "$target" "$tmp"
-    # Markers that are not an ordered pair cost this file more than the tail:
-    # with the end marker gone (or above the begin marker) the strip eats the
-    # outer closing brace too, the bottom-up scan below then latches onto a
-    # NESTED brace instead of reaching its exit-3 guard, and the row lands
-    # inside the user's own object. The result is invalid JSON, and Omarchy
-    # swallows that whole — MenuModel.js parseMenuJsonc returns [] on a
-    # JSON.parse throw (4.0.2-1) — so the user loses their ENTIRE menu, not
-    # one row.
-    if ! strip_managed_block "$tmp" "$begin" "$end"; then
-        rm -f "$tmp"
-        warn "$file has no usable hyprconf marker pair — left untouched;" \
-             "put the missing marker line back, in that order (or delete the odd one), and re-run"
-        return 0
-    fi
-    local rc=0
-    awk -v b="$begin" -v e="$end" -v entry="$entry" '
-        { lines[NR] = $0 }
-        END {
-            # The parser also accepts `{ "items": { … } }` and then reads
-            # ONLY that object (MenuModel.js: `parsed.items` when it is a
-            # non-array object, else `parsed`). The block goes before the
-            # LAST brace line, which in that shape is the outer one — the
-            # row would sit outside items, ignored for good, while every
-            # re-run found the file current. Refused instead.
-            #
-            # The wrapper is a JSON fact, not a line fact: `"items"`, its
-            # colon and its `{` may each sit on a line of their own, with a
-            # whole-line comment anywhere between them — the parser drops
-            # those before it parses (MenuModel.js stripJsonc, 4.0.2-1:
-            # /^\s*\/\/[^\n]*(\n|$)/gm), so the test drops them too, or a
-            # `"items":` with a comment before its brace reads as no wrapper
-            # at all and the block goes outside it. So the test runs over the
-            # joined file, where [[:space:]] spans the newlines too; the
-            # leading "\n" is what makes the anchor hold for the first line
-            # as well.
-            joined = "\n"
-            for (i = 1; i <= NR; i++) {
-                if (lines[i] ~ /^[[:space:]]*\/\//) continue
-                joined = joined lines[i] "\n"
-            }
-            if (joined ~ /\n[[:space:]]*\{?[[:space:]]*"items"[[:space:]]*:[[:space:]]*\{/) exit 4
-            close_at = 0
-            for (i = NR; i >= 1; i--)
-                if (lines[i] ~ /^[[:space:]]*}[[:space:]]*$/) { close_at = i; break }
-            if (!close_at) exit 3
-            # The last line of content the user owns: blank lines and
-            # whole-line comments do not count (the parser drops those).
-            prev = 0
-            for (i = close_at - 1; i >= 1; i--) {
-                if (lines[i] ~ /^[[:space:]]*$/) continue
-                if (lines[i] ~ /^[[:space:]]*\/\//) continue
-                prev = i; break
-            }
-            for (i = 1; i < close_at; i++) {
-                line = lines[i]
-                if (i == prev && line !~ /[,{][[:space:]]*$/) line = line ","
-                print line
-            }
-            print b; print entry; print e
-            # Trailing empty lines go now: a re-run strips the block with
-            # strip_managed_block, which drops them, so keeping them here
-            # would make the first re-run a rewrite instead of a no-op.
-            last = NR
-            while (last > close_at && lines[last] == "") last--
-            for (i = close_at; i <= last; i++) print lines[i]
-        }' "$tmp" > "$tmp.new" || rc=$?
-    if (( rc )); then
-        rm -f "$tmp" "$tmp.new"
-        if (( rc == 4 )); then
-            warn "$file wraps its rows in an \"items\" object, where a block before the closing brace is never read — add the Proton VPN row by hand, inside it"
-        else
-            warn "$file has no closing-brace line to put the hyprconf block before — add the Proton VPN row by hand"
-        fi
-        return 0
-    fi
-    rm -f "$tmp"
-    if cmp -s "$tmp.new" "$target"; then
-        rm -f "$tmp.new"
-        info "already current"
-        return 0
-    fi
-    chmod --reference="$target" "$tmp.new"
-    mv "$tmp.new" "$target"
-    info "install.service.protonvpn -> $file (SUPER+D > Install > Service)"
-}
-
 # Placement comes from the manifest: barWidget.defaultSection = "right",
 # which the shell honours on an enable with no explicit placement
 # (shell/services/PluginRegistry.qml defaultBarWidgetSection, 4.0.0-1;
@@ -1685,7 +1523,6 @@ main() {
     stage_bin
     # Right after stage_bin: it runs the tool that stage just installed.
     stage_vulkan_gpu
-    stage_menu
     stage_bar_plugin
     stage_clock
     stage_workspaces

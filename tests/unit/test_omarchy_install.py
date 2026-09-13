@@ -31,7 +31,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "install.sh"
 HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
 PLUGIN_FEEDER = Path("plugins") / "hyprconf-resources" / "bin" / "hyprconf-stats"
-PROTONVPN_INSTALLER = REPO_ROOT / "bin" / "hyprconf-install-service-protonvpn"
 # Omarchy's own validator for a plugin folder (pure: reads the manifest and
 # the tree, touches nothing); real when installed, the test skips otherwise.
 PLUGIN_VALIDATE = Path("/usr/share/omarchy/bin/omarchy-plugin-validate")
@@ -60,40 +59,6 @@ OMARCHY_KITTY_CONF = """include ~/.local/state/omarchy/current/theme/kitty.conf
 listen_on unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{kitty_pid}
 font_family JetBrainsMono Nerd Font
 font_size 10
-"""
-
-# Omarchy's config/omarchy/extensions/omarchy-menu.jsonc (4.0.0-1), verbatim:
-# all comments, the shape a fresh box's user extension file has.
-OMARCHY_MENU_EXTENSION = r"""{
-  // Extend the Quickshell Omarchy menu with JSONC.
-  //
-  // IDs are object keys. The parent is inferred from the dotted id, so
-  // "personal.notes" appears under "personal", and "personal" appears on the
-  // root menu. Reuse an existing id to override/extend it.
-  //
-  // Fields:
-  //   icon        Nerd Font glyph shown in the icon column.
-  //   label       Visible row title.
-  //   action      Shell command to run. If omitted, the row is a submenu.
-  //   target      Existing submenu id to open. Use for links/aliases.
-  //   provider    Runtime provider function/command returning JSON rows.
-  //   aliases     alternate `omarchy menu summon <name>` routes; also searchable.
-  //   description Optional subtitle and extra search text.
-  //   when        Shell condition; hide row when it fails.
-  //   checked     Shell condition; append ✓ when it succeeds.
-  //
-  // Examples:
-  // "personal": {"icon":"","label":"Personal"},
-  // "personal.notes": {"icon":"󰎞","label":"Notes","action":"omarchy-launch-editor ~/notes"},
-  // "personal.files": {"icon":"","label":"Files","action":"uwsm-app -- nautilus ~/Documents"},
-  //
-  // Only use provider when a provider_name function or command named "name"
-  // returns JSON rows. Static submenus only need dotted ids.
-  //
-  // Example: replace the default About action by reusing the same id. Existing
-  // fields are kept unless overridden.
-  // "about": {"icon":"","label":"About","action":"omarchy-launch-or-focus-tui \"zsh -c 'fastfetch; read -k 1'\""},
-}
 """
 
 
@@ -373,12 +338,6 @@ def _setup(
     (omarchy_path / "config" / "omarchy").mkdir(parents=True)
     (omarchy_path / "config" / "omarchy" / "shell.json").write_text(
         json.dumps({"version": 1, "idle": {"lock": 300, "screensaver": 150}})
-    )
-    # Omarchy's template for the user's menu extension file — what stage_menu
-    # seeds ~/.config/omarchy/extensions/omarchy-menu.jsonc from.
-    (omarchy_path / "config" / "omarchy" / "extensions").mkdir()
-    (omarchy_path / "config" / "omarchy" / "extensions" / "omarchy-menu.jsonc").write_text(
-        OMARCHY_MENU_EXTENSION
     )
     # Omarchy's Firefox prefs — what stage_firefox merges under hyprconf's.
     (omarchy_path / "default" / "firefox").mkdir(parents=True)
@@ -1003,9 +962,9 @@ def test_a_dotfiles_link_at_an_override_path_is_backed_up_as_a_link(
     config.jsonc, or ~/.p10k.zsh) is somebody's own arrangement. The backup
     guard used to be `[[ -e $target && ! -L $target ]]`, which skipped every
     link — `ln -sfn` then overwrote it with no backup and no message, while
-    README:90 promises a symlinked monitors.lua is yours and stage_menu writes
-    THROUGH a link. `cp -P` keeps it a link, so the README revert line (`mv
-    …stock`) hands it back pointing where it pointed."""
+    README:90 promises a symlinked monitors.lua is yours. `cp -P` keeps it a
+    link, so the README revert line (`mv …stock`) hands it back pointing
+    where it pointed."""
     env = _setup(tmp_path)
     theirs = tmp_path / "dotfiles"
     theirs.mkdir()
@@ -1833,16 +1792,6 @@ def test_every_overlay_script_carries_the_documented_header(script: Path) -> Non
     assert not frozen, f"{script}: readonly seam {frozen}"
 
 
-# omarchy-* names install.sh's code carries only inside data, never as a
-# command: the menu row's action string, and the extension file's name.
-OMARCHY_NAMED_NOT_CALLED = frozenset(
-    {
-        "omarchy-launch-floating-terminal-with-presentation",
-        "omarchy-menu",
-    }
-)
-
-
 def test_every_omarchy_command_install_sh_calls_has_a_fake(tmp_path: Path) -> None:
     """The hermetic contract (AGENTS.md › Tests): /usr/bin carries every
     omarchy-* command on a dev box, so a call the harness has not stubbed
@@ -1856,8 +1805,7 @@ def test_every_omarchy_command_install_sh_calls_has_a_fake(tmp_path: Path) -> No
     assert set(OMARCHY_STUBS) <= fakes
     called = set(re.findall(r"\bomarchy-[a-z0-9-]+\b", _code_only(INSTALL_SH.read_text())))
     assert called, "no omarchy-* calls found — the scan regex is broken"
-    assert OMARCHY_NAMED_NOT_CALLED <= called, "an exception naming a token that is gone"
-    unstubbed = called - fakes - OMARCHY_NAMED_NOT_CALLED
+    unstubbed = called - fakes
     assert not unstubbed, f"omarchy-* commands install.sh can run with no fake: {sorted(unstubbed)}"
 
 
@@ -2450,7 +2398,6 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
     assert shipped == [
         "hyprconf-firefox-theme",
         "hyprconf-gaps",
-        "hyprconf-install-service-protonvpn",
         "hyprconf-monitor-preset",
         "hyprconf-vulkan-gpu",
         "hyprconf-yubikey",
@@ -3580,329 +3527,6 @@ def test_curl_path_help_and_bad_options_never_clone(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The menu — Proton VPN under Install > Service, through Omarchy's extension file
-# ---------------------------------------------------------------------------
-
-MENU_EXT = Path(".config") / "omarchy" / "extensions" / "omarchy-menu.jsonc"
-MENU_BEGIN = "  // >>> hyprconf >>>"
-MENU_END = "  // <<< hyprconf <<<"
-PROTONVPN_ROW = {
-    "icon": "󰦝",
-    "label": "Proton VPN",
-    "when": "! omarchy-pkg-present proton-vpn-gtk-app",
-    "action": "omarchy-launch-floating-terminal-with-presentation hyprconf-install-service-protonvpn",
-}
-
-
-def _menu_items(path: Path) -> dict:
-    """The extension file the way Omarchy's menu reads it: a port of
-    shell/plugins/menu/MenuModel.js stripJsonc (4.0.0-1) — whole-line //
-    comments go, then the comma before a } or ] — and JSON.parse. Anything
-    that fails here makes the shell silently drop the WHOLE user file."""
-    raw = path.read_text()
-    stripped = re.sub(r"^\s*//[^\n]*(\n|$)", "", raw, flags=re.M)
-    stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)
-    return json.loads(stripped)
-
-
-def test_menu_row_is_added_through_omarchys_extension_file(tmp_path: Path) -> None:
-    """A fresh box: the user extension file is seeded from Omarchy's template
-    (all comments, kept byte for byte), the managed block sits right before
-    the closing brace, and the result parses the way the menu parses it —
-    with the one row exactly as Omarchy shapes its own install.service rows.
-    The row's action is the tool stage_bin put on ~/.local/bin."""
-    env = _setup(tmp_path)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    ext = env["home"] / MENU_EXT
-    text = ext.read_text()
-    assert text.startswith(OMARCHY_MENU_EXTENSION.rsplit("}", 1)[0])
-    lines = text.splitlines()
-    assert lines.count(MENU_BEGIN) == 1 and lines.count(MENU_END) == 1
-    assert lines[-3:] == [
-        '  "install.service.protonvpn": {"icon":"󰦝","label":"Proton VPN",'
-        '"when":"! omarchy-pkg-present proton-vpn-gtk-app",'
-        '"action":"omarchy-launch-floating-terminal-with-presentation'
-        ' hyprconf-install-service-protonvpn"},',
-        MENU_END,
-        "}",
-    ]
-    assert lines[-4] == MENU_BEGIN
-    assert _menu_items(ext) == {"install.service.protonvpn": PROTONVPN_ROW}
-
-    tool = env["home"] / ".local" / "bin" / "hyprconf-install-service-protonvpn"
-    assert os.access(tool, os.X_OK)
-    assert PROTONVPN_ROW["action"].endswith(" " + tool.name)
-    # `when` hides the row once the package the tool installs is present.
-    assert "omarchy-pkg-add proton-vpn-gtk-app proton-vpn-cli" in tool.read_text()
-
-
-@pytest.mark.parametrize(
-    ("before", "after_head"),
-    [
-        # The last entry has no trailing comma: it gets one.
-        (
-            '{\n  "personal": {"icon":"x","label":"P"}\n}\n',
-            '{\n  "personal": {"icon":"x","label":"P"},\n',
-        ),
-        # It already has one, and a comment follows: nothing doubled, nothing lost.
-        (
-            '{\n  "personal": {"icon":"x","label":"P"},\n  // mine\n}\n',
-            '{\n  "personal": {"icon":"x","label":"P"},\n  // mine\n',
-        ),
-        # A multi-line entry: the comma lands on its closing brace.
-        (
-            '{\n  "personal": {\n    "icon": "x",\n    "label": "P"\n  }\n}\n',
-            '{\n  "personal": {\n    "icon": "x",\n    "label": "P"\n  },\n',
-        ),
-    ],
-    ids=["no-comma", "comma-then-comment", "multi-line"],
-)
-def test_menu_block_keeps_the_users_file_parseable(
-    tmp_path: Path, before: str, after_head: str
-) -> None:
-    """The block goes last, so the user's own last entry must end with a comma
-    for the file to stay valid — it is given one when it has none, and never
-    a second. Everything the user wrote survives, in place."""
-    env = _setup(tmp_path)
-    ext = env["home"] / MENU_EXT
-    ext.parent.mkdir(parents=True)
-    ext.write_text(before)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    text = ext.read_text()
-    assert text.startswith(after_head + MENU_BEGIN + "\n")
-    assert text.endswith(MENU_END + "\n}\n")
-    assert _menu_items(ext) == {
-        "personal": {"icon": "x", "label": "P"},
-        "install.service.protonvpn": PROTONVPN_ROW,
-    }
-
-
-def test_menu_block_is_byte_stable_and_left_alone_when_current(tmp_path: Path) -> None:
-    """A re-run (the post-update hook, every Omarchy update) changes nothing
-    and does not even touch the file: the menu watches it, and a rewrite of
-    the same bytes would still make it reparse."""
-    env = _setup(tmp_path)
-    assert _run(env, "--no-update").returncode == 0
-    ext = env["home"] / MENU_EXT
-    before = ext.read_bytes()
-    os.utime(ext, (0, 0))
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert ext.read_bytes() == before
-    assert ext.stat().st_mtime == 0
-    # No temp file left beside it either.
-    assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
-
-
-def test_menu_block_is_byte_stable_from_the_first_run_after_trailing_blank_lines(
-    tmp_path: Path,
-) -> None:
-    """Blank lines after the closing brace: the first run already writes what
-    a re-run would (strip_managed_block drops trailing newlines before the
-    block goes back in), so the second run is the no-op — not the third."""
-    env = _setup(tmp_path)
-    ext = env["home"] / MENU_EXT
-    ext.parent.mkdir(parents=True)
-    ext.write_text('{\n  "personal": {"icon":"x","label":"P"}\n}\n\n\n')
-    first = _run(env, "--no-update")
-    assert first.returncode == 0, first.stderr
-    text = ext.read_text()
-    assert text.endswith(MENU_END + "\n}\n")
-    assert _menu_items(ext) == {
-        "personal": {"icon": "x", "label": "P"},
-        "install.service.protonvpn": PROTONVPN_ROW,
-    }
-    second = _run(env, "--no-update")
-    assert second.returncode == 0, second.stderr
-    assert ext.read_text() == text
-
-
-def test_an_empty_extension_file_is_seeded_like_a_missing_one(tmp_path: Path) -> None:
-    """A touched or truncated omarchy-menu.jsonc holds nothing of the user's
-    and is unparseable for the menu as it is: it is seeded from Omarchy's
-    template and gets the block, the same as when it is absent — not left
-    empty with a warning."""
-    env = _setup(tmp_path)
-    ext = env["home"] / MENU_EXT
-    ext.parent.mkdir(parents=True)
-    ext.write_text("")
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert ext.read_text().startswith(OMARCHY_MENU_EXTENSION.rsplit("}", 1)[0])
-    assert _menu_items(ext) == {"install.service.protonvpn": PROTONVPN_ROW}
-
-
-def test_a_stale_menu_block_is_replaced_not_duplicated(tmp_path: Path) -> None:
-    """An older overlay's block — a different row, an extra row — is stripped
-    before the current one goes in: one marker pair, and only today's rows."""
-    env = _setup(tmp_path)
-    ext = env["home"] / MENU_EXT
-    ext.parent.mkdir(parents=True)
-    ext.write_text(
-        '{\n  "personal": {"icon":"x","label":"P"},\n'
-        + MENU_BEGIN
-        + '\n  "install.service.protonvpn": {"icon":"old","label":"Old"},\n'
-        + '  "gone.row": {"label":"gone"},\n'
-        + MENU_END
-        + "\n}\n"
-    )
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    text = ext.read_text()
-    assert text.count(MENU_BEGIN) == 1 and text.count(MENU_END) == 1
-    assert "gone.row" not in text and '"old"' not in text
-    assert _menu_items(ext) == {
-        "personal": {"icon": "x", "label": "P"},
-        "install.service.protonvpn": PROTONVPN_ROW,
-    }
-
-
-def test_menu_stage_leaves_markers_that_are_not_an_ordered_pair_alone(tmp_path: Path) -> None:
-    """The same latch runs over omarchy-menu.jsonc, where losing the tail
-    costs the outer closing brace: the bottom-up scan then latches onto a
-    NESTED brace instead of hitting its exit-3 guard, and the row lands
-    inside the user's own object. The result is invalid JSON, and
-    MenuModel.js swallows that whole (parseMenuJsonc returns [] on a
-    JSON.parse throw, 4.0.2-1) — the user's ENTIRE menu gone. A missing
-    marker and a swapped pair both do it: the file is untouched and still
-    parses."""
-    env = _setup(tmp_path)
-    ext = env["home"] / MENU_EXT
-    ext.parent.mkdir(parents=True)
-    # A nested object whose closing brace sits alone on a line: that is what
-    # the bottom-up scan latches onto once the outer one has been eaten.
-    entry = '  "personal": {\n    "icon": "x",\n    "sub": {\n      "a": 1\n    }\n  },\n'
-    whole = (
-        "{\n"
-        + entry
-        + MENU_BEGIN
-        + "\n"
-        + '  "install.service.protonvpn": {"icon":"old","label":"Old"},\n'
-        + MENU_END
-        + "\n}\n"
-    )
-    for shape, maimed in _unpaired_markers(whole, MENU_BEGIN, MENU_END).items():
-        assert maimed != whole
-        ext.write_text(maimed)
-        proc = _run(env, "--no-update")
-        assert proc.returncode == 0, proc.stderr
-        assert ext.read_text() == maimed, shape
-        assert "marker" in proc.stderr, shape
-        assert _menu_items(ext)["personal"] == {"icon": "x", "sub": {"a": 1}}, shape
-        assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
-
-    # The pair back: the stale row is replaced, the user's entry survives.
-    ext.write_text(whole)
-    assert _run(env, "--no-update").returncode == 0
-    assert _menu_items(ext) == {
-        "personal": {"icon": "x", "sub": {"a": 1}},
-        "install.service.protonvpn": PROTONVPN_ROW,
-    }
-
-
-def test_menu_stage_leaves_a_file_it_cannot_extend_alone(tmp_path: Path) -> None:
-    """No closing-brace line to put the block before (a one-line file): the
-    file is left exactly as it is, with a warning — a wrong edit would make
-    the menu drop every row the user has."""
-    env = _setup(tmp_path)
-    ext = env["home"] / MENU_EXT
-    ext.parent.mkdir(parents=True)
-    ext.write_text('{"personal": {"icon":"x"}}\n')
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert ext.read_text() == '{"personal": {"icon":"x"}}\n'
-    assert "closing-brace" in proc.stderr
-    assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
-
-
-@pytest.mark.parametrize(
-    "before",
-    [
-        '{\n  "items": {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
-        # The brace on its own line — JSON says nothing about where it goes,
-        # and a per-line guard never sees this one.
-        '{\n  "items":\n  {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
-        # Both braces split off, the shape a formatter leaves behind.
-        '{\n  "items"\n  :\n  {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
-        # A whole-line comment between the key and its brace: the parser
-        # drops those before parsing (MenuModel.js stripJsonc), so this is a
-        # wrapper too — and [[:space:]] does not span a comment.
-        '{\n  "items":\n  // the rows\n  {\n    "personal": {"icon":"x","label":"P"}\n  }\n}\n',
-    ],
-    ids=["one-line", "split-brace", "split-colon", "comment-before-brace"],
-)
-def test_menu_stage_leaves_an_items_wrapper_alone(tmp_path: Path, before: str) -> None:
-    """Omarchy's parser also accepts `{ "items": { … } }` and then reads
-    ONLY that object (shell/plugins/menu/MenuModel.js, 4.0.2-1: parsed.items
-    when it is a non-array object). The block goes before the LAST brace
-    line, which in that shape is the outer one — the row would sit outside
-    items, never shown, and every re-run would call the file current. So
-    the file is left exactly as it is, with a warning naming the shape.
-
-    The wrapper is a JSON fact, not a line fact: `"items":` and its `{` may
-    sit on different lines, with a whole-line comment between them, so the
-    guard runs over the joined file with those comments dropped the way
-    stripJsonc drops them."""
-    env = _setup(tmp_path)
-    ext = env["home"] / MENU_EXT
-    ext.parent.mkdir(parents=True)
-    ext.write_text(before)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert ext.read_text() == before
-    assert '"items"' in proc.stderr and "by hand" in proc.stderr
-    assert sorted(p.name for p in ext.parent.iterdir()) == ["omarchy-menu.jsonc"]
-    assert _menu_items(ext) == {"items": {"personal": {"icon": "x", "label": "P"}}}
-
-
-def test_menu_stage_writes_through_a_symlinked_extension_file(tmp_path: Path) -> None:
-    """A stow-style link into a dotfiles checkout stays a link; the file
-    behind it gets the block."""
-    env = _setup(tmp_path)
-    real = tmp_path / "dotfiles" / "omarchy-menu.jsonc"
-    real.parent.mkdir()
-    real.write_text("{\n}\n")
-    ext = env["home"] / MENU_EXT
-    ext.parent.mkdir(parents=True)
-    ext.symlink_to(real)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert ext.is_symlink() and ext.resolve() == real.resolve()
-    assert _menu_items(real) == {"install.service.protonvpn": PROTONVPN_ROW}
-    assert sorted(p.name for p in real.parent.iterdir()) == ["omarchy-menu.jsonc"]
-
-
-def test_protonvpn_installer_installs_both_official_packages_through_omarchy(
-    tmp_path: Path,
-) -> None:
-    """bin/hyprconf-install-service-protonvpn mirrors omarchy-install-service-
-    nordvpn: one omarchy-pkg-add with both extra-repo packages, then how to
-    sign in. No daemon to enable, no group, no reboot — and a failed install
-    stops it before it claims success."""
-    env = _setup(tmp_path)
-    child = _child_env(env)
-    assert os.access(PROTONVPN_INSTALLER, os.X_OK)
-    proc = subprocess.run(
-        ["bash", str(PROTONVPN_INSTALLER)], env=child, capture_output=True, text=True, timeout=30
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert _calls(env) == ["omarchy-pkg-add proton-vpn-gtk-app proton-vpn-cli"]
-    assert "protonvpn login" in proc.stdout
-    code = _code_only(PROTONVPN_INSTALLER.read_text())
-    for forbidden in ("systemctl", "usermod", "reboot", "gum "):
-        assert forbidden not in code, forbidden
-
-    _stub(env["bins"] / "omarchy-pkg-add", env["calls"], "exit 1")
-    proc = subprocess.run(
-        ["bash", str(PROTONVPN_INSTALLER)], env=child, capture_output=True, text=True, timeout=30
-    )
-    assert proc.returncode != 0
-    assert "installed" not in proc.stdout
-
-
-# ---------------------------------------------------------------------------
 # The dual-GPU Vulkan check — bin/hyprconf-vulkan-gpu, run by stage_vulkan_gpu
 # ---------------------------------------------------------------------------
 
@@ -4052,7 +3676,6 @@ def test_a_failing_dual_gpu_check_is_a_warning_not_a_failed_install(tmp_path: Pa
     assert "WARNING: hyprconf-vulkan-gpu" in proc.stderr
     assert "gum" not in _commands(env)
     assert not (env["home"] / ".config" / "uwsm").exists()
-    assert (env["home"] / MENU_EXT).exists()  # the very next stage
     assert (env["home"] / ".zshrc").exists()
 
 
