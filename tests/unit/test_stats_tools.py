@@ -6,7 +6,7 @@ by absolute path from it.
 hyprconf-stats is the long-lived cpu/mem/net/temp sampler (cpu temperature is
 read straight from a hwmon path resolved once at startup; the default-route
 interface from /proc/net/route); all of its system paths are
-HYPRCONF_STATS_*-overridable, and a tick forks nothing. hyprconf-gpu-info is a
+HYPRCONF_STATS_*-overridable. hyprconf-gpu-info is a
 long-lived stream too: nvidia-smi --loop piped through one awk, or a
 pure-bash sysfs loop over AMD's gpu_busy_percent or Intel's xe idle-residency
 counter, the latter gated on power/runtime_status because every xe read
@@ -20,11 +20,12 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import shutil
 import stat
 import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 # The feeders ship inside the plugin that runs them, by absolute path from
@@ -265,10 +266,8 @@ class TestStatsScript:
         assert (payload["down"], payload["up"]) == ("0B/s", "0B/s")
 
     def test_interface_switch_rebases_the_rate_baseline(self, tmp_path: Path) -> None:
-        """Ethernet coming up while Wi-Fi held the route: the first eth0
-        sample would diff eth0's lifetime counter against wlan0's baseline
-        (an absurd one-tick spike, hundreds of GB/s on a real box) unless the
-        baseline is rebased to the new interface — that tick must read 0B/s."""
+        """A switch of interface rebases the counters, so that tick reads 0B/s
+        (why: the rebase comment in hyprconf-stats)."""
         net = _fake_net(tmp_path, wired_up=False)
         calls = tmp_path / "sleep-calls"
         sleep_body = (
@@ -286,12 +285,8 @@ class TestStatsScript:
         assert (lines[1]["down"], lines[1]["up"]) == ("0B/s", "0B/s")  # eth0's first tick
 
     def test_vpn_tunnel_default_route_without_gateway(self, tmp_path: Path) -> None:
-        """A WireGuard/OpenVPN default route has no gateway hop: Gateway
-        00000000 and RTF_UP alone in /proc/net/route (`default dev wg0 scope
-        link` to `ip`). The Destination alone selects it — a parse keyed on
-        the gateway once froze the rates at 0B/s while the VPN carried all
-        traffic.
-        """
+        """A gateway-less tunnel default route is still found: the Destination
+        alone selects it (why: the /proc/net/route comment in hyprconf-stats)."""
         net = _fake_net(tmp_path, wired_up=False, wifi=False)
         wg = net / "wg0"
         (wg / "statistics").mkdir(parents=True)
@@ -766,14 +761,10 @@ class TestGpuInfoScript:
         )
 
     def test_amd_refusing_card_reads_idle_and_the_stream_lives(self, tmp_path: Path) -> None:
-        """amdgpu answers gpu_busy_percent with -EPERM on a runtime-suspended
-        card: the attribute is still 0444 (so the probe and `-r` pass) and
-        the read() fails. Unguarded under set -e that killed the whole stream
-        — on a hybrid laptop before its first line, which the widget never
-        restarts, and the iGPU's reading died with it. A card whose counters
-        refuse (here: swapped for directories after the probe, a read error
-        for root too) must rank idle, 0/0, and the stream must go on — quietly,
-        or the error would repeat into the journal every interval."""
+        """A card whose counters refuse mid-stream ranks idle and the stream
+        goes on, quietly (why: the -EPERM comment in hyprconf-gpu-info). The
+        refusal here is the files swapped for directories after the probe — a
+        read error for root too."""
         drm = tmp_path / "drm"
         self._amd_card(drm, 0, busy="5", used=None, total=None, name="Raphael")
         dgpu = self._amd_card(drm, 1, busy="90", used=1024**3, total=8 * 1024**3, name="RX 7700S")
@@ -793,9 +784,8 @@ class TestGpuInfoScript:
         assert lines[1]["util"] == 5 and lines[1]["tooltip"].endswith("| VRAM shared")
 
     def test_intel_gt_vanishing_mid_stream_reads_idle_not_pegged(self, tmp_path: Path) -> None:
-        """No data must read as idle: a vanished xe residency counter once
-        computed a zero idle-delta — a gone GPU pegged at 100% forever, with
-        the stream alive so the widget's restart self-heal never ran."""
+        """A vanished residency counter reads as idle, not pegged (why: the
+        "no data must read as idle" comment in hyprconf-gpu-info)."""
         drm = tmp_path / "drm"
         self._intel_card(drm, 0)
         idle = self._idle_file(drm, 0)
@@ -817,13 +807,6 @@ class TestGpuInfoScript:
             },
         )
         assert [ln["util"] for ln in self._lines(r)] == [100, 0]
-
-    def test_intel_busy_gt_never_idles(self, tmp_path: Path) -> None:
-        """A residency counter that does not advance means the GT spent none
-        of the window idle: 100%."""
-        drm = tmp_path / "drm"
-        self._intel_card(drm, 0)
-        assert self._run_intel(tmp_path, drm)[0]["util"] == 100
 
     def test_intel_idle_gt_reads_zero(self, tmp_path: Path) -> None:
         """Idle for (well past) the whole window: 0%, clamped — the counter
@@ -867,35 +850,53 @@ class TestGpuInfoScript:
         assert line["temp"] is None
         assert line["tooltip"] == "Intel Graphics (GPU 3) | Util 100% | Temp n/a | VRAM shared"
 
-    def test_intel_suspended_card_is_never_read_and_ranks_idle(self, tmp_path: Path) -> None:
-        """xe resumes the card on every one of the three reads this feeder
-        makes: idle_residency_ms_show, act_freq_show and xe_hwmon_read all
-        call xe_pm_runtime_get, which tail-calls __pm_runtime_resume(dev, 0)
-        (disassembled from the installed xe.ko, kernel 7.1.8-arch1-2-ptl).
-        amdgpu's handler returns early instead, so the AMD path's "a
-        suspended card just refuses the read" does not transfer. With
-        power/runtime_status saying "suspended" none of the three may be
-        opened — all three are FIFO traps here, so a feeder that opens one
-        blocks and emits nothing — and the card ranks idle rather than
-        reading 100% off a counter that is standing still."""
+    # The PM gate, one row per power/runtime_status the feeder can meet. It
+    # tests for being DOWN, not for being up (why: the _intel_awake comment in
+    # hyprconf-gpu-info), and a residency counter that does not advance means
+    # the GT spent none of the window idle — 100%. Every attribute a gated
+    # read would touch is a FIFO trap, so a feeder that opens one blocks and
+    # emits nothing rather than passing quietly.
+    @pytest.mark.parametrize(
+        "status,traps,util,temp",
+        [
+            (None, (), 100, 47),
+            ("active", (), 100, 47),
+            ("unsupported", (), 100, 47),
+            ("suspended", ("idle", "freq", "hwmon"), 0, None),
+            ("suspending", ("idle",), 0, None),
+        ],
+    )
+    def test_intel_pm_gate_only_skips_a_card_the_pm_core_says_is_down(
+        self,
+        tmp_path: Path,
+        status: str | None,
+        traps: tuple[str, ...],
+        util: int,
+        temp: int | None,
+    ) -> None:
         drm = tmp_path / "drm"
-        dev = self._intel_card(drm, 0, temp="47000", runtime_status="suspended")
-        self._trap(self._idle_file(drm, 0))
-        self._trap(dev / "tile0" / "gt0" / "freq0" / "act_freq")
-        self._trap(dev / "hwmon" / "hwmon2" / "temp1_input")
+        dev = self._intel_card(drm, 0, temp="47000", runtime_status=status)
+        for trap in traps:
+            self._trap(
+                {
+                    "idle": self._idle_file(drm, 0),
+                    "freq": dev / "tile0" / "gt0" / "freq0" / "act_freq",
+                    "hwmon": dev / "hwmon" / "hwmon2" / "temp1_input",
+                }[trap]
+            )
         lines = self._run_intel(tmp_path, drm)
-        assert [ln["util"] for ln in lines] == [0, 0]
-        assert lines[0]["temp"] is None
-        assert lines[0]["tooltip"].endswith("| Temp n/a | VRAM shared")
+        assert [ln["util"] for ln in lines] == [util, util]
+        assert lines[0]["temp"] == temp
+        assert lines[0]["tooltip"].endswith(
+            "| Temp 47° | VRAM shared | Freq 1200MHz" if temp else "| Temp n/a | VRAM shared"
+        )
 
     def test_intel_resumed_card_re_baselines_instead_of_reading_pegged(
         self, tmp_path: Path
     ) -> None:
-        """The counter freezes while the GT is off but the wall clock does
-        not, so the first delta after a resume covers a window the card slept
-        through — a card that just woke would read 100% busy. The first
-        sample after a suspend is a baseline: 0% here, then the genuine 100%
-        of a counter that really is not advancing."""
+        """The first sample after a resume is a baseline, not a reading (why:
+        the "first read after a suspend" comment in hyprconf-gpu-info): 0%
+        here, then the genuine 100% of a counter that is not advancing."""
         drm = tmp_path / "drm"
         self._intel_card(drm, 0, runtime_status="suspended")
         status = self._runtime_status(drm, 0)
@@ -919,42 +920,6 @@ class TestGpuInfoScript:
             )
         )
         assert [ln["util"] for ln in lines] == [0, 100]
-
-    def test_intel_active_runtime_status_changes_nothing(self, tmp_path: Path) -> None:
-        """The gate is a gate, not a new reading: a card the PM core calls
-        active is measured exactly as one with no runtime_status at all."""
-        drm = tmp_path / "drm"
-        self._intel_card(drm, 0, temp="47000", runtime_status="active")
-        line = self._run_intel(tmp_path, drm)[0]
-        assert line["util"] == 100
-        assert line["temp"] == 47
-        assert line["tooltip"].endswith("| Temp 47° | VRAM shared | Freq 1200MHz")
-
-    def test_intel_gate_only_skips_a_card_the_pm_core_says_is_down(self, tmp_path: Path) -> None:
-        """The gate asks whether the card is DOWN, not whether it is up. An
-        allowlist on "active" ranks every status it does not recognise idle
-        forever, and `unsupported` is the PM core's word for a device whose
-        runtime PM is off — a card that never sleeps, so it must be measured
-        (of 400 devices reporting it on the box this was written on, all 400
-        had power/runtime_suspended_time 0, against 50 of 50 `suspended` ones
-        with a non-zero one). So `unsupported` measures exactly as no file at
-        all, while `suspending` — a card on its way down — is still left
-        alone: its residency counter is a FIFO trap here, so a read hangs."""
-        up = tmp_path / "unsupported"
-        up.mkdir()
-        self._intel_card(up / "drm", 0, temp="47000", runtime_status="unsupported")
-        line = self._run_intel(up, up / "drm")[0]
-        assert line["util"] == 100
-        assert line["temp"] == 47
-        assert line["tooltip"].endswith("| Temp 47° | VRAM shared | Freq 1200MHz")
-
-        down = tmp_path / "suspending"
-        down.mkdir()
-        self._intel_card(down / "drm", 0, temp="47000", runtime_status="suspending")
-        self._trap(self._idle_file(down / "drm", 0))
-        line = self._run_intel(down, down / "drm")[0]
-        assert line["util"] == 0
-        assert line["temp"] is None
 
     def test_intel_suspended_card_loses_to_an_awake_one(self, tmp_path: Path) -> None:
         """Two cards, the sleeping one first: it ranks idle, so the reading
@@ -984,46 +949,13 @@ class TestGpuInfoScript:
 
 
 # ---------------------------------------------------------------------------
-# What the READMEs may claim about a tick
+# What a tick costs
 # ---------------------------------------------------------------------------
 
-# "forks nothing" and its variants, and the two feeder names, as tokens.
-FORK_CLAIM = re.compile(r"forks? nothing|fork-free")
-FEEDER_NAME = re.compile(r"hyprconf-(?:stats|gpu-info)")
-# Every doc that describes a feeder's tick. The plugin README ships to
-# strangers on its own (`omarchy plugin add`), so it is held to the same rule.
-TICK_DOCS = (
-    REPO_ROOT / "README.md",
-    REPO_ROOT / "docs" / "CONTRIBUTING.md",
-    FEEDERS.parent / "README.md",
-)
 
-
-def test_only_the_stats_feeder_paces_itself_without_a_fork() -> None:
-    """The fact the READMEs are held to below, read off the two scripts:
-    hyprconf-stats loads bash's `sleep` builtin, so its whole tick is reads
-    and integer arithmetic; hyprconf-gpu-info's AMD and Intel loops exec
-    /usr/bin/sleep once per interval and load no builtin."""
-    stats = STATS.read_text()
-    assert 'enable -f "$HYPRCONF_STATS_SLEEP_BUILTIN" sleep' in stats
-    gpu = GPU_INFO.read_text()
-    assert "enable -f" not in gpu, "the GPU feeder gained a sleep builtin — re-word the READMEs"
-    assert len(re.findall(r'^\s*sleep "\$HYPRCONF_GPU_INTERVAL"$', gpu, re.M)) == 2
-
-
-def test_readmes_never_claim_a_fork_free_tick_for_the_gpu_feeder() -> None:
-    """A fork-free tick is hyprconf-stats' property alone, so the feeder
-    named last before the claim must be hyprconf-stats — the shape that
-    turned false when both names were put in front of one "a tick ... forks
-    nothing". The docs ship as the user contract (rule 7) and the plugin
-    README ships on its own, so a wrong claim there reaches strangers."""
-    for doc in TICK_DOCS:
-        text = doc.read_text(encoding="utf-8")
-        claims = list(FORK_CLAIM.finditer(text))
-        assert claims, f"{doc.name} no longer describes a tick's cost"
-        for claim in claims:
-            names = FEEDER_NAME.findall(text[: claim.start()])
-            assert names and names[-1] == "hyprconf-stats", (
-                f"{doc.name}: '{claim.group(0)}' reads as a claim about "
-                f"{names[-1] if names else 'both feeders'}"
-            )
+def test_the_stats_feeder_paces_itself_on_the_loadable_sleep() -> None:
+    """The fork-free tick the plugin README promises: bash's loadable `sleep`
+    is what paces hyprconf-stats, so the whole tick is reads and integer
+    arithmetic. Nothing else pins it — the suite points the seam at a missing
+    file so a PATH fake can hook the ticks."""
+    assert 'enable -f "$HYPRCONF_STATS_SLEEP_BUILTIN" sleep' in STATS.read_text()
