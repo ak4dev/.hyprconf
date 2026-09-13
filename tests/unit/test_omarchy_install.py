@@ -289,9 +289,11 @@ OMARCHY_STUBS = (
     "hyprctl",
     # hyprconf-monitor-preset (run by several tests here) reports through these;
     # the real ones would put a notification and an OSD on the developer's
-    # desktop every time the suite runs.
+    # desktop every time the suite runs. Its `stock` hands over to
+    # omarchy-hyprland-toggle, which would reload the developer's Hyprland.
     "omarchy-notification-send",
     "omarchy-osd",
+    "omarchy-hyprland-toggle",
     # Asserted never to run: switching the login shell, and pacman
     # directly (the container has a real one; a call must be seen, not
     # reach it).
@@ -1080,8 +1082,9 @@ def test_monitor_presets_are_installed_without_touching_the_active_layout(
 def test_monitor_preset_reaches_every_preset_and_back(tmp_path: Path) -> None:
     """Every shipped preset is selectable by its name (the presets carry
     hyprconf's workspace-to-monitor rules, so one that cannot be named is
-    dead config), and stock takes the toggle away; the toggle mechanics are
-    test_monitor_preset.py's."""
+    dead config), and stock hands the toggle back to Omarchy's own
+    omarchy-hyprland-toggle; the toggle mechanics are test_monitor_preset.py's,
+    where that command has a faithful fake — here it is a recording stub."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
     hypr = env["home"] / ".config" / "hypr"
@@ -1096,7 +1099,7 @@ def test_monitor_preset_reaches_every_preset_and_back(tmp_path: Path) -> None:
         assert toggle.read_bytes() == hypr.joinpath(preset).read_bytes(), name
     proc = _switch(env, "stock")
     assert proc.returncode == 0, proc.stderr
-    assert not toggle.exists()
+    assert "omarchy-hyprland-toggle hyprconf-monitor-preset off" in _calls(env)
 
 
 def test_theme_is_installed_as_a_symlink(tmp_path: Path) -> None:

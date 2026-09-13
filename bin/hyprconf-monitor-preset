@@ -15,8 +15,8 @@
 # (line 19), so a later hl.monitor for the same output wins over Omarchy's
 # monitors.lua (Omarchy 4.0.0-1, Hyprland 0.56). That is exactly what Omarchy's
 # own omarchy-hyprland-monitor-internal does: an hl.monitor line written to
-# <toggle>.lua in that directory, then `hyprctl reload`; `stock` is
-# omarchy-hyprland-toggle's off — rm -f the file, reload. ~/.config/hypr/
+# <toggle>.lua in that directory, then `hyprctl reload`; `stock` hands over to
+# `omarchy-hyprland-toggle hyprconf-monitor-preset off`. ~/.config/hypr/
 # monitors.lua is never touched, so Omarchy's own tooling keeps working on its
 # own file (omarchy-hyprland-monitor-scaling seds it; omarchy refresh replaces
 # it; neither can now land on a preset).
@@ -65,12 +65,16 @@ if [[ ! "$1" =~ ^[A-Za-z0-9_-]+$ ]]; then
     log_die "Invalid preset name: '$1' (allowed: A-Z, a-z, 0-9, _, -)"
 fi
 
-# `stock` (or `omarchy`): no toggle file, so only Omarchy's own monitors.lua
-# speaks — its auto layout, or whatever its tooling wrote there since.
-if [[ "$1" == stock || "$1" == omarchy ]]; then
+# `stock`: no toggle file, so only Omarchy's own monitors.lua speaks — its auto
+# layout, or whatever its tooling wrote there since. That is Omarchy's own
+# `off`, so hand it over rather than re-implement it (omarchy-hyprland-toggle:
+# 30-32 `rm -f "$FLAG_FILE"`, :54 `hyprctl reload`, with FLAG_FILE the very
+# path above, :17). Its `on` half cannot be reused: FLAG_SOURCE is
+# $OMARCHY_PATH/default/hypr/toggles/<flag>.lua (:18) and :21-27 refuses
+# anything not in Omarchy's own tree, so the copy below stays hand-rolled.
+if [[ "$1" == stock ]]; then
     log_step "Restoring Omarchy's own monitor layout"
-    rm -f -- "$TOGGLE"
-    hyprctl reload
+    omarchy-hyprland-toggle hyprconf-monitor-preset off
     log_ok "Preset toggle removed — Omarchy's monitors.lua is the layout"
     osd "Monitor: stock"
     exit 0

@@ -36,7 +36,7 @@ TOGGLE = Path(".local") / "state" / "omarchy" / "toggles" / "hypr" / "hyprconf-m
 # Every external command the tool may call. The self-check below derives the
 # same set from the script's text, so a new call cannot slip past the fakes
 # unnoticed.
-EXTERNALS = ("hyprctl", "omarchy-notification-send", "omarchy-osd")
+EXTERNALS = ("hyprctl", "omarchy-hyprland-toggle", "omarchy-notification-send", "omarchy-osd")
 
 
 def _make_fake_bins(tmp: Path) -> Path:
@@ -46,7 +46,21 @@ def _make_fake_bins(tmp: Path) -> Path:
     calls = tmp / "calls.txt"
     for name in EXTERNALS:
         fake = bins / name
-        fake.write_text(f'#!/usr/bin/env bash\nprintf \'%s\\n\' "{name} $*" >> "{calls}"\nexit 0\n')
+        body = "exit 0\n"
+        if name == "omarchy-hyprland-toggle":
+            # Faithful to the real one, because `stock` hands its whole job
+            # over: off() is `rm -f "$FLAG_FILE"` with
+            # FLAG_FILE=$HOME/.local/state/omarchy/toggles/hypr/$1.lua, and
+            # `hyprctl reload` runs after every action
+            # (/usr/share/omarchy/bin/omarchy-hyprland-toggle:17,30-32,54 —
+            # Omarchy 4.0.3-1). A record-only stub would leave the toggle file
+            # in place and the end-state assertions meaningless.
+            body = (
+                '[[ ${2:-toggle} == off ]] || { echo "fake: only off" >&2; exit 1; }\n'
+                'rm -f "$HOME/.local/state/omarchy/toggles/hypr/$1.lua"\n'
+                "hyprctl reload >/dev/null\nexit 0\n"
+            )
+        fake.write_text(f'#!/usr/bin/env bash\nprintf \'%s\\n\' "{name} $*" >> "{calls}"\n{body}')
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
     return bins
 
@@ -142,10 +156,11 @@ def test_a_preset_edit_is_what_the_next_switch_applies(tmp_path: Path) -> None:
     assert (tmp_path / "home" / TOGGLE).read_text() == preset.read_text()
 
 
-def test_stock_removes_the_toggle_and_reloads(tmp_path: Path) -> None:
-    """`stock` is the toggle's off: the file goes, Hyprland reloads, and
-    Omarchy's monitors.lua — untouched — is the only layout left. Idempotent
-    — a second `stock` with nothing to remove still reloads and reports."""
+def test_stock_hands_over_to_omarchys_own_toggle(tmp_path: Path) -> None:
+    """`stock` IS the toggle's off, so it runs Omarchy's own command rather
+    than a copy of it (rule 1): the file goes, Hyprland reloads, and Omarchy's
+    monitors.lua — untouched — is the only layout left. Idempotent — a second
+    `stock` with nothing to remove still delegates, reloads and reports."""
     cfg_src = _cfg(
         tmp_path, **{"pcMonitors.bedroom.lua": PRESET, "monitors.lua": "-- omarchy auto\n"}
     )
@@ -159,11 +174,14 @@ def test_stock_removes_the_toggle_and_reloads(tmp_path: Path) -> None:
     assert (
         tmp_path / "home" / ".config" / "hypr" / "monitors.lua"
     ).read_text() == "-- omarchy auto\n"
-    assert _calls(tmp_path).count("hyprctl reload") == 2
+    off = "omarchy-hyprland-toggle hyprconf-monitor-preset off"
+    assert _calls(tmp_path).count(off) == 1
+    assert _calls(tmp_path).count("hyprctl reload") == 2  # the preset's, then the toggle's
     assert any(c.startswith("omarchy-osd") and "stock" in c for c in _calls(tmp_path))
 
-    res = _run(tmp_path, cfg_src, "omarchy")  # the alias, with nothing to remove
+    res = _run(tmp_path, cfg_src, "stock")  # again, with nothing to remove
     assert res.returncode == 0, res.stderr
+    assert _calls(tmp_path).count(off) == 2
     assert _calls(tmp_path).count("hyprctl reload") == 3
 
 
