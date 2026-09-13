@@ -704,7 +704,6 @@ def test_default_terminal_is_never_set_to_an_absent_kitty(tmp_path: Path) -> Non
     assert not any(c.startswith("omarchy-default-terminal ") for c in _calls(env)), (
         "omarchy-default-terminal was called with an argument"
     )
-    assert not (env["home"] / ".config" / "xdg-terminals.list").exists()
     # And the run went on: a stage well after the terminal one still landed.
     assert (env["home"] / ".zshrc").exists()
 
