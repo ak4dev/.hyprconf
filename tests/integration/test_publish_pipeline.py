@@ -22,20 +22,10 @@ REPO_ROOT = Path(__file__).parent.parent.parent
 PUBLISH = "scripts/publish"
 VERSION_FILE = "lib/hyprconf/__init__.py"
 VERSION_RE = re.compile(r'^__version__ = "(\d+)\.(\d+)\.(\d+)"$', re.M)
-# A git identity, so a fresh CI container's commits and tags need none configured.
-GIT_ENV = {
-    **os.environ,
-    "GIT_AUTHOR_NAME": "testuser",
-    "GIT_AUTHOR_EMAIL": "testuser@example.invalid",
-    "GIT_COMMITTER_NAME": "testuser",
-    "GIT_COMMITTER_EMAIL": "testuser@example.invalid",
-}
 
 
 def _git(cwd: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=60, env=GIT_ENV
-    )
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
     return result.stdout.strip()
 
@@ -76,7 +66,7 @@ def _publish(
     make.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$1" >> "$FAKE_CALLS"\n')
     make.chmod(make.stat().st_mode | stat.S_IEXEC)
     env = {
-        **GIT_ENV,
+        **os.environ,
         "PATH": f"{bins}:{os.environ['PATH']}",
         "FAKE_CALLS": str(clone.parent / "make-calls"),
     }
@@ -257,7 +247,6 @@ def test_skip_bump_refuses_a_tag_on_a_different_commit(clone: Path) -> None:
         cwd=origin,
         capture_output=True,
         text=True,
-        env=GIT_ENV,
     )
     assert stable.returncode != 0  # stable was never created
 
@@ -276,6 +265,5 @@ def test_skip_tests_without_the_harness_marker_is_refused(clone: Path) -> None:
         cwd=origin,
         capture_output=True,
         text=True,
-        env=GIT_ENV,
     )
     assert stable.returncode != 0  # nothing was promoted

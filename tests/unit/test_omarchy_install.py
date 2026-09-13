@@ -525,10 +525,8 @@ def _checkout(tmp_path: Path) -> Path:
             shutil.copytree(src, repo / name, ignore=shutil.ignore_patterns("__pycache__"))
         else:
             shutil.copy2(src, repo / name)
-    git = ["git", "-c", "user.name=hyprconf-tests", "-c", "user.email=tests@example.invalid"]
-    subprocess.run([*git, "init", "-q"], cwd=repo, check=True, timeout=30)
-    subprocess.run([*git, "add", "-A"], cwd=repo, check=True, timeout=30)
-    subprocess.run([*git, "commit", "-qm", "payload"], cwd=repo, check=True, timeout=30)
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "payload"]):
+        subprocess.run(["git", *args], cwd=repo, check=True, timeout=30)
     return repo
 
 
@@ -1427,10 +1425,9 @@ def _real_repo(tmp_path: Path, *, rebase: bool) -> Path:
     up, clone = tmp_path / "up", tmp_path / "clone"
     run = lambda *a, **kw: subprocess.run(a, check=True, capture_output=True, **kw)  # noqa: E731
     run("git", "init", "-q", "-b", "main", str(up))
-    ident = ["-c", "user.email=t@e", "-c", "user.name=t"]
     (up / "f").write_text("one\n")
     run("git", "-C", str(up), "add", "f")
-    run("git", "-C", str(up), *ident, "commit", "-qm", "one")
+    run("git", "-C", str(up), "commit", "-qm", "one")
     run("git", "clone", "-q", str(up), str(clone))
     run("git", "-C", str(clone), "config", "pull.rebase", "true" if rebase else "false")
     return clone
@@ -1474,16 +1471,13 @@ def test_pull_still_stops_on_a_real_divergence(tmp_path: Path) -> None:
     comment: "Diverged history is a stop, not something to silently discard")."""
     clone = _real_repo(tmp_path, rebase=True)
     up = tmp_path / "up"
-    ident = ["-c", "user.email=t@e", "-c", "user.name=t"]
     (up / "f").write_text("upstream moved\n")
     subprocess.run(["git", "-C", str(up), "add", "f"], check=True, capture_output=True)
-    subprocess.run(
-        ["git", "-C", str(up), *ident, "commit", "-qm", "two"], check=True, capture_output=True
-    )
+    subprocess.run(["git", "-C", str(up), "commit", "-qm", "two"], check=True, capture_output=True)
     (clone / "g").write_text("local commit\n")
     subprocess.run(["git", "-C", str(clone), "add", "g"], check=True, capture_output=True)
     subprocess.run(
-        ["git", "-C", str(clone), *ident, "commit", "-qm", "mine"], check=True, capture_output=True
+        ["git", "-C", str(clone), "commit", "-qm", "mine"], check=True, capture_output=True
     )
 
     diverged = subprocess.run(
@@ -1832,38 +1826,6 @@ def test_every_omarchy_command_install_sh_calls_has_a_fake(tmp_path: Path) -> No
     assert OMARCHY_NAMED_NOT_CALLED <= called, "an exception naming a token that is gone"
     unstubbed = called - fakes - OMARCHY_NAMED_NOT_CALLED
     assert not unstubbed, f"omarchy-* commands install.sh can run with no fake: {sorted(unstubbed)}"
-
-
-def test_every_git_commit_in_the_suites_carries_its_own_identity() -> None:
-    """Ambient state again (AGENTS.md › Tests), and the one axis a dev box
-    cannot show: a `git commit` with no `-c user.email` takes the committer
-    from ~/.gitconfig, which every developer has and the archlinux:latest
-    container does not — there `git` dies "unable to auto-detect email
-    address (got 'root@<container>.(none)')" and the run is red only in CI.
-    Walked with ast rather than grepped, so a call split over lines counts."""
-    import ast
-
-    offenders: list[str] = []
-    for path in sorted(REPO_ROOT.joinpath("tests").rglob("*.py")):
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            for arg in node.args:
-                if not isinstance(arg, ast.List):
-                    continue
-                words = [e.value for e in arg.elts if isinstance(e, ast.Constant)]
-                names = [e.id for e in arg.elts if isinstance(e, ast.Name)] + [
-                    e.value.id
-                    for e in arg.elts
-                    if isinstance(e, ast.Starred) and isinstance(e.value, ast.Name)
-                ]
-                if "git" not in words or "commit" not in words:
-                    continue
-                if any("user.email" in w for w in words) or names:
-                    continue  # inline identity, or one spread in from a helper
-                offenders.append(f"{path.relative_to(REPO_ROOT)}:{node.lineno}")
-    assert not offenders, f"git commit with no identity — red in CI only: {offenders}"
 
 
 # `pacman -Syu` is blocked by Omarchy's ALPM guard, `pacman -R` would
@@ -3279,13 +3241,7 @@ def test_a_clobber_git_cannot_undo_is_reported_as_unrepaired_after_a_bump(
     assert _run(env, "--no-update", install_sh=repo / "install.sh").returncode == 0
 
     _refresh_config(env, templates, "bindings.lua")  # the damage, at template A
-    # Identity on the command line, the way every other committing test here
-    # does it: CI runs as root in a bare container with no ~/.gitconfig, where
-    # a bare `git commit` dies "unable to auto-detect email address".
-    ident = ["-c", "user.name=t", "-c", "user.email=t@e"]
-    subprocess.run(
-        ["git", "-C", str(repo), *ident, "commit", "-qam", "oops"], check=True, timeout=30
-    )
+    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "oops"], check=True, timeout=30)
     (templates / "bindings.lua").write_text(STOCK_BINDINGS + "-- 4.1\n")  # the package upgrade
 
     proc = _run(env, "--no-update", install_sh=repo / "install.sh")
@@ -3355,8 +3311,7 @@ def test_sync_repairs_a_refreshed_override_before_it_pulls(tmp_path: Path) -> No
     assert (clone / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS
     upstream = (up / "hypr" / "bindings.lua").read_text() + "\n-- upstream moved\n"
     (up / "hypr" / "bindings.lua").write_text(upstream)
-    ident = ["-c", "user.name=t", "-c", "user.email=t@e"]
-    subprocess.run(["git", "-C", str(up), *ident, "commit", "-qam", "two"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(up), "commit", "-qam", "two"], check=True, timeout=30)
 
     proc = _run(env, "--sync", install_sh=clone / "install.sh")
     assert proc.returncode == 0, proc.stderr
@@ -3402,10 +3357,8 @@ def test_sync_repairs_any_clobbered_override_not_just_three_named_ones(
     env = _setup(tmp_path)
     up = _checkout(tmp_path)
     (up / "hypr" / "autostart.lua").write_text('hl.exec_once("waybar")\n')
-    ident = ["-c", "user.name=t", "-c", "user.email=t@e"]
     subprocess.run(["git", "-C", str(up), "add", "-A"], check=True, timeout=30)
-    git_up = ["git", "-C", str(up), *ident]
-    subprocess.run([*git_up, "commit", "-qm", "four"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(up), "commit", "-qm", "four"], check=True, timeout=30)
     clone = tmp_path / "clone"
     subprocess.run(["git", "clone", "-q", str(up), str(clone)], check=True, timeout=30)
     git_with_pull = GIT_PASSTHROUGH.replace('case " $* " in *" pull "*) exit 0 ;; esac\n', "")
@@ -3423,7 +3376,7 @@ def test_sync_repairs_any_clobbered_override_not_just_three_named_ones(
 
     upstream = 'hl.exec_once("waybar")\n-- upstream moved\n'
     (up / "hypr" / "autostart.lua").write_text(upstream)
-    subprocess.run([*git_up, "commit", "-qam", "five"], check=True, timeout=30)
+    subprocess.run(["git", "-C", str(up), "commit", "-qam", "five"], check=True, timeout=30)
 
     proc = _run(env, "--sync", install_sh=clone / "install.sh")
     assert proc.returncode == 0, proc.stderr

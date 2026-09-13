@@ -2,9 +2,10 @@
 
 export PYTHONDONTWRITEBYTECODE := 1
 
-# All shipped + test Python: the library and the tests.
+# All shipped + test Python: the library, the tests and the box fixture.
 PYSRC := lib/hyprconf/ \
-         tests/
+         tests/ \
+         conftest.py
 
 test: test-unit test-integration
 

@@ -27,20 +27,10 @@ import pytest
 REPO_ROOT = Path(__file__).parent.parent.parent
 PLUGINS = REPO_ROOT / "plugins"
 PLUGIN_NAMES = sorted(p.name for p in PLUGINS.iterdir() if p.is_dir())
-# A git identity, so a fresh CI container's commits need none configured.
-GIT_ENV = {
-    **os.environ,
-    "GIT_AUTHOR_NAME": "testuser",
-    "GIT_AUTHOR_EMAIL": "testuser@example.invalid",
-    "GIT_COMMITTER_NAME": "testuser",
-    "GIT_COMMITTER_EMAIL": "testuser@example.invalid",
-}
 
 
 def _git(cwd: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *args], cwd=cwd, capture_output=True, text=True, timeout=120, env=GIT_ENV
-    )
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
     return result.stdout.strip()
 

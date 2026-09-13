@@ -71,6 +71,7 @@ Two suites, both hermetic (the contract is in `AGENTS.md` › Tests); CI runs
 them in an `archlinux:latest` container, as root.
 
 ```
+conftest.py                       # the `box` fixture every test builds on (repo root: it reaches tests/ and, later, modules/)
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
 │   ├── test_config_exec_targets.py  # every hyprconf-* command a shipped hypr/*.lua binds ships in bin/, bound by name
@@ -119,6 +120,25 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
 `AGENTS.md` › Gates and CI.
 
 ### Writing hermetic tests
+
+- Start from the `box` fixture in the repo-root `conftest.py`: a throwaway
+  machine per test — a tmp `$HOME`, a tmp `/etc`, a tmp `$OMARCHY_PATH` tree
+  (`OMARCHY_TREE` there holds what the scripts read out of it) and a fakes
+  directory FIRST on PATH with a recording stub for every `omarchy-*` name the
+  shipped scripts and payload carry — derived from them, so a new call cannot
+  slip past the fakes — plus `omarchy`, `sudo`, `hyprctl`, `udevadm`, `gum`,
+  `fc-list`, `git`, `nvidia-smi` and `vulkaninfo`. PATH is those fakes, then
+  only `/usr/bin` and `/bin`, and the environment is built from scratch, so
+  nothing of the developer's session reaches a run. `box.stub(name, body)`
+  gives one fake something to do (a `sudo` that execs its arguments, a `gum`
+  that answers) ahead of the shared ones; `box.run(script, *args, tty=,
+  env=, stdin=)` runs a script against the box (`box.core()` the installer,
+  `box.undo(module)` a module's undo branch); `box.calls`, `box.commands`,
+  `box.calls_of(name)` and `box.reset()` read back what ran; `box.files()` is
+  every file under its HOME; `box.fakes` is what a suite's "every external the
+  tool names has a fake" self-check holds the script to. Its git identity
+  (`GIT_AUTHOR_*`/`GIT_COMMITTER_*`, `os.environ.setdefault` at import) covers
+  the whole session, CI's identity-less container included.
 
 - Every path a script reads is under `$HOME` (relocated wholesale by the
   suite) or behind an env seam — in `install.sh`, `OMARCHY_PATH` (Omarchy's own
