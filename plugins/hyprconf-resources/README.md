@@ -34,9 +34,22 @@ measured, a missing file included. Click the CPU cell for `btop`
 
 ## Install
 
+Drop the folder in and enable it by id — Omarchy's own by-hand path
+(`/usr/share/omarchy/shell/README.md` › Installing by hand):
+
 ```bash
-omarchy plugin add https://github.com/ak4dev/omarchy-hyprconf-resources --enable
+git clone https://github.com/ak4dev/.hyprconf
+cp -r .hyprconf/plugins/hyprconf-resources ~/.config/omarchy/plugins/hyprconf.resources
+omarchy-shell shell rescanPlugins
+omarchy plugin enable hyprconf.resources
 ```
+
+Once this folder is published as a repository of its own, `omarchy plugin add
+<url> --enable --yes` is the one-step form. `--yes` is the scripted path —
+Omarchy 4.0.3 confirms in a terminal even when given arguments
+(`/usr/share/omarchy/shell/README.md`) — and it skips the review-the-code
+prompt, so read the repository first. This widget carries no `clonedFrom`, so
+the bar-section question `--yes` also skips is harmless either way.
 
 It lands in the right section (`barWidget.defaultSection`); move it with
 `omarchy bar move hyprconf.resources …`. `omarchy plugin disable

@@ -14,10 +14,24 @@ the stock clock's slot on the bar, and the stock IPC target keeps working.
 
 ## Install
 
+Drop the folder in and enable it by id — Omarchy's own by-hand path
+(`/usr/share/omarchy/shell/README.md` › Installing by hand):
+
 ```bash
-omarchy plugin add https://github.com/ak4dev/omarchy-hyprconf-clock --enable
+git clone https://github.com/ak4dev/.hyprconf
+cp -r .hyprconf/plugins/hyprconf-clock ~/.config/omarchy/plugins/hyprconf.clock
+omarchy-shell shell rescanPlugins
+omarchy plugin enable hyprconf.clock
 omarchy bar set hyprconf.clock format 'hh:mm:ss AP'
 ```
+
+Once this folder is published as a repository of its own, `omarchy plugin add
+<url> --enable --yes` is the one-step form. `--yes` is not optional for this
+widget: without it `omarchy-plugin-add` asks which bar section to put it in
+(`select_bar_widget_placement`, `/usr/bin/omarchy-plugin-add:161-162`, Omarchy
+4.0.3-1) and the answer becomes a placement, which moves the widget out of the
+stock slot its `clonedFrom` manifest just claimed. `--yes` also skips Omarchy's
+review-the-code prompt, so read the repository first.
 
 It takes `omarchy.clock`'s place on the bar. The bar centres on an anchor
 id in `~/.config/omarchy/shell.json` (`bar.centerAnchor`, `omarchy.clock` by

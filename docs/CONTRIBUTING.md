@@ -260,10 +260,14 @@ manifest's `version` (SemVer) is bumped once per set of changes that reaches
 a consumer and is never left behind a shipped one — a series of commits on
 `dev` takes one bump between publishes, not one each. A published plugin is
 listed on the community directory,
-<https://omarchyplugins.com>; the URL each README names,
-`https://github.com/ak4dev/omarchy-hyprconf-<name>`, is the placeholder until
-the repositories exist. The overlay keeps syncing the same folders from the
-checkout, and `install.sh` leaves a folder that is a git checkout (`omarchy
+<https://omarchyplugins.com>. Until that push each plugin README gives
+Omarchy's own by-hand install instead (`/usr/share/omarchy/shell/README.md` ›
+Installing by hand) and names `omarchy plugin add <url> --enable --yes` as the
+form that applies once the repository is there — `--yes` because
+`omarchy-plugin-add` otherwise asks for a bar section
+(`select_bar_widget_placement`, `bin/omarchy-plugin-add:161-162`) and the
+answer moves a `clonedFrom` widget out of the stock slot it just took. The
+overlay keeps syncing the same folders from the checkout, and `install.sh` leaves a folder that is a git checkout (`omarchy
 plugin add`'s) to `omarchy plugin update`.
 
 ## Updating the website
