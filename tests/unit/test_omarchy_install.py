@@ -196,17 +196,37 @@ def _terminal_stub(tmp_path: Path, set_status: int = 0) -> str:
     )
 
 
+def _default_app_stub(
+    tmp_path: Path, key: str, unset: str, *, writes: bool = True, set_status: int = 0
+) -> str:
+    """omarchy-default-browser / -editor: reports `unset` until something sets
+    it, then what was set — the same read-back shape as _terminal_stub, which
+    is how stage_defaults now decides whether the seed took.
+
+    The set form writes FIRST and exits `set_status`, because the real ones do:
+    /usr/bin/omarchy-default-editor:33-36 writes ~/.local/state/omarchy/
+    defaults/editor and -browser:35-37 runs `xdg-settings set`, and only then
+    each calls omarchy-notification-send, whose status becomes theirs (no
+    set -e, 4.0.3-1). `writes=False` is the setter that really failed: the
+    call is recorded, the value never changes.
+    """
+    write = f'printf "%s" "$1" > "{tmp_path}/{key}"; ' if writes else ""
+    return (
+        f'if [ $# -eq 0 ]; then cat "{tmp_path}/{key}" 2>/dev/null || echo {unset};'
+        f" else {write}exit {set_status}; fi"
+    )
+
+
 # Every external _setup fakes with the bare recording stub (exit 0). The
 # ones that need a body — omarchy-pkg-add, omarchy-pkg-present,
 # omarchy-plugin-list, omarchy-hook-install, omarchy-theme-refresh,
-# omarchy-default-terminal, jq, fc-list, git, kitty, zsh — are written
+# omarchy-default-{terminal,browser,editor}, jq, fc-list, git, kitty, zsh —
+# are written
 # individually below; test_every_omarchy_command_install_sh_calls_has_a_fake
 # holds install.sh's code to the union of both.
 OMARCHY_STUBS = (
     "omarchy-theme-set",
     "omarchy-font-set",
-    "omarchy-default-browser",
-    "omarchy-default-editor",
     "omarchy-shell",
     "omarchy-plugin-enable",
     "omarchy-restart-shell",
@@ -277,6 +297,13 @@ def _setup(
     # present; the real one on the test host would answer for the host's fonts.
     _stub(bins / "fc-list", calls, 'echo "GeistMono Nerd Font,GeistMono NF"')
     _stub(bins / "omarchy-default-terminal", calls, _terminal_stub(tmp_path))
+    # Read back by stage_defaults; the unset answers are Omarchy's own (editor
+    # falls back to "nvim", bin/omarchy-default-editor:14, and the browser
+    # reports whatever xdg-settings says — stock Omarchy's chromium).
+    _stub(
+        bins / "omarchy-default-browser", calls, _default_app_stub(tmp_path, "browser", "chromium")
+    )
+    _stub(bins / "omarchy-default-editor", calls, _default_app_stub(tmp_path, "editor", "nvim"))
     # `clone` must materialise a directory; everything else is a no-op.
     _stub(bins / "git", calls, 'if [ "$1" = clone ]; then mkdir -p "${@: -1}"; fi; exit 0')
 
@@ -2162,17 +2189,61 @@ def test_shell_json_edits_wait_for_the_shells_asynchronous_writes(tmp_path: Path
 
 def test_defaults_marker_waits_for_a_successful_seed(tmp_path: Path) -> None:
     """A first run with --no-packages (firefox/code not installed yet) must not
-    record the defaults as applied, or they would never be seeded."""
+    record the defaults as applied, or they would never be seeded.
+
+    "Successful" is the value READ BACK, not the setter's exit status — hence
+    the stub that records the call and leaves the default where it was.
+    """
     env = _setup(tmp_path)
-    _stub(env["bins"] / "omarchy-default-browser", env["calls"], "exit 1")
+    marker = env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied"
+    _stub(
+        env["bins"] / "omarchy-default-browser",
+        env["calls"],
+        _default_app_stub(tmp_path, "browser", "chromium", writes=False),
+    )
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
-    assert not (env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied").exists()
-    _stub(env["bins"] / "omarchy-default-browser", env["calls"], "exit 0")
+    assert "default browser" in proc.stderr
+    assert not marker.exists()
+    _stub(
+        env["bins"] / "omarchy-default-browser",
+        env["calls"],
+        _default_app_stub(tmp_path, "browser", "chromium"),
+    )
     env["calls"].write_text("")
     _run(env, "--no-update")
     assert any(c.startswith("omarchy-default-browser firefox") for c in _calls(env))
+    assert marker.exists()
+
+
+def test_defaults_marker_survives_the_setters_failing_notification(tmp_path: Path) -> None:
+    """Both setters write the value and THEN notify, and their exit status is
+    the notification's (no set -e in bin/omarchy-default-{browser,editor},
+    4.0.3-1) — so a TTY or SSH first run seeds both and reports failure.
+    Trusting that status left the marker unwritten on exactly the runs that
+    had succeeded, and the next in-session run re-asserted `code` over an
+    `omarchy default editor helix` chosen in between."""
+    env = _setup(tmp_path)
+    for name, key, unset in (
+        ("omarchy-default-browser", "browser", "chromium"),
+        ("omarchy-default-editor", "editor", "nvim"),
+    ):
+        _stub(
+            env["bins"] / name,
+            env["calls"],
+            _default_app_stub(tmp_path, key, unset, set_status=1),
+        )
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "could not set" not in proc.stderr
     assert (env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied").exists()
+
+    # The user's later pick, which the re-run must not take back.
+    (tmp_path / "editor").write_text("helix")
+    env["calls"].write_text("")
+    _run(env, "--no-update")
+    assert not any(c.startswith("omarchy-default-editor ") for c in _calls(env))
+    assert (tmp_path / "editor").read_text() == "helix"
 
 
 def test_fastfetch_config_is_linked_with_a_stock_backup(tmp_path: Path) -> None:

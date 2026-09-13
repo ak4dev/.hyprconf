@@ -846,6 +846,15 @@ stage_idle() {
 # silently undo a later choice. Failures warn rather than abort — a default app
 # is not worth taking an install down over, and the browser setter needs a live
 # session for xdg-settings.
+#
+# The outcome is READ BACK, never taken from the setters' exit status: that
+# status is their closing omarchy-notification-send's (no set -e in
+# /usr/bin/omarchy-default-editor:33-36 or -browser:35-37, 4.0.3-1), which
+# fails with no shell to notify — a TTY or SSH first run — long after the
+# value is on disk. Trusting it left the marker unwritten on exactly the runs
+# that had seeded both, and the next run then re-asserted `code` over an
+# `omarchy default editor helix` chosen in between. stage_terminal reads its
+# own setter back for the same reason.
 stage_defaults() {
     log "Default apps"
     local marker="$HOME/.local/state/hyprconf/defaults-applied"
@@ -855,14 +864,16 @@ stage_defaults() {
     fi
 
     local seeded=1
-    omarchy-default-browser firefox || {
+    omarchy-default-browser firefox || true
+    if [[ "$(omarchy-default-browser 2>/dev/null || true)" != firefox ]]; then
         seeded=0
         warn "could not set firefox as the default browser (set it with: omarchy default browser firefox)"
-    }
-    omarchy-default-editor code || {
+    fi
+    omarchy-default-editor code || true
+    if [[ "$(omarchy-default-editor 2>/dev/null || true)" != code ]]; then
         seeded=0
         warn "could not set code as the default editor (set it with: omarchy default editor code)"
-    }
+    fi
     # No marker on a failed seed — a first run with --no-packages (firefox
     # and code not installed yet) must not record the defaults as applied.
     if (( seeded )); then
