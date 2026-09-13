@@ -74,11 +74,10 @@ them in an `archlinux:latest` container, as root.
 conftest.py                       # the `box` fixture every test builds on (repo root: it reaches tests/ and, later, modules/)
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
-│   ├── test_config_exec_targets.py  # every hyprconf-* command a shipped hypr/*.lua binds ships in bin/, bound by name
 │   ├── test_firefox.py           #   infra/firefox/policies.json: every pref against Firefox's own allowlist and its `Type` rule, the force-installed shape, the seeded layout's crash conditions (the merge with Omarchy's own policy runs with the real jq in the install suite)
 │   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + bin/hyprconf-firefox-theme + the template's render
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
-│   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom
+│   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), bind only commands bin/ ships, state deltas over the theme (the shadow, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom, keep the desk presets desc:-keyed and serial-free
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, the workspace rehoming a switch dispatches)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
 │   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, the `omarchy refresh` guard, the plugin sync and its `omarchy plugin add` checkout guard …), the post-update hook end to end, restraint invariants, idempotency; the dead-hyprctl / pacman / fetch-and-execute token scans over every shipped bash file

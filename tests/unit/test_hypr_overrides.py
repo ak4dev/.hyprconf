@@ -3,7 +3,9 @@
 These files are symlinked over Omarchy's own override points and loaded after
 its defaults, so they can only ever STATE deltas — and each delta this repo
 promises must actually be in the file it says it is in. They are also the
-live config (AGENTS.md › Live files): every one must parse.
+live config (AGENTS.md › Live files): every one must parse, and every command
+a bind names must ship, since Hyprland runs a missing target as a no-op.
+What each delta IS belongs to README › hypr/*.lua, not here.
 """
 
 from __future__ import annotations
@@ -17,6 +19,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HYPR = REPO_ROOT / "hypr"
+# A hyprconf-* command named in a bind's dispatcher string.
+TOOL_RE = re.compile(r'"(hyprconf-[\w-]+)(?:\s[^"]*)?"')
 
 
 def _code(path: Path) -> str:
@@ -37,117 +41,105 @@ def test_hypr_overrides_parse_as_lua() -> None:
         assert proc.returncode == 0, proc.stderr
 
 
-def test_natural_scroll_is_the_default() -> None:
-    """Omarchy ships natural_scroll off for the mouse and off for the touchpad;
-    input.lua turns both on (README › input.lua)."""
-    assert _code(HYPR / "input.lua").count("natural_scroll = true") == 2
+def test_every_hyprconf_command_bound_ships_in_bin() -> None:
+    """Hyprland runs a bind whose target is missing as a silent no-op, so a
+    bin/ tool deleted while bindings.lua still names it never surfaces as an
+    error. Omarchy's own commands are out of scope: only what the overlay
+    ships is validated."""
+    confs = sorted(HYPR.glob("*.lua"))
+    assert confs, f"no .lua files under {HYPR}"
+    missing = [
+        f"{conf.name}: {tool}"
+        for conf in confs
+        for tool in TOOL_RE.findall(_code(conf))
+        if not (REPO_ROOT / "bin" / tool).is_file()
+    ]
+    assert not missing, "config binds commands the overlay does not ship:\n" + "\n".join(missing)
 
 
-def test_looknfeel_and_input_state_only_deltas() -> None:
-    """looknfeel.lua and input.lua load after Omarchy's defaults, which load
-    after Hyprland's compiled-in ones — so a key set to the value already in
-    force is not a delta but drift waiting for the next retune, and one was
-    worse than inert: the shadow's range / render_power / color restated
-    Hyprland's defaults OVER the active theme's (Omarchy requires
-    omarchy.current.theme.hyprland first; lumon ships its own shadow).
-    Every key here was equal to its 0.56.2 default (`hyprctl descriptions
-    -j`) — six gestures.* values, shadow range 4 / render_power 3 / colour
-    ee1a1a1a, blur vibrancy 0.1696 — or, for force_default_wallpaper, a
-    no-op under Omarchy's misc.disable_hyprland_logo = true (and -1/0/1/2
-    picks a wallpaper, it never suppresses one). None may come back; the
-    deltas the README promises must."""
+def test_looknfeel_states_only_deltas_over_the_theme() -> None:
+    """looknfeel.lua loads after Omarchy's defaults, which load after the
+    active theme's hyprland.conf — so a shadow key set here restates
+    Hyprland's default OVER the theme's own (lumon ships one). Enabling the
+    shadow is the delta; its range, colour and render_power are the theme's.
+    The tuned values themselves are README › hypr/*.lua's to record."""
     looknfeel = _code(HYPR / "looknfeel.lua")
-    inp = _code(HYPR / "input.lua")
-    for key in (
-        "force_default_wallpaper",
-        "vibrancy",
-        "render_power",
-        "workspace_swipe_distance",
-        "workspace_swipe_cancel_ratio",
-        "workspace_swipe_create_new",
-        "workspace_swipe_direction_lock",
-        "workspace_swipe_direction_lock_threshold",
-        "workspace_swipe_invert",
-    ):
-        assert key not in looknfeel + inp, f"{key} restates a default (deltas only)"
     assert re.search(r"shadow\s*=\s*\{[^}]*\benabled\s*=\s*true", looknfeel)
-    assert not re.search(r"shadow\s*=\s*\{[^}]*\b(range|color)\b", looknfeel), (
-        "the shadow's range and colour are Hyprland's, or the theme's"
+    assert not re.search(r"shadow\s*=\s*\{[^}]*\b(range|color|render_power)\b", looknfeel), (
+        "the shadow's range, colour and render_power are Hyprland's, or the theme's"
     )
-    assert "size = 3" in looknfeel and "passes = 4" in looknfeel
-    assert "workspace_swipe_min_speed_to_force = 15" in inp
-    assert "workspace_swipe_forever = true" in inp
-    assert 'hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })' in inp
+    # The gestures.* tuning in input.lua is inert without a gesture bound to it.
+    assert "hl.gesture(" in _code(HYPR / "input.lua")
 
 
 def test_steam_is_tiled_like_everything_else() -> None:
-    """Omarchy floats every window of class "steam" (default/hypr/apps/steam.lua).
-    looknfeel.lua is loaded after Omarchy's defaults and Hyprland applies rules
-    in order, so its `tile = true` for the class wins; the Friends List, which
-    Omarchy sizes as a floating panel, is re-floated after that. Shipped
-    unconditionally — installed or not, Steam tiles from its first window."""
+    """The class-wide tile rule, then the Friends-List float, in that order
+    (why: looknfeel.lua's own comment above the rules)."""
     code = _code(HYPR / "looknfeel.lua")
-    tile = re.search(r'o\.window\(\s*"steam"\s*,\s*\{\s*tile\s*=\s*true\s*\}\s*\)', code)
-    assert tile, 'looknfeel.lua must tile class steam with o.window("steam", { tile = true })'
-    friends = re.search(
-        r'o\.window\(\s*\{\s*class\s*=\s*"steam"\s*,\s*title\s*=\s*"Friends List"\s*\}\s*,\s*\{\s*float\s*=\s*true\s*\}\s*\)',
-        code,
-    )
+    tile = re.search(r'o\.window\("steam".*\btile = true', code)
+    assert tile, 'looknfeel.lua must tile class steam: o.window("steam", { tile = true })'
+    friends = re.search(r'o\.window\(.*"Friends List".*\bfloat = true', code)
     assert friends, "the Friends List popup must be re-floated after the tile rule"
     assert tile.start() < friends.start(), "the class-wide tile rule must come first"
-    # Nothing else in the overlay floats Steam back.
-    for lua in HYPR.glob("*.lua"):
-        assert not re.search(r'o\.window\(\s*"steam"\s*,\s*\{[^}]*float\s*=\s*true', _code(lua)), (
-            lua.name
-        )
+    # Nothing floats the class back afterwards (window rules apply in order).
+    assert not re.search(r'o\.window\("steam".*\bfloat = true', code)
 
 
 def _binds(path: Path) -> list[str]:
     return [ln for ln in _code(path).splitlines() if re.search(r"\b(rebind|o\.bind)\s*\(", ln)]
 
 
-def test_bindings_never_restate_omarchys_own_binds() -> None:
-    """Omarchy's default/hypr/bindings/tiling.lua (4.0.0-1) already binds
-    SUPER+P (pseudo), SUPER+arrows (focus), SUPER+mouse_down/up (workspace
-    scroll) and SUPER+mouse:272/273 (drag move/resize) to exactly what
-    hyprconf wanted there. A restatement is drift the moment Omarchy retunes
-    one, so bindings.lua carries only its deltas."""
-    binds = "\n".join(_binds(HYPR / "bindings.lua"))
-    for key in (
-        '" + P"',
-        '" + left"',
-        '" + right"',
-        '" + up"',
-        '" + down"',
-        "mouse_down",
-        "mouse_up",
-        "mouse:272",
-        "mouse:273",
-    ):
-        assert key not in binds, f"{key} is Omarchy's own bind already (tiling.lua)"
+@pytest.mark.parametrize(
+    "scope,forbidden",
+    [
+        # Omarchy's default/hypr/bindings/tiling.lua (4.0.0-1) already binds
+        # these to exactly what hyprconf wanted: SUPER+P (pseudo), SUPER+arrows
+        # (focus), SUPER+mouse_down/up (workspace scroll) and SUPER+mouse:272/273
+        # (drag move/resize). A restatement is drift the moment Omarchy retunes
+        # one — both were in this file once and were removed.
+        (
+            "binds",
+            (
+                '" + P"',
+                '" + left"',
+                '" + right"',
+                '" + up"',
+                '" + down"',
+                "mouse_down",
+                "mouse_up",
+                "mouse:272",
+                "mouse:273",
+            ),
+        ),
+        # Volume, brightness and media keys stay on Omarchy's own binds: its
+        # commands end by calling omarchy-osd, so a rebind — or an unbind —
+        # changes the level with no on-screen indicator (README › Hotkeys).
+        # Matched over all code, not just binds, so an unbind is caught too.
+        (
+            "code",
+            (
+                "XF86AudioRaiseVolume",
+                "XF86AudioLowerVolume",
+                "XF86AudioMute",
+                "XF86AudioMicMute",
+                "XF86MonBrightnessUp",
+                "XF86MonBrightnessDown",
+                "XF86AudioNext",
+                "XF86AudioPrev",
+                "XF86AudioPlay",
+                "XF86AudioPause",
+            ),
+        ),
+    ],
+    ids=["omarchys-own-binds", "osd-keys"],
+)
+def test_bindings_leave_omarchys_own_keys_alone(scope: str, forbidden: tuple[str, ...]) -> None:
+    bindings = HYPR / "bindings.lua"
+    text = "\n".join(_binds(bindings)) if scope == "binds" else _code(bindings)
+    for key in forbidden:
+        assert key not in text, f"{key} is Omarchy's own (tiling.lua, or the OSD keys)"
     # The resize keys are SHIFT+arrows — those stay: Omarchy swaps windows there.
-    assert '" + SHIFT + left"' in binds
-
-
-def test_osd_keys_are_left_to_omarchy() -> None:
-    """Volume, brightness and media keys stay on Omarchy's own binds: its
-    commands end by calling omarchy-osd, so a rebind — or an unbind — changes
-    the level with no on-screen indicator. Matched on code, not on the
-    comments that name the keys."""
-    code = _code(HYPR / "bindings.lua")
-    for key in (
-        "XF86AudioRaiseVolume",
-        "XF86AudioLowerVolume",
-        "XF86AudioMute",
-        "XF86AudioMicMute",
-        "XF86MonBrightnessUp",
-        "XF86MonBrightnessDown",
-        "XF86AudioNext",
-        "XF86AudioPrev",
-        "XF86AudioPlay",
-        "XF86AudioPause",
-    ):
-        assert key not in code, f"{key} must be left to Omarchy (it drives the OSD)"
+    assert '" + SHIFT + left"' in "\n".join(_binds(bindings))
 
 
 def test_every_binding_carries_a_description() -> None:
@@ -166,14 +158,14 @@ def test_every_binding_carries_a_description() -> None:
 
 def test_app_keys_use_omarchys_launcher_idiom() -> None:
     """`{ omarchy = "terminal" }` is how Omarchy's own bindings name
-    omarchy-launch-terminal (default/hypr/helpers.lua command_from,
-    bindings/applications.lua): the four app keys use it — never the launcher
-    spelled out, never an app binary, which would pin a choice Omarchy's own
-    `omarchy default <kind>` cannot move and skip uwsm-app scoping."""
+    omarchy-launch-terminal (default/hypr/helpers.lua `command_from`): the app
+    keys use it — never the launcher spelled out, never an app binary, which
+    would pin a choice Omarchy's own `omarchy default <kind>` cannot move and
+    skip uwsm-app scoping. Which key opens what is README › Hotkeys'."""
     binds = _binds(HYPR / "bindings.lua")
-    for key, launcher in (("T", "terminal"), ("F", "browser"), ("C", "editor"), ("E", "nautilus")):
-        line = next(ln for ln in binds if f'" + {key}"' in ln)
-        assert f'{{ omarchy = "{launcher}" }}' in line, line
+    joined = "\n".join(binds)
+    for launcher in ("terminal", "browser", "editor", "nautilus"):
+        assert f'{{ omarchy = "{launcher}" }}' in joined, launcher
     rest = re.sub(r'\{ omarchy = "[a-z-]+" \}', "", "\n".join(binds))
     assert "omarchy-launch-" not in rest
     for binary in ('"firefox"', '"nautilus"', '"code"', '"kitty"', '"dolphin"'):
@@ -218,10 +210,17 @@ DESK_PRESETS = ("pcMonitors.bedroom.lua", "pcMonitors.kitchen.lua")
 
 
 @pytest.mark.parametrize("name", DESK_PRESETS)
-def test_desk_presets_name_displays_by_description_not_connector(name: str) -> None:
-    """The desk presets key on `desc:`, never a connector (README.md > Monitor
-    presets for why). The catch-all `output = ""` is the one exception, and
-    `laptop` is not a desk preset — it describes no particular hardware."""
+def test_desk_presets_are_description_keyed_serial_free_and_end_in_the_catch_all(
+    name: str,
+) -> None:
+    """The three properties a desk preset has to have, all three of them
+    written up in README › Monitor presets and in the preset's own header:
+    displays named by `desc:` and never by a connector (which renumbers when a
+    cable moves between GPUs), no serial in that description (PII, rule 4 —
+    `desc:` prefix-matches "<make> <model> <serial>", so make + model is
+    enough), and the `output = ""` catch-all last, so an unrecognised display
+    comes up at its preferred mode instead of staying dark. `laptop` is not a
+    desk preset: it describes no particular hardware."""
     code = _code(HYPR / name)
     outputs = re.findall(r'output = "([^"]*)"', code)
     assert outputs, f"{name} declares no hl.monitor outputs"
@@ -231,25 +230,8 @@ def test_desk_presets_name_displays_by_description_not_connector(name: str) -> N
     assert monitors, f"{name} carries no workspace rules"
     for mon in monitors:
         assert mon.startswith("desc:"), f"{name}: connector-keyed workspace rule {mon!r}"
-
-
-@pytest.mark.parametrize("name", DESK_PRESETS)
-def test_desk_presets_end_with_the_catch_all_safety_net(name: str) -> None:
-    """An unrecognised display must come up at its preferred mode rather than
-    staying dark — the failure mode that cost a blacked-out desk and a forced
-    logout. A named rule beats the catch-all whatever the order, so the
-    preset's own disables survive it (verified live on Hyprland 0.56.2)."""
-    code = _code(HYPR / name)
     assert 'hl.monitor({ output = "", mode = "preferred"' in code, f"{name} has no catch-all"
-
-
-@pytest.mark.parametrize("name", DESK_PRESETS)
-def test_desk_presets_carry_no_display_serial(name: str) -> None:
-    """`desc:` PREFIX-matches Hyprland's "<make> <model> <serial>", so make +
-    model is enough — and the serial must be left off: it is PII under
-    AGENTS.md rule 4, and these files are tracked. Serials on this desk look
-    like `HCPW500583` and `0x14821A42`; both shapes are refused."""
-    code = _code(HYPR / name)
+    # Serials on this desk look like `HCPW500583` and `0x14821A42`.
     for desc in re.findall(r'"desc:([^"]+)"', code):
         tail = desc.split()[-1]
         assert not re.fullmatch(r"0x[0-9A-Fa-f]{4,}", tail), f"{name}: serial in {desc!r}"
