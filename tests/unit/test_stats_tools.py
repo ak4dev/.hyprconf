@@ -423,6 +423,9 @@ class TestGpuInfoScript:
             "HYPRCONF_GPU_DRM_ROOT": str(drm_root or (tmp_path / "drm-empty")),
             "HYPRCONF_GPU_ITERATIONS": "2",
             "HYPRCONF_GPU_INTERVAL": "0",
+            # Both probes name a card from pci.ids now, so every run points at
+            # the fixture: the host's own hwdata must never answer a test.
+            "HYPRCONF_GPU_PCI_IDS": str(self._pci_ids(tmp_path)),
             **(env or {}),
         }
         return subprocess.run(
@@ -456,6 +459,8 @@ class TestGpuInfoScript:
         total: int | None,
         temp: str | None = None,
         name: str | None = None,
+        vendor: str | None = None,
+        device_id: str | None = None,
     ) -> Path:
         card = drm / f"card{n}" / "device"
         card.mkdir(parents=True)
@@ -470,6 +475,10 @@ class TestGpuInfoScript:
             (hw / "temp1_input").write_text(temp + "\n")
         if name is not None:
             (card / "product_name").write_text(name + "\n")
+        if vendor is not None:
+            (card / "vendor").write_text(vendor + "\n")
+        if device_id is not None:
+            (card / "device").write_text(device_id + "\n")
         return card
 
     # -- NVIDIA ---------------------------------------------------------------
@@ -576,12 +585,33 @@ class TestGpuInfoScript:
         assert line["index"] == 0
 
     def test_amd_no_hwmon_and_no_name(self, tmp_path: Path) -> None:
+        """Neither product_name nor a PCI id pci.ids knows: the tooltip says
+        "GPU 1" once, not "GPU 1 (GPU 1)"."""
         drm = tmp_path / "drm"
         self._amd_card(drm, 1, busy="5", used=2 * 1024**3, total=8 * 1024**3)
         line = self._lines(self._run(tmp_path, nvidia=False, drm_root=drm))[0]
         assert line["name"] == ""
         assert line["temp"] is None
-        assert line["tooltip"].startswith("GPU 1 (GPU 1) | Util 5% | Temp n/a")
+        assert line["tooltip"].startswith("GPU 1 | Util 5% | Temp n/a")
+
+    def test_amd_card_without_product_name_is_named_from_pci_ids(self, tmp_path: Path) -> None:
+        """An APU carries no product_name at all (verified live on a Phoenix
+        iGPU), so the name comes from hwdata's pci.ids — the lookup the Intel
+        probe already used. The vendor block is honoured: 1002:b0a0 is not
+        Intel's b0a0."""
+        drm = tmp_path / "drm"
+        self._amd_card(
+            drm,
+            1,
+            busy="5",
+            used=2 * 1024**3,
+            total=8 * 1024**3,
+            vendor="0x1002",
+            device_id="0xb0a0",
+        )
+        line = self._lines(self._run(tmp_path, nvidia=False, drm_root=drm))[0]
+        assert line["name"] == "Not a Panther Lake"
+        assert line["tooltip"].startswith("Not a Panther Lake (GPU 1) | Util 5%")
 
     def test_amd_igpu_without_vram_files_is_shared(self, tmp_path: Path) -> None:
         drm = tmp_path / "drm"

@@ -73,8 +73,10 @@ switch.
 - `bash` ≥ 5 (both feeders; `hyprconf-stats` paces itself on the package's
   loadable `sleep` builtin when present and `/usr/bin/sleep` otherwise, which
   is the one `hyprconf-gpu-info`'s sysfs loops always use) — Omarchy's base.
-- `hwdata` (`/usr/share/hwdata/pci.ids`, an Intel card's name; a base
-  dependency of `systemd`). Without it the card reads "Intel Graphics".
+- `hwdata` (`/usr/share/hwdata/pci.ids`, an Intel card's name and an AMD one
+  the driver does not name itself — an APU has no `product_name`; a base
+  dependency of `systemd`). Without it an Intel card reads "Intel Graphics"
+  and such an AMD card reads "GPU <n>".
 - `btop` for the click — Omarchy's base.
 - `nvidia-utils` (`nvidia-smi`) on an NVIDIA box, optional: with no
   `nvidia-smi` the AMD and Intel sysfs paths are tried instead. On a hybrid

@@ -112,7 +112,7 @@ _amd_name=()
 _amd_temp=()
 
 _amd_probe() {
-    local d t name
+    local d t name vendor device
     for d in "$HYPRCONF_GPU_DRM_ROOT"/card[0-9]*/device; do
         [[ -f "$d/gpu_busy_percent" ]] || continue
         # Only bare cardN — connector nodes (cardN-DP-1) share the glob prefix.
@@ -121,6 +121,17 @@ _amd_probe() {
         _amd_idx+=("${BASH_REMATCH[1]}")
         name=""
         [[ -r "$d/product_name" ]] && { read -r name < "$d/product_name" || name=""; }
+        # An APU has no product_name at all (verified: no
+        # /sys/class/drm/card1/device/product_name on a Phoenix iGPU), so fall
+        # back to the same pci.ids lookup the Intel probe does — hwdata
+        # resolves 1002:15bf to "Phoenix1". Still empty on a card neither
+        # answers for: the stream then prints "GPU <n>" alone.
+        if [[ -z $name ]]; then
+            vendor="" device=""
+            [[ -r "$d/vendor" ]] && { read -r vendor < "$d/vendor" || vendor=""; }
+            [[ -r "$d/device" ]] && { read -r device < "$d/device" || device=""; }
+            name=$(_pci_name "${vendor#0x}" "${device#0x}")
+        fi
         name=${name//\\/\\\\}
         name=${name//\"/\\\"}
         _amd_name+=("$name")
@@ -184,10 +195,15 @@ _amd_stream() {
             mem_tip="shared"   # iGPU: VRAM is carved from system RAM
         fi
 
-        short=${_amd_name[b_i]:-GPU ${_amd_idx[b_i]}}
-        printf '{"index":%d,"name":"%s","util":%d,"temp":%s,"vram_used":"%s","vram_total":"%s","tooltip":"%s (GPU %d) | Util %d%% | Temp %s | VRAM %s"}\n' \
+        # A nameless card reads "GPU 1 | ...", never "GPU 1 (GPU 1) | ...".
+        if [[ -n ${_amd_name[b_i]} ]]; then
+            short="${_amd_name[b_i]} (GPU ${_amd_idx[b_i]})"
+        else
+            short="GPU ${_amd_idx[b_i]}"
+        fi
+        printf '{"index":%d,"name":"%s","util":%d,"temp":%s,"vram_used":"%s","vram_total":"%s","tooltip":"%s | Util %d%% | Temp %s | VRAM %s"}\n' \
             "${_amd_idx[b_i]}" "${_amd_name[b_i]}" "$b_util" "$temp_json" "$vu" "$vt" \
-            "$short" "${_amd_idx[b_i]}" "$b_util" "$temp_tip" "$mem_tip"
+            "$short" "$b_util" "$temp_tip" "$mem_tip"
 
         if (( HYPRCONF_GPU_ITERATIONS > 0 && ++iter >= HYPRCONF_GPU_ITERATIONS )); then
             return 0
