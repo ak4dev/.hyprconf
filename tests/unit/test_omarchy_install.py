@@ -1846,11 +1846,9 @@ def test_packages_file_lines_are_plain_package_names() -> None:
 
 
 def test_overlay_never_uses_the_dead_hyprctl_forms() -> None:
-    """Under Hyprland 0.56's Lua parser `hyprctl keyword` is a silent no-op
-    ("keyword can't work with non-legacy parsers. Use eval.", exit 0) and a
-    two-token `hyprctl dispatch dpms on` is a parse error; the working forms
-    are `hyprctl eval` (exit 7 on error) and `hyprctl dispatch 'hl.dsp.…'`
-    (AGENTS.md › Known quirks)."""
+    """`hyprctl keyword` and a two-token `hyprctl dispatch dpms on` are both
+    dead under Hyprland 0.56's Lua parser; the working forms are `hyprctl eval`
+    and `hyprctl dispatch 'hl.dsp.…'` (AGENTS.md › Known quirks)."""
     dead = re.compile(
         r"hyprctl\s+(--batch\s+)?[\"']?keyword\b|hyprctl\s+dispatch\s+[a-z_]+\s+[a-z_]+"
     )

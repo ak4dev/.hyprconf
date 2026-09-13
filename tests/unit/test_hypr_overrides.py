@@ -219,14 +219,9 @@ DESK_PRESETS = ("pcMonitors.bedroom.lua", "pcMonitors.kitchen.lua")
 
 @pytest.mark.parametrize("name", DESK_PRESETS)
 def test_desk_presets_name_displays_by_description_not_connector(name: str) -> None:
-    """A connector name is a property of the GPU the session drives the
-    displays through — probe order, AQ_DRM_DEVICES, cabling — so moving a
-    cable between two GPUs renumbers every DP-N/HDMI-A-N and a connector-keyed
-    preset lights nothing (it happened: HDMI-A-1/DP-1/DP-2 became
-    HDMI-A-2/DP-4/DP-5 on a 3070 -> 5090 move). A description follows the
-    panel, so the desk presets key on `desc:`. The catch-all `output = ""` is
-    the one exception, and `laptop` is not a desk preset — it describes no
-    particular hardware."""
+    """The desk presets key on `desc:`, never a connector (README.md > Monitor
+    presets for why). The catch-all `output = ""` is the one exception, and
+    `laptop` is not a desk preset — it describes no particular hardware."""
     code = _code(HYPR / name)
     outputs = re.findall(r'output = "([^"]*)"', code)
     assert outputs, f"{name} declares no hl.monitor outputs"

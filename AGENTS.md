@@ -64,7 +64,7 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 
 ## References
 
-- Hyprland Lua, in order: `docs/hyprland-reference.md`; the installed stubs `/usr/share/hypr/stubs/hl.meta.lua` and example `/usr/share/hypr/hyprland.lua`; the wiki <https://wiki.hypr.land>. Syntax the cheatsheet lacks gets a concise example added to it.
+- Hyprland Lua, in order: `hypr/README.md` (what the overlay's own files rely on, and why); the installed stubs `/usr/share/hypr/stubs/hl.meta.lua` and example `/usr/share/hypr/hyprland.lua`; Omarchy's skill at `$OMARCHY_PATH/default/agents/skills/omarchy/hyprland.md`; the wiki <https://wiki.hypr.land>. Link, never restate — no repo-local cheatsheet.
 - Bar-widget plugins, in order: each plugin's own `README.md` › Host contract; Omarchy's `/usr/share/omarchy/shell/README.md` and `shell/plugins/bar/README.md`; the facades themselves, `shell/Ui/PluginBarApi.qml` and `shell/services/PluginShellApi.qml`; `/usr/lib/qt6/qml/Quickshell/**/*.qmltypes` for the Quickshell API. Re-verify against them when touching `plugins/` — no repo-local copy of any of it.
 - Omarchy: the installed tree, `omarchy commands --json`, `omarchy <group> --help`, and the skill it ships at `$OMARCHY_PATH/default/agents/skills/omarchy/` (SKILL.md + hyprland/plugins/theming/hooks); the manual <https://omarchy.org/manual/> for user-facing behaviour.
 
@@ -99,7 +99,7 @@ docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
 
 ## Known quirks (Omarchy 4.0.3-1, Hyprland 0.56.2, Firefox 155.0.1-1, Bash 5.3 — re-verify on upgrade)
 
-- `hyprctl keyword` is a no-op — prints "keyword can't work with non-legacy parsers. Use eval." and exits 0 — and `dispatch dpms on` errors under the Lua parser: use `hyprctl eval` (exit 7 on error) and `hyprctl dispatch 'hl.dsp.…({ … })'` (forms in `docs/hyprland-reference.md` › Runtime).
+- `hyprctl keyword` is a no-op — prints "keyword can't work with non-legacy parsers. Use eval." and exits 0 — and `dispatch dpms on` errors under the Lua parser: use `hyprctl eval` (exit 7 on error) and `hyprctl dispatch 'hl.dsp.…({ … })'` (forms in `hypr/README.md` › Runtime).
 - Omarchy binds digits and `-`/`=` by keycode (`SUPER + SHIFT + code:20`, `default/hypr/bindings/tiling.lua`), which `hl.unbind` of the keysym does not match — both fire; `unbind_keycode()` in `bindings.lua` is load-bearing.
 - `omarchy refresh config hypr/<file>` / `omarchy refresh hyprland` `cp -f` through the override symlinks into the checkout (`omarchy-refresh-config`); `restore_clobbered_override` in `install.sh` is the guard. It matches the installed template **or** the last one it cached under `~/.local/state/hyprconf/stock/`: `omarchy-update` upgrades the package before running the post-update hook, so the installed template alone stops recognising an unrepaired clobber the moment the template is bumped. Keep the links, the guard and the cache.
 - `omarchy-update` re-execs under `script(1)` (`exec env OMARCHY_UPDATE_LOGGED=1 script -qefc …`), so every hook child of the post-update hook has a pty and `[[ -t 1 ]]` is true there: anything the overlay ever prints or asks on that path gates on `OMARCHY_UPDATE_LOGGED`, never on the tty test. Nothing does today — the overlay asks nothing at install time.

@@ -2,10 +2,8 @@
 
 The tool reads general:gaps_in / gaps_out with `hyprctl getoption -j` and
 applies the stepped values with `hyprctl eval "hl.config({ general = { … } })"`.
-It is `eval`, not `keyword`, on purpose: under Hyprland 0.56's Lua parser
-`hyprctl keyword` answers "keyword can't work with non-legacy parsers. Use
-eval." and still exits 0 — a silent no-op. `eval` answers "ok" on success and
-reports a real failure (exit 7), which the script surfaces.
+It is `eval`, not `keyword`, on purpose (AGENTS.md > Known quirks; the why sits
+beside the call in bin/hyprconf-gaps).
 
 Everything runs against a fake hyprctl on PATH that serves canned getoption
 JSON and records every `eval` program it is handed — a `keyword` call records

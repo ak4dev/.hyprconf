@@ -1,4 +1,5 @@
--- Laptop/portable monitor preset: `hyprconf-monitor-preset laptop`. See https://wiki.hypr.land/Configuring/Basics/Monitors/
+-- Laptop/portable monitor preset: `hyprconf-monitor-preset laptop`. Connector-
+-- keyed on purpose: it describes no particular hardware (hypr/README.md).
 hl.monitor({ output = "eDP-1",    mode = "preferred", position = "auto",       scale = "auto" })
 hl.monitor({ output = "DP-1",     mode = "preferred", position = "auto-right", scale = 2 })
 hl.monitor({ output = "DP-2",     mode = "preferred", position = "auto-right", scale = 2 })

@@ -6,14 +6,8 @@
 
 local mainMod = "SUPER"
 
--- No app names here: which terminal, browser and editor these keys open is an
--- Omarchy DEFAULT (`omarchy default browser zen` moves the key with it), and
--- the launchers add the cwd-inheriting terminal launch and uwsm-app scoping.
--- The launchers are named the way Omarchy's own bindings name them:
--- `{ omarchy = "terminal" }` is `omarchy-launch-terminal`
--- (default/hypr/helpers.lua, command_from; bindings/applications.lua).
--- hyprconf's own tools are bound by command name, like Omarchy's — install.sh
--- puts bin/hyprconf-* on ~/.local/bin, which is on the session PATH.
+-- No app names here: `{ omarchy = "terminal" }` is whatever Omarchy's default
+-- says (README.md > Keybindings; the idiom: hypr/README.md > Binds).
 
 -- o.bind, never hl.bind: only o.bind records the description Omarchy's
 -- keybindings menu (SUPER+K) lists.
@@ -50,15 +44,12 @@ rebind(mainMod .. " + SHIFT + K", "Monitor preset: kitchen", "hyprconf-monitor-p
 -- SUPER+D: Omarchy's own menu (its menu key is SUPER+SPACE; it binds nothing here).
 rebind(mainMod .. " + D", "Omarchy menu", "omarchy-menu toggle")
 
--- SUPER+arrows (focus), SUPER+P (pseudo), SUPER+scroll (workspace scroll)
--- and SUPER+LMB/RMB drag (move/resize) are Omarchy's own binds already
--- (default/hypr/bindings/tiling.lua) and are not restated here.
+-- Left to Omarchy on purpose (README.md > Keybindings): SUPER+arrows, SUPER+P,
+-- SUPER+scroll, SUPER+LMB/RMB drag.
 
--- Resize active window. `relative = true` is load-bearing: hl.window.move and
--- hl.window.resize read x/y as an EXACT target size unless it is set, and
--- Hyprland rejects a negative one — every press raised `error: Invalid size`
--- and resized nothing. Omarchy's own resize binds pass it too
--- (default/hypr/bindings/tiling.lua).
+-- Resize active window. `relative = true` is load-bearing: without it x/y are
+-- an EXACT target size and a negative one is `error: Invalid size` — every
+-- press resized nothing. Omarchy's own resize binds pass it too.
 rebind(mainMod .. " + SHIFT + left",  "Shrink window left", hl.dsp.window.resize({ x = -40, y = 0, relative = true }),  { repeating = true })
 rebind(mainMod .. " + SHIFT + right", "Expand window right", hl.dsp.window.resize({ x = 40,  y = 0, relative = true }),  { repeating = true })
 rebind(mainMod .. " + SHIFT + up",    "Shrink window up", hl.dsp.window.resize({ x = 0,   y = -40, relative = true }), { repeating = true })
@@ -115,10 +106,8 @@ rebind(mainMod .. " + SHIFT + 0",  "Move window to workspace 10", hl.dsp.window.
 rebind(mainMod .. " + SHIFT + SPACE", "Toggle window floating", hl.dsp.window.float({ action = "toggle" }))
 rebind(mainMod .. " + SHIFT + F",     "Full screen", hl.dsp.window.fullscreen())
 
--- Move the active window. hl.window.move over hl.window.swap: move relocates
--- the window in the layout tree (a two-window split reads the same as a swap)
--- and carries it to the neighbouring MONITOR when the direction has no window
--- on this one, which swap refuses ("No window to swap with in that direction").
+-- Move, not swap: move also carries the window to the next monitor, which
+-- swap refuses (README.md > Windows).
 rebind(mainMod .. " + SHIFT + A", "Move window left", hl.dsp.window.move({ direction = "left" }))
 rebind(mainMod .. " + SHIFT + D", "Move window right", hl.dsp.window.move({ direction = "right" }))
 rebind(mainMod .. " + SHIFT + W", "Move window up", hl.dsp.window.move({ direction = "up" }))

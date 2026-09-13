@@ -12,6 +12,7 @@ publish flow and the website upload.
 ├── packages                    # Official-repo packages, installed via omarchy-pkg-add (Firefox and VS Code go through Omarchy's installers instead)
 │
 ├── hypr/
+│   ├── README.md               # The Omarchy/Hyprland facts these files rely on (binds, desc: presets, hyprctl on 0.56)
 │   ├── bindings.lua            # Hotkeys (o.bind with descriptions; unbind-then-rebind)
 │   ├── input.lua               # Input/gesture deltas from Omarchy's defaults
 │   ├── looknfeel.lua           # Look'n'feel deltas from Omarchy's defaults
@@ -49,7 +50,7 @@ publish flow and the website upload.
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
 ├── scripts/publish             # The three gates → tag → one atomic push of dev, stable and the tag
-├── docs/                       # This file, hyprland-reference.md
+├── docs/                       # This file
 ├── .github/                    # CI workflow
 ├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg (the README's and the page's brand art)
 ├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff config
