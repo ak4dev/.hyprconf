@@ -17,6 +17,12 @@ the same folders out of the checkout.
   parse a window title or a device name as rich text; upstream's
   test/shell.d/qml-text-format-scan.py — the block rule is ported here,
   small, with a self-check so the port cannot pass in silence).
+- The plugin-facade contract: every `bar.<x>` / `bar.shell.<x>` the QML
+  reads is a member of Omarchy's Ui/PluginBarApi.qml / services/
+  PluginShellApi.qml, the objects an INSTALLED third-party widget actually
+  gets (4.0.3-1). Read off the installed shell where there is one, off a
+  pinned list where there is not (CI) — one test either way, so this adds
+  no skip.
 - The clock plugin's parity with the installed Omarchy's own clock (skips
   without one — with test_installed_plugins_pass_omarchy_plugin_validate,
   the two skips CI shows).
@@ -491,3 +497,113 @@ def test_clock_plugin_tracks_omarchys_stock_clock() -> None:
         "    precision: SystemClock.Seconds",
         '    source: "file://" + Quickshell.env("OMARCHY_PATH") + "/shell/plugins/panels/clock/Panel.qml"',
     ], "\n".join(diff)
+
+
+# Ui/PluginBarApi.qml and services/PluginShellApi.qml (Omarchy 4.0.3-1) — the
+# facades an INSTALLED third-party widget gets in place of the host Bar and
+# ShellRoot (plugins/bar/Bar.qml:2002-2003, shell.qml:739-743). Their public
+# members are the whole contract: anything else a widget reads off `bar` is
+# undefined at runtime and says nothing. Pinned here so CI (no Omarchy) still
+# checks the plugins; where Omarchy is installed the real files are read, so
+# an upstream narrowing turns this red on the box that can see it.
+PLUGIN_BAR_API = (
+    "activePopout",
+    "background",
+    "barForeground",
+    "barSize",
+    "centerHoverRevealSuppressed",
+    "centerSectionRevealHeld",
+    "clickTargets",
+    "fontFamily",
+    "foreground",
+    "foregroundAnimationEnabled",
+    "foreignPopoutMarker",
+    "hideTooltip",
+    "layoutConfig",
+    "moduleName",
+    "moduleWidgets",
+    "pluginId",
+    "position",
+    "registerClickTarget",
+    "releasePopout",
+    "requestPopout",
+    "run",
+    "setCenterHoverRevealSuppressed",
+    "shell",
+    "showTooltip",
+    "switchPanelFrom",
+    "targetBelongsToWindow",
+    "transparent",
+    "unregisterClickTarget",
+    "urgent",
+    "vertical",
+)
+PLUGIN_SHELL_API = (
+    "appLibrary",
+    "bar",
+    "barConfig",
+    "firstPartyServiceFor",
+    "hide",
+    "idleConfig",
+    "isPluginOpen",
+    "mutateShellConfig",
+    "pluginId",
+    "pluginShellForBarEntry",
+    "serviceFor",
+    "summon",
+    "toggle",
+    "updateEntryInline",
+)
+OMARCHY_SHELL = Path("/usr/share/omarchy/shell")
+_DECLARES_RE = re.compile(
+    r"^\s*(?:readonly\s+)?(?:required\s+)?(?:property\s+\S+|function)\s+(\w+)", re.M
+)
+# `bar.x`, `bar?.shell?.x`. `root.`/`this.` are stripped first so `root.bar.x`
+# counts and `Style.bar.iconSlot` (a different `bar`) does not.
+_OWNER_RE = re.compile(r"\b(?:root|this)\s*\??\.\s*")
+_MEMBER_RE = re.compile(r"(?<![\w.])bar\s*\??\.\s*(?:shell\s*\??\.\s*)?([A-Za-z_]\w*)")
+
+
+def _qml_code(qml: Path) -> str:
+    """The file without its `//` comment lines — the header prose names
+    facade members it does not call."""
+    return "\n".join(ln for ln in qml.read_text().splitlines() if not ln.lstrip().startswith("//"))
+
+
+def _facade_members() -> tuple[set[str], set[str]]:
+    """The installed facades' members, or the pinned lists where Omarchy is absent."""
+    bar_api = OMARCHY_SHELL / "Ui" / "PluginBarApi.qml"
+    shell_api = OMARCHY_SHELL / "services" / "PluginShellApi.qml"
+    if bar_api.is_file() and shell_api.is_file():
+        return (
+            {m for m in _DECLARES_RE.findall(bar_api.read_text()) if not m.startswith("_")},
+            {m for m in _DECLARES_RE.findall(shell_api.read_text()) if not m.startswith("_")},
+        )
+    return set(PLUGIN_BAR_API), set(PLUGIN_SHELL_API)
+
+
+def test_widgets_read_only_what_the_plugin_facades_expose() -> None:
+    """Every `bar.<x>` / `bar.shell.<x>` in plugins/**/*.qml is a facade member.
+
+    An installed third-party widget never sees the host Bar or the ShellRoot
+    (plugins/bar/Bar.qml:2002-2003 hands it pluginBarApiFor(...), and
+    shell.qml:739-743 the scoped PluginShellApi), so a member that exists
+    only on the Bar reads as undefined with nothing logged anywhere — the
+    exact failure the 4.0.2 -> 4.0.3 host rewrite could have caused, and the
+    guard docs/quickshell-reference.md failed to be.
+    """
+    installed_bar, installed_shell = _facade_members()
+    if (OMARCHY_SHELL / "Ui" / "PluginBarApi.qml").is_file():
+        # Same test, no extra skip: where Omarchy is installed the pinned
+        # lists are checked against it, so CI's fallback cannot drift.
+        assert installed_bar == set(PLUGIN_BAR_API)
+        assert installed_shell == set(PLUGIN_SHELL_API)
+    allowed = installed_bar | installed_shell
+    seen = set()
+    for qml in sorted(PLUGINS.glob("*/*.qml")):
+        code = _OWNER_RE.sub("", _qml_code(qml))
+        for member in _MEMBER_RE.findall(code):
+            assert member in allowed, f"{qml.name}: bar.{member} is not on the facades"
+            seen.add(member)
+    # The scan is worthless if it matches nothing: these two are in the tree.
+    assert {"serviceFor", "updateEntryInline"} <= seen
