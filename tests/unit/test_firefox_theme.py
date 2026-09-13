@@ -742,3 +742,26 @@ def test_theme_set_hook_never_fails_the_theme_switch(
     assert proc.returncode == 0
     assert "Firefox theming failed" in proc.stderr and "userChrome.css" in proc.stderr
     assert hermetic["calls"].read_text() == ""
+
+
+def test_the_installed_launcher_runs_the_module(tmp_path: Path, hermetic: dict[str, Path]) -> None:
+    """bin/hyprconf-firefox-theme is the entry point README documents; it is
+    two lines (PYTHONPATH into the checkout, `exec python3 -m
+    hyprconf.firefox_theme`) that nothing else executes. Rendered the way
+    stage_bin installs it, with @HYPRCONF_DIR@ resolved."""
+    tool = tmp_path / "hyprconf-firefox-theme"
+    tool.write_text(
+        (REPO_ROOT / "bin" / "hyprconf-firefox-theme")
+        .read_text()
+        .replace("@HYPRCONF_DIR@", str(REPO_ROOT))
+    )
+    tool.chmod(0o755)
+    proc = subprocess.run(
+        [str(tool), "--status"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={"HOME": str(hermetic["home"]), "PATH": f"{hermetic['bins']}:/usr/bin:/bin"},
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "userChrome.css" in proc.stdout

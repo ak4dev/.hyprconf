@@ -75,14 +75,14 @@ conftest.py                       # the `box` fixture every test builds on (repo
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
 │   ├── test_config_exec_targets.py  # every hyprconf-* command a shipped hypr/*.lua binds ships in bin/, bound by name
-│   ├── test_firefox.py           #   infra/firefox/policies.json: the captured settings, both force-installed extensions, every pref against Firefox's own allowlist, and the merge as a superset of the installed Omarchy policy (read-only; the install suite's fixture of it elsewhere)
-│   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + the template's render
+│   ├── test_firefox.py           #   infra/firefox/policies.json: the captured settings, both force-installed extensions, every pref against Firefox's own allowlist (the merge with Omarchy's own policy runs with the real jq in the install suite)
+│   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + bin/hyprconf-firefox-theme + the template's render
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom
-│   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock; the workspace rehoming is test_omarchy_install.py's, against the installed copy)
+│   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, the workspace rehoming a switch dispatches)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, the `omarchy refresh` guard, the plugin sync and its `omarchy plugin add` checkout guard …), the post-update hook end to end, restraint invariants, idempotency; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
-│   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText rule over every QML, every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent), the clock's parity with the installed stock clock (skips without Omarchy), the resources feeders' capped-backoff restart shape
+│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, the `omarchy refresh` guard, the plugin sync and its `omarchy plugin add` checkout guard …), the post-update hook end to end, restraint invariants, idempotency; the dead-hyprctl / pacman / fetch-and-execute token scans over every shipped bash file
+│   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy) and the real validator where there is one, the manifest values the bar reads, the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText rule and real qmllint over every QML, what each widget's QML promises, every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent), the clock's parity with the installed stock clock (skips without Omarchy), the resources feeders' capped-backoff restart shape
 │   ├── test_stats_tools.py       #   plugins/hyprconf-resources/bin/{hyprconf-stats,hyprconf-gpu-info} (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins hyprconf-stats' fork-free tick)
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs and vulkaninfo; uwsm env.d / environment.d seams)
@@ -182,9 +182,10 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   (reads a manifest, changes nothing), the installed clock plugin's files
   (`test_plugins.py` reads them for parity).
   A test that reads a file of the installed Omarchy falls back to a
-  fixture instead of skipping (`test_firefox.py` reuses `OMARCHY_FIREFOX_POLICY`
-  and, with Omarchy present, checks it against the real file). Never invoke
-  `pacman` (it exists in the container).
+  fixture instead of skipping (`test_omarchy_install.py`'s
+  `OMARCHY_FIREFOX_POLICY` stands in for Omarchy's policy, and is checked
+  against the real file where there is one). Never invoke `pacman` (it
+  exists in the container).
 
 ### CI
 

@@ -9,7 +9,9 @@ settings captured from the machine hyprconf is a config of.
 
 The load-bearing test here is test_every_pref_is_one_firefox_will_accept: the
 Preferences policy silently drops any pref outside Firefox's own allowlist, so
-a plausible-looking entry can do nothing at all and never say so.
+a plausible-looking entry can do nothing at all and never say so. The merge
+with Omarchy's own policy is exercised with the real jq inside the installer
+(test_omarchy_install.py), which is what runs it.
 """
 
 from __future__ import annotations
@@ -18,15 +20,9 @@ import json
 import re
 from pathlib import Path
 
-from tests.unit.test_omarchy_install import OMARCHY_FIREFOX_POLICY
-
 REPO_ROOT = Path(__file__).parent.parent.parent
 POLICIES_JSON = REPO_ROOT / "infra" / "firefox" / "policies.json"
 POLICIES = json.loads(POLICIES_JSON.read_text(encoding="utf-8"))["policies"]
-# What omarchy-install-browser copies to /usr/lib/firefox/distribution/ —
-# read when Omarchy is installed (never written); the install suite's fixture
-# of it stands in elsewhere (CI), so the merge check never skips.
-OMARCHY_POLICY = Path("/usr/share/omarchy/default/firefox/policies.json")
 
 UBLOCK_ID = "uBlock0@raymondhill.net"
 PROTON_PASS_ID = "78272b6fa58f4a1abaac99321d503a20@proton.me"
@@ -315,37 +311,3 @@ def test_every_pref_is_one_firefox_will_accept() -> None:
         # A 0/1 int lands as a boolean unless the policy says otherwise.
         if isinstance(value["Value"], int) and not isinstance(value["Value"], bool):
             assert value.get("Type") == "number", pref
-
-
-def _merge(base: dict, over: dict) -> dict:
-    """jq's `*` (what stage_firefox runs): a recursive object merge, the
-    right-hand side winning on a shared key."""
-    out = dict(base)
-    for k, v in over.items():
-        out[k] = _merge(out[k], v) if isinstance(out.get(k), dict) and isinstance(v, dict) else v
-    return out
-
-
-def test_merged_with_omarchys_policy_it_keeps_every_omarchy_pref() -> None:
-    """The installed file is Omarchy's own default/firefox/policies.json
-    merged under ours (stage_firefox), because /etc/firefox/policies takes
-    precedence over the distribution/ copy omarchy-install-browser writes
-    and would otherwise shadow it. Checked against the installed Omarchy
-    when there is one (read-only) — and then the install suite's fixture of
-    that file may name no pref Omarchy no longer ships — else against the
-    fixture, so CI exercises the merge too. On a shared pref ours wins."""
-    ours_prefs = POLICIES.get("Preferences", {})
-    if OMARCHY_POLICY.is_file():
-        theirs = json.loads(OMARCHY_POLICY.read_text(encoding="utf-8"))
-        fixture_only = set(OMARCHY_FIREFOX_POLICY["policies"]["Preferences"]) - set(ours_prefs)
-        assert fixture_only <= set(theirs["policies"]["Preferences"]), fixture_only
-    else:
-        theirs = OMARCHY_FIREFOX_POLICY
-    ours = json.loads(POLICIES_JSON.read_text(encoding="utf-8"))
-    merged = _merge(theirs, ours)["policies"]
-    for pref, value in theirs["policies"].get("Preferences", {}).items():
-        assert pref in merged["Preferences"], pref
-        assert merged["Preferences"][pref] == ours_prefs.get(pref, value), pref
-    for key in POLICIES:
-        assert key in merged, key
-    assert merged["DisableTelemetry"] is True

@@ -12,8 +12,8 @@ Verifies:
   stderr goes nowhere a human can see)
 - A missing or unsafe preset argument exits non-zero
 
-The `laptop` short name and the workspace re-homing are covered against the
-installed copy by test_omarchy_install.py.
+Every shipped preset is reachable by its short name against the installed
+copy in test_omarchy_install.py, which pins the seed list to these names.
 
 HERMETIC: the tool talks to hyprctl, omarchy-notification-send and
 omarchy-osd. Every one of them is a recording stub on a fake-bins dir put
@@ -31,6 +31,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 SCRIPT = REPO_ROOT / "bin" / "hyprconf-monitor-preset"
+# A shipped preset, read for its real workspace rules.
+KITCHEN = REPO_ROOT / "hypr" / "pcMonitors.kitchen.lua"
 TOGGLE = Path(".local") / "state" / "omarchy" / "toggles" / "hypr" / "hyprconf-monitor-preset.lua"
 
 # Every external command the tool may call. The self-check below derives the
@@ -223,3 +225,50 @@ def test_preset_name_is_whitelisted(tmp_path: Path) -> None:
     res = _run(tmp_path, _cfg(tmp_path), "../evil")
     assert res.returncode != 0
     assert "Invalid preset name" in res.stderr
+
+
+# ---------------------------------------------------------------------------
+# Workspace placement on a preset switch
+# ---------------------------------------------------------------------------
+
+
+def _kitchen_rules(body: str) -> list[tuple[str, str]]:
+    return re.findall(r'hl\.workspace_rule\(\{ workspace = "(\d+)", monitor = "([^"]+)" \}\)', body)
+
+
+def test_existing_workspaces_are_moved_to_the_presets_monitors(tmp_path: Path) -> None:
+    """Workspace rules only place FUTURE workspaces: on a reload Hyprland
+    leaves existing workspaces where they are, so a switch moves today's
+    explicitly — through the Lua dispatch form, hl.dsp.workspace.move
+    (Hyprland 0.56.2; the two-token form is a parse error there)."""
+    body = KITCHEN.read_text()
+    rules = _kitchen_rules(body)
+    assert rules, "kitchen preset carries no workspace rules"
+    cfg_src = _cfg(
+        tmp_path, **{"pcMonitors.kitchen.lua": body, "monitors.lua": "-- omarchy auto\n"}
+    )
+
+    assert _run(tmp_path, cfg_src, "kitchen").returncode == 0
+    calls = _calls(tmp_path)
+    for ws, mon in rules:
+        expected = (
+            f'hyprctl dispatch hl.dsp.workspace.move({{ workspace = {ws}, monitor = "{mon}" }})'
+        )
+        assert expected in calls, expected
+
+
+def test_commented_out_workspace_rules_are_skipped(tmp_path: Path) -> None:
+    """A rule commented out of a preset is a comment to the move walk exactly
+    as it is to the Hyprland reload — the sed anchors at line start. Editing a
+    preset is a documented workflow, and a disabled rule must not keep moving
+    its workspace."""
+    body = KITCHEN.read_text()
+    rules = _kitchen_rules(body)
+    assert len(rules) >= 2, "kitchen preset needs two workspace rules for this test"
+    edited = body.replace("hl.workspace_rule(", "-- hl.workspace_rule(", 1)
+    cfg_src = _cfg(tmp_path, **{"pcMonitors.kitchen.lua": edited})
+
+    assert _run(tmp_path, cfg_src, "kitchen").returncode == 0
+    moves = [c for c in _calls(tmp_path) if "workspace.move" in c]
+    assert not any(f"workspace = {rules[0][0]}," in m for m in moves)
+    assert any(f"workspace = {rules[1][0]}," in m for m in moves)

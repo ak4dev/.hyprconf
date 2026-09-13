@@ -44,12 +44,17 @@ import difflib
 import json
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLUGINS = REPO_ROOT / "plugins"
+# Omarchy's own validator for a plugin folder (pure: reads the manifest and
+# the tree, touches nothing); real when installed, the test skips otherwise.
+PLUGIN_VALIDATE = Path("/usr/share/omarchy/bin/omarchy-plugin-validate")
 # The stock plugin plugins/hyprconf-clock is a copy of; the parity test
 # reads it and changes nothing.
 OMARCHY_CLOCK = Path("/usr/share/omarchy/shell/plugins/panels/clock")
@@ -566,9 +571,9 @@ _MEMBER_RE = re.compile(r"(?<![\w.])bar\s*\??\.\s*(?:shell\s*\??\.\s*)?([A-Za-z_
 
 
 def _qml_code(qml: Path) -> str:
-    """The file without its `//` comment lines — the header prose names
-    facade members it does not call."""
-    return "\n".join(ln for ln in qml.read_text().splitlines() if not ln.lstrip().startswith("//"))
+    """The file with its `//` comments stripped, so a scan cannot match the
+    prose explaining the rule (the header names facade members it never calls)."""
+    return "\n".join(_strip_comment(ln) for ln in qml.read_text().splitlines())
 
 
 def _facade_members() -> tuple[set[str], set[str]]:
@@ -608,3 +613,182 @@ def test_widgets_read_only_what_the_plugin_facades_expose() -> None:
             seen.add(member)
     # The scan is worthless if it matches nothing: these two are in the tree.
     assert {"serviceFor", "updateEntryInline"} <= seen
+
+
+# ---------------------------------------------------------------------------
+# The manifest facts the bar turns on, and the QML the widgets promise
+# ---------------------------------------------------------------------------
+
+# Beyond the validator's own contract: which stock widget each copy claims
+# (omarchy.clonedFrom — what makes the shell swap it into that widget's slot
+# and `omarchy plugin disable <id>` restore stock), which entry points the
+# shell loads, and where it places the widget with no `--section` argument
+# (barWidget.defaultSection, honoured by PluginRegistry.qml
+# defaultBarWidgetSection; omitted where the clone inherits the slot).
+MANIFEST_PINS = {
+    "hyprconf-active-window": {
+        "id": "hyprconf.active-window",
+        "clonedFrom": "omarchy.active-window",
+        "kinds": ["bar-widget"],
+        "entryPoints": {"barWidget": "ActiveWindow.qml"},
+        "defaultSection": "left",
+    },
+    "hyprconf-clock": {
+        "id": "hyprconf.clock",
+        "clonedFrom": "omarchy.clock",
+        "kinds": ["bar-widget"],
+        "entryPoints": {"barWidget": "BarWidget.qml"},
+        "defaultSection": None,
+    },
+    "hyprconf-resources": {
+        "id": "hyprconf.resources",
+        "clonedFrom": None,
+        "kinds": ["bar-widget", "service"],
+        "entryPoints": {"barWidget": "Widget.qml", "service": "Service.qml"},
+        "defaultSection": "right",
+    },
+    "hyprconf-workspaces": {
+        "id": "hyprconf.workspaces",
+        "clonedFrom": "omarchy.workspaces",
+        "kinds": ["bar-widget"],
+        "entryPoints": {"barWidget": "Workspaces.qml"},
+        "defaultSection": None,
+    },
+}
+
+
+@pytest.mark.parametrize("folder", plugin_folders(), ids=lambda p: p.name)
+def test_manifests_declare_the_slot_and_entry_points_the_bar_uses(folder: Path) -> None:
+    """id, clonedFrom, kinds, entryPoints and defaultSection — the values the
+    shell reads; the validator only checks their shape."""
+    want = MANIFEST_PINS[folder.name]
+    manifest = json.loads((folder / "manifest.json").read_text())
+    assert manifest["id"] == want["id"]
+    assert manifest["kinds"] == want["kinds"]
+    assert manifest["entryPoints"] == want["entryPoints"]
+    assert manifest.get("omarchy", {}).get("clonedFrom") == want["clonedFrom"]
+    assert manifest["barWidget"].get("defaultSection") == want["defaultSection"]
+
+
+@pytest.mark.parametrize("folder", plugin_folders(), ids=lambda p: p.name)
+def test_installed_plugins_pass_omarchy_plugin_validate(folder: Path) -> None:
+    """Omarchy's own validator over each plugin folder. It reads the
+    manifest's `id`, never the folder name (/usr/bin/omarchy-plugin-validate:
+    49-53, 4.0.3-1), so the checkout folder answers for the installed copy —
+    which install.sh's `cp -aL` makes byte-identical. Real when installed."""
+    if not PLUGIN_VALIDATE.is_file():
+        pytest.skip("no installed omarchy-plugin-validate")
+    proc = subprocess.run(
+        ["bash", str(PLUGIN_VALIDATE), str(folder)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO_ROOT)},
+    )
+    assert proc.returncode == 0, f"{folder.name}: {proc.stderr}"
+
+
+def test_plugin_qml_parses() -> None:
+    """A QML syntax error is an empty bar slot with nothing in any log.
+    `qmllint --bare` parses without the module imports (exit 0 with import
+    warnings on a good file, non-zero on a broken one)."""
+    qmllint = shutil.which("qmllint") or shutil.which("qmllint", path="/usr/lib/qt6/bin")
+    if qmllint is None:
+        pytest.skip("no qmllint (qt6-declarative) to parse the plugin QML")
+    for qml in sorted(PLUGINS.rglob("*.qml")):
+        proc = subprocess.run([qmllint, "--bare", str(qml)], capture_output=True, text=True)
+        assert proc.returncode == 0, f"{qml.name}: {proc.stderr}"
+
+
+def test_bar_widget_never_sizes_itself_off_its_parent() -> None:
+    """A widget whose implicit size reads `parent` is invisible on the bar:
+    Omarchy's ModuleSlot takes its height from the widget's implicit size, so
+    `implicitHeight: parent.height` closes a binding loop, and QML breaks a
+    loop by dropping the binding — zero height, nothing logged at any
+    verbosity, only a gap in the bar."""
+    qml = sorted(PLUGINS.rglob("*.qml"))
+    assert qml, "no plugin QML found"
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}: {line.strip()}"
+        for path in qml
+        for line in _qml_code(path).splitlines()
+        if re.match(r"\s*implicit(Width|Height)\s*:", line) and "parent" in line
+    ]
+    assert not offenders, (
+        "Bar widget implicit size must not depend on `parent` (binding loop -> "
+        "zero size -> invisible widget):\n" + "\n".join(offenders)
+    )
+
+
+def test_workspaces_widget_shows_only_active_workspaces() -> None:
+    """No fixed pill set and no id cap — only the workspaces Hyprland has —
+    hyprconf's Pac-Man on the focused one, and the stock IPC id kept as
+    moduleName so `omarchy bar` still addresses it."""
+    qml = _qml_code(PLUGINS / "hyprconf-workspaces" / "Workspaces.qml")
+    assert "[1, 2, 3, 4, 5]" not in qml and "id <= 10" not in qml
+    assert "\\u{F0BAF}" in qml  # nf-md-pac_man, hyprconf's focused marker
+    assert 'moduleName: "omarchy.workspaces"' in qml
+
+
+def test_window_title_widget_keeps_the_stock_behaviours() -> None:
+    """The clone re-lays the title out; everything the stock widget does — the
+    tooltip, click to focus, middle/right-click to close — and the stock IPC
+    id it is addressed by have to survive the rewrite."""
+    qml = _qml_code(PLUGINS / "hyprconf-active-window" / "ActiveWindow.qml")
+    assert 'moduleName: "omarchy.active-window"' in qml
+    assert "root.toplevel.close()" in qml and "root.toplevel.activate()" in qml
+    assert "showTooltip(root, root.title)" in qml
+
+
+def test_resources_widget_paints_the_structured_feeder_fields() -> None:
+    """The thermometer is the solid Material Design glyph (U+F050F), not the
+    Weather-Icons outline (U+E350) — a hairline at caption size — and the GPU
+    cells read the fields the feeder emits rather than a pre-rendered
+    "text", which the service parses out of the JSON."""
+    folder = PLUGINS / "hyprconf-resources"
+    qml = _qml_code(folder / "Widget.qml")
+    assert "\\u{F050F}" in qml and "\\ue350" not in qml.lower()
+    service = _qml_code(folder / "Service.qml")
+    for field in ("j.util", "j.temp", "j.vram_used", "j.vram_total", "j.tooltip"):
+        assert field in service, field
+    assert "j.text" not in service
+
+
+def test_resources_feeders_run_once_for_the_session_not_once_per_monitor() -> None:
+    """Bar.qml is `Variants { model: Quickshell.screens }`, so a Process the
+    WIDGET owns runs once per bar surface — two permanent streams and an NVML
+    session per monitor, all reporting the same numbers. The seam is the
+    service kind: shell.qml's _syncServices()/ensureService() load
+    entryPoints.service of an enabled plugin exactly once, and the widget
+    reads the values back through bar.shell.serviceFor(<own id>) (4.0.3-1:
+    PluginShellApi.qml:30 → shell.qml:385-394 answers only for ids the plugin
+    owns). Verified under quickshell 0.3.1: three surfaces, one feeder pair."""
+    folder = PLUGINS / "hyprconf-resources"
+    widget = _qml_code(folder / "Widget.qml")
+    service = _qml_code(folder / "Service.qml")
+    assert "Process {" not in widget, "a Process in the widget runs once per bar surface"
+    for feeder in ("bin/hyprconf-stats", "bin/hyprconf-gpu-info"):
+        assert f'command: [root.pluginDir + "{feeder}"]' in service
+    assert 'root.bar?.shell?.serviceFor("hyprconf.resources")' in widget
+    # Every value the widget paints comes off the service, with a fallback for
+    # the window before it is loaded (and for a bar that carries no `shell`).
+    for prop in ("cpuPct", "memText", "netUp", "netDown", "gpuProduced", "gpuTooltip"):
+        assert f"root.feed ? root.feed.{prop} :" in widget, prop
+
+
+def test_the_documented_clock_revert_names_both_undo_steps() -> None:
+    """`omarchy plugin disable hyprconf.clock` alone is not stock: Omarchy's
+    restoreCloneSource copies the clone's whole bar entry onto omarchy.clock
+    and rewrites only its id (shell/services/PluginRegistry.qml, 4.0.3-1), so
+    the format install.sh set rides along onto the Minutes-precision widget;
+    and bar.centerAnchor is a plain id with no clone resolution (Bar.qml via
+    Util.canonicalWidgetId), so it keeps naming a widget the bar no longer
+    carries. The plugin README ships to strangers on its own, so both extra
+    steps have to be in it. The stock format comes out of the widget's own
+    fallback — BarWidget.qml is Omarchy's file byte for byte."""
+    widget = (PLUGINS / "hyprconf-clock" / "BarWidget.qml").read_text()
+    stock = re.search(r'setting\("format", "([^"]+)"\)', widget)
+    assert stock, "BarWidget.qml no longer carries Omarchy's format fallback"
+    readme = (PLUGINS / "hyprconf-clock" / "README.md").read_text()
+    assert f"omarchy bar set omarchy.clock format '{stock.group(1)}'" in readme
+    assert ".bar.centerAnchor" in readme

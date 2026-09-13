@@ -31,9 +31,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "install.sh"
 HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
 PLUGIN_FEEDER = Path("plugins") / "hyprconf-resources" / "bin" / "hyprconf-stats"
-# Omarchy's own validator for a plugin folder (pure: reads the manifest and
-# the tree, touches nothing); real when installed, the test skips otherwise.
-PLUGIN_VALIDATE = Path("/usr/share/omarchy/bin/omarchy-plugin-validate")
 
 # Where hyprconf-monitor-preset puts the chosen preset: Omarchy's Hyprland
 # toggles directory, loaded after ~/.config/hypr/monitors.lua.
@@ -79,6 +76,8 @@ OMARCHY_FIREFOX_POLICY = {
         }
     }
 }
+# What omarchy-install-browser copies to /usr/lib/firefox/distribution/.
+OMARCHY_POLICY = Path("/usr/share/omarchy/default/firefox/policies.json")
 
 # omarchy-hook-install <type> <file> (4.0.0-1): mkdir -p the .d dir, cp under
 # the file's basename, chmod 755 — reproduced so later stages find the hook.
@@ -506,11 +505,6 @@ def _stage_body(name: str) -> str:
     return _code_only(src[start:end])
 
 
-def _code_only_qml(body: str) -> str:
-    """Drop // comment lines, so a scan cannot match the prose explaining it."""
-    return "\n".join(ln for ln in body.splitlines() if not ln.lstrip().startswith("//"))
-
-
 def _tree_hash(root: Path) -> str:
     """Hash every path and file body under root, for byte-stability checks."""
     h = hashlib.sha256()
@@ -526,6 +520,17 @@ def _tree_hash(root: Path) -> str:
 # ---------------------------------------------------------------------------
 # Preflight — the guard that keeps this off a non-Omarchy machine
 # ---------------------------------------------------------------------------
+
+
+def test_the_omarchy_firefox_policy_fixture_names_no_pref_omarchy_dropped() -> None:
+    """OMARCHY_FIREFOX_POLICY stands in for Omarchy's own file where there is
+    no Omarchy (CI); with one installed it must name no pref Omarchy stopped
+    shipping. SHARED_PREF is synthetic and is not one of Omarchy's."""
+    if not OMARCHY_POLICY.is_file():
+        return
+    theirs = json.loads(OMARCHY_POLICY.read_text())["policies"]["Preferences"]
+    ours = set(OMARCHY_FIREFOX_POLICY["policies"]["Preferences"]) - {SHARED_PREF}
+    assert ours <= set(theirs), ours - set(theirs)
 
 
 def test_refuses_without_omarchy_command(tmp_path: Path) -> None:
@@ -1123,21 +1128,6 @@ def test_a_shell_config_the_helper_refuses_leaves_no_marker(tmp_path: Path) -> N
     assert (env["home"] / ".zshrc").exists()
 
 
-def test_firefox_theme_tool_is_installed_with_the_checkout_path(tmp_path: Path) -> None:
-    """bin/hyprconf-firefox-theme is a launcher for lib/hyprconf/firefox_theme.py;
-    it needs the checkout on PYTHONPATH, so stage_bin substitutes
-    @HYPRCONF_DIR@ the way the hooks get it. Its --status must run from the
-    installed copy."""
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    tool = env["home"] / ".local" / "bin" / "hyprconf-firefox-theme"
-    proc = subprocess.run(
-        [str(tool), "--status"], capture_output=True, text=True, timeout=60, env=_child_env(env)
-    )
-    assert proc.returncode == 0, proc.stderr
-    assert "userChrome.css" in proc.stdout
-
-
 def test_presets_are_seeded_once_and_never_overwritten(tmp_path: Path) -> None:
     """A preset describes one machine's desk, so the machine owns it after seeding.
 
@@ -1259,34 +1249,6 @@ def test_font_marker_waits_for_omarchy_font_set_to_succeed(tmp_path: Path) -> No
     _run(env, "--no-update")
     assert any(c.startswith("omarchy-font-set") for c in _calls(env))
     assert marker.exists()
-
-
-# ---------------------------------------------------------------------------
-# The bar widget
-# ---------------------------------------------------------------------------
-
-
-def test_bar_widget_never_sizes_itself_off_its_parent() -> None:
-    """A widget whose implicit size reads `parent` is invisible on the bar.
-
-    Omarchy's ModuleSlot takes its height from the widget's implicit size, so
-    `implicitHeight: parent.height` closes a binding loop. QML breaks a loop by
-    dropping the binding, which leaves the widget zero-height — it still loads,
-    logs nothing at any verbosity, and paints nothing. That silence is what
-    makes this worth a test rather than a comment: there is no error to grep
-    for, only a gap in the bar.
-    """
-    offenders = [
-        f"{qml.relative_to(REPO_ROOT)}: {line.strip()}"
-        for qml in sorted((REPO_ROOT / "plugins").glob("*/*.qml"))
-        for line in _code_only_qml(qml.read_text()).splitlines()
-        if re.match(r"\s*implicit(Width|Height)\s*:", line) and "parent" in line
-    ]
-    assert list((REPO_ROOT / "plugins").glob("*/*.qml")), "no plugin QML found"
-    assert not offenders, (
-        "Bar widget implicit size must not depend on `parent` (binding loop -> "
-        "zero size -> invisible widget):\n" + "\n".join(offenders)
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -2652,62 +2614,6 @@ def test_plugin_sync_re_asserts_a_lost_exec_bit(tmp_path: Path) -> None:
     assert "omarchy-shell shell rescanPlugins" not in _calls(env)
 
 
-def test_resources_widget_declares_its_bar_section_in_the_manifest() -> None:
-    """Placement is the manifest's barWidget.defaultSection ("right"), which
-    the shell honours on an enable with no placement (PluginRegistry.qml
-    defaultBarWidgetSection, 4.0.0-1; omarchy-plugin-validate checks the
-    value) — so the enable carries no --section argument."""
-    manifest = json.loads(
-        (REPO_ROOT / "plugins" / "hyprconf-resources" / "manifest.json").read_text()
-    )
-    assert manifest["barWidget"]["defaultSection"] == "right"
-    assert "--section" not in _code_only(INSTALL_SH.read_text())
-
-
-def test_installed_plugins_pass_omarchy_plugin_validate(tmp_path: Path) -> None:
-    """Omarchy's own validator (the checks PluginRegistry.qml enforces:
-    schemaVersion, required fields, entry points that exist, a valid
-    defaultSection, no symlinks, no omarchy.* id) over every plugin dir the
-    overlay puts under ~/.config/omarchy/plugins — the four shipped plugins
-    as installed. Real when installed; a pure check. The same checks, in
-    Python, run everywhere in tests/unit/test_plugins.py."""
-    if not PLUGIN_VALIDATE.is_file():
-        pytest.skip("no installed omarchy-plugin-validate")
-    env = _setup(tmp_path)
-    _real_jq(env)
-    assert _run(env, "--no-update").returncode == 0
-    plugins = env["home"] / ".config" / "omarchy" / "plugins"
-    dirs = sorted(p for p in plugins.iterdir() if p.is_dir())
-    assert [p.name for p in dirs] == [
-        "hyprconf.active-window",
-        "hyprconf.clock",
-        "hyprconf.resources",
-        "hyprconf.workspaces",
-    ]
-    for plugin in dirs:
-        proc = subprocess.run(
-            ["bash", str(PLUGIN_VALIDATE), str(plugin)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env={"PATH": "/usr/bin:/bin", "HOME": str(env["home"])},
-        )
-        assert proc.returncode == 0, f"{plugin.name}: {proc.stderr}"
-
-
-def test_workspaces_widget_shows_only_active_workspaces_on_two_lines() -> None:
-    """What the widget promises, pinned statically: no fixed pill set and no
-    id cap (only workspaces Hyprland has), two rows, hyprconf's Pac-Man on the
-    focused workspace, and the stock IPC id kept as moduleName."""
-    qml = _code_only_qml(
-        (REPO_ROOT / "plugins" / "hyprconf-workspaces" / "Workspaces.qml").read_text()
-    )
-    assert "[1, 2, 3, 4, 5]" not in qml and "id <= 10" not in qml
-    assert "\\u{F0BAF}" in qml  # nf-md-pac_man, hyprconf's focused marker
-    assert re.search(r"columns:.*Math\.ceil\(root\.ids\.length / 2\)", qml)
-    assert 'moduleName: "omarchy.workspaces"' in qml
-
-
 def test_window_title_is_a_two_line_clone_after_the_workspaces(tmp_path: Path) -> None:
     """Omarchy's stock omarchy.active-window puts the focused window's title
     beside the workspaces on one line; the overlay ships a clonedFrom copy
@@ -2737,95 +2643,6 @@ def test_window_title_is_a_two_line_clone_after_the_workspaces(tmp_path: Path) -
     assert manifest["entryPoints"]["barWidget"] == "ActiveWindow.qml"
 
 
-def test_window_title_widget_lays_the_same_budget_out_on_two_lines() -> None:
-    """Pinned statically: the stock maxWidth budget (body-size, one line) is
-    rendered as two caption-size lines of half the width, word-wrapped and
-    elided on the second line; stock behaviours (tooltip, click focus,
-    middle- or right-click close, hidden when nothing is focused / vertical bar) and
-    the stock IPC id are kept."""
-    qml = _code_only_qml(
-        (REPO_ROOT / "plugins" / "hyprconf-active-window" / "ActiveWindow.qml").read_text()
-    )
-    assert 'moduleName: "omarchy.active-window"' in qml
-    assert 'setting("maxWidth", 280)' in qml
-    assert "maximumLineCount: 2" in qml and "font.pixelSize: Style.font.caption" in qml
-    assert "root.toplevel.close()" in qml and "root.toplevel.activate()" in qml
-    assert "showTooltip(root, root.title)" in qml
-
-
-def test_resources_widget_layout_is_fixed_width_and_ordered() -> None:
-    """Two aligned lines — CPU temp/util · RAM · upload over GPU temp/util ·
-    VRAM · download; the thermometer is the solid Material Design glyph
-    (U+F050F), not the Weather-Icons outline (U+E350), a hairline at caption
-    size; the GPU cells read the structured fields the feeder emits (no
-    pre-rendered "text"), which the service parses out of the JSON."""
-    folder = REPO_ROOT / "plugins" / "hyprconf-resources"
-    qml = _code_only_qml((folder / "Widget.qml").read_text())
-    assert "\\u{F050F}" in qml and "\\ue350" not in qml.lower()
-    # Row-major order: the upload cell precedes every GPU cell, the download cell is last.
-    up = qml.index('"↑ " + root.netUp')
-    down = qml.index('"↓ " + root.netDown')
-    gpu = qml.index('root.glyphGpu + " " + root.tempText')
-    assert up < gpu < down
-    service = _code_only_qml((folder / "Service.qml").read_text())
-    for field in ("j.util", "j.temp", "j.vram_used", "j.vram_total", "j.tooltip"):
-        assert field in service, field
-    assert "j.text" not in service
-
-
-def test_resources_feeders_run_once_for_the_session_not_once_per_monitor() -> None:
-    """Bar.qml is `Variants { model: Quickshell.screens }`, so a Process the
-    WIDGET owns runs once per bar surface — for hyprconf.resources two
-    permanent streams and an NVML session per monitor, all reporting the same
-    numbers. Omarchy's seam for that is the service kind, and it has no
-    first-party gate: shell.qml's _syncServices()/ensureService() load
-    entryPoints.service of any enabled plugin whose manifest lists "service"
-    exactly once — a third-party instance created with a null parent
-    (shell.qml:923) and kept alive by the shell's _services map — and a
-    bar-layout entry is what "enabled" means for a bar widget
-    (PluginRegistry.findEntryLocation), so the one `omarchy plugin enable` /
-    `disable` still covers both kinds. So: both Processes live in
-    Service.qml, the widget owns none and reads the values back through
-    bar.shell.serviceFor(<own id>). On 4.0.3-1 that `bar` is a
-    Ui/PluginBarApi.qml facade (plugins/bar/Bar.qml:2002-2003) and its
-    `.shell` a services/PluginShellApi.qml whose serviceFor answers only for
-    ids this plugin owns (PluginShellApi.qml:30 → shell.qml:385-394), which
-    it reaches with allowOwnService=true (pluginShellFor, shell.qml:739-743)
-    — so the accessor is unchanged. It is not firstPartyServiceFor, the
-    four-id omarchy.* proxy the stock omarchy.media widget uses on itself
-    (shell.qml:592-596). Verified under quickshell 0.3.1 against a reduced
-    copy of shell.qml's service host: three surfaces, one service instance,
-    one feeder pair."""
-    folder = REPO_ROOT / "plugins" / "hyprconf-resources"
-    manifest = json.loads((folder / "manifest.json").read_text())
-    assert manifest["kinds"] == ["bar-widget", "service"]
-    assert manifest["entryPoints"] == {"barWidget": "Widget.qml", "service": "Service.qml"}
-
-    widget = _code_only_qml((folder / "Widget.qml").read_text())
-    service = _code_only_qml((folder / "Service.qml").read_text())
-    assert "Process {" not in widget, "a Process in the widget runs once per bar surface"
-    assert service.count("Process {") == 2
-    for feeder in ("bin/hyprconf-stats", "bin/hyprconf-gpu-info"):
-        assert f'command: [root.pluginDir + "{feeder}"]' in service
-    assert 'root.bar?.shell?.serviceFor("hyprconf.resources")' in widget
-    # Every value the widget paints comes off the service, with a fallback for
-    # the window before it is loaded (and for a bar that carries no `shell`).
-    for prop in ("cpuPct", "memText", "netUp", "netDown", "gpuProduced", "gpuTooltip"):
-        assert f"root.feed ? root.feed.{prop} :" in widget, prop
-
-
-def test_plugin_qml_parses() -> None:
-    """A QML syntax error is an empty bar slot with nothing in any log.
-    `qmllint --bare` parses without the module imports (exit 0 with import
-    warnings on a good file, non-zero on a broken one)."""
-    qmllint = shutil.which("qmllint") or shutil.which("qmllint", path="/usr/lib/qt6/bin")
-    if qmllint is None:
-        pytest.skip("no qmllint (qt6-declarative) to parse the plugin QML")
-    for qml in sorted((REPO_ROOT / "plugins").glob("*/*.qml")):
-        proc = subprocess.run([qmllint, "--bare", str(qml)], capture_output=True, text=True)
-        assert proc.returncode == 0, f"{qml.name}: {proc.stderr}"
-
-
 def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
     """The post-update hook re-runs the installer after every Omarchy update;
     an unconditional enable would undo `omarchy plugin disable <id>` each
@@ -2843,66 +2660,8 @@ def test_bar_plugins_are_enabled_once_so_disable_sticks(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Workspace placement on a preset switch
+# The bar clock's centre anchor
 # ---------------------------------------------------------------------------
-
-
-def test_monitor_preset_moves_existing_workspaces(tmp_path: Path) -> None:
-    """Workspace rules only place FUTURE workspaces: on a reload Hyprland
-    leaves existing workspaces on whatever monitor they already occupy, so a
-    switch moves today's explicitly — through the Lua dispatch form,
-    hl.dsp.workspace.move (verified on Hyprland 0.56.2; the two-token form
-    is a parse error there)."""
-    env = _setup(tmp_path)
-    hypr = env["home"] / ".config" / "hypr"
-    hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
-    _run(env, "--no-update")
-
-    env["calls"].write_text("")
-    proc = _switch(env, "kitchen")
-    assert proc.returncode == 0, proc.stderr
-
-    rules = re.findall(
-        r'hl\.workspace_rule\(\{ workspace = "(\d+)", monitor = "([^"]+)" \}\)',
-        (REPO_ROOT / "hypr" / "pcMonitors.kitchen.lua").read_text(),
-    )
-    assert rules, "kitchen preset carries no workspace rules"
-    calls = _calls(env)
-    for ws, mon in rules:
-        expected = (
-            f'hyprctl dispatch hl.dsp.workspace.move({{ workspace = {ws}, monitor = "{mon}" }})'
-        )
-        assert expected in calls, expected
-
-
-def test_monitor_preset_skips_commented_out_workspace_rules(tmp_path: Path) -> None:
-    """A rule commented out of a preset is a comment to the move walk exactly
-    as it is to the Hyprland reload: the sed anchors at line start, so a `--`
-    prefix means no dispatch. Editing a preset is a documented workflow, and
-    a disabled rule must not keep moving its workspace."""
-    env = _setup(tmp_path)
-    hypr = env["home"] / ".config" / "hypr"
-    hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
-    _run(env, "--no-update")
-
-    body = (REPO_ROOT / "hypr" / "pcMonitors.kitchen.lua").read_text()
-    rules = re.findall(
-        r'hl\.workspace_rule\(\{ workspace = "(\d+)", monitor = "([^"]+)" \}\)', body
-    )
-    assert len(rules) >= 2, "kitchen preset needs two workspace rules for this test"
-    # Comment the first rule out — through a plain file, never the installed
-    # symlink, which points into the real checkout.
-    preset = hypr / "pcMonitors.kitchen.lua"
-    preset.unlink()
-    preset.write_text(body.replace("hl.workspace_rule(", "-- hl.workspace_rule(", 1))
-
-    env["calls"].write_text("")
-    proc = _switch(env, "kitchen")
-    assert proc.returncode == 0, proc.stderr
-    moves = [c for c in _calls(env) if "workspace.move" in c]
-    ws_off, ws_on = rules[0][0], rules[1][0]
-    assert not any(f"workspace = {ws_off}," in m for m in moves)
-    assert any(f"workspace = {ws_on}," in m for m in moves)
 
 
 def _shell_json(env: dict, anchor: str, center: list[str]) -> Path:
