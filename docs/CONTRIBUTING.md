@@ -140,7 +140,9 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   `DRM_ROOT`, `ITERATIONS`, `PCI_IDS`) — pointed at `tmp_path`. Never make
   such a variable `readonly`.
 - The fake bins (`AGENTS.md` › Tests): `omarchy-*`, `hyprctl`, `sudo`, `chsh`,
-  `systemd-cryptenroll`, `limine-mkinitcpio`, `gum`, `udevadm` (the real
+  `systemd-cryptenroll`, `limine-mkinitcpio`, `limine-entry-tool` (the fake
+  assembles `--get-cmdline` from the box's own limine config files), `gum`,
+  `udevadm` (the real
   one would re-apply rules on the developer's own machine), `vulkaninfo` (it
   would answer for the host's GPUs), `nvidia-smi` (likewise), `sleep` (the
   feeders' hook between ticks: it advances the fake counters and mutates the

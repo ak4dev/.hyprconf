@@ -624,27 +624,77 @@ mapper_name() {
     printf '%s\n' "${from_crypt:-$from_root}"
 }
 
-# cmdline_check <uuid> <name> <value>: what /etc/default/limine's line carries
-# beside the drop-in must not fight it. systemd keeps ONE rd.luks.options= per
-# device — systemd-cryptsetup-generator(8): it "will override the options for
-# the given UUID" — so one there for <uuid> would win over, or lose to, the
-# drop-in's fido2-device=auto; an rd.luks.name=<uuid>= there must name the
-# same mapper.
-cmdline_check() {
-    local uuid=$1 name=$2 w
+# cmdline_has <cmdline> <prefix>: whether any parameter of <cmdline> starts
+# with <prefix>. Word-split, so a prefix never matches inside another
+# parameter's value.
+cmdline_has() {
+    local w
     local -a words=()
+    read -r -a words <<<"$1"
+    for w in "${words[@]}"; do [[ $w == "$2"* ]] && return 0; done
+    return 1
+}
+
+# effective_cmdline: the KERNEL_CMDLINE[default] the kernel really receives —
+# limine's own loader assembling all four config layers, printed by the tool
+# that assembles them (`limine-entry-tool --get-cmdline <kernel name>`, its
+# --help; the wrapper self-escalates through /usr/lib/limine/auth-helper, so
+# run_root asks once and explicitly instead). Reading /etc/default/limine's
+# picked line alone cannot answer "is something already setting
+# rd.luks.options= for this device": every /etc/limine-entry-tool.d/*.conf
+# appends too, and the assembled order is not the load order (verified: this
+# box emits /etc/default/limine's parameters BEFORE the drop-ins'), so no
+# per-file read decides which one systemd honours. Empty when the tool is
+# absent or refuses — cmdline_check then sees nothing and enroll carries on.
+effective_cmdline() {
+    have limine-entry-tool || return 0
+    run_root limine-entry-tool --get-cmdline default 2>/dev/null
+}
+
+# cmdline_check <uuid> <name> <assembled cmdline>: nothing already on the
+# cmdline may fight the drop-in. systemd keeps ONE rd.luks.options= per
+# device — systemd-cryptsetup-generator(8): it "will override the options for
+# the given UUID" — so another one for <uuid> would win over, or lose to, the
+# drop-in's fido2-device=auto; an rd.luks.name=<uuid>= must name the same
+# mapper. This tool's own drop-in puts exactly that pair on the assembled
+# cmdline once it exists, so one occurrence is forgiven on a re-run — but only
+# the one that is not on /etc/default/limine's picked line, which is where
+# hyprconf-yubikey 4.0.0-4.2.0 wrote the parameters inline (commit b343103
+# dropped that migration) and where omarchy-upgrade-to-quattro copies them
+# from /proc/cmdline (omarchy-upgrade-to-quattro:559-562, Omarchy 4.0.3-1).
+cmdline_check() {
+    local uuid=$1 name=$2 w mine=0
+    local -a words=()
+    [[ -e $(limine_dropin_path) ]] && mine=1
     read -r -a words <<<"$3"
     for w in "${words[@]}"; do
         case $w in
             "rd.luks.name=$uuid="*)
                 [[ ${w#*=*=} == "$name" ]] ||
-                    die "$w is on the KERNEL_CMDLINE[default] line of $_HYPRCONF_LIMINE_DEFAULT but the root is /dev/mapper/$name — fix that line by hand first"
+                    die "$w is on the kernel cmdline limine assembles but the root is /dev/mapper/$name — fix $(param_home "$w") by hand first"
                 ;;
             "rd.luks.options=$uuid="*)
-                die "$w on the KERNEL_CMDLINE[default] line of $_HYPRCONF_LIMINE_DEFAULT would override the drop-in's rd.luks.options=$uuid=fido2-device=auto (systemd keeps one rd.luks.options= per device) — remove it from that line first"
+                if ((mine)) && [[ $w == "rd.luks.options=$uuid=fido2-device=auto" ]] &&
+                    ! cmdline_has "$L_VALUE" "$w"; then
+                    mine=0 # the drop-in's own, already in place
+                    continue
+                fi
+                die "$w is on the kernel cmdline limine assembles and would override the drop-in's rd.luks.options=$uuid=fido2-device=auto (systemd keeps one rd.luks.options= per device) — remove it from $(param_home "$w") first"
                 ;;
         esac
     done
+}
+
+# param_home <parameter>: where to send the user to delete it — the picked
+# line of /etc/default/limine (with what put it there), else the drop-in
+# directory, since the assembled cmdline says nothing about which file a
+# parameter came from.
+param_home() {
+    if cmdline_has "$L_VALUE" "$1"; then
+        printf 'the KERNEL_CMDLINE[default] line of %s (inline rd.luks.*: hyprconf-yubikey 4.0.0-4.2.0 residue, or an Omarchy cmdline migration copying /proc/cmdline) — keep cryptdevice=' "$_HYPRCONF_LIMINE_DEFAULT"
+    else
+        printf 'the drop-in in %s that sets it' "$_HYPRCONF_LIMINE_CONF_D"
+    fi
 }
 
 # limine_find_line: /etc/default/limine into L_LINES and the KERNEL_CMDLINE[default]
@@ -793,7 +843,7 @@ cmd_enroll() {
     limine_read
     ((L_PLAIN)) && die "$_HYPRCONF_LIMINE_DEFAULT assigns KERNEL_CMDLINE[default] with = — that replaces every parameter the drop-ins in $_HYPRCONF_LIMINE_CONF_D add, Omarchy's included (/etc/limine-entry-tool.conf: \"/etc/default/limine overrides any drop-in configs\"), so $(limine_dropin_path) could never reach the kernel; make it += first"
     MAPPER=$(mapper_name "$L_VALUE") || exit 1
-    cmdline_check "$DEV_UUID" "$MAPPER" "$L_VALUE"
+    cmdline_check "$DEV_UUID" "$MAPPER" "$(effective_cmdline)"
     info "Device: $DEV (LUKS2, UUID $DEV_UUID)"
     info "Drop-in $(limine_dropin_path): $(limine_dropin_content "$DEV_UUID" "$MAPPER")"
     confirm "Enrol the plugged-in FIDO2 key to unlock $DEV at boot (installs libfido2, snapshot, LUKS slot, initramfs drop-in, cmdline drop-in, limine-mkinitcpio)?" ||
@@ -845,7 +895,10 @@ cmd_disable() {
     parse_flags "$@"
     confirm "Disable FIDO2 unlock at boot (remove both drop-ins) and rebuild?" ||
         die "aborted — nothing changed"
-    take_snapshot
+    # Nothing configured means nothing to roll back: no snapper snapshot for a
+    # no-op. disable_boot_config still runs — it is what says "Nothing to
+    # rebuild" — and remove is not guarded, since the slot wipe is real work.
+    if [[ -e $(dropin_path) || -e $(limine_dropin_path) ]]; then take_snapshot; fi
     disable_boot_config
     info "The FIDO2 LUKS slot is kept; wipe it with: hyprconf-yubikey remove"
 }
@@ -864,8 +917,35 @@ cmd_remove() {
     disable_boot_config
 }
 
+# legacy_inline_uuid <luks uuid>...: the first of them /etc/default/limine's
+# own picked line already sets rd.luks.options= for — the inline residue
+# hyprconf-yubikey 4.0.0-4.2.0 wrote before v5 moved to a drop-in, and what
+# omarchy-upgrade-to-quattro copies out of /proc/cmdline. enroll refuses such a
+# box (cmdline_check), and `disable` cannot clear it: the tool only ever reads
+# that file. Prints nothing and returns 1 when there is none.
+legacy_inline_uuid() {
+    local uuid
+    split_cmdline_line "${L_LINES[L_IDX]}" || return 1
+    for uuid in "$@"; do
+        if cmdline_has "$L_VALUE" "rd.luks.options=$uuid="; then
+            printf '%s\n' "$uuid"
+            return 0
+        fi
+    done
+    return 1
+}
+
 cmd_status() {
-    local dropin limine_dropin limine tokens row path ver uuid slot sd_overlay
+    local dropin limine_dropin limine tokens row path ver uuid slot sd_overlay dump legacy=""
+    local -a luks_uuids=()
+    # One sudo question for the whole listing. run_root_quiet is `sudo -n`, and
+    # every call with no cached credentials writes an auth-log record ("a
+    # password is required"), so a box with sudo mail gets one false alarm per
+    # LUKS2 device on a command README documents as the ordinary unprivileged
+    # one. Asking once turns that into a single record — the probe itself logs
+    # it, and there is no way to ask sudo whether it would work without one.
+    local can_root=1
+    run_root_quiet true 2>/dev/null || can_root=0
     dropin=$(dropin_path)
     limine_dropin=$(limine_dropin_path)
     limine=$_HYPRCONF_LIMINE_DEFAULT
@@ -881,10 +961,10 @@ cmd_status() {
         [[ -n $path ]] || continue
         any=1
         if [[ $ver == 2 ]]; then
-            if run_root_quiet cryptsetup luksDump "$path" 2>/dev/null | grep -q systemd-fido2; then
-                slot="yes"
-            elif run_root_quiet cryptsetup luksDump "$path" >/dev/null 2>&1; then
-                slot="no"
+            luks_uuids+=("$uuid")
+            # One dump per device, read once: the header is all both answers need.
+            if ((can_root)) && dump=$(run_root_quiet cryptsetup luksDump "$path" 2>/dev/null); then
+                if grep -q systemd-fido2 <<<"$dump"; then slot="yes"; else slot="no"; fi
             else
                 slot="unknown (run as root)"
             fi
@@ -902,6 +982,8 @@ cmd_status() {
         info "  kernel cmdline:       no KERNEL_CMDLINE[default] line in $limine"
     elif ((L_PLAIN)); then
         info "  kernel cmdline:       KERNEL_CMDLINE[default]= (not +=) in $limine replaces every drop-in's parameters — enroll refuses it"
+    elif legacy=$(legacy_inline_uuid "${luks_uuids[@]}"); then
+        info "  kernel cmdline:       rd.luks.options=$legacy= is inline on the KERNEL_CMDLINE[default]+= line of $limine — enroll refuses it (it would override the drop-in); delete the rd.luks.* parameters from that line by hand, keep cryptdevice="
     else
         info "  kernel cmdline:       KERNEL_CMDLINE[default]+= line found in $limine (read for the mapper name, never edited)"
     fi

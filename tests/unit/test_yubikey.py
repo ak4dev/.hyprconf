@@ -15,7 +15,9 @@ Verifies:
   UUID-less global rd.luks.options= form) is READ for the mapper name and left
   byte-identical; the shapes refused (a line the tool cannot read with
   certainty, a plain `=` that would override the drop-in, a competing
-  rd.luks.options= for the device)
+  rd.luks.options= for the device — on the cmdline limine ASSEMBLES, so one in
+  another /etc/limine-entry-tool.d/*.conf is caught too, and the v4.0.0-4.2.0
+  inline residue is named for what it is)
 - disable and remove never read /etc/default/limine: an unreadable line, or
   none at all, does not stop them
 - the mapper name comes from the read line alone (cryptdevice= cross-checked
@@ -32,12 +34,13 @@ Verifies:
   intermediate); an empty lsblk FSVER survives the field round trip; and the
   interactive prompts (confirm, the device menu, its bounds) via
   _HYPRCONF_ASSUME_TTY
-- status/help/sudo, and the restraint scans (no password slot, no AUR, no set
-  -e, no .bak)
+- status/help/sudo — including the one sudo probe that replaces two `sudo -n`
+  auth-log records per LUKS2 device, and the inline-residue line — and the
+  restraint scans (no password slot, no AUR, no set -e, no .bak)
 
 HERMETIC: the tool talks to sudo, lsblk, cryptsetup, systemd-cryptenroll,
-limine-mkinitcpio, omarchy-pkg-add, omarchy-snapshot, fido2-token and
-omarchy-setup-security-fido2. Every one of them is a recording stub on a
+limine-mkinitcpio, limine-entry-tool, omarchy-pkg-add, omarchy-snapshot,
+fido2-token and omarchy-setup-security-fido2. Every one of them is a recording stub on a
 fake-bins dir put FIRST on PATH, and every system path the tool reads or
 writes — /etc/default/limine and limine's other config files,
 limine-entry-tool.d, mkinitcpio.conf.d, vconsole.conf, machine-id,
@@ -72,6 +75,7 @@ EXTERNALS = (
     "systemd-cryptenroll",
     "mkinitcpio",
     "limine-mkinitcpio",
+    "limine-entry-tool",
     "omarchy-pkg-add",
     "omarchy-snapshot",
     "fido2-token",
@@ -141,6 +145,22 @@ STUBS = {
         "  stale) ;;\n"
         '  exit1) echo "ERROR: FAT32 boot partition not found." >&2; exit 1 ;;\n'
         "esac\nexit 0\n"
+    ),
+    # `limine-entry-tool --get-cmdline <kernel name>` (its --help): the
+    # KERNEL_CMDLINE[default] limine's loader assembles. Built here from the
+    # box's own files, /etc/default/limine first and then the drop-ins — the
+    # order the real tool prints on a live box, and the reason a per-file read
+    # cannot say which layer wins. FAKE_EFFECTIVE_CMDLINE overrides it.
+    "limine-entry-tool": (
+        "[[ ${1:-} == --get-cmdline ]] || exit 2\n"
+        "if [[ -n ${FAKE_EFFECTIVE_CMDLINE-} ]]; then printf '%s\\n' \"$FAKE_EFFECTIVE_CMDLINE\"; exit 0; fi\n"
+        'out=""\n'
+        'for f in "$_HYPRCONF_LIMINE_DEFAULT" "$_HYPRCONF_LIMINE_CONF_D"/*.conf; do\n'
+        "  [[ -f $f ]] || continue\n"
+        '  while IFS= read -r v; do out+=" $v"; done \\\n'
+        '    < <(sed -n \'s/^[[:space:]]*KERNEL_CMDLINE\\[default\\][+]\\?=//p\' "$f" | tr -d "\\"\'")\n'
+        "done\n"
+        "printf '%s\\n' \"${out# }\"\nexit 0\n"
     ),
     "omarchy-pkg-add": "exit 0\n",
     "omarchy-snapshot": 'exit "${FAKE_SNAPSHOT_RC:-0}"\n',
@@ -222,6 +242,7 @@ class Box:
         self.tokens = TOKEN_LINE
         self.snapshot_rc = 0
         self.limine_mkinitcpio = "ok"
+        self.effective_cmdline = ""  # empty: the stub assembles it from the box
         self.boot_images = [self.image_path("linux", uki=uki and uefi)]
         for name, body in STUBS.items():
             fake = self.bins / name
@@ -306,6 +327,7 @@ class Box:
             "FAKE_TOKENS": self.tokens,
             "FAKE_SNAPSHOT_RC": str(self.snapshot_rc),
             "FAKE_LIMINE_MKINITCPIO": self.limine_mkinitcpio,
+            "FAKE_EFFECTIVE_CMDLINE": self.effective_cmdline,
             "FAKE_BOOT_IMAGES": "\n".join(str(p) for p in self.boot_images),
             "_HYPRCONF_ASSUME_TTY": "1" if assume_tty else "",
         }
@@ -367,6 +389,7 @@ def test_every_external_the_tool_calls_has_a_fake() -> None:
     code = "\n".join(ln for ln in TOOL.read_text().splitlines() if not ln.lstrip().startswith("#"))
     pattern = (
         r"\b(sudo|lsblk|cryptsetup|systemd-cryptenroll|mkinitcpio|limine-mkinitcpio|limine-update"
+        r"|limine-entry-tool"
         r"|fido2-token|omarchy-[a-z0-9-]+)\b"
     )
     called = set(re.findall(pattern, code))
@@ -488,7 +511,7 @@ def test_enroll_without_token_touches_nothing(box: Box) -> None:
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
     assert "fido2-token" in res.stderr
-    assert set(box.calls()) <= {
+    assert set(c for c in box.calls() if "limine-entry-tool" not in c) <= {
         "lsblk -rno PATH,FSTYPE,FSVER,UUID",
         "omarchy-pkg-add libfido2",
         "fido2-token -L",
@@ -506,15 +529,16 @@ def test_enroll_without_token_touches_nothing(box: Box) -> None:
 )
 def test_refuses_without_tty_or_yes(box: Box, sub: str, enrolled: bool, before: list[str]) -> None:
     """Without a terminal and without --yes the run dies at the confirmation —
-    and NOTHING ran before it but the read-only device pick, omarchy-pkg-add
-    included; an enrolled box stays as it is."""
+    and NOTHING ran before it but the read-only device pick and, for enroll,
+    the read of the assembled cmdline (limine-entry-tool --get-cmdline);
+    omarchy-pkg-add included. An enrolled box stays as it is."""
     if enrolled:
         assert box.run("enroll", "--yes", "--device", DEV).returncode == 0
         box.reset_calls()
     res = box.run(sub, "--device", DEV)
     assert res.returncode != 0
     assert "--yes" in res.stderr
-    assert box.calls() == before
+    assert [c for c in box.calls() if "limine-entry-tool" not in c] == before
     assert box.enrolled is enrolled
     assert box.dropin.exists() is enrolled and box.limine_dropin.exists() is enrolled
     if not enrolled:
@@ -670,7 +694,38 @@ def test_cmdline_read_refuses_before_anything_changes(box: Box, line: str, reaso
     res = box.run("enroll", "--yes", "--device", DEV)
     assert res.returncode != 0
     assert reason in res.stderr, res.stderr
-    assert box.calls() == ["lsblk -rno PATH,FSTYPE,FSVER,UUID"]
+    # cmdline_check reads the assembled cmdline (limine-entry-tool
+    # --get-cmdline) before it can judge it; nothing else runs.
+    assert [c for c in box.calls() if "limine-entry-tool" not in c] == [
+        "lsblk -rno PATH,FSTYPE,FSVER,UUID"
+    ]
+    _assert_untouched(box)
+
+
+def test_enroll_refuses_a_competing_rd_luks_options_in_another_dropin(box: Box) -> None:
+    """/etc/default/limine's own line is clean, but another
+    /etc/limine-entry-tool.d/*.conf already sets rd.luks.options= for the
+    device. systemd keeps one per device, and the assembled cmdline is the only
+    place that shows it — a per-file read cannot say which layer wins."""
+    (box.conf_d / "zz-other.conf").write_text(
+        f'KERNEL_CMDLINE[default]+=" rd.luks.options={UUID}=discard"\n'
+    )
+    res = box.run("enroll", "--yes", "--device", DEV)
+    assert res.returncode != 0
+    assert f"rd.luks.options={UUID}=discard" in res.stderr
+    assert "would override the drop-in" in res.stderr
+    assert f"the drop-in in {box.conf_d} that sets it" in res.stderr
+    _assert_untouched(box)
+
+
+def test_enroll_names_the_inline_residue_when_it_is_on_the_picked_line(box: Box) -> None:
+    """The v4.0.0-4.2.0 layout (rd.luks.* inline on /etc/default/limine, no
+    cmdline drop-in) is refused with what put it there and what to do."""
+    box.set_limine_line(f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID}=root {RD_OPTS}"')
+    res = box.run("enroll", "--yes", "--device", DEV)
+    assert res.returncode != 0
+    assert f"the KERNEL_CMDLINE[default] line of {box.limine}" in res.stderr
+    assert "4.0.0-4.2.0" in res.stderr and "keep cryptdevice=" in res.stderr
     _assert_untouched(box)
 
 
@@ -982,7 +1037,9 @@ def test_disable_removes_both_dropins(box: Box) -> None:
 
 
 def test_disable_when_not_configured_changes_nothing(box: Box) -> None:
-    res = box.run("disable", "--yes", "--no-snapshot")
+    """With snapshots ON: neither drop-in exists, so there is nothing to roll
+    back and omarchy-snapshot is never called for the no-op."""
+    res = box.run("disable", "--yes")
     assert res.returncode == 0, res.stderr
     assert box.calls() == []
     assert "Nothing to rebuild" in res.stdout
@@ -1042,6 +1099,32 @@ def test_status_prints_facts(box: Box) -> None:
     assert res.returncode == 0
     assert "KERNEL_CMDLINE[default]= (not +=)" in res.stdout and "enroll refuses it" in res.stdout
     assert "line found" not in res.stdout
+
+
+def test_status_reports_inline_rd_luks_residue(box: Box) -> None:
+    """A box enrolled by hyprconf-yubikey 4.0.0-4.2.0 carries the two
+    parameters inline on /etc/default/limine; `disable` never touches that file
+    (README: Reverting to stock), so status names the residue instead of
+    printing the neutral line."""
+    box.set_limine_line(f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID}=root {RD_OPTS}"')
+    res = box.run("status")
+    assert res.returncode == 0, res.stderr
+    assert f"rd.luks.options={UUID}= is inline" in res.stdout
+    assert "delete the rd.luks.* parameters from that line by hand" in res.stdout
+    assert "line found" not in res.stdout
+
+
+def test_status_says_unknown_instead_of_asking_sudo_per_device(box: Box) -> None:
+    """Without usable sudo credentials every LUKS2 row reads "unknown (run as
+    root)" and status still exits 0 — and the tool asks sudo once for the whole
+    listing, not twice per device (each `sudo -n` writes an auth-log record)."""
+    for name in ("sudo", "cryptsetup"):
+        (box.bins / name).write_text(RECORD.format(name=name) + "exit 1\n")
+    res = box.run("status")
+    assert res.returncode == 0, res.stderr
+    assert f"{DEV}  LUKS2  UUID {UUID}  systemd-fido2 slot: unknown (run as root)" in res.stdout
+    if os.geteuid() != 0:
+        assert [c for c in box.calls() if c.startswith("sudo")] == ["sudo -n -- true"]
 
 
 def test_status_never_fails(tmp_path: Path) -> None:
