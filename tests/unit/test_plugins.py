@@ -670,22 +670,23 @@ def test_manifests_declare_the_slot_and_entry_points_the_bar_uses(folder: Path) 
     assert manifest["barWidget"].get("defaultSection") == want["defaultSection"]
 
 
-@pytest.mark.parametrize("folder", plugin_folders(), ids=lambda p: p.name)
-def test_installed_plugins_pass_omarchy_plugin_validate(folder: Path) -> None:
-    """Omarchy's own validator over each plugin folder. It reads the
+def test_installed_plugins_pass_omarchy_plugin_validate() -> None:
+    """Omarchy's own validator over every plugin folder. It reads the
     manifest's `id`, never the folder name (/usr/bin/omarchy-plugin-validate:
     49-53, 4.0.3-1), so the checkout folder answers for the installed copy —
-    which install.sh's `cp -aL` makes byte-identical. Real when installed."""
+    which install.sh's `cp -aL` makes byte-identical. Real when installed; one
+    test, so it is one of the two skips AGENTS.md pins for CI."""
     if not PLUGIN_VALIDATE.is_file():
         pytest.skip("no installed omarchy-plugin-validate")
-    proc = subprocess.run(
-        ["bash", str(PLUGIN_VALIDATE), str(folder)],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(REPO_ROOT)},
-    )
-    assert proc.returncode == 0, f"{folder.name}: {proc.stderr}"
+    for folder in plugin_folders():
+        proc = subprocess.run(
+            ["bash", str(PLUGIN_VALIDATE), str(folder)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env={"PATH": "/usr/bin:/bin", "HOME": str(REPO_ROOT)},
+        )
+        assert proc.returncode == 0, f"{folder.name}: {proc.stderr}"
 
 
 def test_plugin_qml_parses() -> None:
