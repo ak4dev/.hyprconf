@@ -491,8 +491,8 @@ stage_packages() {
 # only when the merged bytes differ. Every captured pref is a Status
 # "default": it seeds a profile and the user can still change it — the
 # toolbar arrangement included, a seeded browser.uiCustomization.state that
-# a fresh profile's first window is built from (CLAUDE.md › Known quirks for
-# the semantics). Firefox silently drops any pref outside its own allowlist,
+# a fresh profile's first window is built from (tests/unit/test_firefox.py
+# pins the semantics, with the live verification). Firefox silently drops any pref outside its own allowlist,
 # so tests/unit/test_firefox.py pins that list — the one setting no policy
 # can make stick (the find bar's Highlight All, which that allowlist
 # rejects) is left to the user, in README › Firefox settings. One of the
@@ -637,7 +637,10 @@ stage_terminal() {
     # terminal (Omarchy 4.0.3-1) checks nothing — it writes the desktop id
     # into ~/.config/xdg-terminals.list and notifies — so pointing it at an
     # absent kitty would leave SUPER+RETURN and every TUI launcher with no
-    # terminal at all.
+    # terminal at all. Its installer is no help either: omarchy-install-
+    # terminal prints "Failed to install $package" and still exits 0
+    # (/usr/bin/omarchy-install-terminal:50-52, 4.0.3-1), so kitty comes from
+    # the packages file and this stage never calls it.
     #
     # Warn and skip rather than die: this is the FIRST stage after the package
     # gate, and hooks/post-update.d/10-hyprconf re-runs the installer with

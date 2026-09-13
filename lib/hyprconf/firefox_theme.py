@@ -171,8 +171,8 @@ def theme_prefs(mode: str) -> dict[str, object]:
     ``extensions.activeThemeID`` activates the built-in Dark or Light theme.
     On Firefox 154 that does NOT unlock the stylesheet's ``--lwt-*`` block:
     both built-in ids are ``inApp: true``, so ``:root[lwtheme]`` never turns
-    on for them and that block stays inert (see THEME_ID above and AGENTS.md
-    › Known quirks) — the template's direct selectors are what paint the
+    on for them and that block stays inert (see THEME_ID above) — the
+    template's direct selectors are what paint the
     chrome, under any theme. The pref still earns its place: it forces the
     light/dark colour scheme, which is all the built-in manifests carry.
     ``ui.systemUsesDarkTheme`` is what Firefox consults for

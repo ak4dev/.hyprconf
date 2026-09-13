@@ -12,11 +12,13 @@ the same folders out of the checkout.
   nothing that only works with the overlay installed (no ~/.local/bin, no
   @HYPRCONF_DIR@, no bare hyprconf-* argv in a Process), every bundled
   script executable.
-- Omarchy 4.0.2's rule for QML Text: a `text:` bound to anything but string
+- Omarchy's rule for QML Text: a `text:` bound to anything but string
   literals declares `textFormat: Text.PlainText` (Qt's default AutoText would
-  parse a window title or a device name as rich text; upstream's
-  test/shell.d/qml-text-format-scan.py — the block rule is ported here,
-  small, with a self-check so the port cannot pass in silence).
+  parse a window title or a device name as rich text). Upstream enforces it
+  with a scan that lives in its git repository, not in the package; what is
+  checkable on the box is the stock QML itself (shell/plugins/bar/widgets/
+  ActiveWindow.qml:32, shell/Ui/WidgetButton.qml:77). The block rule is
+  ported here, small, with a self-check so the port cannot pass in silence.
 - The plugin-facade contract: every `bar.<x>` / `bar.shell.<x>` the QML
   reads is a member of Omarchy's Ui/PluginBarApi.qml / services/
   PluginShellApi.qml, the objects an INSTALLED third-party widget actually
@@ -24,8 +26,7 @@ the same folders out of the checkout.
   pinned list where there is not (CI) — one test either way, so this adds
   no skip.
 - The clock plugin's parity with the installed Omarchy's own clock (skips
-  without one — with test_installed_plugins_pass_omarchy_plugin_validate,
-  the two skips CI shows).
+  without one).
 - The resources plugin's feeder restart policy, which is a source shape
   because a behavioural check would need a running shell: a capped backoff,
   never a flat retry, with the latched produced-output flags left alone.
@@ -476,7 +477,7 @@ def test_clock_plugin_tracks_omarchys_stock_clock() -> None:
     plus a header comment and exactly the three deltas above, nothing else.
     An Omarchy release that changes its clock turns this red on a box with
     that release, and the header carries the refresh recipe. Skips without
-    an installed Omarchy — one of the two skips CI shows."""
+    an installed Omarchy."""
     if not OMARCHY_CLOCK.is_dir():
         pytest.skip("no installed Omarchy clock plugin to compare with")
     folder = PLUGINS / "hyprconf-clock"

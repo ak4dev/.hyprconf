@@ -194,7 +194,7 @@ def test_toolbar_layout_seeds_a_fresh_profile_then_belongs_to_the_user() -> None
     the user branch, which shadows the seed from then on: later
     rearrangements survive restarts, and dropping the policy file leaves
     them in place. On a profile that already has a user-branch value the
-    seed does nothing (CLAUDE.md › Known quirks). Verified live on 154.0
+    seed does nothing. Verified live on 154.0
     with fresh headless profiles under the real policy machinery
     (2026-08-30): the seeded order comes up, a swap made between runs stays.
     """

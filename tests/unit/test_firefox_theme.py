@@ -247,7 +247,7 @@ def test_theme_prefs_follow_the_mode() -> None:
     assert dark["toolkit.legacyUserProfileCustomizations.stylesheets"] is True
     # activeThemeID forces the light/dark colour scheme — on FF 154 the
     # built-in ids are inApp, so it never unlocks the --lwt-* block; the
-    # template's direct selectors paint (AGENTS.md › Known quirks).
+    # template's direct selectors paint (firefox_theme.py's THEME_ID note).
     assert dark["extensions.activeThemeID"] == "firefox-compact-dark@mozilla.org"
     assert light["extensions.activeThemeID"] == "firefox-compact-light@mozilla.org"
     assert dark["ui.systemUsesDarkTheme"] == 1 and light["ui.systemUsesDarkTheme"] == 0
