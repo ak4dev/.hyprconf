@@ -7,7 +7,9 @@
       "Bash(sudo yay:*)",
       "Bash(paru:*)",
       "Bash(makepkg:*)",
-      "Bash(omarchy-pkg-aur-add:*)"
+      "Bash(omarchy-pkg-aur-add:*)",
+      "Bash(omarchy-pkg-aur-install:*)",
+      "Bash(omarchy-update-aur-pkgs:*)"
     ],
     "ask": [
       "Bash(git push:*)",

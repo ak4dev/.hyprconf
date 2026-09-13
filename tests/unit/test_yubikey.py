@@ -407,7 +407,8 @@ def test_restraint_scan() -> None:
         "pacman",
         "yay",
         "makepkg",
-        "omarchy-pkg-aur-add",
+        "omarchy-pkg-aur-",  # -add, -install and -accessible in one token
+        "omarchy-update-aur-pkgs",
         "sbctl",
         "set -e",
         ".bak",

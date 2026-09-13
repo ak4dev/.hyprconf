@@ -89,6 +89,14 @@ def test_claude_settings_guardrails_keep_their_entries() -> None:
         "Bash(paru:*)",
         "Bash(makepkg:*)",
         "Bash(omarchy-pkg-aur-add:*)",
+        # Omarchy ships three AUR entry points, not one: omarchy-pkg-aur-install
+        # is a yay TUI (`# omarchy:requires-sudo=true`, /usr/bin/omarchy-pkg-aur-install:4,
+        # `yay -Slqa | fzf` then `xargs yay -S --noconfirm`, :20,26) and
+        # omarchy-update-aur-pkgs is `yay -Sua --noconfirm --cleanafter` (:8).
+        # The rules match command text, so invoking either by name walked past
+        # `Bash(yay:*)`. Omarchy 4.0.3-1.
+        "Bash(omarchy-pkg-aur-install:*)",
+        "Bash(omarchy-update-aur-pkgs:*)",
     } <= deny
     assert {
         "Bash(git push:*)",

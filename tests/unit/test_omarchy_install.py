@@ -1872,7 +1872,10 @@ FORBIDDEN_TOKENS = (
     "yay ",
     "paru ",
     "makepkg",
-    "omarchy-pkg-aur-add",
+    # Every AUR wrapper Omarchy ships in one token: -add, -install and
+    # -accessible (/usr/bin/omarchy-pkg-aur-*), plus the AUR half of its updater.
+    "omarchy-pkg-aur-",
+    "omarchy-update-aur-pkgs",
 )
 
 

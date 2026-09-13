@@ -68,6 +68,14 @@ GENERIC_ACCOUNTS = frozenset(
         "github",
         "docker",
         "vagrant",
+        # Project and vendor names, never people. "omarchy" is the hostname
+        # Omarchy's own installer defaults to (OMARCHY_HOSTNAME_DEFAULT='omarchy',
+        # /usr/share/omarchy/install/provisioning/setup-form.sh:84, and the
+        # prompt "or return for 'omarchy'" at :155) — on a box that took it,
+        # the hostname identity flagged every "omarchy" in the tree, 1700
+        # lines across 57 files, and "hyprconf" would do the same for 785.
+        "omarchy",
+        "hyprconf",
     }
 )
 
