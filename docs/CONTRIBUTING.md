@@ -49,7 +49,7 @@ publish flow and the website upload.
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
 ├── scripts/publish             # The three gates → tag → one atomic push of dev, stable and the tag
-├── docs/                       # This file, hyprland-reference.md, quickshell-reference.md
+├── docs/                       # This file, hyprland-reference.md
 ├── .github/                    # CI workflow
 ├── web/, assets/               # index.html + favicon.svg (static landing page); banner.svg (the README's and the page's brand art)
 ├── Makefile, pyproject.toml    # Test/lint targets; pytest/ruff config

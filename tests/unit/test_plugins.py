@@ -589,8 +589,8 @@ def test_widgets_read_only_what_the_plugin_facades_expose() -> None:
     (plugins/bar/Bar.qml:2002-2003 hands it pluginBarApiFor(...), and
     shell.qml:739-743 the scoped PluginShellApi), so a member that exists
     only on the Bar reads as undefined with nothing logged anywhere — the
-    exact failure the 4.0.2 -> 4.0.3 host rewrite could have caused, and the
-    guard docs/quickshell-reference.md failed to be.
+    exact failure the 4.0.2 -> 4.0.3 host rewrite could have caused: the
+    facades are the contract, and this is what pins the widgets to them.
     """
     installed_bar, installed_shell = _facade_members()
     if (OMARCHY_SHELL / "Ui" / "PluginBarApi.qml").is_file():

@@ -73,13 +73,38 @@ foreground apply.
 
 The manifest declares two kinds. `Widget.qml` is the `bar-widget` and is
 built once per monitor, like every bar widget; `Service.qml` is the
-`service`, which Omarchy's shell loads **once** for the session, and it is
-the one that runs the two feeders. The widget reads the numbers back with
+`service`, which Omarchy's shell loads **once** for the session — any enabled
+plugin declaring `kinds: ["service"]` with an `entryPoints.service`, first-party
+or not (`shell/shell.qml`, `_syncServices` / `ensureService`; a third-party
+instance is created unparented and held alive by the shell's `_services` map) —
+and it is the one that runs the two feeders. The widget reads the numbers back with
 `bar.shell.serviceFor("hyprconf.resources")` — the accessor Omarchy scopes
 to a plugin's own id (`shell/services/PluginShellApi.qml`). So a
 six-monitor desk pays for one pair of feeders, not six, and on NVIDIA for
 one NVML session rather than six. There is still only one id and one on/off
 switch.
+
+## Host contract (Omarchy 4.0.3-1)
+
+An installed third-party widget never gets the host Bar: its `bar` is a
+`Ui/PluginBarApi.qml` facade and `bar.shell` a `services/PluginShellApi.qml`,
+both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2002-2003`,
+`shell/shell.qml:221`). Those two files are the whole contract — a member that
+exists only on the Bar reads back `undefined`, with nothing logged anywhere.
+This widget uses `bar.barForeground`, `bar.fontFamily`,
+`bar.run(command)`, `bar.showTooltip(target, text)` / `bar.hideTooltip(target)`
+and `bar.shell.serviceFor("hyprconf.resources")`, plus the `bar`, `moduleName`
+and `settings` the bar's `ModuleSlot.injectProps` sets on it.
+
+The two feeders in `bin/` are run by absolute path, resolved from the service
+file's own URL rather than from `PATH`: the shell loads an entry point as a
+percent-encoded `file://` URL (`services/PluginRegistry.qml` `entryPointUrl` →
+`Commons/Util.qml` `fileUrl`), so `Qt.resolvedUrl(".")` is that URL's directory
+and `decodeURIComponent` gives the filesystem path back — a space or a `%` in
+the path survives.
+Re-verify both files, and the Quickshell API against
+`/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, after every Omarchy or Quickshell
+upgrade.
 
 ## Dependencies
 

@@ -78,6 +78,22 @@ omarchy bar set hyprconf.clock weekStartDay monday        # the calendar's first
 `format` takes `Qt.formatDateTime` tokens (`ww` is the ISO week). The
 calendar's `birthYear` / `lifeExpectancy` are set from the panel itself.
 
+## Host contract (Omarchy 4.0.3-1)
+
+An installed third-party widget never gets the host Bar: its `bar` is a
+`Ui/PluginBarApi.qml` facade and `bar.shell` a `services/PluginShellApi.qml`,
+both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2002-2003`,
+`shell/shell.qml:221`). Those two files are the whole contract — a member that
+exists only on the Bar reads back `undefined`, with nothing logged anywhere.
+This widget uses `bar.run(command)` and
+`bar.shell.updateEntryInline(id, settings)`, plus the `bar`, `moduleName` and
+`settings` the bar's `ModuleSlot.injectProps` sets on it — and hands all three
+down to the stock `Panel.qml` it loads (`injectPanel()`), which is what keeps
+the calendar's own settings writes landing under this plugin's id.
+Re-verify both files, and the Quickshell API against
+`/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, after every Omarchy or Quickshell
+upgrade.
+
 ## Dependencies
 
 Omarchy's shell only — the panel is Omarchy's own file at

@@ -50,6 +50,20 @@ text on one line (280 by default), laid out here on two lines:
 omarchy bar set hyprconf.active-window maxWidth 400
 ```
 
+## Host contract (Omarchy 4.0.3-1)
+
+An installed third-party widget never gets the host Bar: its `bar` is a
+`Ui/PluginBarApi.qml` facade and `bar.shell` a `services/PluginShellApi.qml`,
+both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2002-2003`,
+`shell/shell.qml:221`). Those two files are the whole contract — a member that
+exists only on the Bar reads back `undefined`, with nothing logged anywhere.
+This widget uses `bar.barForeground`, `bar.fontFamily`,
+`bar.showTooltip(target, text)` and `bar.hideTooltip(target)`, plus the `bar`,
+`moduleName` and `settings` the bar's `ModuleSlot.injectProps` sets on it.
+Re-verify both files, and the Quickshell API against
+`/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, after every Omarchy or Quickshell
+upgrade.
+
 ## Dependencies
 
 Omarchy's shell only (`Quickshell.Wayland` for the focused toplevel).
