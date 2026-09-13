@@ -380,8 +380,7 @@ cmd_remove() {
 # install.sh: it re-execs itself under script(1) (bin/omarchy-update, Omarchy
 # 4.0.0-1: `exec env OMARCHY_UPDATE_LOGGED=1 script -qefc ...`), so every child
 # passes the tty test although nobody is there to answer (`-y` is "a promise
-# not to ask anything"); the marker it exports is the gate, as in install.sh's
-# show_banner.
+# not to ask anything"); the marker it exports is the gate.
 #
 # It runs on every apply, hook runs included, so the facts that cost nothing
 # come first — the Ignore marker, the sysfs scan (one GPU, no display GPU),

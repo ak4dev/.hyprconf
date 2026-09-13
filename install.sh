@@ -150,54 +150,6 @@ preflight() {
 
 # ---------------------------------------------------------------- bootstrap
 
-# The .hyprconf banner (the same art as assets/banner.svg). Colours only on a
-# terminal, and NO screen clear — the post-update hook runs this script
-# inside omarchy-update, whose output must stay on screen. $1 is the branch
-# named on the second SYS line.
-banner() {
-    local wh='' gl='' ng='' am='' dm='' rs=''
-    if [[ -t 1 ]]; then
-        wh=$'\e[1;37m' gl=$'\e[1;31m' ng=$'\e[2;32m'
-        am=$'\e[1;33m' dm=$'\e[2;37m' rs=$'\e[0m'
-    fi
-    # top noise line
-    printf '%s  ▒░▒▓▒░░▒▓░░▒▓▒░▒░▒▓▒░░▒▓░▒▓▒░▒░▒▓▒░░▒▓░▒▓▒░▒░▒▓▒░░▒▓░▒▓▒░▒░▒▓▒░▒▓%s\n' "$ng" "$rs"
-    # .hyprconf logo — standard ASCII-art lowercase font. The (_) glyph on
-    # rows 4–5 is the figlet rendering of the leading '.'; row 3 is
-    # glitch-red, the corrupted-scanline artifact.
-    printf '%s         _                                        __%s\n'                   "$dm" "$rs"
-    printf '%s        | |__  _   _ _ __  _ __ ___ ___  _ __  / _|%s\n'                  "$wh" "$rs"
-    printf "%s        | '_ \\| | | | '_ \\| '__/ __/ _ \\| '_ \\| |_%s\n"                "$gl" "$rs"
-    printf '%s       _| | | | |_| | |_) | | | (_| (_) | | | |  _|%s\n'                  "$wh" "$rs"
-    printf '%s     (_)|_| |_|\__, | .__/|_|  \___\___/|_| |_||_|%s\n'                   "$dm" "$rs"
-    printf '%s               |___/|_|%s\n'                                               "$dm" "$rs"
-    # bottom noise line + sys info
-    printf '%s  ▓░▒▓░▒▓▒▓░▒▓░▒▓░░▒▓░▒▓▒░▒▓░░▒▓░▒▓░▒▓░▒▓░▒▓▒▓░▒▓░▒▓░░▒▓░▒▓░░▒▓░▒▓░▒▓%s\n' "$ng" "$rs"
-    printf '%s  ──────────────────────────────────────────────────────────────────────%s\n'   "$dm" "$rs"
-    printf '%s  [ SYS ] %-49s%s\n'                                                     "$am" "omarchy overlay" "hyprconf.sh"
-    printf    '  [ SYS ] origin: github.com/ak4dev/.hyprconf   branch: %s%s\n'          "$1" "$rs"
-    printf '%s  ──────────────────────────────────────────────────────────────────────%s\n\n' "$dm" "$rs"
-}
-
-# The banner, once per install: on a terminal only (or the suite's stand-in
-# for one), never inside omarchy-update, and never twice on the curl path —
-# bootstrap prints it, then exports HYPRCONF_BANNER_SHOWN before it hands
-# over to the checkout's copy. The post-update hook needs its own gate: the
-# tty test is TRUE there, because omarchy-update re-execs itself under
-# script(1) (bin/omarchy-update, Omarchy 4.0.0-1: `exec env
-# OMARCHY_UPDATE_LOGGED=1 script -qefc ...`), which puts a pty on every
-# child's stdout — and exports OMARCHY_UPDATE_LOGGED to every one of them,
-# which is the marker used here. The branch is $1, or the checkout's when
-# not given.
-show_banner() {
-    [[ -z ${HYPRCONF_BANNER_SHOWN:-} && -z ${OMARCHY_UPDATE_LOGGED:-} ]] || return 0
-    [[ -t 1 || -n $_HYPRCONF_ASSUME_TTY ]] || return 0
-    local branch="${1:-}"
-    [[ -n $branch ]] ||
-        branch="$(git -C "$HERE" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-    banner "${branch:-unknown}"
-}
-
 # The curl path: `bash <(curl -fsSL --proto '=https' https://hyprconf.sh)` runs this file from /dev/fd
 # (schemeless, curl's first request is plaintext port 80 and an on-path
 # attacker answers it before the https redirect exists — hence the scheme
@@ -209,7 +161,6 @@ show_banner() {
 # over with the arguments as given. That copy re-reads nothing from this
 # one, so the served file can be any version that has this function.
 bootstrap() {
-    show_banner "$HYPRCONF_BRANCH"
     preflight
     command -v git >/dev/null 2>&1 ||
         die "git not on PATH — install it (omarchy-pkg-add git) and re-run"
@@ -222,7 +173,6 @@ bootstrap() {
     fi
     [[ -f $HYPRCONF_DIR/install.sh ]] ||
         die "$HYPRCONF_DIR/install.sh not found — is $HYPRCONF_DIR a hyprconf checkout?"
-    export HYPRCONF_BANNER_SHOWN=1
     exec bash "$HYPRCONF_DIR/install.sh" "$@"
 }
 
@@ -1066,8 +1016,8 @@ stage_bin() {
 # GPU, the right one is already device 0, the box is already configured
 # (uwsm env.d, uwsm/env, environment.d or the live environment) or the user
 # chose Ignore, and never prompts without a terminal or inside omarchy-update
-# (OMARCHY_UPDATE_LOGGED, the marker show_banner gates on: script(1)'s pty
-# would pass its tty test) — the post-update hook's run gets one info line and
+# (OMARCHY_UPDATE_LOGGED: script(1)'s pty would pass its tty test, so the
+# marker is the gate) — the post-update hook's run gets one info line and
 # exit 0. This stage only runs it; its failure is a warning, never a failed
 # install.
 stage_vulkan_gpu() {
@@ -1714,7 +1664,6 @@ stage_update() {
 main() {
     # No payload beside this file: the curl path. bootstrap execs or dies.
     [[ -d $HERE/hypr && -f $HERE/packages ]] || bootstrap "${orig_args[@]}"
-    show_banner
     preflight
     if (( do_pull )); then stage_pull; fi
     # Everything that needs sudo: packages, Firefox (+ the policy), VS Code,

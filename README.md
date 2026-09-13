@@ -60,7 +60,7 @@ git clone -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf
 bash ~/.hyprconf/install.sh
 ```
 
-`stable` is the branch users get; `dev` is the working branch until `scripts/publish` promotes it. On a terminal every run opens with the `.hyprconf` ASCII banner (the art of `assets/banner.svg`, naming the branch); the post-update hook's run inside `omarchy-update` stays quiet.
+`stable` is the branch users get; `dev` is the working branch until `scripts/publish` promotes it.
 
 | Flag | Effect |
 |---|---|

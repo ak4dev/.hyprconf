@@ -3580,60 +3580,6 @@ def test_curl_path_help_and_bad_options_never_clone(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The banner
-# ---------------------------------------------------------------------------
-
-
-def _banner_rows() -> list[str]:
-    """The six logo rows of assets/banner.svg — the same art the installer prints."""
-    svg = (REPO_ROOT / "assets" / "banner.svg").read_text()
-    rows = re.findall(r"<text[^>]*>([^<]*)</text>", svg)
-    assert len(rows) == 6, rows
-    return rows
-
-
-def test_banner_prints_on_a_terminal_only_and_matches_the_svg(tmp_path: Path) -> None:
-    """The .hyprconf banner: once, at
-    the start, on a terminal only — this suite sees nothing — and never
-    inside omarchy-update, where the post-update hook runs it: stdout IS a
-    tty there (omarchy-update re-execs itself under script(1), Omarchy
-    4.0.0-1), so the gate is the OMARCHY_UPDATE_LOGGED marker that re-exec
-    exports. The logo rows are byte-identical to assets/banner.svg, colours
-    only on a real tty, and never a screen clear (the update's output must
-    stay on screen)."""
-    env = _setup(tmp_path)
-    quiet = _run(env, "--no-update")
-    assert quiet.returncode == 0, quiet.stderr
-    assert "[ SYS ]" not in quiet.stdout
-
-    hooked = _run(
-        env,
-        "--no-update",
-        "--no-packages",
-        extra_env={"_HYPRCONF_ASSUME_TTY": "1", "OMARCHY_UPDATE_LOGGED": "1"},
-    )
-    assert hooked.returncode == 0, hooked.stderr
-    assert "[ SYS ]" not in hooked.stdout
-
-    loud = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
-    assert loud.returncode == 0, loud.stderr
-    assert "\n".join(_banner_rows()) + "\n" in loud.stdout
-    assert loud.stdout.count("[ SYS ] omarchy overlay") == 1
-    assert "[ SYS ] origin: github.com/ak4dev/.hyprconf   branch: " in loud.stdout
-    assert loud.stdout.index("[ SYS ]") < loud.stdout.index("==> ")
-    assert "\x1b" not in loud.stdout  # not a real tty: no colour codes
-    assert "[2J" not in INSTALL_SH.read_text() and "\x1b[2J" not in loud.stdout
-
-    # The curl path prints it in the served copy and marks it shown, so the
-    # checkout's copy it execs does not print it a second time.
-    again = _run(
-        env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1", "HYPRCONF_BANNER_SHOWN": "1"}
-    )
-    assert again.returncode == 0, again.stderr
-    assert "[ SYS ]" not in again.stdout
-
-
-# ---------------------------------------------------------------------------
 # The menu — Proton VPN under Install > Service, through Omarchy's extension file
 # ---------------------------------------------------------------------------
 
@@ -4059,7 +4005,7 @@ def test_dual_gpu_check_never_prompts_without_a_terminal(
     omarchy-update, which re-execs itself under script(1) (bin/omarchy-update,
     Omarchy 4.0.0-1): every child has a pty, so the tty test passes, while
     `-y` promises to ask nothing — the OMARCHY_UPDATE_LOGGED marker it exports
-    is the gate, as for the banner. That run, and a plain non-interactive one,
+    is the gate. That run, and a plain non-interactive one,
     on the failing box: nothing asked, nothing written — no env.d file, no
     marker — and exit 0."""
     env = _setup(tmp_path)
