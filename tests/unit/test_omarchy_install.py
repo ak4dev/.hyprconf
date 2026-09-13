@@ -220,7 +220,7 @@ def _default_app_stub(
 # Every external _setup fakes with the bare recording stub (exit 0). The
 # ones that need a body — omarchy-pkg-add, omarchy-pkg-present,
 # omarchy-plugin-list, omarchy-hook-install, omarchy-theme-refresh,
-# omarchy-default-{terminal,browser,editor}, jq, fc-list, git, kitty, zsh —
+# omarchy-default-{terminal,browser,editor}, jq, git, kitty, zsh —
 # are written
 # individually below; test_every_omarchy_command_install_sh_calls_has_a_fake
 # holds install.sh's code to the union of both.
@@ -293,9 +293,6 @@ def _setup(
     _stub(bins / "omarchy-pkg-present", calls)
     _stub(bins / "omarchy-hook-install", calls, HOOK_INSTALL)
     _stub(bins / "omarchy-theme-refresh", calls, THEME_REFRESH)
-    # fc-list is how the installer discovers whether the font it wants is really
-    # present; the real one on the test host would answer for the host's fonts.
-    _stub(bins / "fc-list", calls, 'echo "GeistMono Nerd Font,GeistMono NF"')
     _stub(bins / "omarchy-default-terminal", calls, _terminal_stub(tmp_path))
     # Read back by stage_defaults; the unset answers are Omarchy's own (editor
     # falls back to "nvim", bin/omarchy-default-editor:14, and the browser
@@ -1142,26 +1139,31 @@ def test_font_is_set_once_and_then_left_alone(tmp_path: Path) -> None:
     assert not any(c.startswith("omarchy-font-set") for c in _calls(env))
 
 
-def test_font_stage_is_skipped_when_the_font_is_not_installed(tmp_path: Path) -> None:
-    """A cosmetic stage must not take the whole install down.
+def test_the_font_family_goes_to_omarchy_verbatim(tmp_path: Path) -> None:
+    """One call, the literal family, and Omarchy is the only judge of whether
+    it exists: /usr/bin/omarchy-font-set:24-27 greps fc-list itself and exits 1
+    with "Font '<name>' not found", which the stage already handles with a warn.
 
-    omarchy-font-set exits 1 on a family fc-list does not know, which under
-    `set -e` would abort the run — so the family is resolved from fc-list first
-    and the stage bows out if it is missing.
+    The stage used to resolve the family from fc-list first and bow out before
+    calling — a second copy of Omarchy's own check that could disagree with it
+    — behind a `geist.*(nerd|mono)` fallback for a Nerd Font rename that never
+    happened, which matched the STYLE "GeistMono NF Thin" as if it were a
+    family and would have handed that to Omarchy.
     """
     env = _setup(tmp_path)
-    _stub(env["bins"] / "fc-list", env["calls"], 'echo "DejaVu Sans Mono"')
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
-    assert not any(c.startswith("omarchy-font-set") for c in _calls(env))
-    # No marker written, so it will apply once the package really is there.
-    assert not (env["home"] / ".local" / "state" / "hyprconf" / "font-applied").exists()
+    assert "omarchy-font-set GeistMono Nerd Font" in _calls(env)
+    # No fc-list of our own: the harness no longer fakes one, so a call would
+    # read the developer's (or the container's) real font list.
+    assert "fc-list" not in _code_only(INSTALL_SH.read_text())
 
 
 def test_font_marker_waits_for_omarchy_font_set_to_succeed(tmp_path: Path) -> None:
-    """omarchy-font-set exits 1 on a family it cannot apply: the stage warns
-    instead of dying under set -e, writes no marker, and the next run tries
-    again — the same rule the defaults marker follows."""
+    """omarchy-font-set exits 1 on a family it cannot apply — a box without
+    otf-geist-mono-nerd is the ordinary case: the stage warns instead of dying
+    under set -e, writes no marker, and the next run tries again — the same
+    rule the defaults marker follows."""
     env = _setup(tmp_path)
     _stub(env["bins"] / "omarchy-font-set", env["calls"], "exit 1")
     proc = _run(env, "--no-update")

@@ -934,28 +934,21 @@ stage_font() {
         return 0
     fi
 
-    # Resolve the family from what is actually installed rather than hard-coding
-    # the string. Nerd Font packaging has renamed families between releases, and
-    # omarchy-font-set exits 1 on any name `fc-list` does not know — which under
-    # set -e would take the whole install down over a cosmetic stage.
-    local family
-    family="$(fc-list : family 2>/dev/null | tr ',' '\n' |
-        grep -m1 -ixE 'GeistMono Nerd Font' || true)"
-    [[ -n $family ]] ||
-        family="$(fc-list : family 2>/dev/null | tr ',' '\n' |
-            grep -m1 -iE 'geist.*(nerd|mono)' || true)"
-    if [[ -z $family ]]; then
-        warn "GeistMono Nerd Font is not installed — leaving the system font alone"
-        return 0
-    fi
-
-    omarchy-font-set "$family" || {
-        warn "omarchy-font-set rejected '$family' — leaving the system font alone"
+    # The literal family, handed straight to Omarchy: omarchy-font-set already
+    # refuses a name fc-list does not know (/usr/bin/omarchy-font-set:24-27,
+    # "Font '<name>' not found", exit 1), so resolving it here first only
+    # duplicated that check — and the `geist.*(nerd|mono)` fallback it carried
+    # for a rename that never happened would have matched a STYLE, "GeistMono
+    # NF Thin", not a family. A rejection warns rather than dying under set -e:
+    # a cosmetic stage must not take the install down.
+    omarchy-font-set 'GeistMono Nerd Font' || {
+        warn "omarchy-font-set rejected GeistMono Nerd Font (is otf-geist-mono-nerd installed?)" \
+             "— leaving the system font alone"
         return 0
     }
     mkdir -p "$(dirname "$marker")"
     : > "$marker"
-    info "set to $family (change it any time with: omarchy font set <name>)"
+    info "set to GeistMono Nerd Font (change it any time with: omarchy font set <name>)"
 }
 
 stage_hotkeys() {
