@@ -32,14 +32,16 @@ UBLOCK_ID = "uBlock0@raymondhill.net"
 PROTON_PASS_ID = "78272b6fa58f4a1abaac99321d503a20@proton.me"
 
 # Firefox's own allowlist for the Preferences policy, verbatim from
-# `Preferences.onBeforeAddons` (Policies.sys.mjs:2617-2659, Firefox 154.0) —
-# a prefix match, `preference.startsWith(prefix)`. A pref outside it is
-# dropped with "Preference not allowed for stability reasons" logged to the
-# browser console and nothing else: the policy still loads, the pref just
-# never applies. Pinned rather than derived because omni.ja is a zip with a
-# patched central directory that Python's zipfile refuses (unzip reads it,
-# and is not one of the tools the suite may assume). Re-derive on a Firefox
-# major bump with:
+# `Preferences.onBeforeAddons` (Policies.sys.mjs:2632-2674, Firefox
+# 155.0.1) — a prefix match, `preference.startsWith(prefix)` (:2726-2727).
+# A pref outside it is dropped with "Preference not allowed for stability
+# reasons" logged to the browser console and nothing else: the policy still
+# loads, the pref just never applies. Pinned rather than derived because
+# omni.ja is a zip with a patched central directory that Python's zipfile
+# refuses (unzip reads it, and is not one of the tools the suite may
+# assume). Re-derived against 155.0.1 on the 4.0.3-1 pin bump: byte-identical
+# to the 154.0 list, 41 prefixes in the same order, blockedPrefs unchanged.
+# Re-derive on the next Firefox major bump with:
 #   unzip -p /usr/lib/firefox/browser/omni.ja modules/policies/Policies.sys.mjs \
 #     | sed -n '/let allowedPrefixes = \[/,/\];/p'
 ALLOWED_PREFIXES = (
@@ -86,9 +88,10 @@ ALLOWED_PREFIXES = (
     "xpinstall.whitelist.required",
 )
 # Checked before the allowlist and rejected "for security reasons"
-# (Policies.sys.mjs:2690-2695). `security.*` is never a prefix match — it is
-# tested against a separate exact-match list, so no `security.` pref belongs
-# in our policy without checking that list first.
+# (Policies.sys.mjs:2705-2710, Firefox 155.0.1). `security.*` is never a
+# prefix match — it is tested against a separate exact-match list
+# (allowedSecurityPrefs, :2678-2704), so no `security.` pref belongs in our
+# policy without checking that list first.
 BLOCKED_PREFS = (
     "app.update.channel",
     "app.update.lastUpdateTime",

@@ -46,10 +46,16 @@ printf '%s\\n' "${{0##*/}} $*" >> "{calls}"
 {body}
 """
 
-# A reduced model of Omarchy's config/kitty/kitty.conf (4.0.0-1; /etc/skel
-# carries the same file): the lines the overlay must leave intact.
+# A reduced model of ~/.config/kitty/kitty.conf on an UPGRADED Omarchy
+# 4.0.3-1 box — the interesting case, and the one a hyprconf box is in.
+# 4.0.3 moved Omarchy's defaults to /etc/xdg/kitty/kitty.conf, but migration
+# 1788745941.sh only refreshes a user file whose sha still matches the old
+# stock one; a hyprconf box's file carries `include hyprconf.conf`, so it
+# takes the other branch instead — `allow_remote_control yes` commented out,
+# everything else (listen_on, font_family, font_size) left where it is.
+# These are the lines the overlay must leave intact.
 OMARCHY_KITTY_CONF = """include ~/.local/state/omarchy/current/theme/kitty.conf
-allow_remote_control yes
+# allow_remote_control yes
 listen_on unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{kitty_pid}
 font_family JetBrainsMono Nerd Font
 font_size 10
@@ -779,7 +785,15 @@ def test_kitty_conf_gains_only_the_include(tmp_path: Path) -> None:
 
 
 def test_hyprconf_kitty_include_file_is_self_contained(tmp_path: Path) -> None:
-    """It must not restate anything Omarchy's kitty.conf owns."""
+    """It must not restate anything Omarchy sets, in either of its two homes.
+
+    On 4.0.3-1 `listen_on` and `allow_remote_control socket-only` live in
+    /etc/xdg/kitty/kitty.conf and `font_family` is appended to the user file
+    by omarchy-font-set; the include below is appended LAST, so any of these
+    restated here would silently win over both. `allow_remote_control` is the
+    security half of that: restating it would undo Omarchy's socket-only
+    hardening.
+    """
     env = _setup(tmp_path)
     _run(env, "--no-update")
     body = _code_only((env["home"] / ".config" / "kitty" / "hyprconf.conf").read_text())
@@ -892,9 +906,11 @@ def test_monitor_preset_reaches_every_preset_and_back(tmp_path: Path) -> None:
 
 
 def test_theme_is_installed_as_a_symlink(tmp_path: Path) -> None:
-    """A symlink, so a `git pull` updates the theme in place; omarchy-theme-set
-    (4.0.0-1) only tests `-d` and `cp -r`s the contents, both of which follow
-    a link."""
+    """A symlink, so a `git pull` updates the theme in place — and Omarchy
+    exempts the shape explicitly: theme_came_from_a_repo (omarchy-theme-set:
+    204-208) is `[[ ! -L $source && -d $source/.git ]]`, so a linked user
+    theme takes the plain `cp -r` branch rather than the deny-listed
+    stage_installed_theme one."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
     link = env["home"] / ".config" / "omarchy" / "themes" / "dracula"
@@ -1153,7 +1169,8 @@ def test_a_failed_pull_stops_the_sync_before_anything_is_applied(tmp_path: Path)
     assert "git pull failed" in proc.stderr
     assert any(" pull " in f" {c} " for c in _calls(env))
     assert "omarchy-update" not in _commands(env)
-    assert "omarchy-default-terminal" not in _commands(env)  # the first stage after the pull
+    assert env["pkg_add"] not in _commands(env)  # the first stage after the pull
+    assert "omarchy-default-terminal" not in _commands(env)  # and a later one
     assert not (env["home"] / ".zshrc").exists()
 
 
@@ -1430,9 +1447,11 @@ def test_theme_stage_is_a_noop_without_an_active_theme(tmp_path: Path) -> None:
 
 
 def _themed_checkout(tmp_path: Path) -> tuple[Path, str]:
-    """A throwaway checkout with one throwaway user template beside whatever
-    themed/ ships, so the stage is exercised whether or not the repo carries
-    a template of its own yet. Returns (checkout, template name)."""
+    """A throwaway checkout with one throwaway user template beside the
+    shipped themed/userChrome.css.tpl: a one-variable file the
+    change-and-re-render step below can rewrite and assert literally,
+    without editing the shipped template. Returns (checkout, template
+    name)."""
     repo = _checkout(tmp_path)
     (repo / "themed").mkdir(exist_ok=True)
     name = "hyprconf-test.css.tpl"
@@ -2576,14 +2595,22 @@ def test_resources_feeders_run_once_for_the_session_not_once_per_monitor() -> No
     numbers. Omarchy's seam for that is the service kind, and it has no
     first-party gate: shell.qml's _syncServices()/ensureService() load
     entryPoints.service of any enabled plugin whose manifest lists "service"
-    once into a hidden serviceHost, and a bar-layout entry is what "enabled"
-    means for a bar widget (PluginRegistry.findEntryLocation), so the one
-    `omarchy plugin enable` / `disable` still covers both kinds. So: both
-    Processes live in Service.qml, the widget owns none and reads the values
-    back through bar.shell.serviceFor(<id>) — the accessor omarchy.media's
-    own BarWidget uses (as firstPartyServiceFor, its alias). Omarchy 4.0.2-1;
-    verified under quickshell 0.3.1 against a reduced copy of shell.qml's
-    service host: three surfaces, one service instance, one feeder pair."""
+    exactly once — a third-party instance created with a null parent
+    (shell.qml:923) and kept alive by the shell's _services map — and a
+    bar-layout entry is what "enabled" means for a bar widget
+    (PluginRegistry.findEntryLocation), so the one `omarchy plugin enable` /
+    `disable` still covers both kinds. So: both Processes live in
+    Service.qml, the widget owns none and reads the values back through
+    bar.shell.serviceFor(<own id>). On 4.0.3-1 that `bar` is a
+    Ui/PluginBarApi.qml facade (plugins/bar/Bar.qml:2002-2003) and its
+    `.shell` a services/PluginShellApi.qml whose serviceFor answers only for
+    ids this plugin owns (PluginShellApi.qml:30 → shell.qml:385-394), which
+    it reaches with allowOwnService=true (pluginShellFor, shell.qml:739-743)
+    — so the accessor is unchanged. It is not firstPartyServiceFor, the
+    four-id omarchy.* proxy the stock omarchy.media widget uses on itself
+    (shell.qml:592-596). Verified under quickshell 0.3.1 against a reduced
+    copy of shell.qml's service host: three surfaces, one service instance,
+    one feeder pair."""
     folder = REPO_ROOT / "plugins" / "hyprconf-resources"
     manifest = json.loads((folder / "manifest.json").read_text())
     assert manifest["kinds"] == ["bar-widget", "service"]
