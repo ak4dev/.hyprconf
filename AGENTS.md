@@ -51,7 +51,6 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 | `hyprconf.clock` shipped as `plugins/hyprconf-clock`, not made by `omarchy plugin clone` (nor copied at install time) | clone hardcodes `<username>.<id>` — a username in shipped config is PII — and a copy made once on the box was frozen at the release that made it (4.0.2's hardening of its own `Panel.qml` never reached it); the shipped copy is versioned and synced every run like the other three, carries Omarchy's MIT `NOTICE`, loads the panel from the running Omarchy, and `test_plugins.py`'s parity test turns red on an Omarchy release that changes the clock |
 | `~/.config/fastfetch/config.jsonc` symlink | Omarchy's layout is `/etc/fastfetch/config.jsonc`; the user directory is fastfetch's documented override and reads first |
 | `/etc/firefox/policies/policies.json` | Firefox reads enterprise policies from root-owned paths only, and that path shadows the `distribution/` file Omarchy writes — so the file is Omarchy's policy `jq`-merged under `infra/firefox/policies.json` |
-| `idle.screensaver` written with `jq` | Omarchy has no command for the key (`omarchy-shell-config` is a hidden sourced helper); the stage mirrors its `commit` |
 | Python in `lib/hyprconf/` | a bounded, tested module used in place via `PYTHONPATH` — never inline `python3 -c`, never copied into `~/.local/lib` |
 
 ## Live files — the symlink hazard

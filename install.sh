@@ -798,16 +798,22 @@ stage_theme() {
 }
 
 # Omarchy's screensaver starts after 150 s (config/omarchy/shell.json,
-# idle.screensaver); the overlay's timeout is 900 s. Set
-# ONCE — shell.json is the user's file (Omarchy's manual, Dotfiles), and a
-# timeout changed later must stay theirs. Omarchy 4.0.0-1 ships no command
-# for these keys (`omarchy commands --json` has no route for the timeout and
-# `grep -Rl idle.screensaver /usr/share/omarchy/bin` finds nothing;
-# omarchy-shell-config is a sourced helper, omarchy:hidden=true), so the file
-# is edited the way that helper's commit() does it: jq over the user file —
-# or the shipped defaults when there is none yet — an atomic move, then
-# `omarchy-shell shell reloadConfig`. Only the screensaver key; the lock
-# timeout is left as Omarchy has it.
+# idle.screensaver); the overlay's timeout is 900 s. Set ONCE — shell.json is
+# the user's file (Omarchy's manual, Dotfiles), and a timeout changed later
+# must stay theirs.
+#
+# Omarchy ships no command for these keys (`omarchy commands --json` has no
+# route for the timeout), but it does ship the editing helper every one of its
+# own shell.json writers uses: /usr/bin/omarchy-shell-config, sourced rather
+# than run (omarchy:hidden=true, "source this, don't run it") — the way
+# /usr/bin/omarchy-bar:10 takes it. commit() is source_file() (the user's file,
+# or Omarchy's shipped defaults when there is none yet) -> jq -> atomic mv ->
+# refresh_shell_config, which falls back from `shell reloadConfig` to
+# `omarchy-shell -q shell rescanPlugins` (omarchy-shell-config:14-18, 53-62,
+# 4.0.3-1). Only the screensaver key; the lock timeout is left as Omarchy has it.
+#
+# The subshell is mandatory, not style: commit()'s fail() exits, and sourcing
+# the helper installs an EXIT trap of its own (omarchy-shell-config:9-12, 51).
 stage_idle() {
     log "Idle: screensaver after 15 minutes"
     local marker="$HOME/.local/state/hyprconf/idle-applied"
@@ -815,22 +821,14 @@ stage_idle() {
         info "already applied once — the timeouts are yours now"
         return 0
     fi
-    local json="$HOME/.config/omarchy/shell.json" src
-    src="$json"
-    [[ -s $json ]] || src="$OMARCHY_PATH/config/omarchy/shell.json"
-    if [[ ! -f $src ]]; then
-        warn "no shell.json to edit ($src) — will retry on the next run"
+    (
+        # shellcheck source=/dev/null
+        source omarchy-shell-config &&
+            commit '.idle = ((.idle // {}) + { screensaver: 900 })'
+    ) || {
+        warn "could not set idle.screensaver — will retry on the next run"
         return 0
-    fi
-    mkdir -p "$(dirname "$json")"
-    if jq -S '.idle = ((.idle // {}) + { screensaver: 900 })' "$src" > "$json.tmp"; then
-        mv "$json.tmp" "$json"
-    else
-        rm -f "$json.tmp"
-        warn "could not edit $json — will retry on the next run"
-        return 0
-    fi
-    omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
+    }
     mkdir -p "$(dirname "$marker")"
     : > "$marker"
     info "idle.screensaver = 900 s (edit ~/.config/omarchy/shell.json to change it; lock stays as it is)"

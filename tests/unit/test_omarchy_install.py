@@ -196,6 +196,56 @@ def _terminal_stub(tmp_path: Path, set_status: int = 0) -> str:
     )
 
 
+# /usr/bin/omarchy-shell-config (Omarchy 4.0.3-1), transcribed: the hidden
+# helper stage_idle SOURCES to edit ~/.config/omarchy/shell.json. Written out
+# instead of stubbed for two reasons — the recording stub's closing `exit 0`
+# would end stage_idle's subshell before commit() ever ran, and $0 inside a
+# sourced file names the caller, not this file, so the recording line has to
+# name itself. Only the three functions install.sh reaches are here; NORMALIZE
+# (the helper's other half, for bar writers) is not.
+SHELL_CONFIG_FAKE = """#!/usr/bin/env bash
+printf '%s\\n' "omarchy-shell-config (sourced)" >> "__CALLS__"
+CONFIG_FILE="$HOME/.config/omarchy/shell.json"
+DEFAULTS_FILE="$OMARCHY_PATH/config/omarchy/shell.json"
+
+fail() {
+  echo "omarchy-shell-config: $*" >&2
+  exit 1
+}
+
+refresh_shell_config() {
+  if ! omarchy-shell shell reloadConfig >/dev/null 2>&1; then
+    omarchy-shell -q shell rescanPlugins >/dev/null 2>&1 || true
+  fi
+}
+
+source_file() {
+  if [[ -s $CONFIG_FILE ]]; then
+    printf '%s\\n' "$CONFIG_FILE"
+  else
+    printf '%s\\n' "$DEFAULTS_FILE"
+  fi
+}
+
+_SHELL_CONFIG_TMP=""
+cleanup_shell_config_tmp() {
+  if [[ -n $_SHELL_CONFIG_TMP ]]; then rm -f "$_SHELL_CONFIG_TMP"; fi
+}
+trap cleanup_shell_config_tmp EXIT
+
+commit() {
+  local program="$1"
+  shift
+  mkdir -p "$(dirname "$CONFIG_FILE")"
+  _SHELL_CONFIG_TMP=$(mktemp)
+  jq -S -e "$@" "$program" "$(source_file)" >"$_SHELL_CONFIG_TMP" || fail "could not update shell config"
+  mv "$_SHELL_CONFIG_TMP" "$CONFIG_FILE"
+  _SHELL_CONFIG_TMP=""
+  refresh_shell_config
+}
+"""
+
+
 def _default_app_stub(
     tmp_path: Path, key: str, unset: str, *, writes: bool = True, set_status: int = 0
 ) -> str:
@@ -292,6 +342,10 @@ def _setup(
     # install flow is opted into.
     _stub(bins / "omarchy-pkg-present", calls)
     _stub(bins / "omarchy-hook-install", calls, HOOK_INSTALL)
+    # Sourced, not run (see SHELL_CONFIG_FAKE) — hence the direct write.
+    shell_config = bins / "omarchy-shell-config"
+    shell_config.write_text(SHELL_CONFIG_FAKE.replace("__CALLS__", str(calls)))
+    shell_config.chmod(0o755)
     _stub(bins / "omarchy-theme-refresh", calls, THEME_REFRESH)
     _stub(bins / "omarchy-default-terminal", calls, _terminal_stub(tmp_path))
     # Read back by stage_defaults; the unset answers are Omarchy's own (editor
@@ -1041,6 +1095,51 @@ def test_screensaver_timeout_is_set_once(tmp_path: Path) -> None:
     shell_json.write_text(json.dumps(data))
     _run(env, "--no-update")
     assert json.loads(shell_json.read_text())["idle"]["screensaver"] == 600
+
+
+def test_the_screensaver_edit_goes_through_omarchys_own_shell_config_helper(
+    tmp_path: Path,
+) -> None:
+    """Rule 1, Omarchy's own tools first: /usr/bin/omarchy-shell-config is the
+    helper every Omarchy shell.json writer sources (/usr/bin/omarchy-bar:10),
+    and the stage sources it rather than re-implementing commit(). The
+    re-implementation had already drifted — the helper falls back from `shell
+    reloadConfig` to `omarchy-shell -q shell rescanPlugins` when no shell
+    answers the first (omarchy-shell-config:14-18, 4.0.3-1), the hand-rolled
+    copy swallowed the failure and told the shell nothing."""
+    env = _setup(tmp_path)
+    _real_jq(env)
+    # A shell that refuses reloadConfig: the helper's fallback branch.
+    _stub(
+        env["bins"] / "omarchy-shell",
+        env["calls"],
+        'if [ "$1" = shell ] && [ "$2" = reloadConfig ]; then exit 1; fi; exit 0',
+    )
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    calls = _calls(env)
+    assert "omarchy-shell-config (sourced)" in calls
+    assert "omarchy-shell -q shell rescanPlugins" in calls
+    data = json.loads((env["home"] / ".config" / "omarchy" / "shell.json").read_text())
+    assert data["idle"] == {"lock": 300, "screensaver": 900}
+    assert (env["home"] / ".local" / "state" / "hyprconf" / "idle-applied").exists()
+
+
+def test_a_shell_config_the_helper_refuses_leaves_no_marker(tmp_path: Path) -> None:
+    """commit() calls fail(), which EXITS — hence the subshell in the stage.
+    Without it the whole install would end at a cosmetic step; with it the
+    stage warns, writes no marker and the next run tries again."""
+    env = _setup(tmp_path)
+    _real_jq(env)
+    (env["omarchy_path"] / "config" / "omarchy" / "shell.json").write_text("{ not json")
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "could not set idle.screensaver" in proc.stderr
+    assert not (env["home"] / ".local" / "state" / "hyprconf" / "idle-applied").exists()
+    # No half-written user file, and no stray temp left behind.
+    assert not (env["home"] / ".config" / "omarchy" / "shell.json").exists()
+    # A stage well after the idle one still ran.
+    assert (env["home"] / ".zshrc").exists()
 
 
 def test_firefox_theme_tool_is_installed_with_the_checkout_path(tmp_path: Path) -> None:
@@ -2237,7 +2336,8 @@ def test_defaults_marker_survives_the_setters_failing_notification(tmp_path: Pat
         )
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
-    assert "could not set" not in proc.stderr
+    assert "default browser" not in proc.stderr
+    assert "default editor" not in proc.stderr
     assert (env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied").exists()
 
     # The user's later pick, which the re-run must not take back.
