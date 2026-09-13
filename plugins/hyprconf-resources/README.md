@@ -60,10 +60,10 @@ foreground apply.
 
 The manifest declares two kinds. `Widget.qml` is the `bar-widget` and is
 built once per monitor, like every bar widget; `Service.qml` is the
-`service`, which Omarchy's shell loads **once** for the session into its
-hidden service host, and it is the one that runs the two feeders. The widget
-reads the numbers back with `bar.shell.serviceFor("hyprconf.resources")` —
-the accessor Omarchy's own `omarchy.media` widget uses on its service. So a
+`service`, which Omarchy's shell loads **once** for the session, and it is
+the one that runs the two feeders. The widget reads the numbers back with
+`bar.shell.serviceFor("hyprconf.resources")` — the accessor Omarchy scopes
+to a plugin's own id (`shell/services/PluginShellApi.qml`). So a
 six-monitor desk pays for one pair of feeders, not six, and on NVIDIA for
 one NVML session rather than six. There is still only one id and one on/off
 switch.

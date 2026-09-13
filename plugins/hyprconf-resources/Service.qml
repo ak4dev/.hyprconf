@@ -7,18 +7,22 @@
 // that pair once per bar surface — two processes and ~12 MB per screen,
 // linear, and on NVIDIA an independent NVML session per screen, all for
 // numbers that are identical on every monitor. Omarchy has a seam for
-// exactly this and AGENTS.md rule 1 says to use it: shell.qml's service
-// host loads any ENABLED plugin that declares `kinds: ["service"]` with an
-// `entryPoints.service` once into a hidden Item, first-party or not
-// ("third-party services are enabled by adding the plugin id to
-// shell.json" — shell.qml, `_syncServices` / `ensureService`, Omarchy
-// 4.0.2-1). The stock `omarchy.media` plugin is the same shape: one
-// manifest declaring both `service` and `bar-widget`, a Service.qml holding
-// the state and a BarWidget.qml that reads it back through
-// `bar?.shell?.firstPartyServiceFor(...)` — which is `serviceFor` under
-// another name (shell.qml). `omarchy-plugin-validate` carries `service` in
-// its kind → entry-point table, so the folder still validates as a
-// standalone plugin.
+// exactly this and AGENTS.md rule 1 says to use it: shell.qml loads any
+// ENABLED plugin that declares `kinds: ["service"]` with an
+// `entryPoints.service` exactly once, first-party or not ("third-party
+// services are enabled by adding the plugin id to shell.json" — shell.qml,
+// `_syncServices` / `ensureService`, Omarchy 4.0.3-1). A third-party
+// instance is created UNPARENTED rather than under the hidden serviceHost
+// Item (shell.qml:923) and is kept alive by the shell's `_services` map;
+// its injected `shell`, if it declared one, would be a PluginShellApi
+// facade, not the ShellRoot (shell.qml:929). The stock `omarchy.media`
+// plugin is the same shape: one manifest declaring both `service` and
+// `bar-widget`, a Service.qml holding the state and a BarWidget.qml that
+// reads it back — through `firstPartyServiceFor`, which for a first party
+// is the host's own lookup; the third-party accessor is `serviceFor`, and
+// the two are not aliases on 4.0.3 (see Widget.qml).
+// `omarchy-plugin-validate` carries `service` in its kind → entry-point
+// table, so the folder still validates as a standalone plugin.
 //
 // Enabling is unchanged by the extra kind: `PluginRegistry.setEnabled`
 // takes the bar-widget branch (this plugin is one), so `omarchy plugin
@@ -67,8 +71,9 @@
 //
 // shell.qml's ensureService() offers `shell`, `manifest`, `omarchyPath`,
 // `barWidgetRegistry` and `pluginRegistry` by property injection (each
-// behind an `in` test). None is declared here: this service reads its own
-// folder and nothing else.
+// behind an `in` test; a third party gets capability-scoped facades for the
+// first three — shell.qml:929). None is declared here: this service reads
+// its own folder and nothing else.
 
 import QtQuick
 import Quickshell.Io

@@ -719,8 +719,15 @@ stage_terminal() {
 }
 
 # hyprconf's kitty preferences, layered as an include so Omarchy's kitty.conf
-# stays authoritative — it owns the theme include, listen_on (Super+Return cwd
-# inheritance) and the font_family/font_size lines its font tooling rewrites.
+# stays authoritative. On 4.0.3-1 that file is the theme include plus an
+# override layer (config/kitty/kitty.conf); Omarchy's real defaults —
+# listen_on and `allow_remote_control socket-only` among them — moved to
+# /etc/xdg/kitty/kitty.conf, which kitty merges BELOW the user file (its
+# SYSTEM_CONF, /usr/lib/kitty/kitty/cli.py:712). An upgraded box keeps its
+# own copies of those lines. The include below is appended LAST, so anything
+# hyprconf.conf restated would silently win over omarchy-font-set, which now
+# appends font_family to the user file when it is absent
+# (/usr/bin/omarchy-font-set:33-40) — it restates nothing.
 stage_kitty_include() {
     # Separate `local` statements on purpose: `local a=1 b="$a"` declares both
     # names before assigning, so $a is still unbound there — fatal under set -u.
@@ -760,12 +767,14 @@ stage_theme() {
         warn "$link is a real theme directory — left alone (move it away to get the overlay's dracula)"
         return 0
     fi
-    # A SYMLINK on purpose, so a `git pull` updates the theme in place.
-    # omarchy-theme-set (Omarchy 4.0.0-1) only needs `-d $USER_THEMES_PATH/<name>`
-    # to hold and then `cp -r`s the directory's contents into the staged
-    # theme — both follow a symlink, so nothing distinguishes it from a copy.
-    # omarchy-theme-update skips a link (`[[ ! -L ${dir%/} ]]` before its
-    # `git pull`), so `omarchy theme update` never pulls into the checkout.
+    # A SYMLINK on purpose, so a `git pull` updates the theme in place, and
+    # Omarchy blesses the shape explicitly: `theme_came_from_a_repo` is
+    # `[[ ! -L $source && -d $source/.git ]]` (omarchy-theme-set:204-208,
+    # "a symlink to their own working copy [is] theirs to fill however they
+    # like"), so a linked user theme takes the plain `cp -r` branch instead of
+    # the deny-listed stage_installed_theme one. `omarchy theme update`
+    # iterates omarchy-theme-extras, whose loop skips a link with the same
+    # test (omarchy-theme-extras:12), so it never pulls into the checkout.
     ln -sfn "$HERE/themes/dracula" "$link"
 
     # Installed, never activated. Which theme is active is the user's choice,
@@ -991,8 +1000,9 @@ stage_bin() {
     mkdir -p "$HOME/.local/bin"
     local f dst
     # Every bin/hyprconf-* file; a new tool is one file in bin/. @HYPRCONF_DIR@
-    # is substituted the way the hooks get it, for the tools that need the
-    # checkout (the Python lib). Rendered beside the target and mv'd over it:
+    # is substituted the way the hooks get it, for the two tools that need the
+    # checkout (hyprconf-firefox-theme for PYTHONPATH, hyprconf-help to
+    # enumerate it). Rendered beside the target and mv'd over it:
     # the rename is atomic, so a hotkey exec'ing one of these mid-install
     # runs old bytes or new, never a truncated prefix (a running tool keeps
     # its old inode); cmp keeps the steady-state re-run write-free, matching

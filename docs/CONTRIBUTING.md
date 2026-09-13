@@ -79,7 +79,7 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
 │   ├── test_help.py              #   bin/hyprconf-help (the header one-liner convention every bin tool must carry, the listing, the @HYPRCONF_DIR@ fallback; jq real when present)
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom
-│   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, workspace rehoming)
+│   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock; the workspace rehoming is test_omarchy_install.py's, against the installed copy)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
 │   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, banner, menu block, the `omarchy refresh` guard, the plugin sync and its `omarchy plugin add` checkout guard …), the post-update hook end to end, restraint invariants, idempotency; bin/hyprconf-install-service-protonvpn; `bash -n` and the dead-hyprctl / pacman token scans over every shipped bash file; real qmllint on plugins/*/*.qml and omarchy-plugin-validate on the installed plugin dirs
 │   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), Omarchy 4.0.2's Text.PlainText rule over every QML, the clock's parity with the installed stock clock (skips without Omarchy), the resources feeders' capped-backoff restart shape
@@ -151,7 +151,7 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   otherwise runs only inside a throwaway checkout under `tmp_path`, never
   the repository the suite runs from) …
   `/usr/bin` carries
-  every `omarchy-*` command (427 on Omarchy 4.0.2-1 — `pacman -Ql omarchy | grep -c /usr/bin/omarchy-`; 432 with `omarchy-settings`' and `omarchy-nvim`'s), so a PATH of fakes plus
+  every `omarchy-*` command (`pacman -Ql omarchy omarchy-settings omarchy-nvim | grep -c /usr/bin/omarchy-`), so a PATH of fakes plus
   `/usr/bin` keeps none of them out: stub every one the code path can call
   (`OMARCHY_STUBS` and `_setup` in `test_omarchy_install.py` list the
   installer's, and `test_every_omarchy_command_install_sh_calls_has_a_fake`

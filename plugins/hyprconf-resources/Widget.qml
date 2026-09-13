@@ -10,14 +10,19 @@
 // surface, and two long-lived feeder processes per screen for globally
 // identical numbers is exactly what the service kind exists to avoid.
 //
-// The accessor is the one Omarchy's own `omarchy.media` bar widget uses on
-// its own service (shell/plugins/services/media/BarWidget.qml:10) —
-// `bar?.shell?.firstPartyServiceFor(id)`, spelled here with its real name,
-// `serviceFor` (shell.qml, 4.0.2-1: firstPartyServiceFor is a one-line
-// alias for it). It is null until the service is up, and on a third-party
-// bar that carries no `shell`: every cell then shows the blank/zero it
-// shows before the first line arrives, which is the same reading the widget
-// gives during the second between startup and the first sample.
+// The accessor for an installed third-party widget is `bar.shell.serviceFor
+// (<own id>)`: on Omarchy 4.0.3-1 `bar` is a Ui/PluginBarApi.qml facade
+// (shell/plugins/bar/Bar.qml:2002-2003) and its `shell` a
+// services/PluginShellApi.qml whose `serviceFor` answers only for ids this
+// plugin owns (PluginShellApi.qml:30 → shell.qml:385-394). It is NOT
+// `firstPartyServiceFor`, which on 4.0.3 is a narrow proxy over four
+// `omarchy.*` ids (shell.qml:592-596) and is what the stock `omarchy.media`
+// widget uses on itself (shell/plugins/services/media/BarWidget.qml:10). It
+// is null until the service is up, and under a replacement bar, whose
+// widgets get a service-less entry facade (Bar.qml:238-242); every cell
+// then shows the blank/zero it shows before the first line arrives, which
+// is the same reading the widget gives during the second between startup
+// and the first sample.
 //
 // Every column has a FIXED width, measured once with TextMetrics from the
 // widest value it can show, so the line never shifts as a speed goes from

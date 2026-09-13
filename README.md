@@ -43,7 +43,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 
 ## Requirements
 
-- A running [Omarchy](https://omarchy.org) install. Verified against Omarchy 4.0.2-1 (Hyprland 0.56, Lua config — hyprlang `.conf` is gone). `install.sh` refuses to run when `/usr/share/omarchy` or `omarchy-pkg-add` is missing.
+- A running [Omarchy](https://omarchy.org) install. Verified against Omarchy 4.0.3-1 (Lua config — hyprlang `.conf` is gone); the full pin, Hyprland version included, is in [`AGENTS.md`](AGENTS.md). `install.sh` refuses to run when `/usr/share/omarchy` or `omarchy-pkg-add` is missing.
 - `git`, and a terminal for the four stages that need `sudo` (packages, Firefox, VS Code, the Keychron udev rule).
 
 ## Install
@@ -79,7 +79,7 @@ bash ~/.hyprconf/install.sh
 | firefox | Firefox when absent; `/etc/firefox/policies/policies.json` = Omarchy's `default/firefox/policies.json` merged **under** `infra/firefox/policies.json` (extensions, search engine, privacy and UI settings — [Firefox settings](#firefox-settings)) | `omarchy-install-browser firefox` — Omarchy's own flow: `omarchy-pkg-add firefox`, its prefs to `/usr/lib/firefox/distribution/policies.json`, `MOZ_ENABLE_WAYLAND=1` in `~/.config/environment.d/`. The policy is a `jq` recursive merge (`*`, ours wins on a shared key) written with `sudo install` only when the bytes differ: `/etc/firefox/policies` takes precedence over `distribution/`, so Omarchy's prefs (VA-API, fractional scaling, overscroll) ride along instead of being shadowed. Skipped when there is no terminal for the password prompt. One of the overlay's two writes outside `$HOME` (the other is the Keychron rule below) |
 | editor | VS Code (`visual-studio-code-bin`, from Omarchy's own `[omarchy]` pacman repository) when absent. Not set-once: any interactive run that finds VS Code absent installs it. Nothing is removed to make room: Arch's `code` (Code - OSS) conflicts with the package, but stock Omarchy never installs it — if you did, the install fails inside Omarchy's installer and the stage warns with the retry command; drop `code` yourself first | `omarchy-install-editor-vscode` — Omarchy's own flow: the package, `~/.vscode/argv.json`, `update.mode none`, `omarchy-theme-set-vscode`, and it **opens VS Code once** when done, by design. Skipped without a terminal; the result is read back with `omarchy-pkg-present` |
 | keychron | `infra/udev/70-keychron.rules` → `/etc/udev/rules.d/70-keychron.rules` (Keychron `0x3434`, Lemokey `0x362d`) | `sudo install` only when the bytes differ, then `udevadm control --reload-rules` + `udevadm trigger --subsystem-match=hidraw` so it reaches devices already plugged in. Skipped when there is no terminal for the password prompt |
-| terminal | kitty becomes the default terminal; `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity, `shell <zsh>`) plus one `include hyprconf.conf` line appended to `kitty.conf` | `omarchy-default-terminal kitty`; Omarchy's `kitty.conf` stays authoritative (theme include, `listen_on`, font lines). The setter's exit status is its closing notification's, so with no shell (a TTY first run) it warns and the re-run finds kitty already current |
+| terminal | kitty becomes the default terminal; `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity, `shell <zsh>`) plus one `include hyprconf.conf` line appended to `kitty.conf` | `omarchy-default-terminal kitty`; Omarchy's defaults live in `/etc/xdg/kitty/kitty.conf` (kitty merges it below the user file), and `~/.config/kitty/kitty.conf` — the theme include, plus whatever `omarchy-font-set` appends — stays authoritative above it. The setter's exit status is its closing notification's, so with no shell (a TTY first run) it warns and the re-run finds kitty already current |
 | theme | `~/.config/omarchy/themes/dracula` → `themes/dracula` (hyprconf's Dracula palette + wallpaper) | Symlinked user theme, **installed, never activated** — pick it with `omarchy theme set dracula` or `SUPER+SHIFT+CTRL+SPACE`. A real `themes/dracula` directory (a theme you installed yourself) is left alone with a warning |
 | defaults | Browser `firefox`, editor `code` — **set once** | `omarchy-default-browser` / `omarchy-default-editor`; marker `~/.local/state/hyprconf/defaults-applied` |
 | backgrounds | `wallpapers/gruvbox.jpg` → `~/.config/omarchy/backgrounds/gruvbox/` | Copied when absent (Omarchy's picker only scans the active theme's dirs) |
@@ -237,6 +237,8 @@ Only what differs from `/usr/share/omarchy/default/hypr/`:
 | `input.lua` | `input.natural_scroll` + `touchpad.natural_scroll` | true | false |
 | | `hl.gesture` 3-finger horizontal → workspace | on | – |
 | | `gestures.workspace_swipe_min_speed_to_force` / `workspace_swipe_forever` | 15 / true | – (Hyprland: 30 / false) |
+
+`inactive_opacity` is not what you see: Omarchy tags every window `+default-opacity` and applies `opacity = "0.985 0.96"` to the tag (`default/hypr/windows.lua:6, 25`), and a window rule's `opacity` multiplies the global setting unless `override` is given — so an ordinary inactive window lands near 0.77, and only the apps Omarchy opts out of the tag (`opacity = "1 1"`: steam, qemu) show the full 0.8.
 
 Border and shadow colours stay with the active Omarchy theme; keyboard layout stays with Omarchy's `input.lua` logic.
 

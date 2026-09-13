@@ -6,7 +6,7 @@
 > (`hyprconf.workspaces`, `clonedFrom` `omarchy.workspaces`) and `plugins/hyprconf-active-window/`
 > (`hyprconf.active-window`, `clonedFrom` `omarchy.active-window`) — each a folder that is
 > a plugin on its own (`docs/CONTRIBUTING.md` › Publishing a plugin).
-> Verified against Omarchy 4.0.2-1 (`/usr/share/omarchy/shell/`) and the installed
+> Verified against Omarchy 4.0.3-1 (`/usr/share/omarchy/shell/`) and the installed
 > Quickshell qmltypes (`/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, quickshell
 > 0.3.1 — Arch's package, renamed off `-git`). **Re-verify against both after every Omarchy or Quickshell upgrade** —
 > the shell contract and Quickshell's API both change between minor versions.
@@ -86,8 +86,10 @@ Omarchy's seam for that is the **service** kind, and it has no first-party
 gate: `shell.qml`'s `_syncServices()` / `ensureService()` load
 `entryPoints.service` of any plugin whose manifest lists `service` and whose
 id `PluginRegistry.isEnabled` finds in `shell.json` — "third-party services
-are enabled by adding the plugin id to shell.json", its own comment — into a
-hidden `serviceHost` **once**. A layout entry counts as enabled
+are enabled by adding the plugin id to shell.json", its own comment — exactly
+**once**. A first-party instance is parented to a hidden `serviceHost` Item; a
+third-party one is created UNPARENTED and kept alive by the shell's `_services`
+map (`shell.qml:923`). A layout entry counts as enabled
 (`findEntryLocation`), so a bar widget that is on the bar already has its
 service loaded, and `omarchy plugin disable` (which drops the layout entry
 and, for a third-party plugin, nothing else) destroys it again. One id, one
@@ -101,20 +103,26 @@ readonly property var feed: root.bar?.shell?.serviceFor("hyprconf.resources") ??
 readonly property int cpuPct: root.feed ? root.feed.cpuPct : 0
 ```
 
-`serviceFor(id)` is `shell.qml`'s accessor; `firstPartyServiceFor(id)`, which
-the stock `omarchy.media` bar widget uses on its own service
-(`shell/plugins/services/media/BarWidget.qml`), is a one-line alias for it.
-It returns `null` until the service is up, so **every** derived property needs
+`serviceFor(id)` is the third-party accessor, and Omarchy scopes it to the ids
+the calling plugin owns (`services/PluginShellApi.qml:30` → `shell.qml`'s
+`pluginServiceFor` / `pluginOwnsTarget`, 385-394). It is **not** the same thing
+as `firstPartyServiceFor(id)`, which the stock `omarchy.media` bar widget uses
+on its own service (`shell/plugins/services/media/BarWidget.qml`) and which for
+a third party is a narrow proxy over four allowed `omarchy.*` ids
+(`shell.qml:592-596`). It returns `null` until the service is up, so **every** derived property needs
 a fallback — the binding re-evaluates on its own when the service arrives,
 because `_services` is a QML property reassigned wholesale. Verified under
 quickshell 0.3.1 against a reduced copy of `shell.qml`'s host: three surfaces
 built before the service saw `feed === null`, then the same single instance
 and one feeder pair between them.
 
-`shell` is injected into the bar by `shell.qml`'s `configureBar`
-(`if ("shell" in target) target.shell = shell`), so a third-party bar that
-declares no `shell` property leaves the widget on its fallbacks — the same
-exposure `omarchy.media` has. `ensureService` likewise offers the service
+An installed third-party widget does not get the host objects. Its `bar` is a
+`Ui/PluginBarApi.qml` facade (`plugins/bar/Bar.qml:2002-2003`) — that file's
+property and function list is the whole contract, so `bar.x`, `moduleSlots` and
+`screen` are not on it — and that facade's `shell` is a
+`services/PluginShellApi.qml`. Under a **replacement** bar the widget gets a
+service-less entry facade instead (`Bar.qml:238-242`), which leaves it on its
+fallbacks. `ensureService` likewise offers the service
 `shell`, `manifest`, `omarchyPath`, `barWidgetRegistry` and `pluginRegistry`
 by property injection; declare only what you use.
 
@@ -152,13 +160,13 @@ forwarding the widget's `moduleName` to that panel), so one `Model.js` beside
 A clone keeps the built-in ids that are written into the QML: `omarchy plugin
 clone` rewrites only `manifest.json` and the `entryPoints` filenames, on
 purpose — "keep built-in ids inside the plugin code as stable IPC targets",
-its `update_manifest` comment — and `clonedFrom` routes the IPC half. What
-`clonedFrom` does **not** route is a *settings write*: a nested panel whose
-own `moduleName` is still the built-in id hands that id to `shell.qml`'s
-`updateEntryInline(moduleName, entry)`, which writes only an entry already
-carrying it in `bar.layout` or `config.plugins` — and the live slot carries
-the clone's id. So a copy with a settings-writing panel has to forward its
-own `moduleName` down (the clock plugin's third delta): the bar sets the
+its `update_manifest` comment — and `clonedFrom` routes the IPC half. On
+4.0.3 it routes a *settings write* too: a third-party `bar.shell` is a
+`PluginShellApi` whose `_updateSettings` resolves the requested id through
+`resolveEnabledId` (`shell.qml:648-649`, `PluginRegistry.qml:171-182`), so a
+nested panel that still names the built-in id writes under the enabled clone.
+Before 4.0.3 it did not, and the copy had to forward its own `moduleName` down
+(the clock plugin's third delta, kept as a back-compat shim): the bar sets the
 *widget's* `moduleName` from the slot id in `ModuleSlot.injectProps`, the
 widget passes it on.
 
@@ -175,7 +183,7 @@ swapping `omarchy.clock` for `hyprconf.clock` the anchor must follow
 
 | Member | Notes |
 |---|---|
-| `bar` | The host Bar instance (`plugins/bar/Bar.qml`). `bar.run(command)` launches a command the shell's way (`root.bar.run("omarchy-launch-or-focus-tui btop")`); `bar.moduleWidgets(id)` lists live instances |
+| `bar` | For an installed third-party widget, a `Ui/PluginBarApi.qml` facade over the host Bar (`plugins/bar/Bar.qml:2002-2003`); that file's members are the whole contract. First-party widgets get the Bar itself. `bar.run(command)` launches a command the shell's way (`root.bar.run("omarchy-launch-or-focus-tui btop")`); `bar.moduleWidgets(id)` lists live instances |
 | `bar.showTooltip(target, text)` / `bar.hideTooltip(target)` | The bar's own tooltip, anchored on `target` (the widget root) — call from a `MouseArea`'s `onEntered` / `onExited` with `hoverEnabled: true` |
 | `bar.barForeground` (color) / `bar.fontFamily` (string) | The bar's current text colour (theme, transparency-aware) and font family — bind `color` and `font.family` to these, with `Color.foreground` / `Style.fontFamily` as the `bar`-less fallback, as every stock text widget does |
 | `moduleName` | The widget's canonical id. Write the **stock** id in a `clonedFrom` copy's QML (a clone rewrites only `manifest.json` and the `entryPoints` filenames), but do not read it back as one: the bar overwrites the property with the *slot* id at runtime (`ModuleSlot.injectProps`), and it is not the IPC target — that is the widget's own `IpcHandler { target: … }`, or a panel's `ipcTarget` (`Ui/Panel.qml`). What that costs a nested panel: § Copies of built-in widgets, above |

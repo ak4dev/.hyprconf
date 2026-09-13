@@ -8,9 +8,9 @@
 # name. Everything is derived from the checkout at run time — nothing to
 # fall out of date when an add-on is added or dropped.
 #
-# A custom path per the hard rules: `omarchy commands --json` (356 entries,
-# Omarchy 4.0.2-1) lists only Omarchy's own commands, and nothing under
-# /usr/share/omarchy/bin enumerates an overlay's additions.
+# A custom path per the hard rules: `omarchy commands --json` lists only
+# Omarchy's own commands, and nothing under /usr/share/omarchy/bin enumerates
+# an overlay's additions.
 #
 # @HYPRCONF_DIR@ is substituted with the checkout path at install time
 # (stage_bin), the way the hooks resolve it; unsubstituted — run straight

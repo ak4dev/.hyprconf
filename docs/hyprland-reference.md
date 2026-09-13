@@ -24,7 +24,7 @@
 ## Config Basics
 
 Hyprland 0.55 introduced Lua (`hyprland.lua`); 0.56 — the version this overlay
-targets, and what Omarchy 4.0 ships — no longer reads hyprlang `.conf` for the
+targets (the pin is `AGENTS.md`) — no longer reads hyprlang `.conf` for the
 compositor. Omarchy's `~/.config/hypr/hyprland.lua` is the entry point.
 
 ```lua

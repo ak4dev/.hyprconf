@@ -14,20 +14,18 @@
 //      Model.js relative to itself, so it needs no copy, and one Model.js
 //      beside THIS file (the static `import "Model.js"` below) is the whole
 //      fork.
-//   3. injectPanel() forwards this widget's moduleName to that panel. The
-//      panel's own is the literal "omarchy.clock" (its line 19), and it is
-//      the id its persistSettings() hands to shell.qml's
-//      updateEntryInline(moduleName, entry), which writes only an entry
-//      whose id already matches in bar.layout or config.plugins — and the
-//      live slot reads "hyprconf.clock" once the copy is enabled, so a week
-//      start or a birth year set from the calendar redrew and was never
-//      written. The bar overwrites the WIDGET's moduleName with the slot id
-//      (shell/plugins/bar/Bar.qml, ModuleSlot.injectProps), so forwarding
-//      it is the whole fix; onModuleNameChanged makes the ordering explicit
-//      for a moduleName that arrives after the panel loads. hyprconf's own
-//      delta, not an Omarchy bug: `omarchy plugin clone` leaves the same
-//      built-in ids in the QML on purpose, as its update_manifest comment
-//      says, and clonedFrom routes the IPC half.
+//   3. injectPanel() forwards this widget's moduleName to that panel, whose
+//      own is the literal "omarchy.clock" (its line 19) — the id its
+//      persistSettings() hands to updateEntryInline(). Omarchy 4.0.3-1
+//      routes that call itself: the panel's `bar.shell` is a
+//      PluginShellApi whose _updateSettings resolves the requested id
+//      through resolveEnabledId (shell.qml:648-649,
+//      PluginRegistry.qml:171-182), so "omarchy.clock" lands on the enabled
+//      clone. The forward is kept as a back-compat shim for pre-4.0.3
+//      installs, where the literal id matched no live entry and a week
+//      start or birth year set from the calendar redrew but was never
+//      written; onModuleNameChanged makes the ordering explicit for a
+//      moduleName that arrives after the panel loads.
 // manifest.json names it clonedFrom omarchy.clock, so the shell swaps it
 // into the stock widget's slot and routes the stock IPC target here
 // (shell/services/PluginRegistry.qml, setEnabled / resolveEnabledId).
