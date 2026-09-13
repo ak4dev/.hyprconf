@@ -143,7 +143,7 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   suite) or behind an env seam — in `install.sh`, `OMARCHY_PATH` (Omarchy's own
   variable, not `_HYPRCONF_*`) for the Omarchy tree and `_HYPRCONF_*` for
   binaries and the other non-`$HOME` paths (`PKG_ADD`, `ZSH_BIN`, `ZSH`,
-  `KITTY_BIN`, `FIREFOX_POLICIES`, `UDEV_RULES`, `ASSUME_TTY`, `PLUGIN_WAIT`); `_HYPRCONF_*` in
+  `FIREFOX_POLICIES`, `UDEV_RULES`, `ASSUME_TTY`, `PLUGIN_WAIT`); `_HYPRCONF_*` in
   `bin/hyprconf-yubikey` for the boot files it reads and writes (`MKINITCPIO_D`,
   `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `LIMINE_ENTRY_CONF`, `LIMINE_USR_D`,
   `FIDO2_DROPIN`, `INITCPIO_INSTALL`, `MODULES_DIR`, `VCONSOLE`, `MACHINE_ID`,

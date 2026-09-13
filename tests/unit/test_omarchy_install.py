@@ -193,15 +193,13 @@ def _default_app_stub(
     )
 
 
-# Every external _setup fakes with the bare recording stub (exit 0). The
-# ones that need a body — omarchy-pkg-add, omarchy-pkg-present,
-# omarchy-plugin-list, omarchy-hook-install, omarchy-theme-refresh,
-# omarchy-default-{terminal,browser,editor}, jq, git, kitty, zsh —
-# are written
-# individually below; test_every_omarchy_command_install_sh_calls_has_a_fake
-# holds install.sh's code to the union of both.
+# The externals _setup fakes with the bare recording stub. The conditional
+# and bodied ones are written individually in _setup below;
+# test_every_omarchy_command_install_sh_calls_has_a_fake holds install.sh to
+# the union, which it reads off the fake directory rather than this list.
 OMARCHY_STUBS = (
     "omarchy-theme-set",
+    "omarchy-cmd-present",
     "omarchy-font-set",
     "omarchy-shell",
     "omarchy-plugin-enable",
@@ -220,10 +218,8 @@ OMARCHY_STUBS = (
     "omarchy-notification-send",
     "omarchy-osd",
     "omarchy-hyprland-toggle",
-    # Asserted never to run: switching the login shell, and pacman
-    # directly (the container has a real one; a call must be seen, not
-    # reach it).
-    "chsh",
+    # Asserted never to run: pacman directly (the container has a real
+    # one; a call must be seen, not reach it).
     "pacman",
     # stage_keychron reloads and retriggers udev; the real one would
     # re-apply rules on the developer's own machine.
@@ -231,9 +227,7 @@ OMARCHY_STUBS = (
 )
 
 
-def _setup(
-    tmp_path: Path, *, with_omarchy: bool = True, with_zsh: bool = True, with_kitty: bool = True
-) -> dict:
+def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     """Build a throwaway HOME + fake-bins tree resembling a fresh Omarchy box."""
     home = tmp_path / "home"
     bins = tmp_path / "bins"
@@ -245,17 +239,7 @@ def _setup(
 
     for name in OMARCHY_STUBS:
         _stub(bins / name, calls)
-    # Named so a "no Omarchy here" run can point the installer at a command
-    # that really is absent — /usr/bin/omarchy-pkg-add exists on the machines
-    # this overlay is developed on, so simply not stubbing it proves nothing.
-    pkg_add = "omarchy-pkg-add" if with_omarchy else "omarchy-pkg-add-absent"
-    if with_omarchy:
-        _stub(bins / pkg_add, calls)
-    # Same for kitty: /usr/bin has to stay on PATH for coreutils, and the
-    # host's own kitty would answer the "is it installed" check.
-    kitty = "kitty" if with_kitty else "kitty-absent"
-    if with_kitty:
-        _stub(bins / kitty, calls)
+    _stub(bins / "omarchy-pkg-add", calls)
     if with_zsh:
         _stub(bins / "zsh", calls)
     # omarchy-plugin-list answers empty and jq is "broken" (exit 1) until a
@@ -290,7 +274,6 @@ def _setup(
     (home / ".config" / "hypr").mkdir(parents=True)
     for stock in ("bindings.lua", "input.lua", "looknfeel.lua"):
         (home / ".config" / "hypr" / stock).write_text(f"-- stock omarchy {stock}\n")
-    (omarchy_path / "default" / "bash").mkdir(parents=True)
     # Omarchy's shipped shell.json defaults — what stage_idle starts from
     # when the user has no shell.json yet.
     (omarchy_path / "config" / "omarchy").mkdir(parents=True)
@@ -308,34 +291,18 @@ def _setup(
         "bins": bins,
         "omarchy_path": omarchy_path,
         "calls": calls,
-        "pkg_add": pkg_add,
-        "kitty": kitty,
         "udev_rules": tmp_path / "etc" / "udev" / "rules.d",
     }
     return env
 
 
-def _install_env(
-    env: dict,
-    *,
-    zsh: str | None = None,
-    zsh_bin: str | None = None,
-    extra_env: dict[str, str] | None = None,
-) -> dict[str, str]:
+def _install_env(env: dict, *, extra_env: dict[str, str] | None = None) -> dict[str, str]:
     """The environment install.sh runs in against the fake tree: _child_env
     plus every seam pinned at a fake. What _run passes — and what the
-    installed post-update hook, which execs install.sh, is run under.
-
-    `zsh` pins the resolved zsh path outright; `zsh_bin` instead renames the
-    binary the installer looks up on PATH, which is how a test can model "zsh
-    does not exist until the package stage installs it" on a host whose own
-    /usr/bin/zsh would otherwise always be found.
-    """
+    installed post-update hook, which execs install.sh, is run under."""
     child_env = {
         **_child_env(env),
         "OMARCHY_PATH": str(env["omarchy_path"]),
-        "_HYPRCONF_PKG_ADD": env["pkg_add"],
-        "_HYPRCONF_KITTY_BIN": env["kitty"],
         # The plugin-discovery and shell.json waits poll stubs that never
         # answer (a test modelling the shell's writes raises it again).
         "_HYPRCONF_PLUGIN_WAIT": "0",
@@ -347,10 +314,6 @@ def _install_env(
         # Keychron rule into the CI container's own /etc/udev/rules.d.
         "_HYPRCONF_UDEV_RULES": str(env["udev_rules"]),
     }
-    if zsh is not None:
-        child_env["_HYPRCONF_ZSH"] = zsh
-    if zsh_bin is not None:
-        child_env["_HYPRCONF_ZSH_BIN"] = zsh_bin
     if extra_env:
         child_env.update(extra_env)
     return child_env
@@ -359,8 +322,6 @@ def _install_env(
 def _run(
     env: dict,
     *args: str,
-    zsh: str | None = None,
-    zsh_bin: str | None = None,
     extra_env: dict[str, str] | None = None,
     install_sh: Path = INSTALL_SH,
 ) -> subprocess.CompletedProcess:
@@ -372,7 +333,7 @@ def _run(
         capture_output=True,
         text=True,
         timeout=60,
-        env=_install_env(env, zsh=zsh, zsh_bin=zsh_bin, extra_env=extra_env),
+        env=_install_env(env, extra_env=extra_env),
     )
 
 
@@ -438,6 +399,11 @@ def _checkout(tmp_path: Path) -> Path:
     for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "payload"]):
         subprocess.run(["git", *args], cwd=repo, check=True, timeout=30)
     return repo
+
+
+# "zsh is on this box, here": install.sh keys on ${_HYPRCONF_ZSH+set}, so a
+# set-but-empty value is "no zsh" and the PATH lookup is skipped either way.
+ZSH_AT = {"_HYPRCONF_ZSH": "/usr/bin/zsh"}
 
 
 def _child_env(env: dict) -> dict[str, str]:
@@ -534,8 +500,10 @@ def test_the_omarchy_firefox_policy_fixture_names_no_pref_omarchy_dropped() -> N
 
 
 def test_refuses_without_omarchy_command(tmp_path: Path) -> None:
-    env = _setup(tmp_path, with_omarchy=False)
-    proc = _run(env)
+    # A name that really is absent: /usr/bin/omarchy-pkg-add exists on the
+    # machines this overlay is developed on, so not stubbing it proves nothing.
+    env = _setup(tmp_path)
+    proc = _run(env, extra_env={"_HYPRCONF_PKG_ADD": "omarchy-pkg-add-absent"})
     assert proc.returncode != 0
     assert "omarchy" in proc.stderr.lower()
     # Nothing may be written before the guard fires.
@@ -752,7 +720,14 @@ def test_default_terminal_is_never_set_to_an_absent_kitty(tmp_path: Path) -> Non
     with --no-packages after every omarchy-update, so a die here would strand
     every later stage on each update of a box with no kitty.
     """
-    env = _setup(tmp_path, with_kitty=False)
+    env = _setup(tmp_path)
+    # kitty alone absent: a later omarchy-cmd-present for another command
+    # still answers, and /usr/bin stays on PATH for coreutils.
+    _stub(
+        env["bins"] / "omarchy-cmd-present",
+        env["calls"],
+        'case "$1" in kitty) exit 1 ;; esac; exit 0',
+    )
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     assert "kitty" in proc.stderr
@@ -821,7 +796,7 @@ def test_the_shell_line_is_written_once_however_often_the_stage_runs(tmp_path: P
     no grep guard in front of the append."""
     env = _setup(tmp_path)
     for _ in range(3):
-        assert _run(env, "--no-update", zsh="/usr/bin/zsh").returncode == 0
+        assert _run(env, "--no-update", extra_env=ZSH_AT).returncode == 0
     conf = env["home"] / ".config" / "kitty" / "hyprconf.conf"
     body = conf.read_text()
     assert body.count("shell /usr/bin/zsh") == 1
@@ -858,7 +833,7 @@ def test_shell_line_points_at_zsh_only_when_zsh_exists(tmp_path: Path) -> None:
     # _HYPRCONF_ZSH="" is the seam for "no zsh on this box" — the real lookup
     # would otherwise find the host's zsh, since /usr/bin has to stay on PATH
     # for coreutils.
-    assert _run(env, "--no-update", zsh="").returncode == 0
+    assert _run(env, "--no-update", extra_env={"_HYPRCONF_ZSH": ""}).returncode == 0
     body = _code_only((env["home"] / ".config" / "kitty" / "hyprconf.conf").read_text())
     assert "shell " not in body
 
@@ -875,12 +850,12 @@ def test_zsh_installed_by_the_package_stage_is_used_in_the_same_run(tmp_path: Pa
     zsh = env["bins"] / "zsh-installed-by-pkg-add"
     # Stand in for `pacman -S zsh`: the binary appears while the run is going.
     _stub(
-        env["bins"] / env["pkg_add"],
+        env["bins"] / "omarchy-pkg-add",
         env["calls"],
         f'printf "#!/usr/bin/env bash\\nexit 0\\n" > "{zsh}"; chmod 755 "{zsh}"',
     )
 
-    proc = _run(env, "--no-update", zsh_bin=zsh.name)
+    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ZSH_BIN": zsh.name})
     assert proc.returncode == 0, proc.stderr
 
     assert (env["home"] / ".zshrc").read_text().count("powerlevel10k") >= 1
@@ -1287,7 +1262,7 @@ def test_a_failed_pull_stops_the_sync_before_anything_is_applied(tmp_path: Path)
     assert "git pull failed" in proc.stderr
     assert any(" pull " in f" {c} " for c in _calls(env))
     assert "omarchy-update" not in _commands(env)
-    assert env["pkg_add"] not in _commands(env)  # the first stage after the pull
+    assert "omarchy-pkg-add" not in _commands(env)  # the first stage after the pull
     assert "omarchy-default-terminal" not in _commands(env)  # and a later one
     assert not (env["home"] / ".zshrc").exists()
 
@@ -1386,7 +1361,7 @@ def test_package_install_failure_stops_the_run(tmp_path: Path) -> None:
     rules, 6): with no terminal for sudo, omarchy-pkg-add fails on a missing
     package, and the run must die there instead of carrying on."""
     env = _setup(tmp_path)
-    _stub(env["bins"] / env["pkg_add"], env["calls"], "exit 1")
+    _stub(env["bins"] / "omarchy-pkg-add", env["calls"], "exit 1")
     proc = _run(env, "--no-update")
     assert proc.returncode != 0
     assert "package install failed" in proc.stderr
@@ -3162,7 +3137,7 @@ def test_curl_path_clones_the_checkout_and_hands_over_to_it(tmp_path: Path) -> N
     # The stages ran, from the checkout: the tools and hooks resolve to it and
     # the override links point into it.
     assert "omarchy-default-terminal kitty" in _calls(env)
-    assert env["pkg_add"] in _commands(env)
+    assert "omarchy-pkg-add" in _commands(env)
     hook = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
     assert f'HYPRCONF_DIR="{target}"' in hook.read_text()
     bindings = env["home"] / ".config" / "hypr" / "bindings.lua"
@@ -3174,13 +3149,17 @@ def test_curl_path_clones_the_checkout_and_hands_over_to_it(tmp_path: Path) -> N
 def test_curl_path_refuses_a_box_without_omarchy_before_cloning(tmp_path: Path) -> None:
     """Preflight runs BEFORE the clone: a machine that is not Omarchy gets the
     refusal and nothing else — no checkout lands on it."""
-    env = _setup(tmp_path, with_omarchy=False)
+    env = _setup(tmp_path)
     repo = _stable_checkout(tmp_path)
     _stub(env["bins"] / "git", env["calls"], GIT_LOCAL_CLONE)
     target = tmp_path / "hyprconf-dir"
     proc = _run(
         env,
-        extra_env={"HYPRCONF_REPO": str(repo), "HYPRCONF_DIR": str(target)},
+        extra_env={
+            "HYPRCONF_REPO": str(repo),
+            "HYPRCONF_DIR": str(target),
+            "_HYPRCONF_PKG_ADD": "omarchy-pkg-add-absent",
+        },
         install_sh=_served_copy(tmp_path),
     )
     assert proc.returncode != 0

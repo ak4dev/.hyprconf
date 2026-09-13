@@ -49,10 +49,6 @@ HERE_SED=${HERE//\\/\\\\}; HERE_SED=${HERE_SED//&/\\&}; HERE_SED=${HERE_SED//|/\
 # The zsh binary looked up on PATH. Overridable so a test can point the lookup
 # at a name that does not exist until the package stage creates it.
 : "${_HYPRCONF_ZSH_BIN:=zsh}"
-# The kitty binary stage_terminal checks for. Overridable for the same reason
-# as omarchy-pkg-add: a test proving the "kitty is not installed" stop has no
-# other way to make it absent on a machine whose /usr/bin has one.
-: "${_HYPRCONF_KITTY_BIN:=kitty}"
 # Where the system Firefox policy lands. Root-owned, so the stage that writes
 # it goes through sudo; overridable so the hermetic suite can point it at a tmp
 # tree. _HYPRCONF_ASSUME_TTY lets that suite reach the sudo path from a non-tty
@@ -649,7 +645,11 @@ stage_terminal() {
     # every update of a box that has no kitty — silently, forever. Every other
     # non-package stage (font, idle, defaults, editor) warns and returns for
     # the same reason.
-    command -v "$_HYPRCONF_KITTY_BIN" >/dev/null 2>&1 || {
+    # Omarchy's own probe, not a hand-rolled `command -v`: omarchy-cmd-present
+    # is `command -v` per argument (/usr/bin/omarchy-cmd-present, 4.0.3-1,
+    # unchanged from 4.0.2), the command omarchy-font-set:33 asks the same
+    # question with — and the harness already fakes every omarchy-* name.
+    omarchy-cmd-present kitty || {
         warn "kitty is not installed — the terminal default and its include are left alone" \
              "(run \`bash install.sh\` from a terminal to install it)"
         return 0
