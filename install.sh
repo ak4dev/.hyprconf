@@ -692,12 +692,23 @@ stage_keychron() {
 stage_terminal() {
     log "Terminal: kitty"
     # Assert kitty is present BEFORE touching the default: omarchy-default-
-    # terminal (Omarchy 4.0.0-1) checks nothing — it writes the desktop id
+    # terminal (Omarchy 4.0.3-1) checks nothing — it writes the desktop id
     # into ~/.config/xdg-terminals.list and notifies — so pointing it at an
     # absent kitty would leave SUPER+RETURN and every TUI launcher with no
     # terminal at all.
-    command -v "$_HYPRCONF_KITTY_BIN" >/dev/null 2>&1 ||
-        die "kitty is not installed — re-run without --no-packages"
+    #
+    # Warn and skip rather than die: this is the FIRST stage after the package
+    # gate, and hooks/post-update.d/10-hyprconf re-runs the installer with
+    # --no-packages after every omarchy-update. A `die` here would take the
+    # hotkeys, the plugins, the hooks and the theme stages down with it on
+    # every update of a box that has no kitty — silently, forever. Every other
+    # non-package stage (font, idle, defaults, editor) warns and returns for
+    # the same reason.
+    command -v "$_HYPRCONF_KITTY_BIN" >/dev/null 2>&1 || {
+        warn "kitty is not installed — the terminal default and its include are left alone" \
+             "(run \`bash install.sh\` from a terminal to install it)"
+        return 0
+    }
 
     local current=""
     current="$(omarchy-default-terminal 2>/dev/null || true)"

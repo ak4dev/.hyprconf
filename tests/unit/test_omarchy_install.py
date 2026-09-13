@@ -739,19 +739,27 @@ def test_never_changes_the_login_shell(tmp_path: Path) -> None:
 
 
 def test_default_terminal_is_never_set_to_an_absent_kitty(tmp_path: Path) -> None:
-    """omarchy-default-terminal (4.0.0-1) checks nothing: it writes the desktop
+    """omarchy-default-terminal (4.0.3-1) checks nothing: it writes the desktop
     id into ~/.config/xdg-terminals.list and notifies. Pointing it at a kitty
     that is not installed would leave SUPER+RETURN and every TUI launcher
     with no terminal, so the stage stops first — and never calls the setter
-    (an argument is what makes it write)."""
+    (an argument is what makes it write).
+
+    It WARNS and skips rather than dying: stage_terminal is the first stage
+    after the package gate, and the post-update hook re-runs the installer
+    with --no-packages after every omarchy-update, so a die here would strand
+    every later stage on each update of a box with no kitty.
+    """
     env = _setup(tmp_path, with_kitty=False)
     proc = _run(env, "--no-update")
-    assert proc.returncode != 0
+    assert proc.returncode == 0, proc.stderr
     assert "kitty" in proc.stderr
     assert not any(c.startswith("omarchy-default-terminal ") for c in _calls(env)), (
         "omarchy-default-terminal was called with an argument"
     )
     assert not (env["home"] / ".config" / "xdg-terminals.list").exists()
+    # And the run went on: a stage well after the terminal one still landed.
+    assert (env["home"] / ".zshrc").exists()
 
 
 def test_a_failed_terminal_setter_does_not_take_the_install_down(tmp_path: Path) -> None:
