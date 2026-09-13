@@ -19,6 +19,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import time
@@ -1798,6 +1799,38 @@ def _overlay_scripts() -> list[Path]:
 def test_scripts_are_syntactically_valid() -> None:
     for script in _overlay_scripts():
         assert subprocess.run(["bash", "-n", str(script)]).returncode == 0, script
+
+
+# AGENTS.md › Scripts: `#!/usr/bin/env bash` and `set -euo pipefail`, with the
+# deviations named there — the two hooks and hyprconf-yubikey drop -e (they
+# handle their own failures), hyprconf-stats is `set -u`. The map IS that
+# list, so a script that quietly drops a guard fails here.
+SET_LINE = {
+    "hyprconf-yubikey": "set -uo pipefail",
+    "10-hyprconf": "set -uo pipefail",
+    "hyprconf-stats": "set -u",
+}
+
+
+@pytest.mark.parametrize("script", _overlay_scripts(), ids=lambda p: str(p.relative_to(REPO_ROOT)))
+def test_every_overlay_script_carries_the_documented_header(script: Path) -> None:
+    """One header check for the whole tree, instead of a copy of it in each
+    tool's own suite. `make shellcheck` selects scripts BY the shebang, so a
+    missing one means no lint at all rather than a failure: this is what
+    catches that."""
+    text = script.read_text()
+    assert text.startswith("#!/usr/bin/env bash\n"), script
+    want = SET_LINE.get(script.name, "set -euo pipefail")
+    assert re.search(rf"^{re.escape(want)}$", text, re.M), f"{script}: no `{want}` line"
+    # The hooks are installed by `omarchy hook install`, which copies and
+    # chmods 755 (/usr/bin/omarchy-hook-install:27-29, Omarchy 4.0.3-1);
+    # everything else is run from where it lands, so it carries the bit.
+    if "hooks" not in script.parts:
+        assert script.stat().st_mode & stat.S_IXUSR, f"{script}: not executable"
+    # A seam has to stay overridable, or the suite cannot point it at a fake
+    # (AGENTS.md › Scripts). Constants of the script's own may be readonly.
+    frozen = re.findall(r"^\s*readonly\s+(_HYPRCONF_\w+|HYPRCONF_(?:STATS|GPU)_\w+)", text, re.M)
+    assert not frozen, f"{script}: readonly seam {frozen}"
 
 
 # omarchy-* names install.sh's code carries only inside data, never as a
