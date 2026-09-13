@@ -748,23 +748,24 @@ stage_kitty_include() {
     install -m 644 "$HERE/kitty/hyprconf.conf" "$dir/hyprconf.conf"
 
     # Only point kitty at zsh once zsh really exists — otherwise kitty cannot
-    # start at all. The login shell is deliberately left as bash.
+    # start at all. The login shell is deliberately left as bash. The reason
+    # lives once, in the shipped header of kitty/hyprconf.conf.
     if [[ -n $_HYPRCONF_ZSH ]]; then
-        grep -q '^shell ' "$dir/hyprconf.conf" || {
-            printf '\n# hyprconf runs zsh in the terminal. The LOGIN shell stays bash so\n'
-            printf '# Omarchy'"'"'s rc chain, session and scripts are untouched.\n'
-            printf 'shell %s\n' "$_HYPRCONF_ZSH"
-        } >> "$dir/hyprconf.conf"
+        printf '\nshell %s\n' "$_HYPRCONF_ZSH" >> "$dir/hyprconf.conf"
     else
         warn "zsh not installed — kitty will keep using the login shell"
     fi
 
-    if [[ -f $conf ]]; then
-        grep -qxF 'include hyprconf.conf' "$conf" ||
-            printf '\n# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
-    else
-        warn "$conf not found — hyprconf.conf installed but nothing includes it"
-    fi
+    # Unconditional: ~/.config/kitty/kitty.conf is OPTIONAL from 4.0.3 on —
+    # Omarchy's defaults moved to /etc/xdg/kitty/kitty.conf, which kitty
+    # merges BELOW any user file (SYSTEM_CONF, /usr/lib/kitty/kitty/cli.py:712,
+    # kitty 0.48.2) — so a box with no user file must still get the include,
+    # and creating it costs Omarchy nothing. That is how omarchy-font-set
+    # reaches the same file (`mkdir -p ~/.config/kitty` then append,
+    # /usr/bin/omarchy-font-set:33-40). grep answers non-zero when the file is
+    # absent, which is the branch that creates it.
+    grep -qxF 'include hyprconf.conf' "$conf" 2>/dev/null ||
+        printf '\n# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
 }
 
 stage_theme() {

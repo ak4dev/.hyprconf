@@ -811,6 +811,45 @@ def test_hyprconf_kitty_include_file_is_self_contained(tmp_path: Path) -> None:
         assert owned not in body, owned
 
 
+def test_the_shell_line_is_written_once_however_often_the_stage_runs(tmp_path: Path) -> None:
+    """hyprconf.conf is re-installed from the checkout on every run (`install
+    -m 644`, which also puts the 644 mode back), so the appended `shell` line
+    is the only thing the stage adds to it — one copy, never a growing stack.
+    The shipped file carries no `shell` line of its own, which is why there is
+    no grep guard in front of the append."""
+    env = _setup(tmp_path)
+    for _ in range(3):
+        assert _run(env, "--no-update", zsh="/usr/bin/zsh").returncode == 0
+    conf = env["home"] / ".config" / "kitty" / "hyprconf.conf"
+    body = conf.read_text()
+    assert body.count("shell /usr/bin/zsh") == 1
+    assert "shell " not in _code_only((REPO_ROOT / "kitty" / "hyprconf.conf").read_text())
+    # Only the shell line, and never a second copy of what the header says.
+    added = body[len((REPO_ROOT / "kitty" / "hyprconf.conf").read_text()) :]
+    assert added == "\nshell /usr/bin/zsh\n", added
+    if os.geteuid() != 0:  # CI runs as root, which bypasses the mode check
+        assert conf.stat().st_mode & 0o777 == 0o644
+
+
+def test_the_include_is_written_even_with_no_user_kitty_conf(tmp_path: Path) -> None:
+    """From Omarchy 4.0.3 ~/.config/kitty/kitty.conf is optional: the defaults
+    live in /etc/xdg/kitty/kitty.conf, which kitty merges BELOW any user file
+    (SYSTEM_CONF, /usr/lib/kitty/kitty/cli.py:712). A box that never got a
+    user file used to end up with hyprconf.conf installed and nothing
+    including it — the whole terminal stage inert, with only a warning. The
+    stage creates the file the way omarchy-font-set:33-40 does."""
+    env = _setup(tmp_path)
+    conf = env["home"] / ".config" / "kitty" / "kitty.conf"
+    conf.unlink()
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert conf.read_text() == "\n# hyprconf overlay\ninclude hyprconf.conf\n"
+    assert "nothing includes it" not in proc.stderr
+    # And a second run does not append it twice.
+    _run(env, "--no-update")
+    assert conf.read_text().count("include hyprconf.conf") == 1
+
+
 def test_shell_line_points_at_zsh_only_when_zsh_exists(tmp_path: Path) -> None:
     """Writing `shell /bin/zsh` without zsh present would stop kitty starting."""
     env = _setup(tmp_path)
