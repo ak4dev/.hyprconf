@@ -2450,7 +2450,6 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
     assert shipped == [
         "hyprconf-firefox-theme",
         "hyprconf-gaps",
-        "hyprconf-help",
         "hyprconf-install-service-protonvpn",
         "hyprconf-monitor-preset",
         "hyprconf-vulkan-gpu",

@@ -25,8 +25,7 @@ publish flow and the website upload.
 │   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
 │   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU — or one you pick — via uwsm env.d (status/prompt/fix/use/toggle/run/alt/ignore/remove)
 │   ├── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)
-│   ├── hyprconf-install-service-protonvpn  # Proton VPN via omarchy-pkg-add; run by the menu row stage_menu adds
-│   └── hyprconf-help           #   every add-on at a glance, derived from the checkout at run time (tools' header one-liners, widget manifests, theme and hook dirs)
+│   └── hyprconf-install-service-protonvpn  # Proton VPN via omarchy-pkg-add; run by the menu row stage_menu adds
 │
 ├── lib/hyprconf/               # Python package, used in place via PYTHONPATH (theme-set hook, hyprconf-firefox-theme)
 │   ├── firefox_theme.py        # Omarchy's rendered userChrome.css into Firefox/LibreWolf profiles + user.js prefs (theme-set hook)
@@ -78,7 +77,6 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 │   ├── test_firefox.py           #   infra/firefox/policies.json: the captured settings, both force-installed extensions, every pref against Firefox's own allowlist, and the merge as a superset of the installed Omarchy policy (read-only; the install suite's fixture of it elsewhere)
 │   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + the template's render
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
-│   ├── test_help.py              #   bin/hyprconf-help (the header one-liner convention every bin tool must carry, the listing, the @HYPRCONF_DIR@ fallback; jq real when present)
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), state the deltas the README promises (natural scroll, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock; the workspace rehoming is test_omarchy_install.py's, against the installed copy)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime

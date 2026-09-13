@@ -1030,9 +1030,9 @@ stage_bin() {
     mkdir -p "$HOME/.local/bin"
     local f dst
     # Every bin/hyprconf-* file; a new tool is one file in bin/. @HYPRCONF_DIR@
-    # is substituted the way the hooks get it, for the two tools that need the
-    # checkout (hyprconf-firefox-theme for PYTHONPATH, hyprconf-help to
-    # enumerate it). Rendered beside the target and mv'd over it:
+    # is substituted the way the hooks get it, for the one tool that needs the
+    # checkout (hyprconf-firefox-theme, for PYTHONPATH). Rendered beside the
+    # target and mv'd over it:
     # the rename is atomic, so a hotkey exec'ing one of these mid-install
     # runs old bytes or new, never a truncated prefix (a running tool keeps
     # its old inode); cmp keeps the steady-state re-run write-free, matching
