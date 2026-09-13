@@ -2940,27 +2940,120 @@ def test_monitor_preset_skips_commented_out_workspace_rules(tmp_path: Path) -> N
     assert any(f"workspace = {ws_on}," in m for m in moves)
 
 
+def _shell_json(env: dict, anchor: str, center: list[str]) -> Path:
+    """~/.config/omarchy/shell.json with one centre anchor and one centre
+    section — the two things follow_center_anchor reads."""
+    path = env["home"] / ".config" / "omarchy" / "shell.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"bar": {"centerAnchor": anchor, "layout": {"center": center}}}))
+    return path
+
+
+def _installed_plugins(env: dict, *ids: str) -> None:
+    """omarchy-plugin-list --json answering for a live shell that knows `ids`."""
+    _stub(
+        env["bins"] / "omarchy-plugin-list",
+        env["calls"],
+        "echo '[" + ",".join(f'{{"id":"{i}"}}' for i in ids) + "]'",
+    )
+
+
 def test_clock_copy_takes_the_center_anchor_with_it(tmp_path: Path) -> None:
     """canonicalWidgetId does no clone resolution (shell/Commons/Util.qml — a
     plain string cast), so a centerAnchor left at omarchy.clock matches
     nothing once the bar swaps to hyprconf.clock, and the clock drifts
-    off-center. The stage follows the anchor — but only while it still
-    points at the stock id, so a user's own anchor choice is never
-    overridden."""
+    off-center. The stage follows the anchor — but only while it names the
+    clock source, so a user's own anchor choice is never overridden."""
     env = _setup(tmp_path)
     _real_jq(env)
-    shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
-    shell_json.parent.mkdir(parents=True, exist_ok=True)
-    shell_json.write_text('{"bar": {"centerAnchor": "omarchy.clock"}}')
+    shell_json = _shell_json(env, "omarchy.clock", ["hyprconf.clock"])
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "hyprconf.clock"
 
-    # An anchor the user re-pointed later is left alone (marker aside, the
-    # guard itself only matches the stock id).
-    shell_json.write_text('{"bar": {"centerAnchor": "omarchy.weather"}}')
+    # An anchor the user re-pointed later is left alone: it is a widget they
+    # have on the bar, so it is a choice, not a dangling pointer.
+    _shell_json(env, "omarchy.weather", ["hyprconf.clock", "omarchy.weather"])
     _run(env, "--no-update")
     assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "omarchy.weather"
+
+
+def test_a_dangling_center_anchor_is_repaired_on_a_later_run(tmp_path: Path) -> None:
+    """`omarchy plugin clone omarchy.clock` leaves bar.centerAnchor naming
+    <user>.clock; `omarchy plugin remove` then renames that folder to a
+    dot-prefixed .bak, which the shell never scans — so the id exists nowhere,
+    hasAnchor is false (BarModel.js entryIndex; shell/plugins/bar/Bar.qml) and
+    the centre section centres the whole group instead of the clock. Nothing
+    repaired it: the follow ran only behind the clock marker, i.e. once, years
+    earlier. It now runs on every run."""
+    env = _setup(tmp_path)
+    _real_jq(env)
+    _installed_plugins(env, "hyprconf.clock", "omarchy.weather")
+    # A box that finished its first install long ago: marker present, so the
+    # enable and the format are the user's now.
+    marker = env["home"] / ".local" / "state" / "hyprconf" / "clock-applied"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    shell_json = _shell_json(env, "someone.clock", ["hyprconf.clock"])
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "hyprconf.clock"
+
+
+def test_an_anchor_on_a_widget_the_user_disabled_is_left_alone(tmp_path: Path) -> None:
+    """The dangling test is "no bar entry AND no such plugin", never the bare
+    "not on the bar": a widget the user disabled is off the bar and still
+    installed, and its anchor is their choice to re-point — or to restore by
+    enabling it again."""
+    env = _setup(tmp_path)
+    _real_jq(env)
+    _installed_plugins(env, "hyprconf.clock", "omarchy.weather")
+    shell_json = _shell_json(env, "omarchy.weather", ["hyprconf.clock"])
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "omarchy.weather"
+
+
+def test_the_anchor_is_not_moved_onto_a_clock_the_bar_does_not_carry(tmp_path: Path) -> None:
+    """`omarchy plugin disable hyprconf.clock` puts the stock widget back, and
+    the repair must not then point the anchor at a widget that is gone —
+    which is the same failure it exists to fix, pointing the other way."""
+    env = _setup(tmp_path)
+    _real_jq(env)
+    _installed_plugins(env, "hyprconf.clock")
+    marker = env["home"] / ".local" / "state" / "hyprconf" / "clock-applied"
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.touch()
+    shell_json = _shell_json(env, "omarchy.clock", ["omarchy.clock"])
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "omarchy.clock"
+
+
+def test_a_failed_anchor_edit_warns_and_leaves_no_temp_file(tmp_path: Path) -> None:
+    """The old `jq … > tmp && mv` tail printed "bar centerAnchor follows …"
+    whichever way jq went: a failing jq is the non-final command of an && list,
+    so set -e never fired, the mv was skipped and the success line printed over
+    an unchanged file — while a failing mv, being final, would have taken the
+    whole install down over a cosmetic step."""
+    env = _setup(tmp_path)
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("no jq available")
+    # A jq that reads fine but refuses the one program that writes the anchor.
+    _stub(
+        env["bins"] / "jq",
+        env["calls"],
+        f'for a in "$@"; do case "$a" in *".bar.centerAnchor = "*) exit 3 ;; esac; done;'
+        f' exec {jq} "$@"',
+    )
+    shell_json = _shell_json(env, "omarchy.clock", ["hyprconf.clock"])
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert "could not move bar.centerAnchor" in proc.stderr
+    assert "centerAnchor follows" not in proc.stdout
+    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "omarchy.clock"
+    assert not shell_json.with_suffix(".json.tmp").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -1348,20 +1348,61 @@ wait_for_swap() {
 
 # The bar centers on an anchor id, and canonicalWidgetId does no clone
 # resolution (shell/Commons/Util.qml — a plain string cast), so an anchor
-# left at omarchy.clock matches nothing once the bar swaps to our copy and
-# the clock drifts off-center. Follow the swap — but only while the anchor
-# still points at the stock id, so a user's own anchor choice is never
-# overridden. A read-modify-write of the shell's own file: the caller waits
+# left at omarchy.clock matches nothing once the bar swaps to our copy: the
+# clock drifts off-center and hasAnchor goes false (shell/plugins/bar/Bar.qml).
+# Run on EVERY run, not once behind the clock marker: an anchor can go stale
+# long after the first install — `omarchy plugin clone omarchy.clock` leaves
+# one naming a clone whose folder a later `omarchy plugin remove` renamed to
+# a dot-prefixed .bak (unscanned, so the id exists nowhere) — and nothing else
+# repairs it.
+#
+# Only an anchor that names the clock SOURCE is touched, never a choice:
+#
+#   * $stock, the id the swap moved the clock out from under, or
+#   * an id that is on no bar section AND is no installed plugin — the shape a
+#     removed clone leaves. A bare "not on the bar" test is not enough: it
+#     would re-point an anchor aimed at a widget the user merely disabled.
+#
+# and only while $keep is really on the bar, so the anchor never names a
+# widget the bar does not carry (a user who disabled our clock keeps theirs).
+# With no shell to list plugins the dangling case is left alone rather than
+# guessed at.
+#
+# A read-modify-write of the shell's own file: stage_clock waits
 # (wait_for_shell_json) for the last thing it asked the shell for to be on
 # disk first, or the edit lands on a stale copy and the shell's pending
-# write then takes it back.
+# write then takes it back. Omarchy has no command for bar.centerAnchor
+# (`omarchy bar --help` has no route for it, 4.0.3-1), and deliberately NOT
+# omarchy-shell-config's commit() the way stage_idle goes: that re-sorts the
+# whole file with jq -S and then refreshes the shell (:58, :61), which would
+# race the very write this edit just waited out.
 follow_center_anchor() {
-    local stock="$1" keep="$2" shell_json="$HOME/.config/omarchy/shell.json"
-    if [[ -f $shell_json ]] &&
-        [[ "$(jq -r '.bar.centerAnchor // ""' "$shell_json")" == "$stock" ]]; then
-        jq --arg id "$keep" '.bar.centerAnchor = $id' "$shell_json" > "$shell_json.tmp" &&
-            mv "$shell_json.tmp" "$shell_json"
-        info "bar centerAnchor follows $keep"
+    local stock="$1" keep="$2" shell_json="$HOME/.config/omarchy/shell.json" anchor
+    [[ -f $shell_json ]] || return 0
+    anchor="$(jq -r '.bar.centerAnchor // ""' "$shell_json" 2>/dev/null)" || return 0
+    [[ -n $anchor && $anchor != "$keep" ]] || return 0
+    jq -e "$_JQ_IDS"' ids | any(. == $keep)' --arg keep "$keep" \
+        "$shell_json" >/dev/null 2>&1 || return 0
+    if [[ $anchor != "$stock" ]]; then
+        jq -e "$_JQ_IDS"' ids | all(. != $anchor)' --arg anchor "$anchor" \
+            "$shell_json" >/dev/null 2>&1 || return 0
+        local list
+        list="$(omarchy-plugin-list --json 2>/dev/null)" || return 0
+        jq -e --arg anchor "$anchor" 'all(.[]?; .id != $anchor)' \
+            <<<"$list" >/dev/null 2>&1 || return 0
+    fi
+    # The `&& mv` tail this replaces reported success whichever way jq went:
+    # a failing jq is the non-final command of an && list, so set -e never
+    # fired, the mv was skipped and the info line printed anyway — while a
+    # failing mv, being final, took the whole install down over a cosmetic
+    # step. Same shape as stage_idle's warn-and-carry-on.
+    if jq --arg id "$keep" '.bar.centerAnchor = $id' "$shell_json" > "$shell_json.tmp"; then
+        mv "$shell_json.tmp" "$shell_json"
+        info "bar centerAnchor follows $keep (was $anchor)"
+    else
+        rm -f "$shell_json.tmp"
+        warn "could not move bar.centerAnchor to $keep in $shell_json" \
+             "— will retry on the next run"
     fi
 }
 
@@ -1388,13 +1429,15 @@ set_clock_format() {
 # three — an install-time copy of the stock plugin, made once, lagged the
 # 4.0.2 release's hardening of its own Panel.qml by eight lines with nothing
 # to refresh it (omarchy-plugin-update refuses a non-git folder). Only the
-# user's choices are set ONCE, behind the marker: the enable, hyprconf's
+# user's choices are set ONCE, behind the marker: the enable and hyprconf's
 # format — 12-hour with seconds and AM/PM, "hh:mm:ss AP" in the
-# Qt.formatDateTime tokens the widget feeds its format setting to — and the
-# centre anchor, for the same reason as the font and the default apps: the
-# post-update hook re-runs this installer, and a clock the user later
-# reformatted (right-click cycles formats; `omarchy bar set`) must stay
-# theirs. The sync comes first so the shell never loads a stale build.
+# Qt.formatDateTime tokens the widget feeds its format setting to — for the
+# same reason as the font and the default apps: the post-update hook re-runs
+# this installer, and a clock the user later reformatted (right-click cycles
+# formats; `omarchy bar set`) must stay theirs. The centre anchor is NOT one
+# of them: it is a pointer at whichever widget the clock is, repaired on every
+# run behind its own guard (follow_center_anchor). The sync comes first so the
+# shell never loads a stale build.
 #
 # `omarchy plugin disable` is NOT the whole way back, so the closing line
 # does not say it is: restoreCloneSource copies the clone's whole bar entry
@@ -1413,22 +1456,24 @@ stage_clock() {
     local marker="$HOME/.local/state/hyprconf/clock-applied"
     if [[ -e $marker ]]; then
         info "already applied once — the clock is yours now"
-        return 0
-    fi
-
     # Needs the live shell; on a TTY or over SSH there is nothing to answer,
     # so the marker stays unwritten and the next in-session run retries.
-    activate_plugin_copy "$id" || {
+    elif ! activate_plugin_copy "$id"; then
         warn "could not enable $id (is the Omarchy shell running?) — will retry on the next run"
-        return 0
-    }
-    wait_for_swap omarchy.clock "$id"
-    set_clock_format "$id"
-    follow_center_anchor omarchy.clock "$id"
+    else
+        wait_for_swap omarchy.clock "$id"
+        set_clock_format "$id"
+        mkdir -p "$(dirname "$marker")"
+        : > "$marker"
+        info "seconds tick via the $id widget (undo: omarchy plugin disable $id, then the format and the centre anchor — README › Reverting to stock)"
+    fi
 
-    mkdir -p "$(dirname "$marker")"
-    : > "$marker"
-    info "seconds tick via the $id widget (undo: omarchy plugin disable $id, then the format and the centre anchor — README › Reverting to stock)"
+    # OUTSIDE the marker: the centre anchor is a pointer at the clock, not a
+    # preference, and it can go stale years after the first install (its own
+    # comment). Its guard, not the marker, is what keeps a user's own choice
+    # safe — and on a run where the enable failed there is nothing on the bar
+    # for it to point at, so it declines by itself.
+    follow_center_anchor omarchy.clock "$id"
 }
 
 # Only ACTIVE workspaces on the bar, on two lines, Pac-Man on the focused
