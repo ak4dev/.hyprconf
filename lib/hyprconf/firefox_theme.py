@@ -80,8 +80,13 @@ _MODE_RE = re.compile(r"--hyprconf-theme-mode:\s*(light|dark)\s*;")
 # A user_pref line, either quote style Firefox's parser accepts, split into
 # key, the rest of the statement, and whatever trails the ``;`` (an inline
 # ``//`` or ``/* */`` comment the user wrote — kept when the line is rewritten).
+# The trailing ``\s*`` matters: without it a line whose ``;`` is followed by
+# blanks alone — what a hand edit leaves — matched neither branch, so the line
+# counted as unmanaged and a second copy of the pref was appended below it
+# instead of the line being rewritten in place. Blanks match the empty-tail
+# branch and are dropped with the rest of the old statement.
 _PREF_RE = re.compile(
-    r"""^\s*user_pref\(\s*(?P<q>["'])(?P<key>.*?)(?P=q)\s*,(?P<value>.*?)\)\s*;(?P<tail>\s*(?://|/\*).*)?$"""
+    r"""^\s*user_pref\(\s*(?P<q>["'])(?P<key>.*?)(?P=q)\s*,(?P<value>.*?)\)\s*;(?P<tail>\s*(?://|/\*).*)?\s*$"""
 )
 
 # Where a line ends: the terminators the file is actually written with.

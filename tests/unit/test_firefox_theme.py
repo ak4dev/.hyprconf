@@ -328,6 +328,26 @@ def test_merge_user_js_keeps_the_users_inline_comment(tmp_path: Path) -> None:
     )
 
 
+def test_merge_user_js_rewrites_a_line_with_blanks_after_the_semicolon(tmp_path: Path) -> None:
+    """What a hand edit leaves — spaces or a tab after the `;`. The line is
+    managed, so it is rewritten in place (blanks and all) rather than kept as
+    an unmanaged line with a second copy of the pref appended below it, which
+    left the file contradicting itself for good: Firefox takes the last value,
+    so it worked, and the stale line never went away."""
+    user_js = tmp_path / "user.js"
+    user_js.write_text(
+        'user_pref("ui.systemUsesDarkTheme", 0);   \n'
+        'user_pref("extensions.activeThemeID", "old@y");\t\n'
+    )
+    assert (
+        ft.merge_user_js(user_js, {"ui.systemUsesDarkTheme": 1, "extensions.activeThemeID": "x@y"})
+        is True
+    )
+    assert user_js.read_text() == (
+        'user_pref("ui.systemUsesDarkTheme", 1);\nuser_pref("extensions.activeThemeID", "x@y");\n'
+    )
+
+
 def test_merge_user_js_drops_later_duplicates_of_a_managed_key(tmp_path: Path) -> None:
     user_js = tmp_path / "user.js"
     user_js.write_text(
