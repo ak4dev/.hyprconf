@@ -47,6 +47,9 @@ publish flow and the website upload.
 ├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
 ├── infra/udev/70-keychron.rules # hidraw uaccess for Keychron (0x3434) / Lemokey (0x362d), so the WebHID launcher can reach the boards
 │
+│
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload) — built, gated and committed, NOT yet wired into `install.sh`: each one replaces its legacy stage and payload above as it lands, and carries a `NOTES.md` the integration commit deletes
+│
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
 ├── scripts/publish             # The three gates → tag → one atomic push of dev, stable and the tag
@@ -71,7 +74,8 @@ Two suites, both hermetic (the contract is in `AGENTS.md` › Tests); CI runs
 them in an `archlinux:latest` container, as an unprivileged user.
 
 ```
-conftest.py                       # the `box` fixture every test builds on (repo root: it reaches tests/ and, later, modules/)
+conftest.py                       # the `box` fixture every test builds on (repo root: it reaches both trees below)
+modules/<name>/test_<name>.py     # one suite per module, beside its `install` — `testpaths` collects modules/ and tests/ in one pytest run
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
 │   ├── test_firefox.py           #   infra/firefox/policies.json: every pref against Firefox's own allowlist and its `Type` rule, the force-installed shape, the seeded layout's crash conditions (the merge with Omarchy's own policy runs with the real jq in the install suite)
@@ -101,7 +105,9 @@ make test                # both suites, one invocation, in parallel (pytest -n a
 
 # Lint gates
 make lint                # ruff check + ruff format --check
-make shellcheck          # every bash script, severity=warning; plus SC2086 (info-level) on install.sh and hyprconf-yubikey — unquoted words in root-writing code
+make shellcheck          # every bash script (selected by shebang), severity=warning; plus SC2086 (info-level) on
+                         #   the root-writing files — install.sh, bin/hyprconf-yubikey and its module copy,
+                         #   modules/firefox/install and modules/keychron/install (the two module installs that call sudo)
 make fmt                 # ruff format + safe fixes
 ```
 
@@ -110,7 +116,7 @@ The gates need `ruff`, `shellcheck`, `python-pytest` and `python-pytest-xdist`
 `omarchy pkg add ruff shellcheck python-pytest python-pytest-xdist`. `jq`,
 `luac` and `qmllint` are used real by the tests that need them and skipped
 when absent; `git` is required. CI's own package list, with the reason each
-entry is there, lives in `.github/workflows/test.yml`; the two tests that
+entry is there, lives in `.github/workflows/test.yml`; the tests that
 skip in CI, and the recipe for reproducing a container-only failure, are in
 `AGENTS.md` › Gates and CI.
 

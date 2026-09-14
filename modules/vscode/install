@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# hyprconf/vscode — VS Code through Omarchy's own installer, and `code` as the default editor.
+#
+# bin/omarchy-install-editor-vscode is `omarchy-pkg-add visual-studio-code-bin` (:6 — Omarchy's own
+# [omarchy] pacman repository, never the AUR), ~/.vscode/argv.json, `update.mode none`,
+# omarchy-theme-set-vscode (:27) and one backgrounded `gtk-launch code` (:29): it opens VS Code once
+# when it is done, by design. It has no `set -e` and does not guard the pkg-add, so it exits 0
+# whatever happened — the result is read back with omarchy-pkg-present (`pacman -Q` per name,
+# bin/omarchy-pkg-present:6-8). Nothing is removed to make room.
+#
+# The default editor is set ONCE, behind its own marker: bin/omarchy-default-editor writes
+# ~/.local/state/omarchy/defaults/editor (:33-34) and then notifies (:36), so its exit status is
+# omarchy-notification-send's and fails with no shell to notify — a TTY or SSH run — long after the
+# value is on disk; the value is read back instead (:9-15, "nvim" when the file is absent).
+# Seeded only once the package is there, so a --no-packages first run never points the editor at a
+# VS Code that is not installed.
+#
+# omarchy-pkg-add needs sudo (bin/omarchy-pkg-add:12), so the install half sits behind HYPRCONF_NO_SUDO
+# and the TTY test; the post-update hook passes --no-packages, and under omarchy-update every child has
+# a pty (bin/omarchy-update:10-12) which the TTY test alone would not catch.
+# Usage: install | install undo        (Omarchy 4.0.3-1)
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+pkg=visual-studio-code-bin editor=code
+marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/editor-applied
+legacy=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/defaults-applied   # the pre-module browser+editor marker
+
+if [[ ${1:-} == undo ]]; then
+  # Stock is Omarchy's own fallback, nvim (bin/omarchy-default-editor:14, with no state file). Only our
+  # own value is taken back — a pick made after us stays. The package stays too: nothing is removed.
+  if [[ $(omarchy-default-editor 2>/dev/null || true) == "$editor" ]]; then
+    omarchy-default-editor nvim >/dev/null 2>&1 || true
+  fi
+  rm -f "$marker"        # never $legacy: the browser module honours the same file
+  exit 0
+fi
+
+if ! omarchy-pkg-present "$pkg"; then
+  if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
+    echo "  VS Code is not installed — re-run without --no-packages to install it"
+  elif [[ ! -t 0 && -z ${_HYPRCONF_ASSUME_TTY:-} ]]; then
+    echo "  no terminal for sudo — run this from a terminal to install VS Code"
+  else
+    echo "  installing through omarchy-install-editor-vscode — Omarchy's own flow, which opens VS Code once when it is done"
+    omarchy-install-editor-vscode || true
+    omarchy-pkg-present "$pkg" ||
+      echo "  $pkg did not install — retry with: omarchy install editor vscode (Arch's own \`code\` conflicts with it; drop that first if you have it)"
+  fi
+fi
+
+[[ -e $marker ]] && exit 0
+if [[ -e $legacy ]]; then mkdir -p "${marker%/*}"; : > "$marker"; exit 0; fi   # already chosen before the split
+omarchy-pkg-present "$pkg" || exit 0                                          # no VS Code, no editor default
+omarchy-default-editor "$editor" >/dev/null 2>&1 || true
+if [[ $(omarchy-default-editor 2>/dev/null || true) == "$editor" ]]; then
+  mkdir -p "${marker%/*}"
+  : > "$marker"
+  echo "  default editor = $editor (yours from now on: omarchy default editor <name>) — undo: bash $dir/install undo"
+else
+  echo "  could not set $editor as the default editor — set it with: omarchy default editor $editor"
+fi
+exit 0

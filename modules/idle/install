@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# hyprconf/idle — the screensaver starts after 15 minutes instead of Omarchy's 150 s.
+#
+# Omarchy ships no command for the key: `omarchy commands --json` routes only branding /
+# launch / toggle screensaver, and `omarchy toggle idle` is a stay-awake state file
+# (bin/omarchy-toggle-idle:8-9). It does ship the helper every one of its own shell.json
+# writers uses — sourced, never run (bin/omarchy-shell-config:3 "source this, don't run
+# it", omarchy:hidden=true), the way bin/omarchy-bar:10 sources it. commit() is jq -S -e
+# over source_file() (the user's shell.json, or the shipped defaults when there is none
+# yet) -> mktemp -> mv -> refresh_shell_config, which falls back from `omarchy-shell shell
+# reloadConfig` to `omarchy-shell -q shell rescanPlugins`
+# (bin/omarchy-shell-config:14-18,20-26,53-62; Omarchy 4.0.3-1).
+#
+# The subshell is mandatory, not style: sourcing the helper installs an EXIT trap of its
+# own (:51) and commit()'s fail() exits 1 (:9-12).
+#
+# Set ONCE behind a marker: shell.json is the user's file and a timeout changed later
+# stays theirs. Only .idle.screensaver is written; .idle.lock is left as Omarchy has it.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+: "${OMARCHY_PATH:=/usr/share/omarchy}"   # the helper's DEFAULTS_FILE (env-bootstrap:12,16)
+seconds=900
+json=$HOME/.config/omarchy/shell.json
+marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/idle-applied
+
+# One shell.json edit, through Omarchy's own writer.
+edit() {
+  local helper
+  helper=$(command -v omarchy-shell-config) || return 1
+  # shellcheck source=/dev/null
+  ( source "$helper" && commit "$1" )
+}
+
+if [[ ${1:-} == undo ]]; then
+  # Dropping the key restores Omarchy's own 150 s: a valid user shell.json replaces the
+  # defaults file whole, no deep merge (shell/shell.qml:73-88), and the idle service then
+  # falls back to defaultScreensaverSeconds = 150
+  # (shell/plugins/services/idle/Service.qml:17,21). Guarded, so an undo with no user
+  # shell.json does not materialise one out of the shipped defaults (source_file:20-26).
+  if [[ -s $json ]] && jq -e '.idle.screensaver != null' "$json" >/dev/null 2>&1; then
+    edit 'del(.idle.screensaver)' ||
+      echo "  could not restore idle.screensaver — remove it from $json by hand"
+  fi
+  rm -f "$marker"
+  exit 0
+fi
+
+[[ -e $marker ]] && exit 0
+if edit ".idle = ((.idle // {}) + { screensaver: $seconds })"; then
+  mkdir -p "${marker%/*}"; : > "$marker"
+  echo "  idle.screensaver = ${seconds}s — undo: bash $dir/install undo"
+else
+  echo "  could not set idle.screensaver — will retry on the next run"
+fi
+exit 0

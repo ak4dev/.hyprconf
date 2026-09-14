@@ -1,0 +1,69 @@
+# hyprconf/shell-zsh — the interactive zsh, sourced by one line in ~/.zshrc.
+# No framework: what runs is what is written here.
+
+# Omarchy's own bash files, read by zsh so its updates flow straight through:
+# env-bootstrap exports OMARCHY_PATH and appends ~/.local/bin to PATH
+# (default/bash/env-bootstrap:16,37-40), envs sets EDITOR/BROWSER/MANPAGER
+# (:2,8,13), aliases the eza/fzf/zoxide set. Failure-tolerant on purpose —
+# these are bash files: a bashism in a future Omarchy release must degrade to
+# a missing alias, never to an unusable shell.
+_hyprconf_bash="${OMARCHY_PATH:-/usr/share/omarchy}/default/bash"
+for _hyprconf_f in env-bootstrap envs aliases; do
+  [ -r "$_hyprconf_bash/$_hyprconf_f" ] &&
+    source "$_hyprconf_bash/$_hyprconf_f" 2>/dev/null
+done
+unset _hyprconf_bash _hyprconf_f
+
+# Omarchy aliases `cd` to its `zd` wrapper, which calls zoxide's `z`
+# (default/bash/aliases:17-31); without a zsh init that alias breaks `cd` for
+# anything that is not an existing directory.
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+
+# History, completion and emacs keys, written out: Oh My Zsh used to supply
+# them from its lib/, and the overlay no longer installs it.
+HISTFILE="$HOME/.zsh_history"
+HISTSIZE=50000
+SAVEHIST=50000
+setopt share_history hist_ignore_all_dups hist_ignore_space extended_history
+setopt auto_cd interactive_comments
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+zstyle ':completion:*' menu select
+autoload -Uz compinit && compinit
+bindkey -e
+zmodload zsh/terminfo 2>/dev/null
+autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
+zle -N up-line-or-beginning-search
+zle -N down-line-or-beginning-search
+bindkey "${terminfo[khome]:-^[[H}" beginning-of-line
+bindkey "${terminfo[kend]:-^[[F}" end-of-line
+bindkey "${terminfo[kdch1]:-^[[3~}" delete-char
+bindkey "${terminfo[kcuu1]:-^[[A}" up-line-or-beginning-search
+bindkey "${terminfo[kcud1]:-^[[B}" down-line-or-beginning-search
+
+# powerlevel10k, the pinned clone `install` makes — the theme file is the whole
+# of it, no framework in between. ~/.p10k.zsh is a link to this module's
+# .p10k.zsh (the pinned template plus this overlay's overrides).
+_hyprconf_p10k="$HOME/.local/share/powerlevel10k/powerlevel10k.zsh-theme"
+[ -r "$_hyprconf_p10k" ] && source "$_hyprconf_p10k"
+unset _hyprconf_p10k
+[ -r "$HOME/.p10k.zsh" ] && source "$HOME/.p10k.zsh"
+
+[ -r /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ] &&
+  source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+# ~/.local/bin/hyprconf is the link the core installs; no checkout path here.
+alias hyprsync='hyprconf --sync'
+
+# Shell greeting. The layout is the `fastfetch` module's, and fastfetch's own
+# default when that module is not installed.
+if command -v fastfetch >/dev/null 2>&1; then
+  if [ -r "$HOME/.config/hyprconf/fastfetch.jsonc" ]; then
+    fastfetch -c "$HOME/.config/hyprconf/fastfetch.jsonc"
+  else
+    fastfetch
+  fi
+fi
+
+# Last: it wraps the widgets everything above may have defined.
+[ -r /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ] &&
+  source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh

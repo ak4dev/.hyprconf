@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# hyprconf/themes — the dracula user theme, and the wallpapers filed under the
+# Omarchy theme each belongs to.
+#
+# dracula is a SYMLINK into this directory: `git pull` is then the theme
+# update, and Omarchy blesses the shape — theme_came_from_a_repo is
+# `[[ ! -L $source && -d $source/.git ]]` (omarchy-theme-set:204-208), so a
+# linked user theme takes the plain `cp -r` branch (:275) rather than the
+# deny-listed stage_installed_theme one, and `omarchy theme update` iterates
+# omarchy-theme-extras (omarchy-theme-update:5), whose loop skips a link with
+# that same test (omarchy-theme-extras:12) — so it never pulls into the
+# checkout. INSTALLED, NEVER ACTIVATED: nothing here runs omarchy-theme-set.
+#
+# Wallpapers: Omarchy's picker scans two directories, both keyed to the ACTIVE
+# theme — that theme's own backgrounds/ and ~/.config/omarchy/backgrounds/
+# <theme>/ (omarchy-theme-bg-next:7-14, omarchy-theme-bg-switcher:11-14); one
+# filed anywhere else is invisible, and 4.0.3-1 has no command that files one
+# (omarchy-theme-bg-install:5-9 only opens nautilus on the folder). The
+# destination theme is the directory name under backgrounds/, and the file is
+# copied only when absent — the folder stays the user's to curate.
+# dracula's own background is not here: it ships inside the theme.
+#
+# Nothing outside $HOME, no package, no prompt — no sudo or TTY gate needed.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+themes=$HOME/.config/omarchy/themes
+backgrounds=$HOME/.config/omarchy/backgrounds
+link=$themes/dracula
+
+if [[ ${1:-} == undo ]]; then
+    # Only our own link: a directory, or a link the user pointed elsewhere, is
+    # theirs. omarchy-theme-remove gates on `[[ -d $THEME_PATH ]]` (follows the
+    # link) and then `rm -rf "$THEME_PATH"` (:31-37), which unlinks without
+    # touching this checkout; the rm after it is for the Omarchy that refused.
+    if [[ $(readlink "$link" 2>/dev/null) == "$dir/dracula" ]]; then
+        omarchy-theme-remove dracula >/dev/null 2>&1 || true
+        if [[ -L $link ]]; then rm -f "$link"; fi
+    fi
+    for f in "$dir"/backgrounds/*/*; do
+        [[ -f $f ]] || continue
+        theme=${f%/*}
+        theme=${theme##*/}
+        if cmp -s "$f" "$backgrounds/$theme/${f##*/}"; then # a file of their own at our path stays
+            rm -f "$backgrounds/$theme/${f##*/}"
+            rmdir "$backgrounds/$theme" 2>/dev/null || true
+        fi
+    done
+    exit 0
+fi
+
+mkdir -p "$themes"
+if [[ -e $link && ! -L $link ]]; then
+    # `ln -sfn` over a directory drops a stray link inside it (-n guards a
+    # link, not a directory).
+    echo "  $link is a theme directory of your own — left alone (move it away to get hyprconf's dracula)" >&2
+elif [[ $(readlink "$link" 2>/dev/null) != "$dir/dracula" ]]; then
+    ln -sfn "$dir/dracula" "$link"
+    echo "  dracula is in the theme menu (SUPER+SHIFT+CTRL+SPACE) — the active theme is left as it is"
+fi
+
+for f in "$dir"/backgrounds/*/*; do
+    [[ -f $f ]] || continue # no nullglob: an empty backgrounds/ iterates the pattern itself
+    theme=${f%/*}
+    theme=${theme##*/}
+    dest=$backgrounds/$theme/${f##*/}
+    [[ -e $dest ]] || {
+        install -Dm644 "$f" "$dest"
+        echo "  ${f##*/} -> $theme backgrounds (SUPER+CTRL+SPACE to pick it)"
+    }
+done
+exit 0

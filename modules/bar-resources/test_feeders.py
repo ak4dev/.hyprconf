@@ -1,0 +1,879 @@
+"""The two streaming feeders behind the hyprconf.resources bar widget, driven
+hermetically over fake /proc, /sys and PATH trees.
+
+hyprconf-stats is the cpu/mem/net/temp sampler (cpu temperature from a hwmon
+path resolved once at startup, network counters from the default-route
+interface); hyprconf-gpu-info is nvidia-smi --loop piped through one awk, or a
+pure-bash sysfs loop over AMD's gpu_busy_percent or Intel's xe idle-residency
+counter, the latter gated on power/runtime_status because every xe read resumes
+the card. Every system path is behind a HYPRCONF_STATS_* / HYPRCONF_GPU_* seam.
+
+A PATH `sleep` fake is the hook that runs between ticks: hyprconf-stats' loadable
+-sleep seam is pointed at a file that is not there, so its ticks call the fake
+too.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from conftest import Box
+
+FEEDERS = Path(__file__).parent / "plugin" / "bin"
+GPU_INFO = FEEDERS / "hyprconf-gpu-info"
+STATS = FEEDERS / "hyprconf-stats"
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _fake_hwmon(tmp: Path, sensors: list[tuple[str, str]]) -> Path:
+    """A fake /sys/class/hwmon tree: one chip per (label, millidegrees)."""
+    root = tmp / "hwmon"
+    root.mkdir(exist_ok=True)
+    for i, (label, mdeg) in enumerate(sensors):
+        chip = root / f"hwmon{i}"
+        chip.mkdir()
+        (chip / "temp1_label").write_text(label + "\n")
+        (chip / "temp1_input").write_text(mdeg + "\n")
+    return root
+
+
+# ---------------------------------------------------------------------------
+# hyprconf-stats (streaming cpu/mem/net/temp sampler)
+# ---------------------------------------------------------------------------
+
+PROC_STAT = "cpu  100 0 100 800 0 0 0 0 0 0\n"
+PROC_MEMINFO = "MemTotal:       33554432 kB\nMemAvailable:   16777216 kB\n"
+
+
+def _fake_net(tmp: Path) -> Path:
+    """Fake /sys/class/net: eth0 with counters that never move, wlan0 with the
+    ones the `sleep` hook advances, and lo."""
+    net = tmp / "net"
+    for name, rx, tx in (("eth0", "1000", "2000"), ("wlan0", "5000", "6000")):
+        stats = net / name / "statistics"
+        stats.mkdir(parents=True)
+        (net / name / "operstate").write_text("up\n")
+        (stats / "rx_bytes").write_text(rx + "\n")
+        (stats / "tx_bytes").write_text(tx + "\n")
+    (net / "lo").mkdir()
+    return net
+
+
+# /proc/net/route as the kernel prints it (net/ipv4/fib_trie.c,
+# fib_route_seq_show): a header, then one tab-separated line per route of the
+# main table — Iface, Destination and Gateway as little-endian hex, Flags,
+# RefCnt, Use, Metric, Mask, MTU, Window, IRTT — each padded to 127 columns.
+ROUTE_HEADER = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT"
+
+
+def _route(iface: str, *, gateway: bool = True, metric: int = 600, dest: str = "00000000") -> str:
+    """One route line: the default route (dest 00000000) via a gateway
+    (RTF_UP|RTF_GATEWAY, 0003), or gateway-less the way a tunnel's is
+    (Gateway 00000000, RTF_UP alone, 0001); `dest` for a non-default line."""
+    gw, flags = ("0101A8C0", "0003") if gateway else ("00000000", "0001")
+    mask = "00000000" if dest == "00000000" else "00FFFFFF"
+    return f"{iface}\t{dest}\t{gw}\t{flags}\t0\t0\t{metric}\t{mask}\t0\t0\t0".ljust(127)
+
+
+def _route_table(*lines: str) -> str:
+    return "\n".join([ROUTE_HEADER.ljust(127), *lines]) + "\n"
+
+
+def _run_stats(
+    box: Box,
+    net_root: Path,
+    *,
+    route_dev: str | None = "wlan0",
+    route_lines: list[str] | None = None,
+    iterations: int = 2,
+    hwmon_root: Path | None = None,
+    sleep_body: str | None = None,
+    env: dict[str, str] | None = None,
+    bare_path: bool = False,
+) -> list[dict]:
+    """Run hyprconf-stats for N samples and parse (and type-pin) its lines.
+
+    The fake /proc/net/route names `route_dev` as the default-route interface
+    (`route_lines` replaces the generated lines verbatim; `route_dev=None` lists
+    no default route), and the PATH `sleep` fake that runs between ticks
+    advances wlan0's counters by 5000 rx / 1000 tx bytes on every call: a sample
+    fed from wlan0 reads 5.0kB/s down and 1.0kB/s up, one fed from any other
+    (static) interface reads 0B/s, so the rate says which interface the feeder
+    read. `sleep_body` scripts the fake instead, for tests that mutate the tree
+    between ticks. `bare_path` runs the feeder with the box's own stub dir as
+    the whole PATH — the pin that a tick execs nothing.
+    """
+    if sleep_body is None:
+        stats = net_root / "wlan0" / "statistics"
+        sleep_body = (
+            f'read -r n < "{stats}/rx_bytes" && echo $((n + 5000)) > "{stats}/rx_bytes"\n'
+            f'read -r n < "{stats}/tx_bytes" && echo $((n + 1000)) > "{stats}/tx_bytes"\n'
+        )
+    # `command -p` runs the real sleep off the standard PATH, never this fake
+    # again.
+    box.stub("sleep", sleep_body + 'command -p sleep "$@"\n')
+    if route_lines is None:
+        route_lines = [_route(route_dev)] if route_dev is not None else []
+        route_lines.append(_route("wlan0", gateway=False, dest="0001A8C0"))  # the link route
+    route_f = box.tmp / "proc_net_route"
+    route_f.write_text(_route_table(*route_lines))
+    stat_f = box.tmp / "proc_stat"
+    stat_f.write_text(PROC_STAT)
+    mem_f = box.tmp / "meminfo"
+    mem_f.write_text(PROC_MEMINFO)
+    if bare_path:
+        # A bare PATH still has to resolve `bash` itself (the stub's `env`
+        # shebang looks it up there too); nothing else is added, so an `ip`,
+        # `awk` or coreutils call inside a tick finds nothing.
+        bash = shutil.which("bash")
+        assert bash, "bash not installed"
+        (box.bins / "bash").symlink_to(bash)
+    r = box.run(
+        STATS,
+        env={
+            **({"PATH": str(box.bins)} if bare_path else {}),
+            "HYPRCONF_STATS_NET_ROOT": str(net_root),
+            "HYPRCONF_STATS_PROC_STAT": str(stat_f),
+            "HYPRCONF_STATS_PROC_MEMINFO": str(mem_f),
+            "HYPRCONF_STATS_PROC_ROUTE": str(route_f),
+            # empty tree by default → temp resolves to null (hidden module)
+            "HYPRCONF_STATS_HWMON_ROOT": str(hwmon_root or _fake_hwmon(box.tmp, [])),
+            # A file that is not there: the stub above is the sleep.
+            "HYPRCONF_STATS_SLEEP_BUILTIN": str(box.tmp / "no-loadable-sleep"),
+            "HYPRCONF_STATS_INTERVAL": "0",
+            "HYPRCONF_STATS_ITERATIONS": str(iterations),
+            **(env or {}),
+        },
+    )
+    assert r.returncode == 0, r.stderr
+    # A feeder that complains repeats it every tick into the shell's journal.
+    assert r.stderr == "", r.stderr
+    lines = [json.loads(ln) for ln in r.stdout.strip().splitlines()]
+    for payload in lines:
+        # The contract the widget assigns straight through, unchecked.
+        assert set(payload) == {"cpu", "mem", "down", "up", "temp"}
+        assert isinstance(payload["cpu"], int)
+        assert payload["temp"] is None or isinstance(payload["temp"], int)
+        for key in ("mem", "down", "up"):
+            assert isinstance(payload[key], str), key
+    return lines
+
+
+class TestStatsScript:
+    def test_emits_valid_json_samples(self, box: Box) -> None:
+        lines = _run_stats(box, _fake_net(box.tmp), iterations=2)
+        assert len(lines) == 2
+        assert lines[0]["mem"] == "16.0/32.0G"  # MemTotal-MemAvailable, GiB
+
+    def test_rates_come_from_the_default_route_interface(self, box: Box) -> None:
+        """The routed interface is the one carrying the traffic, so a wired
+        link that is up but unrouted (a dock, a tether) is not the reading —
+        eth0 is up here and the route is wlan0's."""
+        net = _fake_net(box.tmp)
+        payload = _run_stats(box, net, route_dev="wlan0", iterations=1)[0]
+        assert (payload["down"], payload["up"]) == ("5.0kB/s", "1.0kB/s")
+        assert (net / "eth0/statistics/rx_bytes").read_text() == "1000\n"  # never read
+
+    def test_default_route_lookup_execs_nothing(self, box: Box) -> None:
+        """The lookup runs once a second for the whole session: it must fork
+        nothing. With the stub dir as the whole PATH no `ip`, `awk` or
+        coreutils exist — a lookup that shells out finds no interface and reads
+        0B/s."""
+        payload = _run_stats(box, _fake_net(box.tmp), iterations=1, bare_path=True)[0]
+        assert (payload["down"], payload["up"]) == ("5.0kB/s", "1.0kB/s")
+
+    def test_first_default_route_wins_and_the_rest_of_the_table_is_ignored(self, box: Box) -> None:
+        """The kernel lists a prefix's routes by metric (fib_insert_alias),
+        so of two default routes the first is the one `ip route show default`
+        prints first: a tether at metric 100 ahead of Wi-Fi at 600. Neither
+        the header, a link route listed before them, nor an `unreachable
+        default` (no device: "*", where `ip` prints no `dev`) may be taken
+        for the interface."""
+        net = _fake_net(box.tmp)
+        tether = net / "usb0" / "statistics"
+        tether.mkdir(parents=True)
+        (tether / "rx_bytes").write_text("100\n")
+        (tether / "tx_bytes").write_text("200\n")
+        payload = _run_stats(
+            box,
+            net,
+            route_lines=[
+                _route("wlan0", gateway=False, dest="0001A8C0"),
+                _route("*", metric=0),
+                _route("usb0", metric=100),
+                _route("wlan0", metric=600),
+            ],
+            iterations=1,
+        )[0]
+        assert (payload["down"], payload["up"]) == ("0B/s", "0B/s")  # usb0's static counters
+
+    def test_no_route_reads_zero(self, box: Box) -> None:
+        payload = _run_stats(box, _fake_net(box.tmp), route_dev=None, iterations=1)[0]
+        assert (payload["down"], payload["up"]) == ("0B/s", "0B/s")
+
+    def test_missing_route_table_reads_zero_and_survives(self, box: Box) -> None:
+        """No /proc/net/route at all (a locked-down namespace): 0B/s, exit 0,
+        nothing on stderr — never a dead feeder."""
+        payload = _run_stats(
+            box,
+            _fake_net(box.tmp),
+            iterations=1,
+            env={"HYPRCONF_STATS_PROC_ROUTE": str(box.tmp / "absent")},
+        )[0]
+        assert (payload["down"], payload["up"]) == ("0B/s", "0B/s")
+
+    def test_interface_switch_rebases_the_rate_baseline(self, box: Box) -> None:
+        """A switch of interface rebases the counters, so that tick reads 0B/s
+        (why: the rebase comment in hyprconf-stats). The switch here is the
+        route moving to eth0 — a tunnel coming up looks the same."""
+        net = _fake_net(box.tmp)
+        route_f = box.tmp / "proc_net_route"
+        (net / "eth0/statistics/rx_bytes").write_text("800000000000\n")
+        (net / "eth0/statistics/tx_bytes").write_text("900000000000\n")
+        calls = box.tmp / "sleep-calls"
+        sleep_body = (
+            f'c=0; [[ -r {calls} ]] && read -r c < "{calls}"; c=$((c + 1)); echo $c > "{calls}"\n'
+            f'read -r n < "{net}/wlan0/statistics/rx_bytes" && echo $((n + 5000)) > "{net}/wlan0/statistics/rx_bytes"\n'
+            f'read -r n < "{net}/wlan0/statistics/tx_bytes" && echo $((n + 1000)) > "{net}/wlan0/statistics/tx_bytes"\n'
+            f'if (( c == 2 )); then printf %s "$(sed s/wlan0/eth0/ "{route_f}")" > "{route_f}"; fi\n'
+        )
+        lines = _run_stats(box, net, iterations=2, sleep_body=sleep_body)
+        assert (lines[0]["down"], lines[0]["up"]) == ("5.0kB/s", "1.0kB/s")  # wlan0, steady
+        assert (lines[1]["down"], lines[1]["up"]) == ("0B/s", "0B/s")  # eth0's first tick
+
+    def test_vpn_tunnel_default_route_without_gateway(self, box: Box) -> None:
+        """A gateway-less tunnel default route is still found: the Destination
+        alone selects it (why: the /proc/net/route comment in hyprconf-stats)."""
+        net = _fake_net(box.tmp)
+        wg = net / "wg0" / "statistics"
+        wg.mkdir(parents=True)
+        (net / "wg0" / "operstate").write_text("unknown\n")  # what a tunnel reads
+        (wg / "rx_bytes").write_text("7000\n")
+        (wg / "tx_bytes").write_text("8000\n")
+        sleep_body = (
+            f'read -r n < "{wg}/rx_bytes" && echo $((n + 5000)) > "{wg}/rx_bytes"\n'
+            f'read -r n < "{wg}/tx_bytes" && echo $((n + 1000)) > "{wg}/tx_bytes"\n'
+        )
+        payload = _run_stats(
+            box,
+            net,
+            route_lines=[_route("wg0", gateway=False, metric=50)],
+            iterations=1,
+            sleep_body=sleep_body,
+        )[0]
+        assert payload["down"] == "5.0kB/s"
+
+
+# ---------------------------------------------------------------------------
+# hyprconf-stats cpu temperature (hwmon, resolved once)
+# ---------------------------------------------------------------------------
+
+
+class TestStatsCpuTemp:
+    def _temp(self, box: Box, sensors: list[tuple[str, str]]) -> int | None:
+        hwmon = _fake_hwmon(box.tmp, sensors)
+        payload = _run_stats(
+            box, _fake_net(box.tmp), route_dev=None, iterations=1, hwmon_root=hwmon
+        )[0]
+        return payload["temp"]
+
+    def test_amd_tctl_wins_over_tdie(self, box: Box) -> None:
+        assert self._temp(box, [("Tdie", "52000"), ("Tctl", "54300")]) == 54
+
+    def test_intel_package_wins_over_core(self, box: Box) -> None:
+        assert self._temp(box, [("Core 0", "45000"), ("Package id 0", "47000")]) == 47
+
+    def test_tctl_beats_package_even_if_later_chip(self, box: Box) -> None:
+        assert self._temp(box, [("Package id 0", "47000"), ("Tctl", "54300")]) == 54
+
+    def test_rounds_millidegrees(self, box: Box) -> None:
+        assert self._temp(box, [("Tctl", "54500")]) == 55
+
+    def test_no_cpu_labels_hides_module(self, box: Box) -> None:
+        # GPU/NVMe-style hwmon chips must not be mistaken for the CPU sensor.
+        assert self._temp(box, [("Composite", "38000"), ("edge", "60000")]) is None
+
+    def test_no_hwmon_tree_hides_module(self, box: Box) -> None:
+        assert self._temp(box, []) is None
+
+    def test_sensor_vanishing_mid_stream_blanks_the_cell_and_survives(self, box: Box) -> None:
+        """The stated reason hyprconf-stats shuns `set -e`: a sensor that
+        vanishes between ticks must blank its cell, never kill the sampler."""
+        hwmon = _fake_hwmon(box.tmp, [("Tctl", "54300")])
+        gone = hwmon / "hwmon0" / "temp1_input"
+        calls = box.tmp / "sleep-calls"
+        sleep_body = (
+            f'c=0; [[ -r {calls} ]] && read -r c < "{calls}"; c=$((c + 1)); echo $c > "{calls}"\n'
+            f'if (( c == 2 )); then rm -f "{gone}"; fi\n'
+        )
+        lines = _run_stats(
+            box, _fake_net(box.tmp), iterations=2, hwmon_root=hwmon, sleep_body=sleep_body
+        )
+        assert lines[0]["temp"] == 54
+        assert lines[1]["temp"] is None
+
+
+# ---------------------------------------------------------------------------
+# hyprconf-gpu-info (streaming: nvidia-smi --loop | awk, or a sysfs loop)
+# ---------------------------------------------------------------------------
+
+GPU_KEYS = {"index", "name", "util", "temp", "vram_used", "vram_total", "tooltip"}
+
+# Two GPUs, two iterations. Iteration 1: index 1 is the busy card (the real
+# two-card shape: 3070 idling at 2 MiB, 5090 working). Iteration 2 flips the
+# load onto index 0 so the selection must follow it.
+NVIDIA_TWO_GPU_LINES = [
+    "0, NVIDIA GeForce RTX 3070, 0, 20.11, 31, 2, 8192",
+    "1, NVIDIA GeForce RTX 5090, 7, 45.20, 36, 2314, 32607",
+    "0, NVIDIA GeForce RTX 3070, 55, 180.00, 62, 6000, 8192",
+    "1, NVIDIA GeForce RTX 5090, 1, 30.00, 35, 300, 32607",
+]
+
+
+def _fake_nvidia_smi(count: int, lines: list[str]) -> str:
+    """The body of a fake nvidia-smi: the count query prints one line per GPU
+    each holding the total (the real shape); any other probe exits 0 quietly;
+    the stream (-l) emits `lines` (GPUs consecutive per iteration) and stops."""
+    count_out = "".join(f"{count}\\n" for _ in range(count))
+    stream = "\n".join('        echo "' + ln.replace('"', '\\"') + '"' for ln in lines)
+    return f"""\
+for a in "$@"; do
+    case $a in
+        --query-gpu=count) printf '{count_out}'; exit 0 ;;
+        -l)
+{stream}
+        exit 0 ;;
+    esac
+done
+exit 0
+"""
+
+
+class TestGpuInfoScript:
+    def _run(
+        self,
+        box: Box,
+        *,
+        nvidia: bool | str,
+        drm_root: Path | None = None,
+        env=None,
+    ) -> subprocess.CompletedProcess[str]:
+        # Always shadow nvidia-smi: the box's shared fake exits 0 saying
+        # nothing, which is "no NVIDIA driver" — a real one must never answer.
+        box.stub(
+            "nvidia-smi",
+            _fake_nvidia_smi(2, NVIDIA_TWO_GPU_LINES)
+            if nvidia is True
+            else (nvidia if nvidia else "exit 1\n"),
+        )
+        return box.run(
+            GPU_INFO,
+            env={
+                "HYPRCONF_GPU_DRM_ROOT": str(drm_root or (box.tmp / "drm-empty")),
+                "HYPRCONF_GPU_ITERATIONS": "2",
+                "HYPRCONF_GPU_INTERVAL": "0",
+                # Both probes name a card from pci.ids, so every run points at
+                # the fixture: the host's own hwdata must never answer a test.
+                "HYPRCONF_GPU_PCI_IDS": str(self._pci_ids(box.tmp)),
+                **(env or {}),
+            },
+        )
+
+    def _lines(self, r: subprocess.CompletedProcess[str]) -> list[dict]:
+        assert r.returncode == 0, r.stderr
+        lines = [json.loads(ln) for ln in r.stdout.strip().splitlines()]
+        for payload in lines:
+            # The contract the widget assigns straight through, unchecked.
+            assert set(payload) == GPU_KEYS
+            assert isinstance(payload["index"], int)
+            assert isinstance(payload["name"], str)
+            assert isinstance(payload["util"], int)
+            assert payload["temp"] is None or isinstance(payload["temp"], int)
+            assert isinstance(payload["vram_used"], str)
+            assert isinstance(payload["vram_total"], str)
+        return lines
+
+    @staticmethod
+    def _amd_card(
+        drm: Path,
+        n: int,
+        *,
+        busy: str,
+        used: int | None,
+        total: int | None,
+        temp: str | None = None,
+        name: str | None = None,
+        vendor: str | None = None,
+        device_id: str | None = None,
+    ) -> Path:
+        card = drm / f"card{n}" / "device"
+        card.mkdir(parents=True)
+        (card / "gpu_busy_percent").write_text(busy + "\n")
+        if used is not None:
+            (card / "mem_info_vram_used").write_text(str(used) + "\n")
+        if total is not None:
+            (card / "mem_info_vram_total").write_text(str(total) + "\n")
+        if temp is not None:
+            hw = card / "hwmon" / "hwmon3"
+            hw.mkdir(parents=True)
+            (hw / "temp1_input").write_text(temp + "\n")
+        if name is not None:
+            (card / "product_name").write_text(name + "\n")
+        if vendor is not None:
+            (card / "vendor").write_text(vendor + "\n")
+        if device_id is not None:
+            (card / "device").write_text(device_id + "\n")
+        return card
+
+    # -- NVIDIA ---------------------------------------------------------------
+
+    def test_nvidia_two_gpus_follow_the_busy_card(self, box: Box) -> None:
+        lines = self._lines(self._run(box, nvidia=True))
+        assert len(lines) == 2  # one JSON line per iteration, not per GPU
+        first, second = lines
+        assert first["index"] == 1
+        assert first["name"] == "NVIDIA GeForce RTX 5090"
+        assert first["util"] == 7
+        assert first["temp"] == 36
+        assert first["vram_used"] == "2.3"
+        assert first["vram_total"] == "31.8"
+        assert first["tooltip"] == (
+            "RTX 5090 (GPU 1) | Util 7% | Temp 36° | VRAM 2.3/31.8 GiB | Power 45W"
+        )
+        # Iteration 2: the load moved to index 0, so the selection flips.
+        assert second["index"] == 0
+        assert second["name"] == "NVIDIA GeForce RTX 3070"
+        assert second["util"] == 55
+        assert second["temp"] == 62
+        assert second["vram_used"] == "5.9"
+        assert second["vram_total"] == "8.0"
+        assert "RTX 3070" in second["tooltip"]
+
+    def test_nvidia_single_gpu(self, box: Box) -> None:
+        fake = _fake_nvidia_smi(
+            1,
+            [
+                "0, NVIDIA GeForce RTX 4080, 12, 100.5, 55, 8192, 16384",
+                "0, NVIDIA GeForce RTX 4080, 34, 200.0, 60, 12288, 16384",
+            ],
+        )
+        lines = self._lines(self._run(box, nvidia=fake))
+        assert [ln["util"] for ln in lines] == [12, 34]
+        assert lines[0]["index"] == 0
+        assert lines[0]["vram_used"] == "8.0"
+        assert lines[1]["vram_used"] == "12.0"
+        assert lines[1]["vram_total"] == "16.0"
+
+    def test_nvidia_name_with_comma_parses(self, box: Box) -> None:
+        fake = _fake_nvidia_smi(1, ['0, NVIDIA "Ada", Ltd 4090, 9, 50.0, 40, 1024, 24576'])
+        line = self._lines(self._run(box, nvidia=fake))[0]
+        assert line["name"] == 'NVIDIA "Ada", Ltd 4090'  # quotes escaped, comma kept
+        assert line["util"] == 9
+        assert line["temp"] == 40
+        assert line["vram_used"] == "1.0"
+        assert line["vram_total"] == "24.0"
+
+    def test_nvidia_memory_tie_broken_by_util(self, box: Box) -> None:
+        fake = _fake_nvidia_smi(
+            2,
+            [
+                "0, NVIDIA A, 3, 10.0, 30, 500, 8192",
+                "1, NVIDIA B, 9, 10.0, 30, 500, 8192",
+                # Full tie → lowest index.
+                "0, NVIDIA A, 9, 10.0, 30, 500, 8192",
+                "1, NVIDIA B, 9, 10.0, 30, 500, 8192",
+            ],
+        )
+        lines = self._lines(self._run(box, nvidia=fake))
+        assert [ln["index"] for ln in lines] == [1, 0]
+
+    def test_nvidia_unknown_temp_is_null(self, box: Box) -> None:
+        fake = _fake_nvidia_smi(1, ["0, NVIDIA T, 1, [N/A], [N/A], 100, 8192"])
+        line = self._lines(self._run(box, nvidia=fake))[0]
+        assert line["temp"] is None
+        assert "Power" not in line["tooltip"]
+
+    # -- AMD ------------------------------------------------------------------
+
+    def test_amd_two_cards_pick_more_vram_used(self, box: Box) -> None:
+        drm = box.tmp / "drm"
+        self._amd_card(drm, 1, busy="90", used=1 * 1024**3, total=16 * 1024**3, temp="50000")
+        self._amd_card(
+            drm,
+            2,
+            busy="42",
+            used=4 * 1024**3,
+            total=16 * 1024**3,
+            temp="61000",
+            name="Radeon RX 7900 XTX",
+        )
+        lines = self._lines(self._run(box, nvidia=False, drm_root=drm))
+        assert len(lines) == 2  # HYPRCONF_GPU_ITERATIONS bounds the loop
+        line = lines[0]
+        assert line["index"] == 2  # more memory used beats higher busy %
+        assert line["name"] == "Radeon RX 7900 XTX"
+        assert line["util"] == 42
+        assert line["temp"] == 61
+        assert line["vram_used"] == "4.0"
+        assert line["vram_total"] == "16.0"
+        assert line["tooltip"] == (
+            "Radeon RX 7900 XTX (GPU 2) | Util 42% | Temp 61° | VRAM 4.0/16.0 GiB"
+        )
+
+    def test_amd_memory_tie_broken_by_busy_then_index(self, box: Box) -> None:
+        drm = box.tmp / "drm"
+        self._amd_card(drm, 1, busy="10", used=100, total=16 * 1024**3)
+        self._amd_card(drm, 2, busy="20", used=100, total=16 * 1024**3)
+        self._amd_card(drm, 0, busy="20", used=100, total=16 * 1024**3)
+        line = self._lines(self._run(box, nvidia=False, drm_root=drm))[0]
+        assert line["index"] == 0
+
+    def test_amd_no_hwmon_and_no_name(self, box: Box) -> None:
+        """Neither product_name nor a PCI id pci.ids knows: the tooltip says
+        "GPU 1" once, not "GPU 1 (GPU 1)"."""
+        drm = box.tmp / "drm"
+        self._amd_card(drm, 1, busy="5", used=2 * 1024**3, total=8 * 1024**3)
+        line = self._lines(self._run(box, nvidia=False, drm_root=drm))[0]
+        assert line["name"] == ""
+        assert line["temp"] is None
+        assert line["tooltip"].startswith("GPU 1 | Util 5% | Temp n/a")
+
+    def test_amd_card_without_product_name_is_named_from_pci_ids(self, box: Box) -> None:
+        """An APU carries no product_name at all (verified live on a Phoenix
+        iGPU), so the name comes from hwdata's pci.ids — the lookup the Intel
+        probe already used. The vendor block is honoured: 1002:b0a0 is not
+        Intel's b0a0."""
+        drm = box.tmp / "drm"
+        self._amd_card(
+            drm,
+            1,
+            busy="5",
+            used=2 * 1024**3,
+            total=8 * 1024**3,
+            vendor="0x1002",
+            device_id="0xb0a0",
+        )
+        line = self._lines(self._run(box, nvidia=False, drm_root=drm))[0]
+        assert line["name"] == "Not a Panther Lake"
+        assert line["tooltip"].startswith("Not a Panther Lake (GPU 1) | Util 5%")
+
+    def test_amd_igpu_without_vram_files_is_shared(self, box: Box) -> None:
+        drm = box.tmp / "drm"
+        self._amd_card(drm, 0, busy="3", used=None, total=None, name="Raphael")
+        line = self._lines(self._run(box, nvidia=False, drm_root=drm))[0]
+        assert line["vram_total"] == "0"
+        assert line["vram_used"] == "0.0"
+        assert line["tooltip"].endswith("| VRAM shared")
+
+    def test_amd_ignores_connector_nodes(self, box: Box) -> None:
+        drm = box.tmp / "drm"
+        self._amd_card(drm, 1, busy="3", used=100, total=8 * 1024**3)
+        # A connector's device/ points back at the card; the glob prefix
+        # matches it but it must not be counted as a second GPU.
+        conn = drm / "card1-DP-1" / "device"
+        conn.mkdir(parents=True)
+        (conn / "gpu_busy_percent").write_text("99\n")
+        line = self._lines(self._run(box, nvidia=False, drm_root=drm))[0]
+        assert line["index"] == 1
+        assert line["util"] == 3
+
+    def test_amd_refusing_card_reads_idle_and_the_stream_lives(self, box: Box) -> None:
+        """A card whose counters refuse mid-stream ranks idle and the stream
+        goes on, quietly (why: the -EPERM comment in hyprconf-gpu-info). The
+        refusal here is the files swapped for directories after the probe — a
+        read error for root too."""
+        drm = box.tmp / "drm"
+        self._amd_card(drm, 0, busy="5", used=None, total=None, name="Raphael")
+        dgpu = self._amd_card(drm, 1, busy="90", used=1024**3, total=8 * 1024**3, name="RX 7700S")
+        box.stub(
+            "sleep",
+            f'for f in gpu_busy_percent mem_info_vram_used mem_info_vram_total; do [[ -f "{dgpu}/$f" ]] && rm -f "{dgpu}/$f" && mkdir "{dgpu}/$f"; done\n'
+            'command -p sleep "$@"\n',
+        )
+        r = self._run(box, nvidia=False, drm_root=drm, env={"HYPRCONF_GPU_ITERATIONS": "3"})
+        lines = self._lines(r)
+        assert r.stderr == ""
+        assert [ln["index"] for ln in lines] == [1, 0, 0]  # the dGPU, then the iGPU carries on
+        assert lines[0]["util"] == 90
+        assert lines[1]["util"] == 5 and lines[1]["tooltip"].endswith("| VRAM shared")
+
+    # -- Intel (xe) -----------------------------------------------------------
+
+    @staticmethod
+    def _intel_card(
+        drm: Path,
+        n: int,
+        *,
+        media_idle_ms: int | None = None,
+        device_id: str | None = "0xb0a0",
+        act_freq: str | None = "1200",
+        temp: str | None = None,
+        runtime_status: str | None = None,
+    ) -> Path:
+        """Fake xe sysfs for one Intel card: the render/compute GT (gt0-rc)
+        with its idle-residency counter, optionally the media GT (gt1-mc) that
+        must be ignored, the PCI ids the name is looked up from, hwmon, and
+        optionally the PM core's power/runtime_status. Left out by default:
+        a card with no runtime_status is assumed awake."""
+        dev = drm / f"card{n}" / "device"
+        rc = dev / "tile0" / "gt0"
+        (rc / "gtidle").mkdir(parents=True)
+        (rc / "gtidle" / "idle_residency_ms").write_text("0\n")
+        (rc / "gtidle" / "name").write_text("gt0-rc\n")
+        if act_freq is not None:
+            (rc / "freq0").mkdir()
+            (rc / "freq0" / "act_freq").write_text(act_freq + "\n")
+        if media_idle_ms is not None:
+            mc = dev / "tile0" / "gt1" / "gtidle"
+            mc.mkdir(parents=True)
+            (mc / "idle_residency_ms").write_text(f"{media_idle_ms}\n")
+            (mc / "name").write_text("gt1-mc\n")
+        (dev / "vendor").write_text("0x8086\n")
+        if device_id is not None:
+            (dev / "device").write_text(device_id + "\n")
+        if temp is not None:
+            hw = dev / "hwmon" / "hwmon2"
+            hw.mkdir(parents=True)
+            (hw / "temp1_input").write_text(temp + "\n")
+        if runtime_status is not None:
+            pm = dev / "power"
+            pm.mkdir(parents=True)
+            (pm / "runtime_status").write_text(runtime_status + "\n")
+        return dev
+
+    @staticmethod
+    def _runtime_status(drm: Path, n: int) -> Path:
+        return drm / f"card{n}" / "device" / "power" / "runtime_status"
+
+    @staticmethod
+    def _trap(path: Path) -> None:
+        """Turn an existing sysfs attribute into a blocking trap: a FIFO with
+        no writer. `[[ -r ]]` still passes and the probe still accepts the
+        card, but any open() for reading hangs — so a feeder that touches the
+        attribute never emits a line and the test times out instead of
+        quietly passing on a read that should never have happened."""
+        path.unlink()
+        os.mkfifo(path)
+
+    @staticmethod
+    def _pci_ids(tmp: Path) -> Path:
+        """A trimmed hwdata pci.ids. Two vendors carry the same device id and
+        a subsystem line sits under the wanted one, so a lookup that ignores
+        the vendor block, or reads the indented continuation lines, answers
+        with the wrong name."""
+        ids = tmp / "pci.ids"
+        ids.write_text(
+            "# comment\n"
+            "1002  Advanced Micro Devices, Inc. [AMD/ATI]\n"
+            "\tb0a0  Not a Panther Lake\n"
+            "8086  Intel Corporation\n"
+            "\tb080  Panther Lake [Arc B390]\n"
+            "\tb0a0  Panther Lake [Intel Graphics]\n"
+            "\t\t1849 b0a0  a subsystem line, never the answer\n"
+            "C 03  Display controller\n"
+            "\t00  VGA compatible controller\n"
+        )
+        return ids
+
+    @staticmethod
+    def _idle_file(drm: Path, n: int, gt: str = "gt0") -> Path:
+        return drm / f"card{n}" / "device" / "tile0" / gt / "gtidle" / "idle_residency_ms"
+
+    def _run_intel(
+        self,
+        box: Box,
+        drm: Path,
+        *,
+        bumps: list[tuple[Path, int]] | None = None,
+    ) -> list[dict]:
+        """Run the feeder over `drm` with a `sleep` fake that advances the
+        residency counters across the sample window — the only way a static
+        fake tree can express an idle GPU (the reading is a delta over the
+        window, not a level)."""
+        if bumps:
+            body = "".join(
+                f'read -r n < "{path}"\necho $(( n + {ms} )) > "{path}"\n' for path, ms in bumps
+            )
+            box.stub("sleep", body + 'command -p sleep "$@"\n')
+        return self._lines(
+            self._run(box, nvidia=False, drm_root=drm, env={"HYPRCONF_GPU_INTERVAL": "0.2"})
+        )
+
+    def test_intel_xe_card_is_named_and_reported(self, box: Box) -> None:
+        """A Panther Lake iGPU: named out of pci.ids, temperature from the
+        card's own hwmon, no VRAM of its own (shared), and act_freq in the
+        tooltip where NVIDIA puts power draw."""
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0, temp="47000")
+        line = self._run_intel(box, drm)[0]
+        assert line["index"] == 0
+        assert line["name"] == "Panther Lake [Intel Graphics]"
+        assert line["temp"] == 47
+        assert line["vram_total"] == "0"  # the widget renders this as "shared"
+        assert line["vram_used"] == "0.0"
+        assert line["tooltip"] == (
+            "Panther Lake [Intel Graphics] (GPU 0) | Util 100% | Temp 47° "
+            "| VRAM shared | Freq 1200MHz"
+        )
+
+    def test_intel_gt_vanishing_mid_stream_reads_idle_not_pegged(self, box: Box) -> None:
+        """A vanished residency counter reads as idle, not pegged (why: the
+        "no data must read as idle" comment in hyprconf-gpu-info)."""
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0)
+        idle = self._idle_file(drm, 0)
+        calls = box.tmp / "sleep-calls"
+        box.stub(
+            "sleep",
+            f'c=0; [[ -r {calls} ]] && read -r c < "{calls}"; c=$((c + 1)); echo $c > "{calls}"\n'
+            f'if (( c == 2 )); then rm -f "{idle}"; fi\ncommand -p sleep "$@"\n',
+        )
+        r = self._run(box, nvidia=False, drm_root=drm, env={"HYPRCONF_GPU_INTERVAL": "0.2"})
+        assert [ln["util"] for ln in self._lines(r)] == [100, 0]
+
+    def test_intel_idle_gt_reads_zero(self, box: Box) -> None:
+        """Idle for (well past) the whole window: 0%, clamped — the counter
+        is millisecond-rounded and can overrun the measured window."""
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0)
+        lines = self._run_intel(box, drm, bumps=[(self._idle_file(drm, 0), 5000)])
+        assert [ln["util"] for ln in lines] == [0, 0]
+
+    def test_intel_partial_idle_lands_between(self, box: Box) -> None:
+        """Half the window idle reads about half busy. The band is wide on
+        purpose: the denominator is measured wall-clock, so a loaded runner
+        that oversleeps only pushes the figure up."""
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0)
+        line = self._run_intel(box, drm, bumps=[(self._idle_file(drm, 0), 100)])[0]
+        assert 20 <= line["util"] <= 90
+
+    def test_intel_media_gt_is_not_the_reading(self, box: Box) -> None:
+        """gt1-mc (media) idles through a graphics workload, so the reading
+        must come from gt0-rc: only the media counter advances here, and the
+        answer is still the busy render GT."""
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0, media_idle_ms=0)
+        line = self._run_intel(box, drm, bumps=[(self._idle_file(drm, 0, "gt1"), 5000)])[0]
+        assert line["util"] == 100
+
+    def test_intel_two_cards_follow_the_busier_one(self, box: Box) -> None:
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0, device_id="0xb080")
+        self._intel_card(drm, 1)
+        line = self._run_intel(box, drm, bumps=[(self._idle_file(drm, 0), 5000)])[0]
+        assert line["index"] == 1
+        assert line["util"] == 100
+
+    def test_intel_unknown_id_no_hwmon_no_freq(self, box: Box) -> None:
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 3, device_id="0xffff", act_freq=None)
+        line = self._run_intel(box, drm)[0]
+        assert line["name"] == "Intel Graphics"
+        assert line["temp"] is None
+        assert line["tooltip"] == "Intel Graphics (GPU 3) | Util 100% | Temp n/a | VRAM shared"
+
+    # The PM gate, one row per power/runtime_status the feeder can meet. It
+    # tests for being DOWN, not for being up (why: the _intel_awake comment in
+    # hyprconf-gpu-info), and a residency counter that does not advance means
+    # the GT spent none of the window idle — 100%. Every attribute a gated
+    # read would touch is a FIFO trap, so a feeder that opens one blocks and
+    # emits nothing rather than passing quietly.
+    @pytest.mark.parametrize(
+        "status,traps,util,temp",
+        [
+            (None, (), 100, 47),
+            ("active", (), 100, 47),
+            ("unsupported", (), 100, 47),
+            ("suspended", ("idle", "freq", "hwmon"), 0, None),
+            ("suspending", ("idle",), 0, None),
+        ],
+    )
+    def test_intel_pm_gate_only_skips_a_card_the_pm_core_says_is_down(
+        self,
+        box: Box,
+        status: str | None,
+        traps: tuple[str, ...],
+        util: int,
+        temp: int | None,
+    ) -> None:
+        drm = box.tmp / "drm"
+        dev = self._intel_card(drm, 0, temp="47000", runtime_status=status)
+        for trap in traps:
+            self._trap(
+                {
+                    "idle": self._idle_file(drm, 0),
+                    "freq": dev / "tile0" / "gt0" / "freq0" / "act_freq",
+                    "hwmon": dev / "hwmon" / "hwmon2" / "temp1_input",
+                }[trap]
+            )
+        lines = self._run_intel(box, drm)
+        assert [ln["util"] for ln in lines] == [util, util]
+        assert lines[0]["temp"] == temp
+        assert lines[0]["tooltip"].endswith(
+            "| Temp 47° | VRAM shared | Freq 1200MHz" if temp else "| Temp n/a | VRAM shared"
+        )
+
+    def test_intel_resumed_card_re_baselines_instead_of_reading_pegged(self, box: Box) -> None:
+        """The first sample after a resume is a baseline, not a reading (why:
+        the "first read after a suspend" comment in hyprconf-gpu-info): 0%
+        here, then the genuine 100% of a counter that is not advancing."""
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0, runtime_status="suspended")
+        status = self._runtime_status(drm, 0)
+        # The card wakes between the baseline and the first sample; its
+        # residency counter is left exactly where it was.
+        box.stub("sleep", f'echo active > "{status}"\ncommand -p sleep "$@"\n')
+        lines = self._lines(
+            self._run(box, nvidia=False, drm_root=drm, env={"HYPRCONF_GPU_INTERVAL": "0.2"})
+        )
+        assert [ln["util"] for ln in lines] == [0, 100]
+
+    def test_intel_suspended_card_loses_to_an_awake_one(self, box: Box) -> None:
+        """Two cards, the sleeping one first: it ranks idle, so the reading
+        follows the card that is actually running something."""
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0, device_id="0xb080", runtime_status="suspended")
+        self._intel_card(drm, 1, runtime_status="active")
+        self._trap(self._idle_file(drm, 0))
+        line = self._run_intel(box, drm)[0]
+        assert line["index"] == 1
+        assert line["util"] == 100
+
+    def test_nvidia_wins_over_an_intel_igpu(self, box: Box) -> None:
+        """A hybrid laptop: the discrete card is the one worth watching, and
+        nvidia-smi answers the probe first."""
+        drm = box.tmp / "drm"
+        self._intel_card(drm, 0)
+        line = self._lines(self._run(box, nvidia=True, drm_root=drm))[0]
+        assert line["name"] == "NVIDIA GeForce RTX 5090"
+
+    # -- neither --------------------------------------------------------------
+
+    def test_no_gpu_exits_silently(self, box: Box) -> None:
+        r = self._run(box, nvidia=False)
+        assert r.returncode == 0
+        assert r.stdout.strip() == ""
+
+
+# ---------------------------------------------------------------------------
+# What a tick costs
+# ---------------------------------------------------------------------------
+
+
+def test_the_stats_feeder_paces_itself_on_the_loadable_sleep() -> None:
+    """The fork-free tick the plugin README promises: bash's loadable `sleep`
+    is what paces hyprconf-stats, so the whole tick is reads and integer
+    arithmetic. Nothing else pins it — the suite points the seam at a missing
+    file so a PATH fake can hook the ticks."""
+    assert 'enable -f "$HYPRCONF_STATS_SLEEP_BUILTIN" sleep' in STATS.read_text()

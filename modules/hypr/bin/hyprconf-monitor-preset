@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# hyprconf-monitor-preset — switch the desk's monitor layout, through Omarchy's
+# own Hyprland toggles seam.
+#
+#   hyprconf-monitor-preset <preset>   apply that preset
+#   hyprconf-monitor-preset stock      Omarchy's own layout again
+#
+# A preset is one of the ~/.config/hypr/*Monitors*.lua files the hypr module
+# seeds — hl.monitor lines plus the hl.workspace_rule lines for that layout;
+# it belongs to the machine, so an edit survives re-selecting it. The chosen
+# one is COPIED (never linked) to ~/.local/state/omarchy/toggles/hypr/
+# hyprconf-monitor-preset.lua: the directory default/hypr/toggles.lua:4,11
+# require_all()s with reload = true, and config/hypr/hyprland.lua requires that
+# (:26) AFTER hypr.monitors (:19), so a later hl.monitor for the same output
+# wins. Omarchy's own omarchy-hyprland-monitor-internal:44,46 writes the same
+# directory the same way. ~/.config/hypr/monitors.lua is never touched, so
+# Omarchy's tooling keeps working on its own file.
+set -euo pipefail
+
+CONFIG_DIR="$HOME/.config/hypr"
+TOGGLE="$HOME/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua"
+
+# Reached from a hotkey (SUPER+SHIFT+B / SUPER+SHIFT+K), where stdout and
+# stderr go nowhere a human can see: anything to act on goes out as a
+# notification, and "which preset am I on now" through Omarchy's OSD.
+die() {
+    printf 'hyprconf-monitor-preset: %s\n' "$1" >&2
+    omarchy-notification-send -g 󰍹 -u critical "Monitor preset" "$1" >/dev/null 2>&1 || true
+    exit 1
+}
+osd() { omarchy-osd -i display -m "$1" -d 2000 >/dev/null 2>&1 || true; }
+
+# One label per seeded preset file, derived from the two shapes the module
+# ships: pcMonitors.<label>.lua (a desk) and <label>Monitors.lua (a machine).
+# Derived, never listed: a new preset is one file in the module.
+preset_label() {
+    local n=${1##*/}
+    n=${n#pcMonitors.}
+    n=${n%Monitors.lua}
+    printf '%s' "${n%.lua}"
+}
+
+# The label is matched against the directory's own files, never pasted into a
+# path, so `$1` cannot name a file outside CONFIG_DIR however it is spelled.
+preset_path() {
+    local f
+    for f in "$CONFIG_DIR"/*Monitors*.lua; do
+        [[ -f $f ]] || continue
+        [[ "$(preset_label "$f")" == "$1" ]] || continue
+        printf '%s' "$f"
+        return 0
+    done
+    return 1
+}
+
+usage() {
+    local f labels=()
+    for f in "$CONFIG_DIR"/*Monitors*.lua; do
+        [[ -f $f ]] && labels+=("$(preset_label "$f")")
+    done
+    labels+=(stock)
+    printf 'Usage: %s <preset>\n  Presets: %s\n' "${0##*/}" "${labels[*]}" >&2
+}
+
+case "${1:-}" in
+    -h | --help) usage; exit 0 ;;
+    '') usage; exit 1 ;;
+esac
+
+# `stock` IS this toggle's off, so hand it to Omarchy's own command rather than
+# re-implement it (bin/omarchy-hyprland-toggle:17,30-32,54 — rm the flag file,
+# then `hyprctl reload`). Its `on` half cannot be reused: FLAG_SOURCE is
+# $OMARCHY_PATH/default/hypr/toggles/<flag>.lua (:18) and :21-27 refuses
+# anything outside Omarchy's own tree, so the copy below stays hand-rolled.
+if [[ "$1" == stock ]]; then
+    omarchy-hyprland-toggle hyprconf-monitor-preset off
+    osd "Monitor: stock"
+    exit 0
+fi
+
+SOURCE="$(preset_path "$1")" || die "Preset not found: $1 (see $(basename "$0") --help)"
+
+# A copy via a temp file + mv, so the toggle is never momentarily truncated
+# under a reload — and never a link: the preset stays the user's own file under
+# ~/.config/hypr, out of reach of anything Omarchy does to the toggles
+# directory (omarchy-refresh-hyprland:13-14 recreates it).
+mkdir -p "$(dirname "$TOGGLE")"
+cp -- "$SOURCE" "$TOGGLE.tmp"
+mv -f -- "$TOGGLE.tmp" "$TOGGLE"
+
+hyprctl reload
+
+# Workspace rules place only FUTURE workspaces: on a reload Hyprland leaves
+# every existing workspace on whatever monitor it already occupies, so each
+# rule is re-applied by hand. The rules come from Hyprland itself, the way
+# Omarchy reads monitor state (omarchy-hyprland-monitor-laptop:5,
+# `hyprctl monitors all -j | jq`): Omarchy's defaults declare no
+# hl.workspace_rule at all, and the one it writes at runtime carries a layout
+# and no monitor (bin/omarchy-hyprland-workspace-layout-toggle:17), so every
+# monitor-bearing rule is the preset's. hl.dsp.workspace.move is the
+# Lua-parser dispatch form; a rule naming an absent or disabled output fails
+# its dispatch and is deliberately ignored.
+while IFS=$'\t' read -r ws mon; do
+    hyprctl dispatch "hl.dsp.workspace.move({ workspace = $ws, monitor = \"$mon\" })" \
+        >/dev/null 2>&1 || true
+done < <(hyprctl workspacerules -j 2>/dev/null |
+    jq -r '.[] | select((.monitor // "") != "")
+            | select(.workspaceString | test("^[0-9]+$"))
+            | "\(.workspaceString)\t\(.monitor)"' 2>/dev/null || true)
+
+# An output flipping disabled→enabled through a reload can hit a failed-CRTC
+# restore (aquamarine/nvidia-open: the ATOMIC modeset commit is rejected with
+# EINVAL, so Hyprland believes the panel is on while it stays dark until a
+# replug). One unconditional wake is what Omarchy does after the same kind of
+# user-initiated enable (bin/omarchy-hyprland-monitor-internal:12-14,22).
+hyprctl dispatch 'hl.dsp.dpms({ action = "enable" })' >/dev/null 2>&1 || true
+
+osd "Monitor: $1"

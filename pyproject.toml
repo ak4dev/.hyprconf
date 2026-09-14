@@ -1,8 +1,14 @@
 # Tool config only: nothing packages or pip-installs the repo (AGENTS.md ›
 # What hyprconf is), and CI takes pytest from pacman.
 [tool.pytest.ini_options]
+# Each module carries its own test_<name>.py beside its `install`, collected
+# through the repo-root conftest.py (a tests/conftest.py would never reach
+# modules/). Default import mode: the files under tests/ are package modules
+# (tests/__init__.py, tests/unit/__init__.py), so tests/unit/test_firefox.py
+# imports as tests.unit.test_firefox and never collides with the top-level
+# test_firefox from modules/firefox/ — and every module basename is unique.
 pythonpath = ["lib"]
-testpaths  = ["tests"]
+testpaths  = ["modules", "tests"]
 
 [tool.ruff]
 line-length = 100

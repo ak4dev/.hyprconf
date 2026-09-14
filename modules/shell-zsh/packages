@@ -1,0 +1,8 @@
+# hyprconf/shell-zsh packages — one official-repo name per line with a trailing
+# `# why` (AGENTS rule 3: no AUR, no pacman here); each confirmed
+# `Repository : extra` with `pacman -Si` on 2026-09-13. The prompt is NOT a
+# package: powerlevel10k is AUR-only (`pacman -Si zsh-theme-powerlevel10k`
+# finds nothing), so `install` clones it at a pin.
+zsh                      # the shell kitty runs; the login shell stays bash
+zsh-autosuggestions      # history suggestion as you type, sourced by zshrc
+zsh-syntax-highlighting  # command-line colouring, sourced last by zshrc

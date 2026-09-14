@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# hyprconf/shell-zsh — zsh + powerlevel10k inside the terminal. The LOGIN shell
+# stays bash and is never touched (no chsh): Omarchy is bash-only — its rc
+# chain, uwsm session, SSH and scripts all read bash, and on 4.0.3-1 the whole
+# tree mentions zsh twice, inertly (`grep -RIl zsh /usr/share/omarchy`: a
+# commented-out menu entry, config/omarchy/extensions/omarchy-menu.jsonc:29,
+# and a comment in migrations/1786952219.sh:8 — nothing in default/, install/
+# or any omarchy-* command) — so zsh is the terminal's shell and nothing else's.
+#
+# No framework: `zshrc` is the whole interactive shell, and the prompt is ONE
+# pinned clone of powerlevel10k in ~/.local/share (AUR-only as a package —
+# `pacman -Si zsh-theme-powerlevel10k` finds nothing — so rule 3's
+# omarchy-pkg-add cannot supply it; the pin below is what makes that safe).
+#
+# ~/.zshrc gets ONE grep-guarded source line, the idiom Omarchy's own
+# /etc/skel/.bashrc:9 uses (`source "$OMARCHY_PATH/default/bash/rc"`), so the
+# user's file is never rewritten — and the pre-module managed block is cut once.
+# kitty runs zsh through this module's own include, beside Omarchy's theme
+# include: the user file is optional from 4.0.3 (defaults are in
+# /etc/xdg/kitty/kitty.conf, merged below it), so an absent one is seeded from
+# Omarchy's own stub — the theme include lives ONLY there
+# (config/kitty/kitty.conf:1-2) — the way omarchy-install-terminal:39-42 seeds
+# ~/.config/kitty. terminal-kitty seeds the same file the same way and each
+# module guards its own include line, so the two install in either order.
+#
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+# Omarchy's own variable, with Omarchy's own fallback (default/bash/env-bootstrap:12-16).
+: "${OMARCHY_PATH:=/usr/share/omarchy}"
+: "${HYPRCONF_STATE:=$HOME/.local/state/hyprconf}"
+# The suite reaches the sudo path from a non-tty pytest run through this.
+: "${_HYPRCONF_ASSUME_TTY:=}"
+
+p10k_url=https://github.com/romkatv/powerlevel10k.git
+# PINNED, never pulled: this code runs in every interactive zsh, so the commit
+# is reviewed and bumping it is a deliberate release (AGENTS rule 8 — the full
+# model is CONTRIBUTING › Security). Pin verified 2026-09-01:
+p10k_pin=3308262dfbd743b6e1d3956a2b5572f7a049d692
+p10k=$HOME/.local/share/powerlevel10k
+# Provenance, not a user choice: written only by the clone below, so `undo`
+# deletes the checkout this module made and never one it merely adopted.
+p10k_marker=$HYPRCONF_STATE/p10k-cloned
+p10krc=$HOME/.p10k.zsh
+zshrc=$HOME/.zshrc
+kitty=$HOME/.config/kitty
+changed=0
+
+# The one line ~/.zshrc gets, and the substring that identifies it. The path is
+# this module's own, so a line left by a checkout that has since moved is
+# recognised and dropped: a re-apply leaves exactly one source line, never two.
+line="[ -r \"$dir/zshrc\" ] && source \"$dir/zshrc\""
+mark='/modules/shell-zsh/zshrc"'
+
+# rewrite_zshrc keep|drop — put the source line in ~/.zshrc, or take it out,
+# leaving every other line of the user's file where it is. Also the one-time
+# migration off the pre-module managed block (hyprconf <= 7.x), cut ONLY when
+# both markers are present in that order: with one of them hand-removed, a
+# begin-to-EOF cut would eat everything the user wrote below it, so such a file
+# is left exactly as it is.
+rewrite_zshrc() {
+    local mode="$1" keep tmp b e
+    if [[ ! -f $zshrc ]]; then
+        [[ $mode == keep ]] || return 0
+        : > "$zshrc"
+    fi
+    b=$(grep -nxF -e '# >>> hyprconf >>>' "$zshrc" | head -1 | cut -d: -f1 || true)
+    e=$(grep -nxF -e '# <<< hyprconf <<<' "$zshrc" | head -1 | cut -d: -f1 || true)
+    if [[ -z $b || -z $e || $b -ge $e ]]; then b=0; e=0; fi
+    keep=$(mktemp)
+    tmp=$(mktemp)
+    # The line to keep reaches awk as a FILE, never as `-v`: awk escape-processes
+    # a -v assignment, so a backslash in the checkout path would stop the line
+    # already in the file from matching — it would be dropped and re-appended at
+    # the end on every run. `mark` is this module's own path-free substring, so
+    # -v is safe for it. An empty first file (the drop mode) leaves `want` empty,
+    # which no line carrying `mark` can equal.
+    if [[ $mode == keep ]]; then printf '%s\n' "$line" > "$keep"; fi
+    awk -v b="$b" -v e="$e" -v mark="$mark" '
+        FILENAME == ARGV[1] { want = $0; next }
+        b && FNR >= b && FNR <= e { next }
+        $0 != want && index($0, mark) { next }
+        { print }
+    ' "$keep" "$zshrc" > "$tmp"
+    if [[ $mode == keep ]] && ! grep -qxF -- "$line" "$tmp"; then
+        printf '%s\n' "$line" >> "$tmp"
+    fi
+    if ! cmp -s "$tmp" "$zshrc"; then
+        # Over the file, never through a rename: a ~/.zshrc that is a dotfiles
+        # symlink keeps its link.
+        cat "$tmp" > "$zshrc"
+        changed=1
+    fi
+    rm -f "$tmp" "$keep"
+}
+
+# powerlevel10k at the pin and nothing else: git 2.49+ clones a single revision
+# (Arch ships 2.55.0), so there is no fetch dance. Every network step is
+# timeout-bounded — a dead network must not stall the omarchy-update this runs
+# under — and none of it is fatal: the rest of the shell lands either way.
+clone_p10k() {
+    if [[ ! -d $p10k ]]; then
+        if timeout 300 git clone -q --depth=1 --revision="$p10k_pin" -- "$p10k_url" "$p10k"; then
+            mkdir -p "$HYPRCONF_STATE"
+            : > "$p10k_marker"
+            changed=1
+        else
+            rm -rf "$p10k"
+            echo "  could not clone powerlevel10k — the prompt stays stock; retried on the next run"
+        fi
+        return 0
+    fi
+    # The same one-line test omarchy-plugin-update:111 uses. `git rev-parse` on
+    # a plain directory would answer for whatever repository encloses it.
+    if [[ ! -d $p10k/.git ]]; then
+        echo "  $p10k is not a git checkout — left as it is (move it aside to let the pin re-clone)"
+        return 0
+    fi
+    if [[ $(git -C "$p10k" rev-parse HEAD 2>/dev/null || true) == "$p10k_pin" ]]; then
+        return 0
+    fi
+    if timeout 300 git -C "$p10k" fetch -q --depth=1 -- "$p10k_url" "$p10k_pin" &&
+        timeout 300 git -C "$p10k" checkout -q --detach FETCH_HEAD; then
+        changed=1
+    else
+        echo "  could not move powerlevel10k to its pin — the checkout in place stays in use"
+    fi
+}
+
+if [[ ${1:-} == undo ]]; then
+    rewrite_zshrc drop
+    # Stock Omarchy has no ~/.zshrc at all (/etc/skel ships .bashrc,
+    # .bash_profile and .bash_logout, no zsh file), so one this module created
+    # and has now emptied goes too — never a symlink of the user's, and never a
+    # file with anything left in it.
+    if [[ -f $zshrc && ! -L $zshrc && ! -s $zshrc ]]; then rm -f "$zshrc"; fi
+    # One line and nothing else went in, so taking it out puts the file back byte
+    # for byte. --follow-symlinks and in place, the way Omarchy edits this same
+    # file (migrations/1788745941.sh:19): the mode and any symlink survive.
+    if [[ -f $kitty/kitty.conf ]]; then
+        sed --follow-symlinks -i -e '/^include hyprconf-zsh\.conf$/d' "$kitty/kitty.conf"
+    fi
+    rm -f "$kitty/hyprconf-zsh.conf"
+    if [[ $(readlink "$p10krc" 2>/dev/null || true) == "$dir/.p10k.zsh" ]]; then
+        rm -f "$p10krc"
+        if [[ -e $p10krc.stock || -L $p10krc.stock ]]; then mv -- "$p10krc.stock" "$p10krc"; fi
+    fi
+    # Only the clone this module made (the marker says so): a checkout that was
+    # already there — adopted and moved to the pin, or refused because it is not
+    # a checkout at all — is the user's. The three packages stay: the overlay
+    # never removes a package (rule 3).
+    if [[ -f $p10k_marker && -d $p10k/.git ]]; then rm -rf "$p10k"; fi
+    rm -f "$p10k_marker"
+    # The empty directories the clone and the marker left; rmdir refuses any one
+    # of them that something else still uses.
+    rmdir "$HYPRCONF_STATE" "$HOME/.local/state" "$HOME/.local/share" "$HOME/.local" \
+        2>/dev/null || true
+    exit 0
+fi
+
+# The packages, through Omarchy's own guarded installer, and only when one is
+# actually missing (omarchy-pkg-add is `pacman -S --needed` behind
+# omarchy-pkg-missing, /usr/bin/omarchy-pkg-add:8-14 — but asking costs a sudo
+# prompt). sudo needs a terminal, and the post-update hook has none. The file is
+# one name per line with a trailing `# why`, which comes off here.
+mapfile -t pkgs < <(sed 's/#.*//; s/[[:space:]]//g; /^$/d' "$dir/packages")
+if ! omarchy-pkg-present "${pkgs[@]}"; then
+    if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
+        echo "  packages left to a run without --no-packages: ${pkgs[*]}"
+    elif [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
+        echo "  no terminal for sudo — from one: omarchy pkg add ${pkgs[*]}"
+    elif ! omarchy-pkg-add "${pkgs[@]}"; then
+        echo "  omarchy-pkg-add failed — the shell config still lands"
+    fi
+fi
+
+# Never point the terminal at a shell that is not there (rule 6): with zsh
+# missing, kitty would fail to start at all. Not a failure — the next run,
+# after the packages land, does the rest.
+if ! omarchy-pkg-present zsh; then
+    echo "  zsh is not installed — nothing to configure (run from a terminal, without --no-packages)"
+    exit 0
+fi
+
+clone_p10k
+
+# A real ~/.p10k.zsh of the user's, or a dotfiles link of theirs, is kept once
+# as .stock and put back by `undo`. A link into the checkout is hyprconf's own
+# from before this module existed: replaced, never saved as a dangling .stock.
+root=${dir%/modules/shell-zsh}
+target=$(readlink "$p10krc" 2>/dev/null || true)
+if [[ (-e $p10krc || -L $p10krc) && $target != "$dir/.p10k.zsh" && $target != "$root"/* ]] &&
+    [[ ! -e $p10krc.stock && ! -L $p10krc.stock ]]; then
+    cp -P "$p10krc" "$p10krc.stock"
+    echo "  backed up .p10k.zsh -> .p10k.zsh.stock"
+fi
+if [[ $target != "$dir/.p10k.zsh" ]]; then
+    ln -sfn "$dir/.p10k.zsh" "$p10krc"
+    changed=1
+fi
+
+rewrite_zshrc keep
+
+if [[ -f $kitty/kitty.conf ]] || omarchy-cmd-present kitty; then
+    mkdir -p "$kitty"
+    if ! cmp -s "$dir/hyprconf-zsh.conf" "$kitty/hyprconf-zsh.conf"; then
+        install -m 644 "$dir/hyprconf-zsh.conf" "$kitty/hyprconf-zsh.conf"
+        changed=1
+    fi
+    # The user file is optional from 4.0.3, and appending to one we created
+    # ourselves would cost kitty Omarchy's theming for good: the theme include
+    # lives only in the stub (config/kitty/kitty.conf:1-2), which is seeded here
+    # exactly as omarchy-install-terminal:39-42 seeds ~/.config/kitty.
+    if [[ ! -e $kitty/kitty.conf && -f $OMARCHY_PATH/config/kitty/kitty.conf ]]; then
+        install -m 644 "$OMARCHY_PATH/config/kitty/kitty.conf" "$kitty/kitty.conf"
+        changed=1
+    fi
+    # grep answers non-zero for a missing file too — the branch that creates it.
+    if ! grep -qxF 'include hyprconf-zsh.conf' "$kitty/kitty.conf" 2>/dev/null; then
+        # One line, no blank separator, so `undo` puts the file back byte for
+        # byte. A file not ending in a newline gets one first.
+        if [[ -s $kitty/kitty.conf && -n $(tail -c1 "$kitty/kitty.conf") ]]; then
+            printf '\n' >> "$kitty/kitty.conf"
+        fi
+        printf 'include hyprconf-zsh.conf\n' >> "$kitty/kitty.conf"
+        changed=1
+    fi
+else
+    echo "  kitty is not installed — zsh becomes its shell as soon as it is"
+fi
+
+if (( changed )); then
+    echo "  zsh + powerlevel10k in kitty — undo: bash $dir/install undo"
+fi
+exit 0

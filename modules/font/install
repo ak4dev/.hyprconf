@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# hyprconf/font — the system monospace font, GeistMono Nerd Font.
+# The family goes to omarchy-font-set verbatim: it greps fc-list itself and
+# exits 1 "Font '<name>' not found" on a name it does not know
+# (bin/omarchy-font-set:24-27, Omarchy 4.0.3-1), so a second copy of that
+# check here could only disagree with it. It then writes
+# ~/.config/fontconfig/fonts.conf, appends font_family to kitty.conf and
+# restarts the shell (:33-40,57-74) — which is why the choice is applied ONCE,
+# behind a marker: the post-update hook re-runs this after every
+# omarchy-update, and a font the user picked later must survive it.
+# Packages go through omarchy-pkg-add, guarded by omarchy-pkg-present
+# (bin/omarchy-pkg-present:6-8 is pacman -Q per name) so a re-run asks sudo
+# for nothing.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+family='GeistMono Nerd Font'
+stock='JetBrainsMono Nerd Font'   # Omarchy's own monospace: default/fontconfig/conf.avail/50-omarchy.conf:23-30
+marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/font-applied
+
+if [[ ${1:-} == undo ]]; then
+  # The setter restarts the shell and signals kitty (bin/omarchy-font-set:41,74),
+  # so the revert is the user's one command, not ours; dropping the marker is
+  # what makes the next install offer the font again.
+  rm -f "$marker"
+  echo "  put Omarchy's font back with: omarchy font set '$stock'"
+  exit 0
+fi
+
+pkgs=() line=
+while IFS= read -r line || [[ -n $line ]]; do
+  line=${line%%#*}
+  line=${line//[[:space:]]/}
+  [[ -n $line ]] && pkgs+=("$line")
+done < "$dir/packages"
+
+if (( ${#pkgs[@]} )) && ! omarchy-pkg-present "${pkgs[@]}"; then
+  # sudo needs a terminal for its prompt; the post-update hook has none to
+  # give (it passes --no-packages, which exports HYPRCONF_NO_SUDO).
+  if [[ -n ${HYPRCONF_NO_SUDO:-} ]] || { [[ ! -t 0 ]] && [[ -z ${_HYPRCONF_ASSUME_TTY:-} ]]; }; then
+    echo "  ${pkgs[*]} not installed — run \`bash $dir/install\` from a terminal"
+    exit 0
+  fi
+  omarchy-pkg-add "${pkgs[@]}"
+fi
+
+[[ -e $marker ]] && exit 0
+if ! omarchy-font-set "$family"; then
+  echo "  omarchy-font-set rejected $family — the system font stays as it is, retried next run" >&2
+  exit 0
+fi
+mkdir -p "${marker%/*}"
+: > "$marker"
+echo "  system monospace is $family — change it any time: omarchy font set <name>"

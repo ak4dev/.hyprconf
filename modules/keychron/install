@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# hyprconf/keychron — one udev rule so Keychron / Lemokey boards and mice are reachable
+# over WebHID. The reasoning (the 70- prefix, the vendor-only match, no MODE=, what is
+# not covered) lives once, in README.md beside this file.
+# Omarchy has no command for a udev rule — `omarchy commands --json` carries no udev
+# route (4.0.3-1) — but it ships the shape: install/hardware/framework/qmk-hid.sh:4-6
+# copies default/udev/framework16-qmk-hid.rules into /etc/udev/rules.d. This is that,
+# compared first so a steady-state re-run never reaches sudo, and with `--` on every root
+# call so a path can never be read as an option (AGENTS.md rule 8).
+# Not gated on a board being plugged in: a udev rule is for the device attached next as
+# much as the one attached now.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+
+# The rule directory: root-owned here, so the suite points it at a writable tree
+# instead. udev reads /etc/udev/rules.d ahead of its own /usr/lib tree.
+: "${_HYPRCONF_UDEV_RULES:=/etc/udev/rules.d}"
+: "${_HYPRCONF_ASSUME_TTY:=}"
+src=$dir/70-keychron.rules
+dst=$_HYPRCONF_UDEV_RULES/70-keychron.rules
+
+# Anything needing sudo bows out with one pointer line and exit 0 when there is no
+# password prompt to answer: HYPRCONF_NO_SUDO (exported by --no-packages, which the
+# post-update hook passes) or no terminal on stdin.
+can_sudo() {
+    if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
+        echo "  skipped (--no-packages) — run \`bash $dir/install\` from a terminal for the udev rule"
+        return 1
+    fi
+    if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
+        echo "  no terminal for sudo — run \`bash $dir/install\` from a terminal for the udev rule"
+        return 1
+    fi
+    return 0
+}
+
+if [[ ${1:-} == undo ]]; then
+    [[ -f $dst ]] || exit 0
+    can_sudo || exit 0
+    sudo rm -f -- "$dst" || { echo "  could not remove $dst"; exit 0; }
+    # Reload only, no trigger: an ACL already granted to this session lasts until the
+    # board is re-plugged or the session ends (73-seat-late.rules only ever adds one).
+    sudo udevadm control --reload-rules || true
+    echo "  removed $dst"
+    exit 0
+fi
+
+[[ -f $dst ]] && cmp -s "$src" "$dst" && exit 0
+can_sudo || exit 0
+sudo install -Dm644 -- "$src" "$dst" || { echo "  could not install $dst — skipping"; exit 0; }
+echo "  $dst installed (Keychron 0x3434, Lemokey 0x362d) — undo: bash $dir/install undo"
+# Apply it to what is already plugged in; without this the ACL arrives only on the next
+# re-plug or reboot. Reload the launcher tab afterwards.
+if sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=hidraw; then
+    echo "  applied to connected devices"
+else
+    echo "  installed but not applied — re-plug the board or reboot"
+fi
+exit 0

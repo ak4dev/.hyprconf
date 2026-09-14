@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+# hyprconf-stats — streaming cpu/memory/network stats for the quickshell bar.
+#
+# One JSON line per second on stdout, numbers only (the widget owns the glyphs
+# and the units): {"cpu":3,"mem":"12.7/94.2G","down":"1.2MB/s","up":"12.3kB/s",
+# "temp":41} — temp is °C or null.
+#
+# Long-lived so counters can be diffed in-process instead of re-forking a
+# sampler every poll — and a tick forks nothing at all: every number is a `read`
+# of a proc/sysfs file and integer arithmetic, formatted with printf -v; only the
+# sleep is left, and that is bash's loadable builtin below.
+#
+# Omarchy's own stats, both checked and neither a fit (AGENTS rule 1, 4.0.3-1):
+# `omarchy-system-stats --bar-widget` (bin/omarchy-system-stats:7-26) prints cpu
+# idle/total, memory percent and load through three awk forks per call, with no
+# network, temperature or GPU; the bar's own `command` module (shell/plugins/bar/
+# README.md › Custom user modules, Bar.qml:2061) runs `bash -lc <exec>` off a
+# Timer inside the per-screen `Variants` — a login shell per monitor per
+# interval, rendering one line where this widget draws two.
+#
+# No `set -e`: a long-lived sampler must outlive a read that fails when a
+# sensor or interface vanishes between ticks; no pipeline's status is tested,
+# so pipefail would change nothing.
+set -u
+
+# System paths and pacing are env-overridable so the hermetic test suite can
+# point them at a fake tree (never readonly — see testing rules).
+: "${HYPRCONF_STATS_NET_ROOT:=/sys/class/net}"
+: "${HYPRCONF_STATS_PROC_STAT:=/proc/stat}"
+: "${HYPRCONF_STATS_PROC_MEMINFO:=/proc/meminfo}"
+: "${HYPRCONF_STATS_PROC_ROUTE:=/proc/net/route}"
+: "${HYPRCONF_STATS_HWMON_ROOT:=/sys/class/hwmon}"
+: "${HYPRCONF_STATS_SLEEP_BUILTIN:=/usr/lib/bash/sleep}"
+: "${HYPRCONF_STATS_INTERVAL:=1}"
+: "${HYPRCONF_STATS_ITERATIONS:=0}"   # 0 = run forever; N = exit after N samples
+
+# bash's loadable sleep builtin (package bash) saves the exec of /usr/bin/sleep
+# every tick; the external one stays in use where the loadable is missing —
+# which is also how the suite runs a hook between ticks: the seam pointed at
+# a file that is not there leaves a PATH `sleep` fake in charge.
+enable -f "$HYPRCONF_STATS_SLEEP_BUILTIN" sleep 2>/dev/null
+
+# human <bytes> <varname>: SI-decimal rate ("46.2kB/s") into the named variable
+# — printf -v, so a tick forks nothing for it.
+human() {
+    local b=$1
+    local -n _out=$2
+    if   (( b < 1000 ));       then printf -v _out '%dB/s' "$b"
+    elif (( b < 1000000 ));    then printf -v _out '%d.%dkB/s' $(( b / 1000 )) $(( (b % 1000) / 100 ))
+    elif (( b < 1000000000 )); then printf -v _out '%d.%dMB/s' $(( b / 1000000 )) $(( (b % 1000000) / 100000 ))
+    else                            printf -v _out '%d.%dGB/s' $(( b / 1000000000 )) $(( (b % 1000000000) / 100000000 ))
+    fi
+}
+
+# gib <kB> <varname>: GiB with one decimal into the named variable — the same
+# printf -v shape as human(), so the two memory figures cost no subshell.
+gib() {
+    local g10=$(( ($1 * 10 + 524288) / 1048576 ))
+    printf -v "$2" '%d.%d' $(( g10 / 10 )) $(( g10 % 10 ))
+}
+
+# ---- cpu temperature source, resolved ONCE (no per-tick probe after this).
+# hwmon exposes the same sensors as `sensors`(1) as plain files: tempN_label +
+# tempN_input (millidegrees). Label priority: AMD k10temp Tctl > Tdie, then
+# Intel coretemp package > core.
+temp_input="" _rank=99
+for _lbl in "$HYPRCONF_STATS_HWMON_ROOT"/hwmon*/temp*_label; do
+    [[ -r $_lbl ]] || continue
+    _name=""
+    read -r _name < "$_lbl" || continue
+    case $_name in
+        Tctl)           _r=1 ;;
+        Tdie)           _r=2 ;;
+        "Package id 0") _r=3 ;;
+        "Core 0")       _r=4 ;;
+        *) continue ;;
+    esac
+    if (( _r < _rank )); then
+        _rank=$_r
+        temp_input="${_lbl%_label}_input"
+    fi
+done
+
+prev_total=0 prev_idle=0 prev_rx=0 prev_tx=0 prev_iface=""
+first=1 iter=0 down="" up="" mem_used="" mem_all=""
+
+while :; do
+    # ---- cpu: aggregate line of /proc/stat
+    read -r _ user nice system idle iowait irq softirq steal _ < "$HYPRCONF_STATS_PROC_STAT"
+    total=$(( user + nice + system + idle + iowait + irq + softirq + steal ))
+    idle_all=$(( idle + iowait ))
+    dtotal=$(( total - prev_total ))
+    didle=$(( idle_all - prev_idle ))
+    cpu=0
+    (( dtotal > 0 )) && cpu=$(( (100 * (dtotal - didle) + dtotal / 2) / dtotal ))
+    prev_total=$total prev_idle=$idle_all
+
+    # ---- memory: used = MemTotal - MemAvailable
+    mem_total=0 mem_avail=0
+    while read -r key val _; do
+        case $key in
+            MemTotal:)     mem_total=$val ;;
+            MemAvailable:) mem_avail=$val; break ;;
+        esac
+    done < "$HYPRCONF_STATS_PROC_MEMINFO"
+    gib $(( mem_total - mem_avail )) mem_used
+    gib "$mem_total" mem_all
+    mem="$mem_used/${mem_all}G"
+
+    # ---- network: the counters of the DEFAULT-ROUTE interface — by definition
+    # the one carrying the traffic, so a docked NIC that is up but unrouted does
+    # not hijack the reading. Taken from the kernel's own listing of the main
+    # table (the table `ip route show default` prints) with no fork: a Wi-Fi or
+    # VPN box sits on this path every tick, and the `ip | awk` it replaced was
+    # three forks a second, every second. One line per route, "Iface Destination
+    # Gateway Flags …" in hex (net/ipv4/fib_trie.c, fib_route_seq_show): the
+    # default route is the one whose Destination is 00000000 — a gateway-less
+    # tunnel (WireGuard: Gateway 00000000, no RTF_GATEWAY) is found the same way,
+    # which the old parse once missed — and of several (Wi-Fi plus a tether) the
+    # first is the lowest metric, the kernel keeping a prefix's routes sorted by
+    # priority (fib_insert_alias), the order `ip` prints too. An `unreachable
+    # default` has no device and lists as "*", where `ip` prints no `dev`:
+    # skipped alike.
+    iface=""
+    if [[ -r $HYPRCONF_STATS_PROC_ROUTE ]]; then
+        while read -r _rif _rdst _; do
+            if [[ $_rdst == 00000000 && $_rif != '*' ]]; then
+                iface=$_rif
+                break
+            fi
+        done < "$HYPRCONF_STATS_PROC_ROUTE"
+    fi
+    rx=0 tx=0
+    if [[ -n $iface && -r $HYPRCONF_STATS_NET_ROOT/$iface/statistics/rx_bytes ]]; then
+        read -r rx < "$HYPRCONF_STATS_NET_ROOT/$iface/statistics/rx_bytes"
+        read -r tx < "$HYPRCONF_STATS_NET_ROOT/$iface/statistics/tx_bytes"
+    fi
+    # The deltas only mean something against the SAME interface's lifetime
+    # counters. When the routed interface changes (a tunnel coming or going, a
+    # cable plugged while Wi-Fi held the route), rebase and emit 0B/s for that
+    # tick — otherwise one sample diffs two unrelated counters and the bar
+    # flashes an absurd rate.
+    if [[ $iface != "$prev_iface" ]]; then
+        prev_rx=$rx prev_tx=$tx prev_iface=$iface
+    fi
+    drx=$(( rx - prev_rx )) dtx=$(( tx - prev_tx ))
+    (( drx < 0 )) && drx=0
+    (( dtx < 0 )) && dtx=0
+    prev_rx=$rx prev_tx=$tx
+
+    # ---- cpu temp: read the pre-resolved hwmon file (millidegrees → °C)
+    temp=null
+    if [[ -n $temp_input && -r $temp_input ]]; then
+        _mdeg=""
+        read -r _mdeg < "$temp_input" || _mdeg=""
+        [[ $_mdeg =~ ^-?[0-9]+$ ]] && temp=$(( (_mdeg + 500) / 1000 ))
+    fi
+
+    # First sample has no baseline for the deltas — skip it.
+    if (( first )); then
+        first=0
+    else
+        human "$drx" down
+        human "$dtx" up
+        printf '{"cpu":%d,"mem":"%s","down":"%s","up":"%s","temp":%s}\n' \
+            "$cpu" "$mem" "$down" "$up" "$temp"
+        if (( HYPRCONF_STATS_ITERATIONS > 0 && ++iter >= HYPRCONF_STATS_ITERATIONS )); then
+            exit 0
+        fi
+    fi
+
+    sleep "$HYPRCONF_STATS_INTERVAL"
+done

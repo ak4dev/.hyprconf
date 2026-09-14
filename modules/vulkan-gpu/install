@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# hyprconf/vulkan-gpu — the dual-GPU Vulkan pin tool, on PATH.
+#
+# One SYMLINK into ~/.local/bin, which Omarchy puts on the session PATH
+# (default/bash/env-bootstrap:37-40, and again for rc shells in
+# default/bash/envs:31-33, Omarchy 4.0.3-1) — so the tool a hotkey or a shell
+# runs is this checkout's, and `git pull` updates it with no re-install. The
+# link is recreated only when it points somewhere else: `ln -sfn` gives the
+# link a new inode on every call, which would make a re-run a write.
+#
+# The module installs nothing else and decides nothing: the tool is run by
+# hand on a dual-GPU box (README › Settings), and what it writes —
+# ~/.config/uwsm/env.d/50-hyprconf-vulkan-gpu — is a choice of the user's,
+# removed by `hyprconf-vulkan-gpu remove`, never by this script. So there is
+# no marker, and nothing here needs sudo, a TTY or a package.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+tool=hyprconf-vulkan-gpu
+bin=$HOME/.local/bin
+src=$dir/bin/$tool
+dst=$bin/$tool
+
+if [[ ${1:-} == undo ]]; then
+    # Our link only. A file of the user's own at that name is theirs, and so is
+    # any pin the tool wrote — `hyprconf-vulkan-gpu remove` is its undo.
+    if [[ $(readlink "$dst" 2>/dev/null) == "$src" ]]; then
+        rm -f "$dst"
+        echo "  $dst removed — a pin in ~/.config/uwsm/env.d is still yours: $tool remove"
+    fi
+    exit 0
+fi
+
+mkdir -p "$bin"
+if [[ $(readlink "$dst" 2>/dev/null) != "$src" ]]; then
+    # -f replaces the pre-module copy install.sh's stage_bin left here, -n
+    # keeps a link to a directory from being followed.
+    ln -sfn "$src" "$dst"
+    echo "  $tool on PATH — on a dual-GPU box: $tool status, then $tool fix"
+fi
+exit 0

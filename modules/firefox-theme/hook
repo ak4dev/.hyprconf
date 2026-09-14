@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# hyprconf/firefox-theme — the theme Omarchy rendered, into Firefox.
+# Run by `omarchy-hook theme-set <name>` (bin/omarchy-hook:22-27), which
+# bin/omarchy-theme-set:341 calls at the end of every theme set, and once by
+# this module's install. Self-contained: omarchy-hook-install COPIES the file
+# (bin/omarchy-hook-install:27-29), so nothing here may point at a checkout.
+# Omarchy themes Chromium-family browsers only (bin/omarchy-theme-set-browser:
+# 8-13; `grep -Ril firefox /usr/share/omarchy/bin` finds only default/install/
+# remove-browser, Omarchy 4.0.3-1).
+# No `set -e`: bin/omarchy-hook:26 already turns a non-zero hook into a message
+# omarchy-theme-set:341 swallows, so every profile is attempted and a failure
+# is reported through the exit status instead.
+# Usage: hook [<theme name>] | hook --undo
+set -uo pipefail
+
+render=$HOME/.local/state/omarchy/current/theme/userChrome.css
+# Both profiles.ini layouts Firefox keeps: the legacy one and the XDG one
+# Arch's firefox 155.0.1-1 writes — profile directories sit beside the ini in
+# both, so a relative Path= resolves against the ini's own directory.
+inis=("$HOME/.mozilla/firefox/profiles.ini" "$HOME/.config/mozilla/firefox/profiles.ini")
+q="[\"']"
+managed="^[[:space:]]*user_pref\([[:space:]]*$q(toolkit\.legacyUserProfileCustomizations\.stylesheets|extensions\.activeThemeID|ui\.systemUsesDarkTheme)${q}[[:space:]]*,"
+rc=0 changed=0 undo=0
+[[ ${1:-} == --undo ]] && undo=1
+
+# The profile Firefox will start, one per ini: the path an [Install<hash>]
+# section names, else the [Profile*] carrying Default=1, else the first
+# listed; IsRelative defaults to 1. The ladder is not academic: a Firefox
+# 155.0.1-1 profiles.ini routinely names one profile in [Install<hash>] while
+# a different one carries Default=1, and [Install<hash>] is the one it starts.
+profiles() {
+  local ini
+  for ini in "${inis[@]}"; do
+    [[ -f $ini ]] || continue
+    awk -v dir="${ini%/*}" '
+      function under(p) { return (p ~ /^\//) ? p : dir "/" p }
+      /^[[:space:]]*\[/ { s = $0; if (s ~ /^\[Profile/) { n++; rel[n] = "1" } next }
+      { k = $0; sub(/=.*/, "", k); gsub(/[[:space:]]/, "", k)
+        v = $0; sub(/^[^=]*=/, "", v); gsub(/\r/, "", v)
+        if (s ~ /^\[Install/ && k == "Default" && inst == "") inst = v
+        else if (s ~ /^\[Profile/) {
+          if (k == "Path") path[n] = v
+          else if (k == "IsRelative") rel[n] = v
+          else if (k == "Default" && v == "1" && flagged == 0) flagged = n
+        } }
+      END { if (inst != "") { print under(inst); exit }
+            i = (flagged ? flagged : 1)
+            if (path[i] == "") exit
+            if (rel[i] == "0") print path[i]; else print under(path[i]) }
+    ' < "$ini"
+  done
+}
+
+# user.js keeps every line this hook does not own, and gains whatever arrives
+# on stdin. Written through a symlink (a dotfile manager's), and removed when
+# nothing but our own lines was ever in it.
+merge_user_js() {
+  local js=$1 tmp=$1.$$.tmp
+  # $tmp is created by a simple command, not left to the group's own
+  # redirection: bash 5.3.15 gives a failed redirection status 1 and `!` does
+  # NOT invert that, so `if ! { ...; } > "$tmp"` walks straight past an
+  # unwritable profile directory and then reads the missing $tmp as "user.js
+  # held nothing but ours" — taking the user's file away. `||` after a simple
+  # command does see it.
+  : > "$tmp" 2>/dev/null || { rc=1; return 1; }
+  if ! { [[ -f $js ]] && LC_ALL=C grep -a -Ev "$managed" -- "$js"; cat; } > "$tmp"; then
+    rm -f "$tmp"
+    rc=1
+    return 1
+  fi
+  if [[ -s $tmp ]]; then
+    cmp -s "$tmp" "$js" || { cat "$tmp" > "$js" && changed=1 || rc=1; }
+  elif [[ -f $js ]]; then
+    rm -f "$js" && changed=1 || rc=1
+  fi
+  rm -f "$tmp"
+}
+
+# The mode the template declared (omarchy-theme-color:120-133 resolved it).
+# The built-in ids only force the light/dark colour scheme: both are inApp
+# (BuiltInThemeConfig.sys.mjs:29,38), so :root[lwtheme] never turns on
+# (LightweightThemeConsumer.sys.mjs:424,537) and the stylesheet's own direct
+# rules paint the chrome. Firefox 155.0.1-1.
+id=firefox-compact-dark@mozilla.org dark=1
+if [[ -f $render ]] &&
+  LC_ALL=C grep -qa -- '--hyprconf-theme-mode:[[:space:]]*light[[:space:]]*;' "$render"; then
+  id=firefox-compact-light@mozilla.org dark=0
+fi
+
+while read -r p; do
+  [[ -d $p ]] || continue
+  if (( undo )); then
+    rm -f "$p/chrome/userChrome.css"
+    rmdir "$p/chrome" 2>/dev/null
+    merge_user_js "$p/user.js" </dev/null
+    continue
+  fi
+  [[ -f $render ]] || continue
+  cmp -s "$render" "$p/chrome/userChrome.css" ||
+    { install -Dm644 "$render" "$p/chrome/userChrome.css" && changed=1 || rc=1; }
+  merge_user_js "$p/user.js" <<PREFS
+user_pref("toolkit.legacyUserProfileCustomizations.stylesheets", true);
+user_pref("extensions.activeThemeID", "$id");
+user_pref("ui.systemUsesDarkTheme", $dark);
+PREFS
+  printf '%s (%s)\n' "$p/chrome/userChrome.css" "$id"
+done < <(profiles)
+
+(( undo )) && exit "$rc"
+[[ -f $render ]] ||
+  printf 'hyprconf firefox-theme: no %s — `omarchy theme refresh` renders it\n' "$render" >&2
+# Firefox reads userChrome.css and user.js at startup only.
+(( changed )) && omarchy-notification-send "Firefox theme" \
+  "Restart Firefox to apply the new theme" >/dev/null 2>&1
+exit "$rc"

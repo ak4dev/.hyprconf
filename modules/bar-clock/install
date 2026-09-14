@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# hyprconf/bar-clock — Omarchy's own clock widget, ticking seconds.
+#
+# plugin/ is the stock shell/plugins/panels/clock widget with the three deltas
+# its BarWidget.qml header names, clonedFrom omarchy.clock: the registry swaps
+# it into the stock slot when it is enabled, and puts the entry back on the
+# stock id when it is disabled (shell/services/PluginRegistry.qml:555, :441).
+# Installed as a SYMLINK into this checkout, so a `git pull` is the update:
+# the third-party scan is a glob that matches a linked folder
+# (PluginRegistry.qml:712-713), `omarchy plugin remove` unlinks one
+# (bin/omarchy-plugin-remove:87-88, :99-101), `omarchy plugin add` refuses the
+# id while it exists (:137, :143), and the validator wants a trailing slash
+# (bin/omarchy-plugin-validate:115 prints the link itself). The shell's
+# inotifywait -r (PluginRegistry.qml:663-674) does not descend a link, so
+# every run asks for the rescan that picks a pull up.
+#
+# Enabled ONCE behind a marker (AGENTS rule 5): `omarchy plugin disable
+# hyprconf.clock` then sticks. The discovery wait before the enable is
+# omarchy-plugin-add's own (bin/omarchy-plugin-add:164-170) — an enable issued
+# before the shell has seen the folder fails "unknown" (bin/omarchy-plugin-
+# enable:86-87). bar.centerAnchor is a plain id with no clone resolution
+# (shell/Commons/Util.qml:70-72, shell/plugins/bar/Bar.qml:1538), so it
+# follows the swap once, and an anchor left naming nothing — an old `omarchy
+# plugin clone` id whose folder is gone — is repaired on any run.
+# Verified against Omarchy 4.0.3-1.
+#
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+id=hyprconf.clock stock=omarchy.clock format='hh:mm:ss AP' stock_format='dddd HH:mm'
+plugins=$HOME/.config/omarchy/plugins link=$plugins/$id
+json=$HOME/.config/omarchy/shell.json
+marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/clock-applied
+
+# Layout entries are bare strings or objects with an id — omarchy-bar's own
+# entry_id rule (bin/omarchy-bar:178).
+ids='[.bar.layout // {} | .[]? | .[]? | if type == "string" then . else (.id // "") end]'
+entry='[.bar.layout // {} | .[]? | .[]?] | any(type == "object" and .id == $id and .format == $f)'
+
+anchor() { [[ -f $json ]] && jq -r '.bar.centerAnchor // ""' "$json" 2>/dev/null || true; }
+on_bar() { jq -e --arg id "$1" "$ids | any(. == \$id)" "$json" >/dev/null 2>&1; }
+
+# True only when a shell answered AND the id belongs to no installed plugin:
+# with no plugin list the dangling case is left alone rather than guessed at.
+gone() {
+    local listed
+    listed=$(omarchy-plugin-list --json 2>/dev/null) || return 1
+    jq -e --arg id "$1" 'all(.[]?; .id != $id)' <<<"$listed" >/dev/null 2>&1
+}
+
+# Wait (bounded, advisory) for the shell to have persisted the last thing it
+# was asked for: its writes land on a later event-loop turn (shell.qml:109-113
+# persistShellConfig, then a FileView setText), so the read-modify-write below
+# would otherwise edit a stale copy and the shell's pending write take it back.
+settled() {
+    local filter="$1" i
+    shift
+    for (( i = 0; i < 40; i++ )); do
+        [[ -f $json ]] && jq -e "$@" "$filter" "$json" >/dev/null 2>&1 && return 0
+        sleep 0.05
+    done
+    return 0
+}
+set_anchor() {
+    # `jq … > tmp && mv` would report success whichever way jq went: a failing
+    # left operand of an && list is exempt from set -e, so the mv is skipped
+    # and the stale tmp left behind, while a failing mv would take the whole
+    # run down over a cosmetic step.
+    if jq --arg id "$1" '.bar.centerAnchor = $id' "$json" > "$json.tmp"; then
+        mv "$json.tmp" "$json"
+    else
+        rm -f "$json.tmp" || true
+        echo "  could not set bar.centerAnchor to $1 in $json" >&2
+    fi
+}
+
+if [[ ${1:-} == undo ]]; then
+    # The disable hands our whole bar entry back to the stock id, format
+    # included (PluginRegistry.qml:555 → restoreCloneSource :441), so the
+    # seconds format has to come off the stock widget by hand.
+    if omarchy-plugin-disable "$id" >/dev/null 2>&1; then
+        omarchy-bar set "$stock" format "$stock_format" >/dev/null 2>&1 || true
+        settled "$entry" --arg id "$stock" --arg f "$stock_format"
+    fi
+    if [[ $(anchor) == "$id" ]]; then set_anchor "$stock"; fi
+    [[ -L $link ]] && rm -f "$link"
+    rm -f "$marker"
+    omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+    exit 0
+fi
+
+# A same-id checkout is `omarchy plugin add`'s, and `omarchy plugin update`
+# fast-forwards it (bin/omarchy-plugin-update:111-112 refuses a non-git one).
+if [[ -d $link/.git ]]; then
+    echo "  $id is an \`omarchy plugin add\` checkout — left to omarchy plugin update"
+    exit 0
+fi
+mkdir -p "$plugins" "${marker%/*}"
+# A real directory here is the pre-module synced copy (or a hand-made one):
+# moved aside once, the shape omarchy-plugin-remove uses (:106).
+if [[ -d $link && ! -L $link ]]; then
+    mv "$link" "$plugins/.$id.bak.$(date -u +%Y%m%d%H%M%S)"
+fi
+[[ $(readlink "$link" 2>/dev/null) == "$dir/plugin" ]] || ln -sfn "$dir/plugin" "$link"
+omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+
+if [[ ! -e $marker ]]; then
+    for (( i = 0; i < 40; i++ )); do        # no shell answering → the list exits 1 → no wait
+        list=$(omarchy-plugin-list --json 2>/dev/null) || break
+        jq -e --arg id "$id" 'any(.[]?; .id == $id)' <<<"$list" >/dev/null 2>&1 && break
+        sleep 0.05
+    done
+    omarchy-plugin-enable "$id" >/dev/null 2>&1 || {
+        echo "  no shell answering — enabled on the next run"
+        exit 0
+    }
+    if omarchy-bar set "$id" format "$format" >/dev/null 2>&1; then
+        settled "$entry" --arg id "$id" --arg f "$format"
+    else
+        echo "  set it by hand: omarchy bar set $id format '$format'"
+        settled "$ids | any(. == \$id)" --arg id "$id"
+    fi
+    : > "$marker"
+    echo "  $id enabled, format $format — undo: bash $dir/install undo"
+fi
+
+# The anchor, on EVERY run: it points at whichever widget the clock is, which
+# is not a user choice — and it goes stale long after the install too, when an
+# `omarchy plugin clone` copy is removed and its id is left naming nothing. It
+# only ever moves onto a widget the bar really carries, and never off an id the
+# user chose: the stale case has to be on no bar section AND on no installed
+# plugin, or an anchor aimed at a widget they merely disabled would be taken.
+a=$(anchor)
+if [[ -n $a && $a != "$id" ]] && on_bar "$id"; then
+    if [[ $a == "$stock" ]]; then
+        set_anchor "$id"
+    elif ! on_bar "$a" && gone "$a"; then
+        set_anchor "$id"
+        echo "  centre anchor $a named nothing — now $id"
+    fi
+fi

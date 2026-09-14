@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "hyprconf.resources",
+  "name": "Resource Usage",
+  "version": "1.3.0",
+  "author": "hyprconf",
+  "description": "CPU/temp/memory/GPU/network readout",
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "entryPoints": {
+    "barWidget": "Widget.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "category": "System",
+    "defaultSection": "right"
+  }
+}

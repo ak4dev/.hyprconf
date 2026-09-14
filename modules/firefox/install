@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# hyprconf/firefox — Firefox through Omarchy's own installer, the system policy
+# beside it, and firefox as the default browser once.
+#
+# `omarchy-install-browser firefox` is omarchy-pkg-add firefox, Omarchy's own
+# prefs into /usr/lib/firefox/distribution/policies.json and MOZ_ENABLE_WAYLAND
+# in ~/.config/environment.d (bin/omarchy-install-browser:67-74 →
+# install/helpers/browser-policy.sh:161-168, Omarchy 4.0.3-1). Run only when
+# omarchy-pkg-present firefox fails (bin/omarchy-pkg-present:6-8 is pacman -Q).
+#
+# The policy lands in /etc/firefox/policies/policies.json: Firefox reads
+# enterprise policies only from root-owned paths, and that path takes
+# precedence over the distribution/ copy — so Omarchy's own policy is merged
+# UNDER ours (jq `*`, a recursive object merge; ours wins on a shared key)
+# rather than shadowed. Nothing in Omarchy touches /etc/firefox
+# (grep -RIn '/etc/firefox' over the installed 4.0.3-1 tree finds nothing), so
+# the merge is the only thing keeping its VA-API and scaling prefs alive.
+# What the policy says, and the Firefox behaviours it rides on: README.md.
+#
+# sudo, hence the HYPRCONF_NO_SUDO and no-terminal gates: the post-update hook
+# runs non-interactively inside omarchy-update, where a password prompt would
+# stall the whole update. The default-browser seed sits OUTSIDE those gates —
+# after the first install, the hook's --no-packages run is the only run most
+# boxes ever get, and a seed inside the gate would never happen there.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+
+# Omarchy's own variable, with Omarchy's own fallback (default/bash/
+# env-bootstrap:16). The two _HYPRCONF_* seams below are how the hermetic
+# suite reaches the root write and the sudo gate; never readonly.
+: "${OMARCHY_PATH:=/usr/share/omarchy}"
+: "${_HYPRCONF_FIREFOX_POLICIES:=/etc/firefox/policies}"
+: "${_HYPRCONF_ASSUME_TTY:=}"
+
+state=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}
+dst=$_HYPRCONF_FIREFOX_POLICIES/policies.json
+marker=$state/browser-applied
+# v7's stage_defaults covered browser and editor with one marker. Honoured for
+# one release so an upgraded box does not re-assert a default chosen since;
+# the vscode module honours it the same way for its own.
+legacy=$state/defaults-applied
+
+info() { printf '    %s\n' "$*"; }
+warn() { printf '    WARNING: %s\n' "$*" >&2; }
+
+# Omarchy's own idiom (bin/omarchy-plugin-add:22), narrowed to stdin: its
+# `[[ -t 0 && -t 1 ]]` would skip sudo under `bash install | tee log`.
+interactive() { [[ -t 0 || -n $_HYPRCONF_ASSUME_TTY ]]; }
+
+sudo_ok() {
+    if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
+        info "--no-packages: $1 left alone"
+        return 1
+    fi
+    if ! interactive; then
+        info "no terminal for sudo — re-run from a terminal for $1"
+        return 1
+    fi
+}
+
+tmp=
+cleanup() { if [[ -n $tmp ]]; then rm -f -- "$tmp"; fi; }
+trap cleanup EXIT
+
+if [[ ${1:-} == undo ]]; then
+    rm -f "$marker"
+    if [[ -e $dst ]] && sudo_ok "the Firefox policy"; then
+        sudo rm -f -- "$dst" || warn "could not remove $dst"
+    fi
+    # Firefox itself stays: it is Omarchy's install, not the overlay's. There
+    # is no stock default browser to put back either — pick one.
+    info "firefox stays installed; choose a browser with: omarchy default browser <name>"
+    exit 0
+fi
+
+# -- Firefox and the policy (sudo) -------------------------------------------
+tmp=$(mktemp)
+if ! jq -s 'reduce .[] as $layer ({}; . * $layer)' \
+    "$OMARCHY_PATH/default/firefox/policies.json" "$dir/policies.json" > "$tmp"; then
+    warn "jq could not merge the Firefox policies — will retry on the next run"
+else
+    need_firefox=0 need_policy=0
+    omarchy-pkg-present firefox || need_firefox=1
+    cmp -s "$tmp" "$dst" || need_policy=1
+    if (( need_firefox || need_policy )) && sudo_ok "Firefox and its policy"; then
+        if (( need_firefox )); then
+            if omarchy-install-browser firefox; then
+                info "Firefox installed (Omarchy's own flow)"
+            else
+                warn "omarchy-install-browser firefox failed — retry with: omarchy install browser firefox"
+                need_policy=0   # no policy for a browser that is not there to read it
+            fi
+        fi
+        if (( need_policy )); then
+            # `--` on every root write: nothing an unprivileged process can
+            # name may be read as an option (AGENTS rule 8). The shape is
+            # Omarchy's own (bin/omarchy-hibernation-setup:42-43).
+            if sudo install -Dm644 -- "$tmp" "$dst"; then
+                info "policy installed at $dst (Omarchy's prefs + hyprconf's)"
+            else
+                warn "could not install the Firefox policy — will retry on the next run"
+            fi
+        fi
+    fi
+fi
+
+# -- Default browser, once (rule 5) ------------------------------------------
+[[ -e $marker || -e $legacy ]] && exit 0
+omarchy-default-browser firefox || true
+# The setter's exit status is its closing omarchy-notification-send's (no
+# set -e in bin/omarchy-default-browser, whose last line is :37), which fails
+# with no shell to notify — a TTY or SSH run — long after xdg-settings has
+# written the value. So the VALUE is read back (bin/omarchy-default-browser:7-19
+# with no argument), and a run that did not take leaves no marker and retries.
+if [[ $(omarchy-default-browser 2>/dev/null || true) == firefox ]]; then
+    mkdir -p "$state"
+    : > "$marker"
+    info "default browser = firefox (change it with: omarchy default browser <name>)"
+else
+    warn "firefox is not the default browser yet — will retry on the next run"
+fi
+exit 0

@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# hyprconf/firefox-theme — Omarchy's active theme into Firefox, on every
+# `omarchy theme set` and now.
+# userChrome.css.tpl goes into ~/.config/omarchy/themed/, the user template
+# directory omarchy-theme-set-templates:7 reads and :375 renders FIRST (ahead
+# of $OMARCHY_PATH/default/themed) into the theme's staging dir, which
+# omarchy-theme-set:292-293 swaps onto ~/.local/state/omarchy/current/theme.
+# `hook` is installed with omarchy-hook-install (bin/omarchy-hook-install:
+# 27-29: mkdir -p, cp, chmod 755 — under the file's BASENAME, so it is copied
+# to the final name first); omarchy-theme-set:341 runs it after every set.
+# Re-rendering the CURRENT theme is omarchy-theme-refresh (bin/omarchy-theme-
+# refresh:5-8 = omarchy-theme-set of theme.name, wallpaper kept) — which ends
+# in that same hook call, so the hook is run by hand only when no refresh ran.
+# No packages, no sudo: every path is under $HOME.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+themed=$HOME/.config/omarchy/themed/userChrome.css.tpl
+hook=$HOME/.config/omarchy/hooks/theme-set.d/10-hyprconf
+current=$HOME/.local/state/omarchy/current
+render=$current/theme/userChrome.css
+
+if [[ ${1:-} == undo ]]; then
+  # Best effort: a profile the hook could not write (ENOSPC, a root-owned
+  # user.js) must not keep the module's own three files standing.
+  rc=0
+  bash "$dir/hook" --undo ||
+    { rc=$?; echo "  theme-set hook --undo failed — some profile files remain" >&2; }
+  rm -f "$hook" "$themed" "$render"
+  exit "$rc"
+fi
+
+changed=0
+cmp -s "$dir/userChrome.css.tpl" "$themed" || {
+  install -Dm644 "$dir/userChrome.css.tpl" "$themed"
+  changed=1
+  echo "  installed userChrome.css.tpl"
+}
+if ! cmp -s "$dir/hook" "$hook"; then
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  cp "$dir/hook" "$tmp/${hook##*/}"
+  omarchy-hook-install theme-set "$tmp/${hook##*/}" >/dev/null ||
+    { echo "  omarchy-hook-install theme-set failed" >&2; exit 1; }
+  echo "  installed the theme-set hook"
+fi
+
+refreshed=0
+if (( changed )) || [[ ! -f $render ]]; then
+  if [[ -r $current/theme.name ]]; then
+    if omarchy-theme-refresh >/dev/null 2>&1; then
+      refreshed=1
+    else
+      echo "  omarchy-theme-refresh failed — rendered on the next omarchy theme set" >&2
+    fi
+  else
+    echo "  no active theme yet — rendered on the next omarchy theme set"
+  fi
+fi
+if (( refreshed )); then
+  echo "  rendered through omarchy-theme-refresh, which re-ran the hook"
+else
+  bash "$hook" || echo "  theme-set hook failed — see the messages above" >&2
+fi
+exit 0

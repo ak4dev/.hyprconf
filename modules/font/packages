@@ -1,0 +1,2 @@
+# One official-repo package per line (AGENTS rule 3: no AUR, no pacman here).
+otf-geist-mono-nerd   # system monospace — Geist Mono with the Nerd Font glyph set the bar widgets draw
