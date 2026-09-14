@@ -5,6 +5,7 @@ made to act the way bin/omarchy-hook-install:27-29 and omarchy-theme-refresh:8 d
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -158,6 +159,10 @@ def test_the_hook_themes_the_profile_firefox_will_start(
 ) -> None:
     root = firefox(box, ini, where)
     render = rendered(box)
+    # A stale copy from the theme before: every set rewrites it, bytes-differ gated.
+    stale = root / profile / "chrome/userChrome.css"
+    stale.parent.mkdir()
+    stale.write_text(":root {\n  --hyprconf-theme-mode: light;\n}\n")
     assert box.run(HOOK, "dracula").returncode == 0
     assert (root / profile / "chrome/userChrome.css").read_bytes() == render.read_bytes()
     assert not (root / (OTHER if profile == PROFILE else PROFILE) / "chrome").exists()
@@ -228,6 +233,14 @@ PALETTE = ("mode", "background", "foreground", "accent", "dark_background", "lig
 def test_the_template_declares_the_mode_and_renders_with_no_token_left_over() -> None:
     css = TPL.read_text()
     assert "--hyprconf-theme-mode: {{ mode }};" in css  # what the hook greps back
+    # README > Settings: the three Firefox 155.0.1-1 still reads, and no other --
+    # the --lwt-* / --toolbar-bgcolor family it dropped must never come back.
+    assert set(re.findall(r"^\s*(--[a-z0-9-]+):", css, re.M)) == {
+        "--hyprconf-theme-mode",
+        "--toolbar-field-background-color",
+        "--toolbar-field-focus-color",
+        "--focus-outline-color",
+    }
     for key in PALETTE:
         css = css.replace(f"{{{{ {key} }}}}", "x")
     assert "{{" not in css
