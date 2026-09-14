@@ -125,8 +125,9 @@ if (( no_update )); then do_update=0; fi
 # the base system; run against a hand-built Hyprland desktop it would fight
 # that machine's own configuration.
 preflight() {
-    # The overlay writes the invoking user's $HOME and asks for sudo itself
-    # in the four gated stages; run under sudo it half-installs into /root
+    # The overlay writes the invoking user's $HOME and asks for sudo itself —
+    # in stage_packages here, and in each module that does its own root work
+    # behind HYPRCONF_NO_SUDO; run under sudo it half-installs into /root
     # (env_reset sets HOME) and the curl|bash habit of prefixing sudo is the
     # dangerous one. No seam: the suite runs unprivileged, CI included.
     if ((EUID == 0)); then

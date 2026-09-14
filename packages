@@ -23,8 +23,8 @@ zsh-syntax-highlighting
 # Hotkey dependencies: none. Every key in hypr/bindings.lua runs an Omarchy
 # command (screenshots, media keys, nautilus, lock, menu) or a bin/hyprconf-*
 # tool. Firefox (SUPER+F) and VS Code (SUPER+C) go in through Omarchy's own
-# installers, `omarchy-install-browser firefox` (install.sh: stage_firefox)
-# and `omarchy-install-editor-vscode` (modules/vscode), which set up what a
-# bare package would not (Firefox's Wayland env and prefs; VS Code's keyring,
+# installers, `omarchy-install-browser firefox` (modules/firefox) and
+# `omarchy-install-editor-vscode` (modules/vscode), which set up what a bare
+# package would not (Firefox's Wayland env and prefs; VS Code's keyring,
 # update and theme settings); visual-studio-code-bin comes from Omarchy's own
 # [omarchy] pacman repository, through that installer only.
