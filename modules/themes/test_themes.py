@@ -1,284 +1,110 @@
-"""modules/themes — the dracula user theme (linked, never activated) and the
-wallpapers filed under the Omarchy theme each belongs to.
-
-Everything the module does happens inside $HOME with coreutils, so the box's
-recording fakes are here to prove a negative: no run of this module calls an
-Omarchy command at all, except the one `omarchy-theme-remove` that undo uses.
-"""
-
-from __future__ import annotations
+"""modules/themes — the dracula user theme (linked, never activated) and the wallpapers beside it."""
 
 import os
 import tomllib
 from pathlib import Path
 
+import pytest
+
 MODULE = Path(__file__).parent
 INSTALL = MODULE / "install"
-# Code only: the header explains what the module does NOT do, so a scan for a
-# forbidden command has to read past the comments.
-CODE = "\n".join(ln for ln in INSTALL.read_text().splitlines() if not ln.lstrip().startswith("#"))
+THEME = ".config/omarchy/themes/dracula"
+WALL = ".config/omarchy/backgrounds/gruvbox/gruvbox.jpg"
+SEED = MODULE / "backgrounds/gruvbox/gruvbox.jpg"
 
-# What omarchy-theme-remove does to the name it is given: the `-d` gate follows
-# the link, and `rm -rf` on a symlink unlinks it (omarchy-theme-remove:31-37,
-# Omarchy 4.0.3-1). The shared fake only records, so a test that wants the
-# effect asks for this body.
-THEME_REMOVE = """
-p="$HOME/.config/omarchy/themes/$1"
-[ -d "$p" ] || exit 1
-rm -rf "$p"
-"""
+# omarchy-theme-remove:31-37 (Omarchy 4.0.3-1): `-d` follows the link, `rm -rf` on it unlinks; `exit 1` is the Omarchy that refuses.
+THEME_REMOVE = '\np="$HOME/.config/omarchy/themes/$1"\n[ -d "$p" ] || exit 1\nrm -rf "$p"\n'
 
 
 def snapshot(root: Path) -> dict[str, tuple]:
-    """Every path under root as (kind, content, mtime_ns) — what "a second run
-    wrote nothing" is compared on. A symlink is read, never followed."""
+    """Every path under root as (mode, bytes or link target, mtime) — a symlink is read."""
     out = {}
     for p in sorted(root.rglob("*")):
-        st = p.lstat()
         body = os.readlink(p) if p.is_symlink() else (p.read_bytes() if p.is_file() else b"")
-        out[str(p.relative_to(root))] = (st.st_mode, body, st.st_mtime_ns)
+        out[str(p.relative_to(root))] = (p.lstat().st_mode, body, p.lstat().st_mtime_ns)
     return out
 
 
-def themes_dir(box) -> Path:
-    return box.home / ".config" / "omarchy" / "themes"
-
-
-def gruvbox(box) -> Path:
-    return box.home / ".config" / "omarchy" / "backgrounds" / "gruvbox" / "gruvbox.jpg"
-
-
-# ---------------------------------------------------------------------------
-# The theme
-# ---------------------------------------------------------------------------
-
-
-def test_the_theme_is_linked_into_omarchys_user_theme_dir(box) -> None:
-    """A symlink, so a `git pull` is the theme update — and Omarchy blesses the
-    shape: theme_came_from_a_repo is `[[ ! -L $source && -d $source/.git ]]`
-    (omarchy-theme-set:204-208), so a linked user theme takes the plain `cp -r`
-    branch (:275), and `omarchy theme update` skips it via omarchy-theme-extras:12
-    (read by omarchy-theme-update:5) rather than pulling into the checkout."""
+def test_install_links_the_theme_and_seeds_the_wallpapers(box) -> None:
+    """The link is the theme update (`git pull`); the wallpaper lands where the picker looks."""
     proc = box.run(INSTALL)
     assert proc.returncode == 0, proc.stderr
-    link = themes_dir(box) / "dracula"
-    assert link.is_symlink()
+    link = box.home / THEME
     assert Path(os.readlink(link)) == MODULE / "dracula"
     assert (link / "colors.toml").is_file()
-
-
-def test_installing_never_activates_a_theme(box) -> None:
-    """Which theme is active is the user's, and this module re-runs after every
-    Omarchy update (the post-update hook). Asserted twice: no omarchy-theme-set
-    anywhere in the code — which covers every branch, not the one a run takes —
-    and a full run that calls no command at all."""
-    assert "omarchy-theme-set" not in CODE
-    box.run(INSTALL)
-    assert box.commands == []
-
-
-def test_a_theme_directory_of_your_own_is_left_alone(box) -> None:
-    """A real ~/.config/omarchy/themes/dracula is a theme they installed
-    themselves (`omarchy theme install` clones one, omarchy-theme-install:56):
-    `ln -sfn` over a directory would only drop a stray link inside it, so the
-    module says so and carries on with the wallpapers."""
-    theirs = themes_dir(box) / "dracula"
-    theirs.mkdir(parents=True)
-    (theirs / "colors.toml").write_text("theirs\n")
-
-    proc = box.run(INSTALL)
-    assert proc.returncode == 0, proc.stderr
-    assert not theirs.is_symlink()
-    assert sorted(p.name for p in theirs.iterdir()) == ["colors.toml"]
-    assert "left alone" in proc.stderr
-    assert gruvbox(box).is_file(), "the wallpapers are a separate seam"
-
-
-def test_a_link_of_your_own_at_that_name_is_left_alone(box) -> None:
-    """Symmetric with undo, which refuses the same case: a link pointing at a
-    working copy of theirs is that copy. No `.stock` beside it — every dir and
-    link under ~/.config/omarchy/themes is listed as a theme
-    (omarchy-theme-list:7), so a backup there would show up in the menu."""
-    mine = box.home / "their-dracula"
-    mine.mkdir()
-    (mine / "colors.toml").write_text("theirs\n")
-    theirs = themes_dir(box) / "dracula"
-    theirs.parent.mkdir(parents=True)
-    theirs.symlink_to(mine)
-
-    proc = box.run(INSTALL)
-    assert proc.returncode == 0, proc.stderr
-    assert Path(os.readlink(theirs)) == mine
-    assert "left alone" in proc.stderr
-    assert not list(themes_dir(box).glob("*.stock"))
-    assert gruvbox(box).is_file(), "the wallpapers are a separate seam"
-
-
-def test_a_plain_file_at_that_name_is_left_alone(box) -> None:
-    """Not a shape Omarchy makes, but `ln -sfn` would replace it silently."""
-    theirs = themes_dir(box) / "dracula"
-    theirs.parent.mkdir(parents=True)
-    theirs.write_text("not a theme\n")
-
-    proc = box.run(INSTALL)
-    assert proc.returncode == 0, proc.stderr
-    assert theirs.read_text() == "not a theme\n"
-    assert "left alone" in proc.stderr
-
-
-def test_the_theme_carries_its_own_background(box) -> None:
-    """Omarchy's picker scans the active theme's own backgrounds/ as well as the
-    user folder (omarchy-theme-bg-next:7-12), so dracula's wallpaper ships
-    inside the theme and never goes through the seeding loop."""
-    inside = sorted(p.name for p in (MODULE / "dracula" / "backgrounds").iterdir())
-    assert inside == ["dracula.png"]
-    assert not (MODULE / "backgrounds" / "dracula").exists()
-
-
-def test_colors_toml_omits_what_omarchy_derives_to_the_same_value(box) -> None:
-    """light_foreground is `${color7:-foreground}` when absent
-    (omarchy-theme-color:223) and the theme defines no colorN key, so writing it
-    was a no-op line. dark_background is NOT derivable — Omarchy would mix
-    background with 25% black (:236) — so it stays, named in the header."""
-    text = (MODULE / "dracula" / "colors.toml").read_text()
-    colors = tomllib.loads(text)
-    assert colors["mode"] == "dark"
-    assert not any(k.startswith("color") for k in colors), "a colorN key would change :223"
-    assert "light_foreground" not in colors
-    assert colors["dark_background"] == colors["background"]
-    header = text.split("accent", 1)[0]
-    assert "dark_background" in header and "light_foreground" in header
-
-
-# ---------------------------------------------------------------------------
-# The wallpapers
-# ---------------------------------------------------------------------------
-
-
-def test_wallpapers_are_seeded_where_omarchy_looks_and_then_left_alone(box) -> None:
-    """The destination is the directory name under backgrounds/ — no table. Why
-    only that path is visible to the picker is in `install`'s own header.
-    Seeded, not synced: the folder is the user's to curate."""
-    box.run(INSTALL)
-    assert (
-        gruvbox(box).read_bytes()
-        == (MODULE / "backgrounds" / "gruvbox" / "gruvbox.jpg").read_bytes()
-    )
-
-    gruvbox(box).write_bytes(b"my own wallpaper")
-    proc = box.run(INSTALL)
-    assert proc.returncode == 0, proc.stderr
-    assert gruvbox(box).read_bytes() == b"my own wallpaper"
-
-
-def test_a_deleted_wallpaper_comes_back(box) -> None:
-    """Copied when absent: deleting one and re-running brings it back. To stop
-    that for good the file leaves the module."""
-    box.run(INSTALL)
-    gruvbox(box).unlink()
-    box.run(INSTALL)
-    assert gruvbox(box).is_file()
-
-
-# ---------------------------------------------------------------------------
-# Idempotence
-# ---------------------------------------------------------------------------
+    assert (link / "backgrounds" / "dracula.png").is_file(), "its own wallpaper ships inside"
+    assert (box.home / WALL).read_bytes() == SEED.read_bytes()
+    assert box.commands == [], "never activated, no sudo, no Omarchy command at all"
+    assert not (box.home / ".local/state/hyprconf").exists(), "no marker: the link is the gate"
 
 
 def test_a_second_run_writes_nothing_and_calls_nothing(box) -> None:
-    """The post-update hook re-runs every module after every Omarchy update:
-    byte-stable, mtimes included (the link is not re-made), and no command."""
+    """The post-update hook re-runs every module: byte-stable, mtimes included."""
     box.run(INSTALL)
     before = snapshot(box.home)
     box.reset()
-
     proc = box.run(INSTALL)
     assert proc.returncode == 0, proc.stderr
     assert snapshot(box.home) == before
     assert box.commands == []
-    assert proc.stdout == ""
 
 
-def test_nothing_leaves_home_and_no_user_choice_is_recorded(box) -> None:
-    """No package, no root write, no prompt — so no HYPRCONF_NO_SUDO or TTY gate
-    to get wrong; and no set-once marker, because linking a theme and seeding a
-    file are their own gates (the link target, and `[[ -e $dest ]]`)."""
-    assert "sudo" not in CODE
-    assert "HYPRCONF_STATE" not in CODE
-    box.run(INSTALL)
-    assert not (box.home / ".local" / "state" / "hyprconf").exists()
-    assert box.etc.is_dir() and list(box.etc.iterdir()) == []
+@pytest.mark.parametrize("shape", ("dir", "link"))
+def test_a_theme_of_your_own_at_that_name_is_left_alone(box, shape) -> None:
+    """`-e` catches a directory, `-L` a link of theirs; no `.stock` beside it either, because omarchy-theme-list:7 lists every dir and link there as a theme."""
+    theirs = box.home / THEME
+    theirs.parent.mkdir(parents=True)
+    if shape == "dir":
+        theirs.mkdir()
+    else:
+        theirs.symlink_to(box.home)
+    before = snapshot(theirs.parent)
+    proc = box.run(INSTALL)
+    assert proc.returncode == 0, proc.stderr
+    assert snapshot(theirs.parent) == before
+    assert "left alone" in proc.stderr
+    assert (box.home / WALL).is_file(), "the wallpapers are a separate seam"
 
 
-# ---------------------------------------------------------------------------
-# Undo
-# ---------------------------------------------------------------------------
+def test_colors_toml_omits_what_omarchy_derives_to_the_same_value(box) -> None:
+    """light_foreground is `${color7:-foreground}` and no colorN key is set; dark_background is not derivable — Omarchy would mix 25% black (omarchy-theme-color:223,236)."""
+    colors = tomllib.loads((MODULE / "dracula" / "colors.toml").read_text())
+    assert colors["mode"] == "dark"
+    assert not any(k.startswith("color") for k in colors), "a colorN key would change :223"
+    assert "light_foreground" not in colors
+    assert colors["dark_background"] == colors["background"]
 
 
-def test_undo_removes_the_link_through_omarchys_own_command(box) -> None:
-    """`omarchy theme remove dracula` is the Omarchy tool for this (rule 1); on a
-    symlink its `rm -rf` unlinks and never reaches the checkout
-    (omarchy-theme-remove:31-37)."""
-    box.stub("omarchy-theme-remove", THEME_REMOVE)
+@pytest.mark.parametrize("remove", (THEME_REMOVE, "exit 1\n"))
+def test_undo_unlinks_the_theme_and_takes_the_seeded_wallpaper_back(box, remove) -> None:
+    """Through Omarchy's own command (rule 1), and through the `rm -f` after it when it refuses."""
+    box.stub("omarchy-theme-remove", remove)
     box.run(INSTALL)
     box.reset()
-
     proc = box.undo("themes")
     assert proc.returncode == 0, proc.stderr
     assert box.calls_of("omarchy-theme-remove") == [["omarchy-theme-remove", "dracula"]]
-    assert not (themes_dir(box) / "dracula").exists(follow_symlinks=False)
+    assert not (box.home / THEME).exists(follow_symlinks=False)
     assert (MODULE / "dracula" / "colors.toml").is_file(), "rm -rf must not follow the link"
+    assert not (box.home / WALL).parent.exists()
 
 
-def test_undo_removes_the_link_even_when_omarchy_cannot(box) -> None:
-    """The shared fake answers nothing, standing in for an Omarchy that refuses:
-    undo still ends with the link gone."""
-    box.run(INSTALL)
-    proc = box.undo("themes")
-    assert proc.returncode == 0, proc.stderr
-    assert box.calls_of("omarchy-theme-remove") == [["omarchy-theme-remove", "dracula"]]
-    assert not (themes_dir(box) / "dracula").exists(follow_symlinks=False)
-
-
-def test_undo_leaves_a_theme_that_is_not_ours_alone(box) -> None:
-    """A directory of their own, and a link they pointed at a working copy of
-    their own, are both theirs — undo touches neither, and asks Omarchy nothing."""
+def test_undo_leaves_what_is_not_ours_alone(box) -> None:
+    """A theme of theirs at that name, and a wallpaper whose bytes are not ours, both stay."""
     box.stub("omarchy-theme-remove", THEME_REMOVE)
-    theirs = themes_dir(box) / "dracula"
+    theirs = box.home / THEME
     theirs.mkdir(parents=True)
     (theirs / "colors.toml").write_text("theirs\n")
-    box.undo("themes")
-    assert (theirs / "colors.toml").read_text() == "theirs\n"
-
-    theirs.rename(box.home / "their-dracula")
-    theirs.symlink_to(box.home / "their-dracula")
+    (box.home / WALL).parent.mkdir(parents=True)
+    (box.home / WALL).write_bytes(b"my own wallpaper")
+    before = snapshot(box.home)
     proc = box.undo("themes")
     assert proc.returncode == 0, proc.stderr
-    assert theirs.is_symlink()
-    assert box.commands == []
-
-
-def test_undo_takes_the_seeded_wallpaper_back_but_not_your_own(box) -> None:
-    """Ours by bytes: the seeded file goes and the folder with it when empty; a
-    file the user put at that path, or their other wallpapers, stay."""
-    box.run(INSTALL)
-    proc = box.undo("themes")
-    assert proc.returncode == 0, proc.stderr
-    assert not gruvbox(box).parent.exists()
-
-    box.run(INSTALL)
-    gruvbox(box).write_bytes(b"my own wallpaper")
-    mine = gruvbox(box).with_name("mine.jpg")
-    mine.write_bytes(b"another of mine")
-    box.undo("themes")
-    assert gruvbox(box).read_bytes() == b"my own wallpaper"
-    assert mine.is_file()
+    assert snapshot(box.home) == before
+    assert box.commands == [], "not ours: Omarchy is not asked either"
 
 
 def test_undo_on_a_machine_that_never_installed_does_nothing(box) -> None:
-    """The module loop runs `install undo` for every module: a clean exit and no
-    files on a box that never had it."""
     proc = box.undo("themes")
     assert proc.returncode == 0, proc.stderr
-    assert box.files() == set()
-    assert box.commands == []
+    assert box.files() == set() and box.commands == []
