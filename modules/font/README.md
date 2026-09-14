@@ -9,7 +9,10 @@ and anything resolving `monospace` read), rewrites or appends `font_family` in
 family is handed over verbatim, since the setter greps `fc-list` itself and refuses a
 name it does not know (`:24-27`). Omarchy's `ttf-jetbrains-mono-nerd-basic` stays
 installed and selectable, and the choice is **set once**: after the first run the font is
-yours, and the post-update hook never takes it back.
+yours, and the post-update hook never takes it back. With kitty installed and no
+`~/.config/kitty/kitty.conf`, the setter would create one holding only `font_family` (`:33-40`) —
+no theme include, so kitty would lose Omarchy's theming for good: the module seeds Omarchy's own stub
+there first, as `omarchy-install-terminal:39-42` and the two kitty modules do.
 
 ## Requires
 
@@ -34,6 +37,7 @@ time (`omarchy font list` names them). Deleting the marker
 ## Undo
 
 `bash modules/font/install undo` drops the marker and prints the command that puts Omarchy's own font
-back — it restarts the shell, so it stays yours: `omarchy font set 'JetBrainsMono Nerd Font'`.
+back — it restarts the shell, so it stays yours: `omarchy font set 'JetBrainsMono Nerd Font'`. A
+`kitty.conf` the first run seeded stays: it is Omarchy's own stub, the file a stock box has.
 
 ## Verified against Omarchy 4.0.3-1

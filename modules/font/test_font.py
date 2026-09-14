@@ -32,6 +32,29 @@ def run(box, *args, **kwargs):
     return box.run(INSTALL, *args, **kwargs)
 
 
+# bin/omarchy-font-set:33-40 (Omarchy 4.0.3-1), the kitty half transcribed:
+# with kitty on PATH it creates the user file when absent, holding nothing
+# but font_family.
+FONT_SET_KITTY = (
+    "if [[ -f ~/.config/kitty/kitty.conf ]] || omarchy-cmd-present kitty; then\n"
+    "  mkdir -p ~/.config/kitty\n"
+    "  if grep -qE '^[[:space:]]*font_family[[:space:]]+' ~/.config/kitty/kitty.conf 2>/dev/null; then\n"
+    '    sed --follow-symlinks -i -E "s/^[[:space:]]*font_family[[:space:]]+.*/font_family $1/" ~/.config/kitty/kitty.conf\n'
+    "  else\n"
+    "    printf '\\nfont_family %s\\n' \"$1\" >>~/.config/kitty/kitty.conf\n"
+    "  fi\n"
+    "fi\n"
+)
+
+
+def kitty_conf(box) -> Path:
+    return box.home / ".config" / "kitty" / "kitty.conf"
+
+
+def stub_conf(box) -> str:
+    return (box.omarchy / "config" / "kitty" / "kitty.conf").read_text()
+
+
 # --------------------------------------------------------------------------
 # The font itself
 # --------------------------------------------------------------------------
@@ -155,6 +178,43 @@ def test_the_packages_file_holds_plain_package_names(box) -> None:
             names.append(line)
     assert names == ["otf-geist-mono-nerd"]
     assert all(name.replace("-", "").isalnum() for name in names)
+
+
+# --------------------------------------------------------------------------
+# kitty.conf: the setter must not be the one to create it
+# --------------------------------------------------------------------------
+
+
+def test_an_absent_kitty_conf_is_seeded_from_omarchys_stub_before_the_setter(box) -> None:
+    """omarchy-font-set creates ~/.config/kitty/kitty.conf itself when kitty
+    is installed and the file is absent (:33-40) — holding only font_family,
+    no theme include, which lives only in Omarchy's stub. Seeded first, so
+    what the setter appends lands beside the include, not instead of it."""
+    box.stub("omarchy-font-set", FONT_SET_KITTY)
+    proc = run(box)
+    assert proc.returncode == 0, proc.stderr
+    assert kitty_conf(box).read_text() == stub_conf(box) + f"\nfont_family {FAMILY}\n"
+    assert kitty_conf(box).stat().st_mode & 0o777 == 0o644
+
+
+def test_without_kitty_no_kitty_conf_is_made(box) -> None:
+    """The setter's own condition (`omarchy-cmd-present kitty`, :33): no
+    kitty, no file — the module must not seed one either."""
+    box.stub("omarchy-cmd-present", "exit 1\n")
+    box.stub("omarchy-font-set", FONT_SET_KITTY)
+    proc = run(box)
+    assert proc.returncode == 0, proc.stderr
+    assert not kitty_conf(box).exists()
+
+
+def test_a_kitty_conf_already_there_is_left_to_the_setter(box) -> None:
+    """The seed covers the absent file only: a file of the user's own is the
+    setter's to edit (it rewrites or appends font_family, :35-39), never ours."""
+    kitty_conf(box).parent.mkdir(parents=True)
+    kitty_conf(box).write_text("include theme.conf\nfont_family Mine\n")
+    proc = run(box)
+    assert proc.returncode == 0, proc.stderr
+    assert kitty_conf(box).read_text() == "include theme.conf\nfont_family Mine\n"
 
 
 # --------------------------------------------------------------------------

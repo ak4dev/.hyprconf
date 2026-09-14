@@ -285,22 +285,40 @@ def test_a_full_run_reaches_every_module_and_a_second_run_is_byte_stable(live: B
         assert forbidden not in live.commands, forbidden
 
 
+# bin/omarchy-font-set:33-40 (Omarchy 4.0.3-1), the kitty half: with kitty on
+# PATH it CREATES the user file when absent — holding nothing but font_family.
+FONT_SET = (
+    "if [[ -f ~/.config/kitty/kitty.conf ]] || omarchy-cmd-present kitty; then\n"
+    "  mkdir -p ~/.config/kitty\n"
+    "  if grep -qE '^[[:space:]]*font_family[[:space:]]+' ~/.config/kitty/kitty.conf 2>/dev/null; then\n"
+    '    sed --follow-symlinks -i -E "s/^[[:space:]]*font_family[[:space:]]+.*/font_family $1/" ~/.config/kitty/kitty.conf\n'
+    "  else\n"
+    "    printf '\\nfont_family %s\\n' \"$1\" >>~/.config/kitty/kitty.conf\n"
+    "  fi\n"
+    "fi\n"
+)
+KITTY_WRITERS = ("font", "shell-zsh", "terminal-kitty")
+
+
 @pytest.mark.parametrize(
     "order",
-    [("shell-zsh", "terminal-kitty"), ("terminal-kitty", "shell-zsh")],
+    [KITTY_WRITERS, tuple(reversed(KITTY_WRITERS))],
     ids=["loop-order", "reversed"],
 )
-def test_the_two_kitty_includes_are_order_free(box: Box, order: tuple[str, str]) -> None:
-    """The loop is alphabetical, so shell-zsh runs BEFORE terminal-kitty — and
-    both write ~/.config/kitty/kitty.conf. Neither may depend on that: both
-    seed an absent file from Omarchy's own stub (the theme include lives only
-    there, config/kitty/kitty.conf:1-2) and both guard only their own line, so
-    either order ends with the stub plus exactly one of each include — and
-    undoing both puts Omarchy's stub back byte for byte."""
+def test_the_kitty_conf_writers_are_order_free(box: Box, order: tuple[str, ...]) -> None:
+    """Three modules write ~/.config/kitty/kitty.conf, and the loop is
+    alphabetical: font runs first, whose omarchy-font-set creates the file
+    when absent as bare `font_family` (:33-40) — no theme include, which lives
+    only in Omarchy's stub (config/kitty/kitty.conf:1-2); then shell-zsh, then
+    terminal-kitty, which each seed an absent file from that stub and guard
+    only their own line. None may depend on the order: every order must end
+    with the stub, the font line and exactly one of each include, and undoing
+    the two kitty modules must leave the stub plus the setter's line."""
+    box.stub("omarchy-font-set", FONT_SET)
     conf = box.home / ".config" / "kitty" / "kitty.conf"
     stub = (box.omarchy / "config" / "kitty" / "kitty.conf").read_text()
 
-    for _ in range(2):  # and a re-run of either adds nothing
+    for _ in range(2):  # and a re-run of any adds nothing
         for name in order:
             proc = box.run(MODULES / name / "install")
             assert proc.returncode == 0, f"{name}: {proc.stderr}"
@@ -308,14 +326,18 @@ def test_the_two_kitty_includes_are_order_free(box: Box, order: tuple[str, str])
     text = conf.read_text()
     assert text.startswith(stub), text
     assert sorted(text[len(stub) :].splitlines()) == [
+        "",
         "# hyprconf overlay",
+        "font_family GeistMono Nerd Font",
         "include hyprconf-zsh.conf",
         "include hyprconf.conf",
     ], text
 
     for name in reversed(order):
         assert box.undo(name).returncode == 0
-    assert conf.read_text() == stub
+    # font's undo prints the `omarchy font set` that restores the family and
+    # leaves the file: the seed is Omarchy's own stub, the setter's line the user's.
+    assert conf.read_text() == stub + "\nfont_family GeistMono Nerd Font\n"
 
 
 # ---------------------------------------------------------------------------
