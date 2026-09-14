@@ -11,7 +11,8 @@
 # to the final name first); omarchy-theme-set:341 runs it after every set.
 # Re-rendering the CURRENT theme is omarchy-theme-refresh (bin/omarchy-theme-
 # refresh:5-8 = omarchy-theme-set of theme.name, wallpaper kept) — which ends
-# in that same hook call, so the hook is run by hand only when no refresh ran.
+# in that same hook call, so the hook is run by hand only when no refresh ran
+# — and only over a render: with none it could only repeat what was just said.
 # No packages, no sudo: every path is under $HOME.
 # Usage: install | install undo
 set -euo pipefail
@@ -60,7 +61,7 @@ if (( changed )) || [[ ! -f $render ]]; then
 fi
 if (( refreshed )); then
   echo "  rendered through omarchy-theme-refresh, which re-ran the hook"
-else
+elif [[ -f $render ]]; then
   bash "$hook" || echo "  theme-set hook failed — see the messages above" >&2
 fi
 exit 0

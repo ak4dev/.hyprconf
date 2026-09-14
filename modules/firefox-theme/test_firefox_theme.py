@@ -190,6 +190,7 @@ def test_with_no_active_theme_nothing_is_rendered_and_the_run_still_succeeds(liv
 
     assert result.returncode == 0, result.stderr
     assert "no active theme yet" in result.stdout
+    assert "renders it" not in result.stderr, "the hook said the same thing again"
     assert "omarchy-theme-refresh" not in live.commands
     assert not (live.home / ".config/mozilla/firefox/aaa.default-release/chrome").exists()
     assert (live.home / THEMED).is_file()
