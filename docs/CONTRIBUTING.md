@@ -20,10 +20,9 @@ publish flow and the website upload.
 │   ├── pcMonitors.kitchen.lua  # Preset "kitchen"  (SUPER+SHIFT+K), desc:-keyed
 │   └── laptopMonitors.lua      # Preset "laptop"
 │
-├── bin/                        # Tools installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted); the hotkeys bind the first two by name. A tool with its own module ships there instead — modules/vulkan-gpu/bin/hyprconf-vulkan-gpu
+├── bin/                        # The two hotkey tools, installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted) and bound by name in bindings.lua. A tool with its own module ships under it instead — modules/{vulkan-gpu,yubikey}/bin/
 │   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
-│   ├── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
-│   └── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
+│   └── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
 │
 ├── plugins/                    # Omarchy bar-widget plugins, each folder a plugin on its own (manifest.json at its root, README.md, NOTICE where the code is Omarchy's — › Publishing a plugin), synced by install.sh into ~/.config/omarchy/plugins/
 │   ├── hyprconf-clock/         #   Omarchy's own clock (BarWidget.qml + Model.js) ticking seconds — clonedFrom omarchy.clock, the three deltas named in its header
@@ -34,7 +33,7 @@ publish flow and the website upload.
 ├── kitty/hyprconf.conf         # kitty include
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, firefox, firefox-theme, font, idle, keychron, themes, vscode, vulkan-gpu
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, firefox, firefox-theme, font, idle, keychron, themes, vscode, vulkan-gpu, yubikey
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
@@ -72,7 +71,6 @@ tests/                            # what is not a module's: install.sh, the two 
 │   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy) and the real validator where there is one, the manifest values the bar reads, the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText rule and real qmllint over every QML, what each widget's QML promises, every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent), the clock's parity with the installed stock clock (skips without Omarchy), the resources feeders' capped-backoff restart shape
 │   ├── test_stats_tools.py       #   plugins/hyprconf-resources/bin/{hyprconf-stats,hyprconf-gpu-info} (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins that the default-route lookup shells out to nothing)
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
-│   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-mkinitcpio; the limine drop-in, /etc/default/limine read for the mapper and never rewritten; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias names the checkout through @HYPRCONF_DIR@
 └── integration/
     ├── test_plugin_split.py      #   `git subtree split` of every plugins/<name> in a throwaway repository, the split's root held to test_plugins.py's contract (› Publishing a plugin)
@@ -89,7 +87,7 @@ make test                # both suites, one invocation, in parallel (pytest -n a
 # Lint gates
 make lint                # ruff check + ruff format --check
 make shellcheck          # every bash script (selected by shebang), severity=warning; plus SC2086 (info-level) on
-                         #   the root-writing files — install.sh, bin/hyprconf-yubikey and its module copy,
+                         #   the root-writing files — install.sh, modules/yubikey/bin/hyprconf-yubikey,
                          #   modules/firefox/install and modules/keychron/install (the two module installs that call sudo)
 make fmt                 # ruff format + safe fixes
 ```
@@ -111,7 +109,8 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   directory FIRST on PATH with a recording stub for every `omarchy-*` name the
   shipped scripts and payload carry — derived from them, so a new call cannot
   slip past the fakes — plus `omarchy`, `sudo`, `hyprctl`, `udevadm`,
-  `fc-list`, `git`, `nvidia-smi` and `vulkaninfo`. PATH is those fakes, then
+  `fc-list`, `findmnt`, `git`, `limine-entry-tool`, `nvidia-smi` and
+  `vulkaninfo`. PATH is those fakes, then
   only `/usr/bin` and `/bin`, and the environment is built from scratch, so
   nothing of the developer's session reaches a run. `box.stub(name, body)`
   gives one fake something to do (a `sudo` that execs its arguments) ahead of
@@ -131,10 +130,9 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   `PLUGIN_WAIT`); `_HYPRCONF_FIREFOX_POLICIES` and `_HYPRCONF_UDEV_RULES` —
   the two root-owned destinations a module writes — with `_HYPRCONF_ASSUME_TTY`
   in `modules/firefox/install` and `modules/keychron/install`; `_HYPRCONF_*` in
-  `bin/hyprconf-yubikey` for the boot files it reads and writes (`MKINITCPIO_D`,
-  `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `LIMINE_ENTRY_CONF`, `LIMINE_USR_D`,
-  `FIDO2_DROPIN`, `INITCPIO_INSTALL`, `MODULES_DIR`, `VCONSOLE`, `MACHINE_ID`,
-  `EFI_DIR`);
+  `modules/yubikey/bin/hyprconf-yubikey` for the boot files it reads and
+  writes (`MKINITCPIO_D`, `LIMINE_DEFAULT`, `LIMINE_CONF_D`,
+  `INITCPIO_INSTALL`, `VCONSOLE`) plus `ASSUME_TTY` for its one prompt;
   `_HYPRCONF_*` in `modules/vulkan-gpu/bin/hyprconf-vulkan-gpu` for the three
   trees it reads outside `$HOME` (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`),
   `HYPRCONF_STATS_*` in `plugins/hyprconf-resources/bin/hyprconf-stats`
@@ -146,7 +144,8 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   such a variable `readonly`.
 - The fake bins (`AGENTS.md` › Tests): `omarchy-*`, `hyprctl`, `sudo`,
   `systemd-cryptenroll`, `limine-mkinitcpio`, `limine-entry-tool` (the fake
-  assembles `--get-cmdline` from the box's own limine config files), `udevadm`
+  assembles `--get-cmdline` from the box's own limine config files), `findmnt`
+  (the real one answers for the developer's own root), `udevadm`
   (the real one would re-apply rules on the developer's own machine),
   `vulkaninfo` (it would answer for the host's GPUs), `nvidia-smi` (likewise),
   `sleep` (the feeders' hook between ticks: it advances the fake counters and
@@ -190,7 +189,7 @@ publish; the recipe for reproducing a container-only failure is in
 
 The overlay is published: strangers clone `stable` and run `install.sh` with their own sudo. Three trust boundaries, each held by mechanical pins (AGENTS.md hard rule 8):
 
-1. **Unprivileged → root, on the local box.** `install.sh`'s one sudo stage (`packages`), the modules that declare sudo of their own (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/font` and `modules/vscode`) and `hyprconf-yubikey`'s `run_root` surface (rule 6 names all three) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned per file, in `test_yubikey.py`'s restraint scan and in `modules/{firefox,keychron}/test_*.py`; the tree-wide scan over `modules/*/install` lands with `tests/test_scans.py`); installed tools are rendered beside the target and `mv`'d, never truncated in place; the `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo stage names itself in README (rule 6) and lands with a pin.
+1. **Unprivileged → root, on the local box.** `install.sh`'s one sudo stage (`packages`), the modules that declare sudo of their own (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/font` and `modules/vscode`) and `modules/yubikey`'s `run_root` surface (rule 6 names all three) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned per file, in `modules/{yubikey,firefox,keychron}/test_*.py`; the tree-wide scan over `modules/*/install` lands with `tests/test_scans.py`); a tool `install.sh` still copies is rendered beside the target and `mv`'d, never truncated in place, and one a module owns is a symlink into the checkout; the `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo stage names itself in README (rule 6) and lands with a pin.
 2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`textFormat: Text.PlainText`, stock parity); nothing shipped fetches-and-executes — `test_overlay_never_fetches_and_executes` forbids curl/wget/pipe-to-shell/`base64 -d`/`eval` in shipped bash, with the allowed exceptions written down in full inside the test. A new exception is added there verbatim, with its why, or the change does not land.
 3. **Publish pipeline → strangers' boxes.** The bootstrap is https-only (`--proto '=https'`; `test_published_one_liners_are_https_only`, `test_bootstrap_defaults_are_pinned_https_and_stable` — schemeless, curl's first request is plaintext port 80 and an on-path attacker answers it before the redirect exists). Oh My Zsh and powerlevel10k are pinned to reviewed commits in `stage_shell` — bumping a pin is a deliberate commit through the publish gates, never an auto-pull (`test_shell_third_party_repos_are_pinned_and_never_pulled`) — and `zsh/zshrc.block` disables the updater that ships inside Oh My Zsh itself (`zstyle ':omz:update' mode disabled`, pinned in `test_supply_chain.py`), which would otherwise re-open the channel with one keypress. CI actions are sha-pinned under a read-only token (`test_ci_workflow_is_least_privilege`); `web/` stays self-contained (`test_web_page_is_self_contained`); secret-shaped material anywhere in the tree fails `test_no_secret_material_anywhere`; `install.sh` refuses to run as root (the curl|bash sudo-prefix habit half-installs into /root).
 

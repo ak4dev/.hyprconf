@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 # hyprconf-yubikey — FIDO2 (YubiKey) unlock of the LUKS2 root at boot.
-# What it does, its flags and its limits: `hyprconf-yubikey help`; how to install it
-# and how to revert: README.md beside this file. This header is the provenance —
-# what was read on the box, and where (Omarchy 4.0.3-1, limine-mkinitcpio-hook
-# 1.38.0-1.1, mkinitcpio 41.1, systemd 261).
+# This header is the provenance: what was read on the box, and where (Omarchy 4.0.3-1,
+# limine-mkinitcpio-hook 1.38.0-1.1, mkinitcpio 41.1, systemd 261).
 #
 #   * Omarchy has no route for this. `omarchy commands --json` has none that touches
 #     systemd-cryptenroll, mkinitcpio HOOKS or the kernel cmdline; /usr/share/omarchy/bin
@@ -45,6 +43,7 @@
 # hermetic suite points them at tmp copies; every external is a recording stub there.
 # No errexit: each step reports its own failure through die/warn with what it means for
 # the boot config; an unexplained abort half-way is worse.
+# Flags and limits: `hyprconf-yubikey help`; installing and reverting: README.md beside this file.
 set -uo pipefail
 
 : "${_HYPRCONF_LIMINE_DEFAULT:=/etc/default/limine}"
@@ -360,12 +359,8 @@ dropin_content() {
 # mkinitcpio appends /etc/mkinitcpio.conf.d/*.conf to mkinitcpio.conf in name order and
 # sources the result; "zz-" sorts after Omarchy's omarchy_hooks.conf and
 # omarchy_resume.conf, so this file sees their final HOOKS and rewrites it for the
-# systemd initramfs (the busybox `encrypt` hook cannot do FIDO2, sd-encrypt can):
-#   udev -> systemd, encrypt -> sd-encrypt, keymap -> sd-vconsole,
-#   btrfs-overlayfs -> sd-btrfs-overlayfs (limine-mkinitcpio-hook's systemd twin, when
-#   installed — keeps read-only snapshot boots writable),
-#   consolefont and resume dropped (sd-vconsole covers the font; systemd resumes itself
-#   from resume= on the cmdline), empty elements dropped, everything else kept.
+# systemd initramfs (the busybox `encrypt` hook cannot do FIDO2, sd-encrypt can).
+# What it maps, in one place: `hyprconf-yubikey help`, step 5 of "what enroll changes".
 _hyprconf_hooks=()
 for _hyprconf_hook in "${HOOKS[@]}"; do
   case $_hyprconf_hook in

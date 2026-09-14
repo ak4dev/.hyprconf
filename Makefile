@@ -21,9 +21,9 @@ shellcheck:
 	@# pass's --severity=warning): an unquoted word there splits into an extra
 	@# argument to a root command. SC2068 is error-level and already caught
 	@# everywhere by the main pass. modules/{firefox,keychron}/install are the
-	@# two module installs that call sudo; the yubikey tool writes root files
-	@# through its own run_root, in both the legacy bin/ and its module.
-	shellcheck --include=SC2086 install.sh bin/hyprconf-yubikey \
+	@# two module installs that call sudo; modules/yubikey's tool writes root
+	@# files through its own run_root.
+	shellcheck --include=SC2086 install.sh \
 	    modules/firefox/install modules/keychron/install \
 	    modules/yubikey/bin/hyprconf-yubikey
 	@echo "shellcheck: clean"

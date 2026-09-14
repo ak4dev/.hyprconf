@@ -57,15 +57,19 @@ def git(cwd: Path, *args: str) -> str:
 
 # Not omarchy-*, and every one of them reaches the real machine: sudo and
 # udevadm change the system, hyprctl the running desktop, git the
-# network, and fc-list, nvidia-smi and vulkaninfo answer for the host's
-# fonts and GPUs instead of the box's.
+# network, fc-list, nvidia-smi and vulkaninfo answer for the host's fonts and
+# GPUs instead of the box's, and findmnt and limine-entry-tool answer for the
+# developer's own root filesystem and bootloader (modules/yubikey reads both,
+# and gives them bodies of its own with box.stub()).
 EXTRA_FAKES = (
     "omarchy",
     "sudo",
     "hyprctl",
     "udevadm",
     "fc-list",
+    "findmnt",
     "git",
+    "limine-entry-tool",
     "nvidia-smi",
     "vulkaninfo",
 )

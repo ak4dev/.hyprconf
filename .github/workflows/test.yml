@@ -23,7 +23,7 @@ jobs:
     container: archlinux:latest
     steps:
       # jq: bin/hyprconf-gaps parses `hyprctl getoption -j` with it.
-      # shellcheck: tests/unit/test_yubikey.py lints the generated mkinitcpio
+      # shellcheck: modules/yubikey/test_yubikey.py lints the generated mkinitcpio
       # drop-in and would otherwise skip silently.
       # diffutils: install.sh compares files with `cmp -s` (a test stub does
       # too); Omarchy has it through mkinitcpio, the bare container does not.

@@ -1209,7 +1209,7 @@ FETCH_EXEC_ALLOWED = (
 )
 # install.sh's usage() heredoc: prose that documents the curl one-liner, not a
 # call. Dropped for this scan only — _code_only must keep every other heredoc
-# (bin/hyprconf-monitor-preset, bin/hyprconf-yubikey) inside it.
+# (bin/hyprconf-monitor-preset) inside it.
 USAGE_HEREDOC = re.compile(r"(?ms)^\s*cat <<'USAGE'\n.*?^USAGE$")
 
 

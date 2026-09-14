@@ -1069,6 +1069,7 @@ main() {
     bash "$HERE/modules/themes/install"
     bash "$HERE/modules/vscode/install"
     bash "$HERE/modules/vulkan-gpu/install"
+    bash "$HERE/modules/yubikey/install"
     stage_hotkeys
     stage_looknfeel
     stage_monitors
