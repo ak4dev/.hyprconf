@@ -24,16 +24,11 @@ publish flow and the website upload.
 │   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
 │   └── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
 │
-├── plugins/                    # the Omarchy bar-widget plugins still synced by a stage (each a plugin on its own: manifest.json at its root, README.md, NOTICE where the code is Omarchy's — › Publishing a plugin); the clock's lives in modules/bar-clock/plugin
-│   ├── hyprconf-clock/         #   Omarchy's own clock (BarWidget.qml + Model.js) ticking seconds — clonedFrom omarchy.clock, the three deltas named in its header
-│   ├── hyprconf-resources/     #   cpu/mem/net/temp + GPU readout: Widget.qml draws, Service.qml (kinds bar-widget + service — loaded once, not per bar surface) owns its two feeders in bin/ (hyprconf-stats, hyprconf-gpu-info), run by absolute path from the folder
-│   ├── hyprconf-workspaces/    #   replaces omarchy.workspaces (clonedFrom): only the workspaces that exist, two lines
-│   └── hyprconf-active-window/ #   replaces omarchy.active-window (clonedFrom): the title on two lines
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
 ├── kitty/hyprconf.conf         # kitty include
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, firefox, firefox-theme, font, idle, keychron, themes, vscode, vulkan-gpu, yubikey
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: the four bar-* plugins, fastfetch, firefox, firefox-theme, font, idle, keychron, themes, vscode, vulkan-gpu, yubikey
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
@@ -62,14 +57,13 @@ them in an `archlinux:latest` container, as an unprivileged user.
 conftest.py                       # the `box` fixture every test builds on (repo root: it reaches both trees below)
 modules/<name>/test_<name>.py     # one suite per module, beside its `install` — `testpaths` collects modules/ and tests/ in one pytest run
 tests/                            # what is not a module's: install.sh, the two user-run tools, and the tree-wide guards
-├── test_plugins_contract.py      #   every shipped plugin folder (plugins/* and modules/*/plugin): omarchy-plugin-validate's checks ported to Python (CI has no Omarchy — each module runs the real validator too), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText and implicit-size rules, real qmllint, and every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent)
+├── test_plugins_contract.py      #   every shipped plugin folder (modules/bar-*/plugin): omarchy-plugin-validate's checks ported to Python (CI has no Omarchy — each module runs the real validator too), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText and implicit-size rules, real qmllint, and every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent)
 ├── unit/
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), bind only commands bin/ ships, state deltas over the theme (the shadow, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom, keep the desk presets desc:-keyed and serial-free
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, the workspace rehoming a switch dispatches)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: every stage (curl bootstrap, the `omarchy refresh` guard, the plugin sync and its `omarchy plugin add` checkout guard …), the post-update hook end to end, restraint invariants, idempotency; the dead-hyprctl / pacman / fetch-and-execute token scans over every shipped bash file
-│   ├── test_stats_tools.py       #   plugins/hyprconf-resources/bin/{hyprconf-stats,hyprconf-gpu-info} (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins that the default-route lookup shells out to nothing)
+│   ├── test_omarchy_install.py   #   install.sh: every stage left (curl bootstrap, the `omarchy refresh` guard, the terminal and shell stages …), the module loop and the post-update hook end to end, restraint invariants, idempotency; the dead-hyprctl / pacman / fetch-and-execute token scans over every shipped bash file
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias names the checkout through @HYPRCONF_DIR@
 └── integration/
@@ -134,7 +128,7 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   `INITCPIO_INSTALL`, `VCONSOLE`) plus `ASSUME_TTY` for its one prompt;
   `_HYPRCONF_*` in `modules/vulkan-gpu/bin/hyprconf-vulkan-gpu` for the three
   trees it reads outside `$HOME` (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`),
-  `HYPRCONF_STATS_*` in `plugins/hyprconf-resources/bin/hyprconf-stats`
+  `HYPRCONF_STATS_*` in `modules/bar-resources/plugin/bin/hyprconf-stats`
   (`NET_ROOT`, `PROC_STAT`, `PROC_MEMINFO`, `PROC_ROUTE`, `HWMON_ROOT`,
   `INTERVAL`, `ITERATIONS`, and `SLEEP_BUILTIN` — the loadable sleep's path,
   pointed at a file that is not there so a PATH `sleep` fake runs between
@@ -238,9 +232,8 @@ off-branch refusals.
 `omarchy plugin add <url>` clones a repository and expects `manifest.json` at
 its root — `bin/omarchy-plugin-add` (Omarchy 4.0.2-1): `git clone`,
 `omarchy-plugin-validate`, then a move to `~/.config/omarchy/plugins/<id>/`
-— so the monorepo cannot be added as it is. Each plugin folder (a module's
-`plugin/`, or what is left under `plugins/`) is published as a repository of
-its own, split out of `dev`'s history with git's
+— so the monorepo cannot be added as it is. Each bar module's `plugin/` folder
+is published as a repository of its own, split out of `dev`'s history with git's
 own tool (history and the `100755` modes travel with it):
 
 ```bash

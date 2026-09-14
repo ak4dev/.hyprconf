@@ -27,21 +27,18 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-# The three folders install.sh still syncs out of plugins/ (they go as their
-# modules land) and the four the modules ship.
-LEGACY = REPO_ROOT / "plugins"
 
 
 def plugin_folders() -> list[Path]:
-    folders = sorted(p for p in LEGACY.glob("*") if p.is_dir())
-    folders += sorted(REPO_ROOT.glob("modules/*/plugin"))
+    """Every plugin folder the overlay ships — one per bar module."""
+    folders = sorted(REPO_ROOT.glob("modules/*/plugin"))
     assert folders, "no plugin folders found"
     return folders
 
 
 def folder_id(folder: Path) -> str:
-    """A test id a reader can place: the module name for a module's plugin."""
-    return folder.parent.name if folder.name == "plugin" else folder.name
+    """A test id a reader can place: the module the folder belongs to."""
+    return folder.parent.name
 
 
 # bin/omarchy-plugin-validate (Omarchy 4.0.2-1) — its regex, its required
@@ -72,8 +69,8 @@ def validator_problems(folder: Path) -> list[str]:
     """What omarchy-plugin-validate (4.0.2-1, unchanged in 4.0.3-1) would
     refuse in `folder`, as messages; empty means valid. Its checks, check for
     check — this is the CI half of a test whose other half runs the real
-    validator, and it catches one thing the real one cannot: a symlink, which
-    install.sh's `cp -aL` would have dereferenced out of the installed copy.
+    validator, and it catches one thing the real one cannot: a symlink inside
+    the folder, which the validator's own `find` would follow past.
     The one subtlety is schemaVersion: jq's `==` is type-aware, so "1" and
     `true` are refused where Python's True == 1."""
     problems: list[str] = []
@@ -191,9 +188,9 @@ def publishable_problems(folder: Path) -> list[str]:
 # The rule below is blunter than upstream's: every Text block declares the
 # line, literal-only text included. That is stricter than it needs to be and
 # has no exemptions to get wrong. One caveat if a future Omarchy clock ships a
-# literal-only Text: plugins/hyprconf-clock/BarWidget.qml is byte-parity with
-# the stock file (test_clock_plugin_tracks_omarchys_stock_clock pins the exact
-# deltas), so that file would be skipped here rather than gain a fourth delta.
+# literal-only Text: modules/bar-clock/plugin/BarWidget.qml is byte-parity with
+# the stock file (that module's parity test pins the exact deltas), so the file
+# would be exempted here rather than gain a fourth delta.
 
 TEXT_BLOCK = re.compile(r"(?:^|[:\s])(?:[A-Za-z_]\w*\.)?Text\s*\{")
 

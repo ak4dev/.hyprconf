@@ -315,9 +315,6 @@ def _install_env(env: dict, *, extra_env: dict[str, str] | None = None) -> dict[
     child_env = {
         **_child_env(env),
         "OMARCHY_PATH": str(env["omarchy_path"]),
-        # The plugin-discovery and shell.json waits poll stubs that never
-        # answer (a test modelling the shell's writes raises it again).
-        "_HYPRCONF_PLUGIN_WAIT": "0",
         # The two module seams that name a root-owned path, pinned on every
         # run because main() calls both modules: a test that makes sudo real
         # would otherwise write into the CI container's own /etc, and a plain
@@ -359,7 +356,6 @@ PAYLOAD = (
     "hooks",
     "zsh",
     "kitty",
-    "plugins",
 )
 
 # What a hermetic run must never do is touch the network for Oh My Zsh or
@@ -1397,129 +1393,6 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
         assert os.access(installed, os.X_OK), name
         expected = (REPO_ROOT / "bin" / name).read_text().replace("@HYPRCONF_DIR@", str(REPO_ROOT))
         assert installed.read_text() == expected, name
-
-
-# ---------------------------------------------------------------------------
-# The bar-widget plugin stages
-# ---------------------------------------------------------------------------
-
-
-def _plugin_state(root: Path) -> dict[str, tuple[bytes, int]]:
-    """Every file under a plugin folder with its bytes and permission bits —
-    what `cp -aL` has to reproduce, mode included."""
-    return {
-        str(p.relative_to(root)): (p.read_bytes(), p.stat().st_mode & 0o777)
-        for p in sorted(root.rglob("*"))
-        if p.is_file()
-    }
-
-
-def test_every_shipped_plugin_is_synced_from_the_checkout_and_enabled_once(
-    tmp_path: Path,
-) -> None:
-    """One run, every plugins/* folder still synced by a stage: the installed
-    copy is the checkout's bytes AND modes under the manifest's own id,
-    enabled exactly once, no staging dir left behind. Then the two repaired
-    drifts — a stale file and a lost exec bit — and a re-run that enables
-    nothing, so a disable sticks. The bar modules enable their own ids on the
-    same run, so the count below is per stage, not per call."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    assert _run(env, "--no-update").returncode == 0
-    installed = env["home"] / ".config" / "omarchy" / "plugins"
-    folders = sorted((REPO_ROOT / "plugins").iterdir())
-    assert folders, "no plugin folders in the checkout"
-
-    ids = {json.loads((src / "manifest.json").read_text())["id"] for src in folders}
-    enables = [c for c in _calls(env) if c.split(" ", 1)[-1] in ids]
-    assert len(enables) == len(folders)
-    for src in folders:
-        plug = installed / json.loads((src / "manifest.json").read_text())["id"]
-        assert _plugin_state(plug) == _plugin_state(src), plug.name
-        assert f"omarchy-plugin-enable {plug.name}" in enables, plug.name
-    assert "omarchy-shell shell rescanPlugins" in _calls(env)
-    assert "omarchy-restart-shell" not in _commands(env)
-    assert not list(installed.glob(".hyprconf.*"))
-
-    # Drift in the installed COPY only: a module's folder is a symlink into
-    # this checkout, so a write through one would edit the repository itself.
-    stale = installed / json.loads((folders[0] / "manifest.json").read_text())["id"]
-    assert stale.is_dir() and not stale.is_symlink(), stale
-    qml = sorted(stale.glob("*.qml"))[0]
-    qml.write_text("// stale\n")
-    (installed / "hyprconf.resources" / "bin" / "hyprconf-stats").chmod(0o644)
-    env["calls"].write_text("")
-    assert _run(env, "--no-update").returncode == 0
-    for src in folders:
-        plug = installed / json.loads((src / "manifest.json").read_text())["id"]
-        assert _plugin_state(plug) == _plugin_state(src), plug.name
-    assert "omarchy-shell shell rescanPlugins" in _calls(env)
-    assert not any(c.startswith("omarchy-plugin-enable") for c in _calls(env))
-    assert not list(installed.glob(".hyprconf.*"))
-
-
-def test_plugin_sync_leaves_an_omarchy_plugin_add_checkout_alone(tmp_path: Path) -> None:
-    """`omarchy plugin add <url>` lands the same id as a git checkout, which is
-    Omarchy's to update (bin/omarchy-plugin-update fast-forwards it and
-    refuses a non-git folder) — so the sync must not read its .git as stale
-    and replace it, edits and all."""
-    env = _setup(tmp_path)
-    plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.resources"
-    (plug / ".git").mkdir(parents=True)
-    (plug / ".git" / "HEAD").write_text("ref: refs/heads/main\n")
-    (plug / "Widget.qml").write_text("// the user's checkout\n")
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert (plug / ".git" / "HEAD").read_text() == "ref: refs/heads/main\n"
-    assert (plug / "Widget.qml").read_text() == "// the user's checkout\n"
-    assert not (plug / "manifest.json").exists()
-    assert not list(plug.parent.glob(".hyprconf.*"))
-    assert "omarchy plugin update hyprconf.resources" in proc.stdout
-    assert "omarchy-plugin-enable hyprconf.resources" in _calls(env)
-    # The other plugins are synced as before.
-    assert (plug.parent / "hyprconf.workspaces" / "manifest.json").is_file()
-
-
-def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> None:
-    """A TTY or SSH run has no live shell to enable against, and omarchy-plugin-list
-    (set -e) exits 1 identically on every poll. So: no abort, no set-once
-    marker, nothing set on a clock that never landed, and one list call per
-    enable rather than the whole discovery wait per widget. Three of the four
-    widgets are modules now; their own suites pin the same shape, and their
-    enables and lists still count towards the four below."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    _stub(env["bins"] / "omarchy-plugin-list", env["calls"], "exit 1")
-    _stub(env["bins"] / "omarchy-plugin-enable", env["calls"], "exit 1")
-    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_PLUGIN_WAIT": "40"})
-    assert proc.returncode == 0, proc.stderr
-    state = env["home"] / ".local" / "state" / "hyprconf"
-    for widget in ("active-window", "clock", "workspaces"):
-        assert not (state / f"{widget}-applied").exists(), widget
-    for widget in ("resources",):
-        assert not (state / f"{widget}-applied").exists(), widget
-        assert f"hyprconf.{widget}" in proc.stderr, widget
-    commands = _commands(env)
-    assert "omarchy-bar" not in commands
-    assert commands.count("omarchy-plugin-enable") == 4
-    assert commands.count("omarchy-plugin-list") == 4
-
-
-def test_a_changed_plugin_restarts_the_shell_when_no_rescan_answers(tmp_path: Path) -> None:
-    """`omarchy-shell shell rescanPlugins` hot-reloads plugin code (what
-    omarchy-plugin-update runs after a fast-forward) and exits 1 when no shell
-    answers — only then is the shell restarted, which is how one comes back."""
-    env = _setup(tmp_path)
-    assert _run(env, "--no-update").returncode == 0
-    plugins = env["home"] / ".config" / "omarchy" / "plugins"
-
-    _stub(env["bins"] / "omarchy-shell", env["calls"], "exit 1")
-    (plugins / "hyprconf.resources" / "Widget.qml").write_text("// stale\n")
-    env["calls"].write_text("")
-    assert _run(env, "--no-update").returncode == 0
-    assert "omarchy-shell shell rescanPlugins" in _calls(env)
-    assert "omarchy-restart-shell" in _commands(env)
-    assert not list(plugins.glob(".hyprconf.*"))
 
 
 # ---------------------------------------------------------------------------

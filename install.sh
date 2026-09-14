@@ -50,10 +50,6 @@ HERE_SED=${HERE//\\/\\\\}; HERE_SED=${HERE_SED//&/\\&}; HERE_SED=${HERE_SED//|/\
 # The zsh binary looked up on PATH. Overridable so a test can point the lookup
 # at a name that does not exist until the package stage creates it.
 : "${_HYPRCONF_ZSH_BIN:=zsh}"
-# How long activate_plugin_copy waits for the shell to discover a freshly
-# copied plugin (attempts x 0.05s). The hermetic suite sets it to 0 — its
-# omarchy-plugin-list is a stub that never lists the copy.
-: "${_HYPRCONF_PLUGIN_WAIT:=40}"
 # Where the curl path (bootstrap) gets the checkout from and puts it. Plain
 # names, not _HYPRCONF_*: these are for users too (a fork, a branch under
 # test, a checkout somewhere other than ~/.hyprconf).
@@ -300,8 +296,8 @@ restore_clobbered_override() {
     # write degrades the guard to the installed template alone, it does not
     # stop the run. Unguarded (`set -e`), a ~/.local/state/hyprconf/stock
     # that is a regular file, or one entry the user cannot write, killed the
-    # whole install at the first hypr override — hooks, plugins and clock
-    # never reached, on every post-update run.
+    # whole install at the first hypr override — the hooks and every module
+    # after it never reached, on every post-update run.
     #
     # The cache is user-writable and it is an input to `git checkout --`:
     # planting the checkout's own current bindings.lua there makes the next
@@ -469,7 +465,7 @@ stage_terminal() {
     # Warn and skip rather than die: this is the FIRST stage after the package
     # gate, and hooks/post-update.d/10-hyprconf re-runs the installer with
     # --no-packages after every omarchy-update. A `die` here would take the
-    # hotkeys, the plugins, the hooks and the theme stages down with it on
+    # hotkeys, the hooks and every module after it down with it on
     # every update of a box that has no kitty — silently, forever. Every other
     # non-package stage warns and returns for the same reason, and every
     # module exits 0 rather than failing the run.
@@ -594,7 +590,7 @@ stage_bin() {
     # runs old bytes or new, never a truncated prefix (a running tool keeps
     # its old inode); cmp keeps the steady-state re-run write-free, matching
     # the byte-stable posture of the other stages. The bar's feeders are not
-    # here: they ship inside plugins/hyprconf-resources and land with it.
+    # here: they ship inside modules/bar-resources/plugin/bin and land with it.
     for f in "$HERE"/bin/hyprconf-*; do
         dst="$HOME/.local/bin/${f##*/}"
         sed "s|@HYPRCONF_DIR@|$HERE_SED|g" "$f" > "$dst.hyprconf-tmp"
@@ -610,129 +606,6 @@ stage_bin() {
         *":$HOME/.local/bin:"*) ;;
         *) warn "$HOME/.local/bin is not on PATH — hotkeys calling these tools will fail" ;;
     esac
-}
-
-# Placement comes from the manifest: barWidget.defaultSection = "right",
-# which the shell honours on an enable with no explicit placement
-# (shell/services/PluginRegistry.qml defaultBarWidgetSection, 4.0.0-1;
-# omarchy-plugin-validate checks the value) — the same seam the
-# active-window copy uses, so no --section argument here.
-stage_bar_plugin() {
-    log "Resource-usage bar widget (hyprconf.resources)"
-    sync_plugin_dir hyprconf-resources hyprconf.resources
-    enable_plugin_once hyprconf.resources resources-applied
-}
-
-# Make the shell pick a plugin copy up and put it on the bar. The rescan is
-# asynchronous — omarchy-plugin-clone waits for discovery before enabling
-# (up to 40 x 0.05s), and an enable issued before discovery fails with
-# "unknown plugin". Same wait here; advisory only — on timeout the enable is
-# still attempted, and its failure status is the caller's retry signal. No
-# wait at all with no shell to ask (omarchy-plugin-list exits 1 the moment
-# omarchy-shell reports "is not running"): a TTY run has nothing to wait for.
-activate_plugin_copy() {
-    local id="$1" _attempt list
-    omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
-    for (( _attempt = 0; _attempt < _HYPRCONF_PLUGIN_WAIT; _attempt++ )); do
-        list="$(omarchy-plugin-list --json 2>/dev/null)" || break
-        jq -e --arg id "$id" 'any(.[]; .id == $id)' <<<"$list" >/dev/null 2>&1 && break
-        sleep 0.05
-    done
-    omarchy-plugin-enable "$id" >/dev/null 2>&1
-}
-
-# Make the running shell pick changed plugin files up: `omarchy-shell shell
-# rescanPlugins` re-walks the plugin dirs and hot-reloads plugin code
-# (shell/README.md, IPC table; shell.qml reloadPlugins unloads panels,
-# services and widgets and loads them again) — the call omarchy-plugin-update
-# makes after a fast-forward (bin/omarchy-plugin-update:131). omarchy-shell
-# exits 1 when no shell answers, and only then is the shell restarted, which
-# is how one comes back; with no session at all (a TTY run) both fail, and
-# harmlessly.
-reload_plugins() {
-    omarchy-shell shell rescanPlugins >/dev/null 2>&1 ||
-        omarchy-restart-shell >/dev/null 2>&1 || true
-}
-
-# Every path under $1 as "<mode> <relative path>", sorted — the half of a
-# directory comparison `diff -rq` does not make. -mindepth 1 keeps it to the
-# files the sync reproduces: the plugin directory's own mode comes from the
-# checkout either way (cp -aL copies the source directory's mode onto the
-# staging dir mktemp -d made, and mv keeps it), so including it would decide
-# nothing. No entry is ever a symlink to compare against a copy — Omarchy's
-# validator and test_plugins.py both refuse one inside a plugin folder
-# (bin/omarchy-plugin-validate, "symlinks are not allowed inside a plugin
-# folder"; 4.0.2-1) — so this and the cp -aL below cannot disagree.
-dir_modes() {
-    (cd "$1" && find . -mindepth 1 -printf '%m %p\n' | sort)
-}
-
-# Install (or refresh) one of the overlay's own bar-widget plugins, shipped
-# in plugins/<src>, as ~/.config/omarchy/plugins/<id>. SYNCED on every run —
-# a `git pull` updates the widget the way it updates everything else the
-# overlay links out of the checkout. Staged in a sibling temp dir and moved
-# into place, the way omarchy-plugin-clone lands a clone (mktemp -d under the
-# plugins dir, cp -aL, mv), so the shell's directory watch never scans a
-# half-copied plugin; then the shell rescans.
-#
-# Each plugin folder is also publishable on its own (README.md inside it),
-# and `omarchy plugin add <url>` lands the same id as a git checkout
-# (bin/omarchy-plugin-add: git clone, omarchy-plugin-validate, mv to
-# plugins/<id>; 4.0.2-1). That checkout is Omarchy's to manage — `omarchy
-# plugin update` fast-forwards it and refuses a non-git folder
-# (bin/omarchy-plugin-update: `[[ -d $PLUGINS_DIR/$id/.git ]] || fail`) —
-# so it is left alone: the diff below would otherwise see its .git and
-# replace the checkout, uncommitted edits included. The other order is
-# safe on its own: with the overlay's copy in place, omarchy-plugin-add
-# refuses a duplicate id.
-#
-# The freshness gate is bytes AND modes. `diff -rq` is mode-blind, so an
-# installed feeder that lost its exec bit (an rsync or cloud restore of
-# ~/.config without permissions, a clone git could not mark 100755) was
-# never re-synced: Service.qml execs it directly as an argv list, no shell,
-# so it fails with EACCES and the widget freezes at "0%" — and `chmod +x`
-# in the checkout plus a re-run did nothing, because the bytes still
-# matched. cp -aL below already puts the checkout's modes back.
-sync_plugin_dir() {
-    local src="$HERE/plugins/$1" id="$2"
-    local dir="$HOME/.config/omarchy/plugins/$id"
-    if [[ -d $dir/.git ]]; then
-        info "$id is an \`omarchy plugin add\` checkout — left to: omarchy plugin update $id"
-        return 0
-    fi
-    if [[ -d $dir ]] && diff -rq "$src" "$dir" >/dev/null 2>&1 &&
-        [[ "$(dir_modes "$src")" == "$(dir_modes "$dir")" ]]; then
-        return 0
-    fi
-    mkdir -p "$HOME/.config/omarchy/plugins"
-    local stage
-    stage="$(mktemp -d "$HOME/.config/omarchy/plugins/.hyprconf.XXXXXX")"
-    cp -aL "$src/." "$stage/"
-    rm -rf "$dir"
-    mv "$stage" "$dir"
-    reload_plugins
-    info "widget files synced from plugins/$1"
-}
-
-# Enable a plugin ONCE. Whether a widget is on the bar is the user's call from
-# then on — `omarchy plugin disable <id>` is a choice, and the post-update
-# hook re-runs this installer after every Omarchy update, so an unconditional
-# enable would put the widget back every time. Same marker pattern as the
-# font and the default apps. Needs the live shell; a TTY or SSH run leaves
-# the marker unwritten so the next in-session run tries again.
-enable_plugin_once() {
-    local id="$1" marker="$HOME/.local/state/hyprconf/$2"
-    if [[ -e $marker ]]; then
-        info "enabled once already — \`omarchy plugin disable $id\` sticks"
-        return 0
-    fi
-    if activate_plugin_copy "$id"; then
-        mkdir -p "$(dirname "$marker")"
-        : > "$marker"
-        info "enabled (back to stock with: omarchy plugin disable $id)"
-    else
-        warn "could not enable $id (is the Omarchy shell running?) — will retry on the next run"
-    fi
 }
 
 # clone_pinned <url> <dir> <sha> <name>: the named commit and only it —
@@ -869,6 +742,7 @@ main() {
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
     bash "$HERE/modules/bar-active-window/install"
     bash "$HERE/modules/bar-clock/install"
+    bash "$HERE/modules/bar-resources/install"
     bash "$HERE/modules/bar-workspaces/install"
     bash "$HERE/modules/fastfetch/install"
     bash "$HERE/modules/firefox/install"
@@ -884,7 +758,6 @@ main() {
     stage_looknfeel
     stage_monitors
     stage_bin
-    stage_bar_plugin
     stage_shell
     stage_hooks
     hyprctl reload >/dev/null 2>&1 || true

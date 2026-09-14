@@ -237,12 +237,17 @@ def test_the_feeders_run_once_for_the_session_not_once_per_monitor() -> None:
 
 
 def test_the_widget_owns_the_units_and_the_glyphs() -> None:
-    """The feeders emit numbers; every glyph and unit is the widget's. The
-    thermometer is the solid Material Design glyph (U+F050F), not the
-    Weather-Icons outline (U+E350) — a hairline at caption size — and the
+    """The feeders emit numbers; every glyph and unit is the widget's, and the
     service assigns the feeder's own fields rather than a pre-rendered "text"."""
     widget, service = _code("Widget.qml"), _code("Service.qml")
-    assert "\\u{F050F}" in widget and "\\ue350" not in widget.lower()
+    # The four Nerd Font codepoints the two rows are read by — a wrong one is
+    # a tofu box on the bar and nothing anywhere else: nf-md-cpu_64_bit,
+    # nf-md-expansion_card_variant, nf-md-memory, nf-md-thermometer. The
+    # thermometer is the solid Material Design glyph, never the
+    # Weather-Icons outline U+E350, a hairline at caption size.
+    for glyph in ("F2DB", "F08AE", "F061A", "F050F"):
+        assert f"\\u{{{glyph}}}" in widget, glyph
+    assert "\\ue350" not in widget.lower()
     assert '"°"' in widget or '+ "° "' in widget, "the degree sign is the widget's"
     for field in ("j.util", "j.temp", "j.vram_used", "j.vram_total", "j.tooltip"):
         assert f"= {field}\n" in service, field
