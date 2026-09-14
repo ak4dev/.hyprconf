@@ -82,8 +82,8 @@ def _terminal_stub(tmp_path: Path, set_status: int = 0) -> str:
 
 # /usr/bin/omarchy-shell-config (Omarchy 4.0.3-1), transcribed: the hidden
 # helper modules/idle SOURCES to edit ~/.config/omarchy/shell.json — which a
-# full install.sh run reaches, and stage_clock then reads. Written out instead
-# of stubbed for two reasons — the recording stub's closing `exit 0` would end
+# full install.sh run reaches, and modules/bar-clock then reads. Written out
+# instead of stubbed for two reasons — the recording stub's closing `exit 0` would end
 # the module's subshell before commit() ever ran, and $0 inside a sourced file
 # names the caller, not this file, so the recording line has to name itself.
 # Only the three functions that path reaches are here; NORMALIZE (the helper's
@@ -180,6 +180,37 @@ OMARCHY_STUBS = (
 )
 
 
+# The two shell writes the box models rather than records — what
+# modules/bar-clock polls shell.json for after asking for them. An enable
+# swaps a clonedFrom copy into the stock widget's slot
+# (shell/services/PluginRegistry.qml:529-534, Omarchy 4.0.3-1) and
+# `omarchy bar set` writes one key onto a layout entry (bin/omarchy-bar:178
+# is the id rule: a bare string or an object with an id).
+ENTRY_ID = 'if type == "object" then .id else . end'
+SHELL_ENABLE_SWAP = f"""\
+json="$HOME/.config/omarchy/shell.json"
+[ -f "$json" ] || exit 0
+src=$(jq -r '.omarchy.clonedFrom // empty' \
+  "$HOME/.config/omarchy/plugins/$1/manifest.json" 2>/dev/null) || exit 0
+[ -n "$src" ] || exit 0
+jq --arg from "$src" --arg to "$1" '
+  .bar.layout |= with_entries(.value |= map(
+    if ({ENTRY_ID}) == $from
+    then (if type == "object" then .id = $to else {{ id: $to }} end)
+    else . end))' "$json" > "$json.n" && mv "$json.n" "$json"
+"""
+SHELL_BAR_SET = f"""\
+[ "$1" = set ] || exit 0
+json="$HOME/.config/omarchy/shell.json"
+[ -f "$json" ] || exit 1
+jq --arg id "$2" --arg k "$3" --arg v "$4" '
+  .bar.layout |= with_entries(.value |= map(
+    if ({ENTRY_ID}) == $id
+    then (if type == "object" then . else {{ id: . }} end) + {{ ($k): $v }}
+    else . end))' "$json" > "$json.n" && mv "$json.n" "$json"
+"""
+
+
 def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     """Build a throwaway HOME + fake-bins tree resembling a fresh Omarchy box."""
     home = tmp_path / "home"
@@ -195,11 +226,23 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     _stub(bins / "omarchy-pkg-add", calls)
     if with_zsh:
         _stub(bins / "zsh", calls)
-    # omarchy-plugin-list answers empty and jq is "broken" (exit 1) until a
-    # test puts the real one in (_real_jq): the discovery wait finds nothing
-    # and the enable is still attempted.
-    _stub(bins / "omarchy-plugin-list", calls, 'echo "[]"')
-    _stub(bins / "jq", calls, "exit 1")
+    # No shell answering the plugin list is what a TTY or SSH run really finds
+    # (omarchy-plugin-list is `set -e` over an IPC call that exits 1 the moment
+    # omarchy-shell reports "is not running"), so a discovery wait has nothing
+    # to wait for; the enable itself is modelled as answering, below.
+    _stub(bins / "omarchy-plugin-list", calls, "exit 1")
+    # jq is a hard dependency of the JSON stages and of modules/bar-clock's
+    # own polls — the box gets the real one behind the recording stub, and a
+    # machine without it skips instead of pretending.
+    jq = shutil.which("jq")
+    if jq is None:
+        pytest.skip("no jq available")
+    _stub(bins / "jq", calls, f'exec {jq} "$@"')
+    # The live shell's two writes modules/bar-clock waits for: an enable swaps
+    # the clone into the slot of the id its manifest was cloned from, and
+    # `omarchy-bar set` writes the key onto that entry.
+    _stub(bins / "omarchy-plugin-enable", calls, SHELL_ENABLE_SWAP)
+    _stub(bins / "omarchy-bar", calls, SHELL_BAR_SET)
     # Omarchy's package probe (pacman -Q per name): everything present unless
     # a test says otherwise, so the steady-state box is the default and each
     # install flow is opted into.
@@ -226,6 +269,20 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     (home / ".config" / "hypr").mkdir(parents=True)
     for stock in ("bindings.lua", "input.lua", "looknfeel.lua"):
         (home / ".config" / "hypr" / stock).write_text(f"-- stock omarchy {stock}\n")
+    # A live box's own ~/.config/omarchy/shell.json: the bar layout and the
+    # centre anchor modules/bar-clock reads and the shell rewrites.
+    (home / ".config" / "omarchy").mkdir(parents=True, exist_ok=True)
+    (home / ".config" / "omarchy" / "shell.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "bar": {
+                    "centerAnchor": "omarchy.clock",
+                    "layout": {"left": [], "center": [{"id": "omarchy.clock"}], "right": []},
+                },
+            }
+        )
+    )
     # Omarchy's shipped shell.json defaults — what omarchy-shell-config's
     # source_file() starts from when the user has no shell.json yet.
     (omarchy_path / "config" / "omarchy").mkdir(parents=True)
@@ -489,6 +546,11 @@ SETTLED_RERUN_COMMANDS = {
     "omarchy-hook-install",  # Omarchy's own idempotent mkdir/cp/chmod
     "omarchy-pkg-add",  # the package list, a no-op once installed
     "omarchy-pkg-present",  # is firefox / VS Code installed
+    # modules/bar-* install their plugin folder as a SYMLINK, and the shell's
+    # inotifywait -r never descends one (PluginRegistry.qml:663-667), so the
+    # rescan is what picks a `git pull` up and repeats on every run by design.
+    # Pure IPC: it changes nothing on disk.
+    "omarchy-shell",
 }
 
 
@@ -1323,63 +1385,6 @@ def _packages(env: dict, present: tuple[str, ...]) -> None:
 # `omarchy bar set` that follows snapshots the file AT CALL TIME and writes
 # the snapshot back after a delay, which is the stale-read hazard itself:
 # anything the installer writes to shell.json before that lands is lost.
-SHELL_ENABLE_SWAP = """\
-[ "$1" = hyprconf.clock ] || exit 0
-jq '.bar.layout |= with_entries(.value |= map(if .id == "omarchy.clock" then .id = "hyprconf.clock" else . end))' \
-  "$SHELL_JSON" > "$SHELL_JSON.new" && mv "$SHELL_JSON.new" "$SHELL_JSON"
-"""
-SHELL_LATE_PERSIST = """\
-[ "$1" = set ] || exit 0
-snap=$(jq --arg id "$2" --arg k "$3" --arg v "$4" \
-  '.bar.layout |= with_entries(.value |= map(if .id == $id then . + {($k): $v} else . end))' \
-  "$SHELL_JSON")
-( sleep 0.2; printf '%s' "$snap" > "$SHELL_JSON" ) &
-exit 0
-"""
-
-
-def _late_persisting_shell(env: dict) -> Path:
-    """The two shell commands stage_clock talks to, backed by the real jq."""
-    _real_jq(env)
-    shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
-    shell_json.parent.mkdir(parents=True, exist_ok=True)
-    for name, body in (
-        ("omarchy-plugin-enable", SHELL_ENABLE_SWAP),
-        ("omarchy-bar", SHELL_LATE_PERSIST),
-    ):
-        _stub(env["bins"] / name, env["calls"], f'SHELL_JSON="{shell_json}"\n{body}')
-    return shell_json
-
-
-def test_shell_json_edits_wait_for_the_shells_asynchronous_writes(tmp_path: Path) -> None:
-    """The shell answers an enable or a set at once but persists shell.json some
-    time later. The anchor edit is a read-modify-write on that file, so
-    without wait_for_shell_json it lands on a stale copy and the pending write
-    takes it straight back."""
-    env = _setup(tmp_path)
-    shell_json = _late_persisting_shell(env)
-    # Discovered at once, so the enable's own discovery wait does not eat the budget.
-    _installed_plugins(
-        env, "hyprconf.clock", "hyprconf.workspaces", "hyprconf.active-window", "hyprconf.resources"
-    )
-    shell_json.write_text(
-        json.dumps(
-            {
-                "bar": {
-                    "centerAnchor": "omarchy.clock",
-                    "layout": {"left": [], "center": [{"id": "omarchy.clock"}], "right": []},
-                }
-            }
-        )
-    )
-    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_PLUGIN_WAIT": "40"})
-    assert proc.returncode == 0, proc.stderr
-    data = json.loads(shell_json.read_text())
-    assert data["bar"]["centerAnchor"] == "hyprconf.clock"
-    assert {"id": "hyprconf.clock", "format": "hh:mm:ss AP"} in data["bar"]["layout"]["center"]
-    assert "omarchy.clock" not in [e["id"] for e in data["bar"]["layout"]["center"]]
-
-
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
     """Every bin/hyprconf-* file, installed by glob with @HYPRCONF_DIR@
     substituted for the checkout path — byte for byte, and executable."""
@@ -1395,7 +1400,7 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The bar clock
+# The bar-widget plugin stages
 # ---------------------------------------------------------------------------
 
 
@@ -1412,10 +1417,12 @@ def _plugin_state(root: Path) -> dict[str, tuple[bytes, int]]:
 def test_every_shipped_plugin_is_synced_from_the_checkout_and_enabled_once(
     tmp_path: Path,
 ) -> None:
-    """One run, every plugins/* folder: the installed copy is the checkout's bytes
-    AND modes under the manifest's own id, enabled exactly once, no staging
-    dir left behind. Then the two repaired drifts — a stale file and a lost
-    exec bit — and a re-run that enables nothing, so a disable sticks."""
+    """One run, every plugins/* folder still synced by a stage: the installed
+    copy is the checkout's bytes AND modes under the manifest's own id,
+    enabled exactly once, no staging dir left behind. Then the two repaired
+    drifts — a stale file and a lost exec bit — and a re-run that enables
+    nothing, so a disable sticks. The bar modules enable their own ids on the
+    same run, so the count below is per stage, not per call."""
     env = _setup(tmp_path)
     _real_jq(env)
     assert _run(env, "--no-update").returncode == 0
@@ -1423,7 +1430,8 @@ def test_every_shipped_plugin_is_synced_from_the_checkout_and_enabled_once(
     folders = sorted((REPO_ROOT / "plugins").iterdir())
     assert folders, "no plugin folders in the checkout"
 
-    enables = [c for c in _calls(env) if c.startswith("omarchy-plugin-enable ")]
+    ids = {json.loads((src / "manifest.json").read_text())["id"] for src in folders}
+    enables = [c for c in _calls(env) if c.split(" ", 1)[-1] in ids]
     assert len(enables) == len(folders)
     for src in folders:
         plug = installed / json.loads((src / "manifest.json").read_text())["id"]
@@ -1443,55 +1451,6 @@ def test_every_shipped_plugin_is_synced_from_the_checkout_and_enabled_once(
     assert "omarchy-shell shell rescanPlugins" in _calls(env)
     assert not any(c.startswith("omarchy-plugin-enable") for c in _calls(env))
     assert not list(installed.glob(".hyprconf.*"))
-
-
-def test_the_clock_copy_is_enabled_and_formatted_once(tmp_path: Path) -> None:
-    """The stock widget samples SystemClock at Minutes precision (shell/plugins/
-    panels/clock/BarWidget.qml), so a seconds format would sit frozen 59 s of
-    every minute — hence a copy of Omarchy's own widget carrying that delta.
-    The enable and the format are set once: a reformatted clock stays theirs."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-plugin-enable hyprconf.clock" in calls
-    assert "omarchy-bar set hyprconf.clock format hh:mm:ss AP" in calls
-    assert "omarchy-plugin-catalog" not in _commands(env)
-    # The three deltas the copy exists for, on the installed copy — the only
-    # place they are pinned where there is no Omarchy to diff against
-    # (test_plugins.py's parity test is the authority on a box that has one).
-    plug = env["home"] / ".config" / "omarchy" / "plugins" / "hyprconf.clock"
-    widget = (plug / "BarWidget.qml").read_text()
-    assert "SystemClock.Seconds" in widget and "SystemClock.Minutes" not in widget
-    # The calendar panel comes from the running Omarchy, never a stale copy…
-    assert 'Quickshell.env("OMARCHY_PATH")' in widget
-    assert not (plug / "Panel.qml").exists()
-    # …and is told which module id it is mounted as, or persistSettings()
-    # writes through an id no live bar entry carries and the calendar's own
-    # settings (a week start, a birth year) are never saved.
-    assert 'if ("moduleName" in target) target.moduleName = root.moduleName' in widget
-    assert "onModuleNameChanged: injectPanel()" in widget
-
-
-def test_the_documented_clock_revert_undoes_what_the_stage_applied() -> None:
-    """`omarchy plugin disable hyprconf.clock` alone is not stock: restoreCloneSource
-    copies the clone's whole bar entry onto omarchy.clock and rewrites only its
-    id (PluginRegistry.qml, 4.0.3-1), and bar.centerAnchor gets no clone
-    resolution — so README's revert block has to carry both extra steps."""
-    applied = re.search(
-        r'set_clock_format\(\) \{\n\s*local id="\$1" format="([^"]+)"', INSTALL_SH.read_text()
-    )
-    assert applied, "set_clock_format no longer states the format it applies"
-    widget = (REPO_ROOT / "plugins" / "hyprconf-clock" / "BarWidget.qml").read_text()
-    stock = re.search(r'setting\("format", "([^"]+)"\)', widget)
-    assert stock, "BarWidget.qml no longer carries Omarchy's format fallback"
-    assert applied.group(1) != stock.group(1), "nothing to undo if they match"
-
-    revert = (REPO_ROOT / "README.md").read_text().split("## Reverting to stock", 1)[1]
-    revert = revert.split("\n## ", 1)[0]
-    assert f"omarchy bar set omarchy.clock format '{stock.group(1)}'" in revert
-    assert ".bar.centerAnchor" in revert
 
 
 def test_plugin_sync_leaves_an_omarchy_plugin_add_checkout_alone(tmp_path: Path) -> None:
@@ -1520,7 +1479,9 @@ def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> 
     """A TTY or SSH run has no live shell to enable against, and omarchy-plugin-list
     (set -e) exits 1 identically on every poll. So: no abort, no set-once
     marker, nothing set on a clock that never landed, and one list call per
-    enable rather than the whole discovery wait per widget."""
+    enable rather than the whole discovery wait per widget. The clock is
+    modules/bar-clock now; its own suite pins the same shape for it, and its
+    enable and list still count towards the four below."""
     env = _setup(tmp_path)
     _real_jq(env)
     _stub(env["bins"] / "omarchy-plugin-list", env["calls"], "exit 1")
@@ -1528,7 +1489,8 @@ def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> 
     proc = _run(env, "--no-update", extra_env={"_HYPRCONF_PLUGIN_WAIT": "40"})
     assert proc.returncode == 0, proc.stderr
     state = env["home"] / ".local" / "state" / "hyprconf"
-    for widget in ("resources", "clock", "workspaces", "active-window"):
+    assert not (state / "clock-applied").exists()
+    for widget in ("resources", "workspaces", "active-window"):
         assert not (state / f"{widget}-applied").exists(), widget
         assert f"hyprconf.{widget}" in proc.stderr, widget
     commands = _commands(env)
@@ -1566,103 +1528,6 @@ def test_the_window_title_clone_is_enabled_never_the_stock_widget(tmp_path: Path
     assert "omarchy-plugin-enable hyprconf.active-window" in calls
     assert not any("omarchy-plugin-enable omarchy.active-window" in c for c in calls)
     assert (env["home"] / ".local" / "state" / "hyprconf" / "active-window-applied").exists()
-
-
-# ---------------------------------------------------------------------------
-# The bar clock's centre anchor
-# ---------------------------------------------------------------------------
-
-
-def _shell_json(env: dict, anchor: str, center: list[str]) -> Path:
-    """~/.config/omarchy/shell.json with one centre anchor and one centre
-    section — the two things follow_center_anchor reads."""
-    path = env["home"] / ".config" / "omarchy" / "shell.json"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"bar": {"centerAnchor": anchor, "layout": {"center": center}}}))
-    return path
-
-
-def _installed_plugins(env: dict, *ids: str) -> None:
-    """omarchy-plugin-list --json answering for a live shell that knows `ids`."""
-    _stub(
-        env["bins"] / "omarchy-plugin-list",
-        env["calls"],
-        "echo '[" + ",".join(f'{{"id":"{i}"}}' for i in ids) + "]'",
-    )
-
-
-def test_a_dangling_center_anchor_is_repaired_on_a_later_run(tmp_path: Path) -> None:
-    """`omarchy plugin clone` then `remove` leaves bar.centerAnchor naming an id
-    that exists nowhere: hasAnchor goes false and the centre section centres
-    the whole group (BarModel.js entryIndex). The follow runs on every run,
-    not once behind the clock marker, because that is years too early."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    _installed_plugins(env, "hyprconf.clock", "omarchy.weather")
-    # A box that finished its first install long ago: marker present, so the
-    # enable and the format are the user's now.
-    marker = env["home"] / ".local" / "state" / "hyprconf" / "clock-applied"
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.touch()
-    shell_json = _shell_json(env, "someone.clock", ["hyprconf.clock"])
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "hyprconf.clock"
-
-
-def test_an_anchor_on_a_widget_the_user_disabled_is_left_alone(tmp_path: Path) -> None:
-    """The dangling test is "no bar entry AND no such plugin", never the bare
-    "not on the bar": a widget the user disabled is off the bar and still
-    installed, and its anchor is their choice to re-point — or to restore by
-    enabling it again."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    _installed_plugins(env, "hyprconf.clock", "omarchy.weather")
-    shell_json = _shell_json(env, "omarchy.weather", ["hyprconf.clock"])
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "omarchy.weather"
-
-
-def test_the_anchor_is_not_moved_onto_a_clock_the_bar_does_not_carry(tmp_path: Path) -> None:
-    """`omarchy plugin disable hyprconf.clock` puts the stock widget back, and
-    the repair must not then point the anchor at a widget that is gone —
-    which is the same failure it exists to fix, pointing the other way."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    _installed_plugins(env, "hyprconf.clock")
-    marker = env["home"] / ".local" / "state" / "hyprconf" / "clock-applied"
-    marker.parent.mkdir(parents=True, exist_ok=True)
-    marker.touch()
-    shell_json = _shell_json(env, "omarchy.clock", ["omarchy.clock"])
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "omarchy.clock"
-
-
-def test_a_failed_anchor_edit_warns_and_leaves_no_temp_file(tmp_path: Path) -> None:
-    """The `jq … > tmp && mv` tail this replaces printed success whichever way jq
-    went — a failing jq is the non-final command of an && list, so set -e
-    never fired — while a failing mv, being final, took the whole install down
-    over a cosmetic step."""
-    env = _setup(tmp_path)
-    jq = shutil.which("jq")
-    if jq is None:
-        pytest.skip("no jq available")
-    # A jq that reads fine but refuses the one program that writes the anchor.
-    _stub(
-        env["bins"] / "jq",
-        env["calls"],
-        f'for a in "$@"; do case "$a" in *".bar.centerAnchor = "*) exit 3 ;; esac; done;'
-        f' exec {jq} "$@"',
-    )
-    shell_json = _shell_json(env, "omarchy.clock", ["hyprconf.clock"])
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "could not move bar.centerAnchor" in proc.stderr
-    assert "centerAnchor follows" not in proc.stdout
-    assert json.loads(shell_json.read_text())["bar"]["centerAnchor"] == "omarchy.clock"
-    assert not shell_json.with_suffix(".json.tmp").exists()
 
 
 # ---------------------------------------------------------------------------

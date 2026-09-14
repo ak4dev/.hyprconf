@@ -735,164 +735,6 @@ enable_plugin_once() {
     fi
 }
 
-# Wait (bounded) for the shell to have persisted the LAST thing it was asked
-# for: shell.json satisfies the jq predicate $1 (--arg pairs may follow).
-# Its config writes are asynchronous (PluginRegistry hands every mutation to
-# a FileView), so a read of the file — or a read-modify-write, see
-# follow_center_anchor — straight after an enable, a set or a move can work
-# on a stale copy. Advisory: on timeout the caller carries on.
-wait_for_shell_json() {
-    local filter="$1" json="$HOME/.config/omarchy/shell.json" _attempt
-    shift
-    for (( _attempt = 0; _attempt < _HYPRCONF_PLUGIN_WAIT; _attempt++ )); do
-        [[ -f $json ]] && jq -e "$@" "$filter" "$json" >/dev/null 2>&1 && return 0
-        sleep 0.05
-    done
-    return 0
-}
-
-# jq: the ids on the bar (layout entries are bare strings or objects with an
-# id — omarchy-bar's own entry_id rule), for the predicates below.
-_JQ_IDS='def ids: [.bar.layout // {} | .[]? | .[]? | if type == "string" then . else (.id // "") end];'
-
-# Wait for a copy's swap into the stock widget's slot to be on disk: $2 on
-# the bar and $1 off it — the shape after an enable (the copy replaces the
-# stock entry).
-wait_for_swap() {
-    wait_for_shell_json "$_JQ_IDS"' (ids | any(. == $keep)) and (ids | all(. != $stock))' \
-        --arg stock "$1" --arg keep "$2"
-}
-
-# The bar centers on an anchor id, and canonicalWidgetId does no clone
-# resolution (shell/Commons/Util.qml — a plain string cast), so an anchor
-# left at omarchy.clock matches nothing once the bar swaps to our copy: the
-# clock drifts off-center and hasAnchor goes false (shell/plugins/bar/Bar.qml).
-# Run on EVERY run, not once behind the clock marker: an anchor can go stale
-# long after the first install — `omarchy plugin clone omarchy.clock` leaves
-# one naming a clone whose folder a later `omarchy plugin remove` renamed to
-# a dot-prefixed .bak (unscanned, so the id exists nowhere) — and nothing else
-# repairs it.
-#
-# Only an anchor that names the clock SOURCE is touched, never a choice:
-#
-#   * $stock, the id the swap moved the clock out from under, or
-#   * an id that is on no bar section AND is no installed plugin — the shape a
-#     removed clone leaves. A bare "not on the bar" test is not enough: it
-#     would re-point an anchor aimed at a widget the user merely disabled.
-#
-# and only while $keep is really on the bar, so the anchor never names a
-# widget the bar does not carry (a user who disabled our clock keeps theirs).
-# With no shell to list plugins the dangling case is left alone rather than
-# guessed at.
-#
-# A read-modify-write of the shell's own file: stage_clock waits
-# (wait_for_shell_json) for the last thing it asked the shell for to be on
-# disk first, or the edit lands on a stale copy and the shell's pending
-# write then takes it back. Omarchy has no command for bar.centerAnchor
-# (`omarchy bar --help` has no route for it, 4.0.3-1), and deliberately NOT
-# omarchy-shell-config's commit() the way modules/idle takes it: that re-sorts
-# the whole file with jq -S and then refreshes the shell (:58, :61), which
-# would race the very write this edit just waited out.
-follow_center_anchor() {
-    local stock="$1" keep="$2" shell_json="$HOME/.config/omarchy/shell.json" anchor
-    [[ -f $shell_json ]] || return 0
-    anchor="$(jq -r '.bar.centerAnchor // ""' "$shell_json" 2>/dev/null)" || return 0
-    [[ -n $anchor && $anchor != "$keep" ]] || return 0
-    jq -e "$_JQ_IDS"' ids | any(. == $keep)' --arg keep "$keep" \
-        "$shell_json" >/dev/null 2>&1 || return 0
-    if [[ $anchor != "$stock" ]]; then
-        jq -e "$_JQ_IDS"' ids | all(. != $anchor)' --arg anchor "$anchor" \
-            "$shell_json" >/dev/null 2>&1 || return 0
-        local list
-        list="$(omarchy-plugin-list --json 2>/dev/null)" || return 0
-        jq -e --arg anchor "$anchor" 'all(.[]?; .id != $anchor)' \
-            <<<"$list" >/dev/null 2>&1 || return 0
-    fi
-    # The `&& mv` tail this replaces reported success whichever way jq went:
-    # a failing jq is the non-final command of an && list, so set -e never
-    # fired, the mv was skipped and the info line printed anyway — while a
-    # failing mv, being final, took the whole install down over a cosmetic
-    # step. Warn and carry on: a cosmetic edit never fails the run.
-    if jq --arg id "$keep" '.bar.centerAnchor = $id' "$shell_json" > "$shell_json.tmp"; then
-        mv "$shell_json.tmp" "$shell_json"
-        info "bar centerAnchor follows $keep (was $anchor)"
-    else
-        rm -f "$shell_json.tmp"
-        warn "could not move bar.centerAnchor to $keep in $shell_json" \
-             "— will retry on the next run"
-    fi
-}
-
-# hyprconf's clock format on a copy, through omarchy-bar, then a wait for it
-# to be on disk: it is the last thing the shell is asked for before
-# follow_center_anchor edits shell.json itself.
-set_clock_format() {
-    local id="$1" format="hh:mm:ss AP"
-    if ! omarchy-bar set "$id" format "$format" >/dev/null 2>&1; then
-        warn "could not set the clock format (set it with: omarchy bar set $id format '$format')"
-        return 0
-    fi
-    wait_for_shell_json 'any(.bar.layout // {} | .[]? | .[]?; type == "object" and .id == $id and .format == $format)' \
-        --arg id "$id" --arg format "$format"
-}
-
-# The bar clock, ticking seconds: plugins/hyprconf-clock is Omarchy's own
-# clock widget (BarWidget.qml + Model.js, Omarchy 4.0.2-1 — MIT, the NOTICE
-# beside them) with three deltas its header names, clonedFrom omarchy.clock so
-# the shell swaps it into the stock slot. The stock widget cannot tick
-# seconds: omarchy.clock samples SystemClock at Minutes precision
-# (shell/plugins/panels/clock/BarWidget.qml), so a seconds format would sit
-# frozen 59 s of every minute. Shipped and SYNCED on every run like the other
-# three — an install-time copy of the stock plugin, made once, lagged the
-# 4.0.2 release's hardening of its own Panel.qml by eight lines with nothing
-# to refresh it (omarchy-plugin-update refuses a non-git folder). Only the
-# user's choices are set ONCE, behind the marker: the enable and hyprconf's
-# format — 12-hour with seconds and AM/PM, "hh:mm:ss AP" in the
-# Qt.formatDateTime tokens the widget feeds its format setting to — for the
-# same reason as the font and the default apps: the post-update hook re-runs
-# this installer, and a clock the user later reformatted (right-click cycles
-# formats; `omarchy bar set`) must stay theirs. The centre anchor is NOT one
-# of them: it is a pointer at whichever widget the clock is, repaired on every
-# run behind its own guard (follow_center_anchor). The sync comes first so the
-# shell never loads a stale build.
-#
-# `omarchy plugin disable` is NOT the whole way back, so the closing line
-# does not say it is: restoreCloneSource copies the clone's whole bar entry
-# onto omarchy.clock and rewrites only its id
-# (shell/services/PluginRegistry.qml), so "hh:mm:ss AP" rides along onto the
-# Minutes-precision widget, and bar.centerAnchor keeps naming a widget the
-# bar no longer carries (hasAnchor goes false and the centre section centres
-# the group instead — shell/plugins/bar/Bar.qml). The two undo steps are in
-# README › Reverting to stock; the format there is Omarchy's own default,
-# "dddd HH:mm" (config/omarchy/shell.json, 4.0.2-1 — the same fallback the
-# widget's own setting("format", ...) carries).
-stage_clock() {
-    log "Bar clock: hh:mm:ss AP (hyprconf.clock)"
-    local id="hyprconf.clock"
-    sync_plugin_dir hyprconf-clock "$id"
-    local marker="$HOME/.local/state/hyprconf/clock-applied"
-    if [[ -e $marker ]]; then
-        info "already applied once — the clock is yours now"
-    # Needs the live shell; on a TTY or over SSH there is nothing to answer,
-    # so the marker stays unwritten and the next in-session run retries.
-    elif ! activate_plugin_copy "$id"; then
-        warn "could not enable $id (is the Omarchy shell running?) — will retry on the next run"
-    else
-        wait_for_swap omarchy.clock "$id"
-        set_clock_format "$id"
-        mkdir -p "$(dirname "$marker")"
-        : > "$marker"
-        info "seconds tick via the $id widget (undo: omarchy plugin disable $id, then the format and the centre anchor — README › Reverting to stock)"
-    fi
-
-    # OUTSIDE the marker: the centre anchor is a pointer at the clock, not a
-    # preference, and it can go stale years after the first install (its own
-    # comment). Its guard, not the marker, is what keeps a user's own choice
-    # safe — and on a run where the enable failed there is nothing on the bar
-    # for it to point at, so it declines by itself.
-    follow_center_anchor omarchy.clock "$id"
-}
-
 # Only ACTIVE workspaces on the bar, on two lines, Pac-Man on the focused
 # one. The stock widget hardcodes pills 1-5 whether they exist or not, caps
 # ids at 10 (bar/widgets/Workspaces.qml, workspaceIds(): "var ids = [1, 2, 3,
@@ -1060,6 +902,7 @@ main() {
     stage_terminal
     # Self-contained modules: each one applies, gates and undoes itself
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
+    bash "$HERE/modules/bar-clock/install"
     bash "$HERE/modules/fastfetch/install"
     bash "$HERE/modules/firefox/install"
     bash "$HERE/modules/firefox-theme/install"
@@ -1075,7 +918,6 @@ main() {
     stage_monitors
     stage_bin
     stage_bar_plugin
-    stage_clock
     stage_workspaces
     stage_window_title
     stage_shell

@@ -27,7 +27,12 @@
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
-id=hyprconf.clock stock=omarchy.clock format='hh:mm:ss AP' stock_format='dddd HH:mm'
+id=hyprconf.clock stock=omarchy.clock format='hh:mm:ss AP'
+# Omarchy's own format for the stock clock, what `undo` puts back: the widget's
+# fallback (shell/plugins/panels/clock/BarWidget.qml:21), the shipped seed
+# (config/omarchy/shell.json:26) and the built-in default (shell/shell.qml:49)
+# all carry it — 4.0.3-1, and the parity test turns red if the widget's moves.
+stock_format='dddd HH:mm'
 plugins=$HOME/.config/omarchy/plugins link=$plugins/$id
 json=$HOME/.config/omarchy/shell.json
 marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/clock-applied

@@ -12,9 +12,9 @@ those fakes with a small model of the live shell: the plugin list answers from
 the box's plugins directory, enable/disable move the bar entry between the
 clone and the id it was cloned from (PluginRegistry.qml:441 restoreCloneSource
 carries the entry, format included), and `omarchy-bar set` writes the key onto
-the entry. Two tests need the installed Omarchy — the real validator and the
-parity diff against the stock widget — and skip without it (the two skips
-AGENTS › Gates and CI budgets for).
+the entry. Three tests need the installed Omarchy and skip without it — the
+real `omarchy-plugin-validate` run, the parity diff against the stock widget
+and the Model.js subset diff (AGENTS › Gates and CI budgets for every skip).
 """
 
 from __future__ import annotations
@@ -80,6 +80,25 @@ jq --arg id "$2" --arg k "$3" --arg v "$4" '
         if (ENTRY_ID) == $id
         then (if type == "object" then . else { id: . } end) + { ($k): $v }
         else . end))' "$json" > "$json.t" && mv "$json.t" "$json"
+"""
+
+
+# The same write, landing on a LATER event-loop turn: the shell answers the
+# IPC at once and persists shell.json afterwards (shell.qml:109-113
+# persistShellConfig, then a FileView setText). The snapshot is taken when the
+# call comes in, so a run that edits the anchor without waiting for this write
+# has its edit overwritten by the pre-edit copy 0.2 s later.
+BAR_SET_LATE = """
+[[ ${1:-} == set ]] || exit 0
+json="$HOME/.config/omarchy/shell.json"
+[[ -f $json ]] || exit 1
+snap=$(jq --arg id "$2" --arg k "$3" --arg v "$4" '
+    .bar.layout |= with_entries(.value |= map(
+        if (ENTRY_ID) == $id
+        then (if type == "object" then . else { id: . } end) + { ($k): $v }
+        else . end))' "$json")
+( sleep 0.2; printf '%s' "$snap" > "$json" ) &
+exit 0
 """
 
 
@@ -323,6 +342,22 @@ def test_an_anchor_edit_that_cannot_be_written_warns_and_leaves_no_temp_file(box
     assert "could not set bar.centerAnchor" in result.stderr
     assert anchor_of(json_path) == "testuser.clock"
     assert blocked.is_dir() and not any(blocked.iterdir())
+
+
+def test_the_anchor_edit_waits_for_the_shells_own_write_to_land(box: Box) -> None:
+    """The anchor edit is a read-modify-write on a file the SHELL owns: it
+    answers `omarchy bar set` at once and persists shell.json on a later
+    event-loop turn. Without settled() the edit reads the pre-set copy and the
+    shell's pending write takes it straight back — so this box answers
+    immediately and writes 0.2 s later, and the anchor has to survive it."""
+    json_path = shell(box)
+    box.stub("omarchy-bar", BAR_SET_LATE.replace("ENTRY_ID", ENTRY_ID))
+
+    result = box.run(INSTALL)
+
+    assert result.returncode == 0, result.stderr
+    assert bar(json_path) == [{"id": ID, "format": FORMAT}]
+    assert anchor_of(json_path) == ID
 
 
 # ---- undo ------------------------------------------------------------------

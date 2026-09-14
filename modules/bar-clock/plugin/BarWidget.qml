@@ -1,9 +1,10 @@
 // hyprconf.clock — Omarchy's own clock widget, ticking seconds.
 //
-// A copy of Omarchy 4.0.2-1's shell/plugins/panels/clock/BarWidget.qml with
-// exactly three deltas and nothing else, so it behaves as the stock widget
-// does (the calendar on click, right-click cycles the format, middle-click
-// the timezone picker, the same shell.json settings):
+// A copy of Omarchy 4.0.3-1's shell/plugins/panels/clock/BarWidget.qml (the
+// file is byte-identical in 4.0.2-1) with exactly three deltas and nothing
+// else, so it behaves as the stock widget does (the calendar on click,
+// right-click cycles the format, middle-click the timezone picker, the same
+// shell.json settings):
 //   1. `precision: SystemClock.Seconds` — stock samples at Minutes, so a
 //      seconds format would sit frozen 59 s of every minute (a `precision`
 //      setting on omarchy.clock would delete this plugin).

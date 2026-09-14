@@ -1,4 +1,4 @@
-hyprconf.clock is derived from Omarchy (https://omarchy.org), release 4.0.2:
+hyprconf.clock is derived from Omarchy (https://omarchy.org), release 4.0.3 (the two files are byte-identical in 4.0.2):
 
   shell/plugins/panels/clock/BarWidget.qml  ->  BarWidget.qml here (three deltas, named in its header)
   shell/plugins/panels/clock/Model.js       ->  Model.js here (the label-format functions, verbatim)

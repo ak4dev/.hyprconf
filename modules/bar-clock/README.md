@@ -35,6 +35,7 @@ anchor left naming nothing is repaired on any run, one you chose is not.
 ## Undo
 
 `bash modules/bar-clock/install undo` — disable, `omarchy.clock`'s format back
-to `dddd HH:mm`, the anchor back, link and marker gone.
+to `dddd HH:mm`, the anchor back, link and marker gone. A folder an install
+moved aside is left where it is: delete `.hyprconf.clock.bak.<ts>` yourself.
 
 Verified against Omarchy 4.0.3-1.
