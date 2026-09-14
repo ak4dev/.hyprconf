@@ -1074,10 +1074,11 @@ def _overlay_scripts() -> list[Path]:
     shebang, the rule `make shellcheck` selects by. Walked on disk, not `git
     ls-files`, so the scan needs no git and no ownership trust; scripts/publish
     is outside PAYLOAD and covered by the Makefile's whole-tree pass. modules/
-    is skipped here: `make shellcheck`'s find-by-shebang pass lints every
-    modules/*/install today, and the tree-wide shape and forbidden-forms scan
-    over modules/ lands in tests/test_scans.py with the core rewrite — only
-    some modules pin these themselves so far (modules/idle the script shape,
+    is walked by _module_scripts() instead, so the header rule below covers it
+    while the forbidden-forms scans stay off it: those read strings as well as
+    code, and a module's own prose ("see pacman's error above") is not a call.
+    The whole set moves to tests/test_scans.py with the core rewrite — a few
+    modules pin their own half meanwhile (modules/idle the script shape,
     modules/vscode the pacman ban, modules/keychron the root-write `--`)."""
     paths: list[Path] = []
     for name in PAYLOAD:
@@ -1098,6 +1099,23 @@ def _overlay_scripts() -> list[Path]:
     return scripts
 
 
+def _module_scripts() -> list[Path]:
+    """Every bash script under modules/: each `install`, the `bin/` tools a
+    module links onto PATH, and the hook one hands to `omarchy hook install`.
+    A per-module suite cannot pin a tree-wide rule — one module cannot know
+    what the others do — so the header check below is their one home too
+    (vulkan.0#19)."""
+    scripts = []
+    for p in sorted((REPO_ROOT / "modules").rglob("*")):
+        if not p.is_file() or p.suffix not in {".sh", ""}:
+            continue
+        with p.open("rb") as fh:
+            first = fh.readline()
+        if first.startswith(b"#!") and b"bash" in first:
+            scripts.append(p)
+    return scripts
+
+
 # AGENTS.md › Scripts: `#!/usr/bin/env bash` and `set -euo pipefail`, with the
 # deviations named there — the two hooks and hyprconf-yubikey drop -e (they
 # handle their own failures), hyprconf-stats is `set -u`. The map IS that
@@ -1105,11 +1123,16 @@ def _overlay_scripts() -> list[Path]:
 SET_LINE = {
     "hyprconf-yubikey": "set -uo pipefail",
     "10-hyprconf": "set -uo pipefail",
+    "hook": "set -uo pipefail",  # modules/firefox-theme's theme-set hook
     "hyprconf-stats": "set -u",
 }
 
 
-@pytest.mark.parametrize("script", _overlay_scripts(), ids=lambda p: str(p.relative_to(REPO_ROOT)))
+@pytest.mark.parametrize(
+    "script",
+    _overlay_scripts() + _module_scripts(),
+    ids=lambda p: str(p.relative_to(REPO_ROOT)),
+)
 def test_every_overlay_script_carries_the_documented_header(script: Path) -> None:
     """One header check for the whole tree. `make shellcheck` selects scripts BY
     the shebang, so a missing one means no lint at all rather than a failure:
@@ -1186,7 +1209,7 @@ FETCH_EXEC_ALLOWED = (
 )
 # install.sh's usage() heredoc: prose that documents the curl one-liner, not a
 # call. Dropped for this scan only — _code_only must keep every other heredoc
-# (bin/hyprconf-vulkan-gpu, bin/hyprconf-yubikey) inside it.
+# (bin/hyprconf-monitor-preset, bin/hyprconf-yubikey) inside it.
 USAGE_HEREDOC = re.compile(r"(?ms)^\s*cat <<'USAGE'\n.*?^USAGE$")
 
 

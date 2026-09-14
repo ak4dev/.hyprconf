@@ -1068,6 +1068,7 @@ main() {
     bash "$HERE/modules/keychron/install"
     bash "$HERE/modules/themes/install"
     bash "$HERE/modules/vscode/install"
+    bash "$HERE/modules/vulkan-gpu/install"
     stage_hotkeys
     stage_looknfeel
     stage_monitors

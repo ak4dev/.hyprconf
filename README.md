@@ -28,7 +28,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 | Theme reach | Every `omarchy theme set` also lands in Firefox, which Omarchy's own fan-out misses — a user template Omarchy's own engine renders ([`modules/firefox-theme`](modules/firefox-theme/README.md)) |
 | Firefox settings | One system policy — Omarchy's own prefs plus hyprconf's — carries the lot: telemetry off, tracking protection on, **uBlock Origin and Proton Pass** force-installed, the toolbar seeded button-for-button, **DuckDuckGo** the default engine, compact density, vertical tabs, a bare Firefox Home, DRM playback on. Policy *defaults*, not user prefs — any profile comes up configured and it all stays yours to change ([`modules/firefox`](modules/firefox/README.md)) |
 | YubiKey | `hyprconf-yubikey`: unlock the LUKS root at boot with a FIDO2 key (Omarchy's own `omarchy-setup-security-fido2` covers sudo/polkit) |
-| Dual-GPU gaming | `hyprconf-vulkan-gpu`: on a box with two GPUs, pins Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays — session environment in uwsm's `env.d`, written by `hyprconf-vulkan-gpu fix`; `use` / `toggle` pin either card and `run` switches for one command, no re-login |
+| Dual-GPU gaming | `hyprconf-vulkan-gpu`: on a box with two GPUs, pins Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays — `fix` writes it into uwsm's `env.d`, `use` pins either card, `run` lends one to a single command ([`modules/vulkan-gpu`](modules/vulkan-gpu/README.md)) |
 | Keychron / Lemokey | One udev rule so [launcher.keychron.com](https://launcher.keychron.com) can reach your boards and mice over WebHID — a `hidraw` node is `0600 root:root` until something says otherwise ([`modules/keychron`](modules/keychron/README.md)) |
 
 ---
@@ -72,7 +72,7 @@ bash ~/.hyprconf/install.sh
 | hotkeys | `~/.config/hypr/bindings.lua` → `hypr/bindings.lua` | Symlink (whatever was there first — Omarchy's stock file, or a dotfiles link of your own, copied as a link — backed up to `bindings.lua.stock`). The hotkey tools are `bin/` commands (below) |
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups, a link of your own kept as a link) |
 | monitors | Seeds the three presets into `~/.config/hypr/` | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. Omarchy's `monitors.lua` is never touched, a symlinked one included (a stow-style dotfiles link is yours) |
-| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-monitor-preset`, `hyprconf-gaps` (the hotkey tools), `hyprconf-yubikey`, `hyprconf-vulkan-gpu` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path; `bindings.lua` binds the hotkey tools by name, the way Omarchy binds its own commands. The resources widget's two feeders are not here: they ship inside its plugin folder and land with it (below) |
+| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-monitor-preset`, `hyprconf-gaps` (the hotkey tools), `hyprconf-yubikey` | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path; `bindings.lua` binds the hotkey tools by name, the way Omarchy binds its own commands. The resources widget's two feeders are not here: they ship inside its plugin folder and land with it (below) |
 | bar_plugin | `hyprconf.resources` widget in the bar's right section | `plugins/hyprconf-resources/` synced into `~/.config/omarchy/plugins/` on every run; enabled **once**, with no placement argument — the manifest's `barWidget.defaultSection: right` places it (the shell's `defaultBarWidgetSection`). The manifest also declares `service`, so the shell loads its feeders once for the session instead of once per monitor; one id still, so the same enable and the same disable cover both |
 | clock | `hyprconf.clock`: Omarchy's own clock widget ticking seconds (`plugins/hyprconf-clock/`, a `clonedFrom` copy with three deltas), format `hh:mm:ss AP` — the copy synced on every run; the enable and the format **set once**, the bar's centre anchor repaired on every run. Undoing it takes two steps more than the disable — see [Reverting to stock](#reverting-to-stock) | `plugins/hyprconf-clock/` synced into `~/.config/omarchy/plugins/` like the other three; then, once: `omarchy-plugin-enable` (the shell swaps it into `omarchy.clock`'s slot), `omarchy-bar set`, and the bar's `centerAnchor` follows the swap. That last one runs on **every** run, not once: an anchor goes stale long after an install (a clone you removed leaves one naming an id that exists nowhere, and the centre section then centres the whole group instead of the clock). It moves only an anchor that names the clock source — `omarchy.clock`, or an id that is on no bar section *and* is no installed plugin — and only while `hyprconf.clock` really is on the bar, so an anchor you re-pointed yourself, and one left on a widget you merely disabled, are both left alone |
 | workspaces | `hyprconf.workspaces`: the overlay's own workspaces widget — only workspaces that exist, on two lines, Pac-Man on the focused one | `plugins/hyprconf-workspaces/` synced on every run (a `clonedFrom` copy the shell swaps into the stock widget's slot); enabled **once** |
@@ -100,6 +100,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | [`keychron`](modules/keychron/README.md) | One udev rule at `/etc/udev/rules.d/70-keychron.rules` so the WebHID launcher can reach Keychron (`0x3434`) and Lemokey (`0x362d`) boards and mice. Needs `sudo` and a terminal | `bash ~/.hyprconf/modules/keychron/install undo` |
 | [`themes`](modules/themes/README.md) | The `dracula` user theme, symlinked into Omarchy's theme menu and **never activated**, plus extra wallpapers filed under the Omarchy theme each belongs to | `bash ~/.hyprconf/modules/themes/install undo` |
 | [`vscode`](modules/vscode/README.md) | VS Code through Omarchy's own installer when it is absent, and `code` as the default editor — **set once**, and only once the package is really there. Installing needs `sudo` and a terminal | `bash ~/.hyprconf/modules/vscode/install undo` — the editor goes back to `nvim`; VS Code stays installed |
+| [`vulkan-gpu`](modules/vulkan-gpu/README.md) | `hyprconf-vulkan-gpu` on PATH (one symlink) — the dual-GPU Vulkan pin for Steam/Proton under Xwayland. Installing decides nothing: run `hyprconf-vulkan-gpu status`, then `fix`, on a box with two GPUs | `hyprconf-vulkan-gpu remove` first if you wrote a pin (it is yours, not the module's), then `bash ~/.hyprconf/modules/vulkan-gpu/install undo` |
 
 ### What it deliberately leaves alone
 
@@ -108,7 +109,6 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 - Installed packages — nothing is removed, ever (`omarchy-pkg-drop` is never called).
 - The **active theme**, Omarchy's **`monitors.lua`** (a preset loads beside it from the toggles directory and never replaces it), and every set-once choice (font, default apps, idle, clock, widget enables) after the first run — change them with Omarchy's own commands and hyprconf will not take them back.
 - Omarchy's keyboard layout logic in `input.lua`, and its volume / brightness / media keys, `SUPER+K` (keybindings menu), `SUPER+3`/`4`, `SUPER+SHIFT+3`.
-- A Vulkan GPU setting you already have — `VK_LOADER_DEVICE_ID_FILTER` or `PROTON_ENABLE_WAYLAND` in `~/.config/environment.d/*.conf`, `~/.config/uwsm/env`, `~/.config/uwsm/env.d/*` or the live session: `hyprconf-vulkan-gpu status` reports where and writes nothing.
 
 ## Sync
 
@@ -278,43 +278,6 @@ hyprconf-yubikey remove            # wipe the FIDO2 slot, then disable
 
 At boot: plug the key in, enter its PIN, touch it; with no key present systemd waits `token-timeout` (30 s) and falls back to the passphrase. `enroll` refuses a `/etc/vconsole.conf` whose first `XKBLAYOUT` is non-Latin (the systemd initramfs always bundles it, so a Latin passphrase could become untypeable) unless `--allow-non-latin-layout` is given. Your passphrase stays as a fallback — no passphrase slot is ever touched. Limine's read-only **snapshot** boot entries keep their writable overlay through `sd-btrfs-overlayfs` (`limine-mkinitcpio-hook` ships it; the drop-in tests for the file and keeps the busybox hook without it — snapshot boots then lose the overlay under systemd init, normal boots are unaffected either way). `disable` removes both drop-ins; `remove` also wipes the FIDO2 slot.
 
-## Dual-GPU Vulkan (Proton) fix (`hyprconf-vulkan-gpu`)
-
-**Symptom:** on a box with two GPUs, a Steam/Proton game dies right after start with `CreateSwapChainForHwnd` → `E_INVALIDARG` (DXVK / vkd3d-proton; the game log may say "No display detected for current GPU") while the launcher itself works. **Cause, two independent halves:** Xwayland exposes no RandR providers, so Wine binds every monitor to Vulkan physical device 0 — the first GPU by PCI order, not the one the displays are plugged into — and a game on any other GPU has no output on its adapter (reordering with `VK_LOADER_DEVICE_SELECT` alone is not enough: the other GPU must leave Vulkan enumeration). And NVIDIA's driver presents to Xwayland only from its own GPU 0 unless PRIME render offload is on — two variables, both required.
-
-`hyprconf-vulkan-gpu` reads the GPUs from sysfs (`/sys/bus/pci/devices/*/class` `0x03…`), takes the card with the most `connected` connectors under `/sys/class/drm` as the display GPU, and Vulkan device 0 from `vulkaninfo --summary` (`vulkan-tools`) when installed — otherwise it assumes PCI order and says so. `install.sh` never runs it: on a dual-GPU box run `hyprconf-vulkan-gpu status`, then `fix` once. `use`, `toggle` and `run` never ask `vulkaninfo` at all — a probe creates a Vulkan instance on every ICD and wakes a sleeping GPU, and `run` sits on every game launch.
-
-```bash
-hyprconf-vulkan-gpu status [--quiet]   # GPUs, display GPU, Vulkan device 0, configuration; exit 0 nothing to do, 3 at risk, 1 error
-hyprconf-vulkan-gpu fix        # write the file below
-hyprconf-vulkan-gpu use <gpu>  # the same file for a GPU you name: display | other | index | pci-address | vendor:device
-hyprconf-vulkan-gpu toggle     # swap to the next GPU in PCI order after the pinned one
-hyprconf-vulkan-gpu run <gpu> [--] <cmd> [args...]   # run cmd with that GPU's variables; writes nothing, needs no re-login
-hyprconf-vulkan-gpu alt        # the same file with `export PROTON_ENABLE_WAYLAND=1` only
-hyprconf-vulkan-gpu remove     # delete the file
-```
-
-**Fix** writes `~/.config/uwsm/env.d/50-hyprconf-vulkan-gpu`: uwsm sources every file there at login (`/usr/lib/uwsm/prepare-env.sh`), and Omarchy's own `/usr/share/uwsm/env.d/10-omarchy` names it as the place for user overrides — so every launcher and game inherits it. For the box it was verified on (displays on the second of two NVIDIA GPUs, `10de:2b85`) the file is exactly:
-
-```sh
-# hyprconf-vulkan-gpu: pin Vulkan to the display GPU 0000:0a:00.0 (NVIDIA 10de:2b85);
-# hidden from Vulkan: 0000:04:00.0 (NVIDIA 10de:2484). Undo: hyprconf-vulkan-gpu remove
-export VK_LOADER_DEVICE_ID_FILTER=0x2b85
-export VK_LOADER_DEVICE_SELECT=10de:2b85
-export __NV_PRIME_RENDER_OFFLOAD=1
-export __VK_LAYER_NV_optimus=NVIDIA_only
-```
-
-The two loader lines (`vulkan-icd-loader` ≥ 1.4.3xx; verified against 1.4.357) expose only the display GPU to Vulkan and make it device 0. The NVIDIA pair is written only when the display GPU is NVIDIA *and* another NVIDIA GPU precedes it in PCI order (the driver's GPU 0); an AMD or Intel display GPU gets the two loader lines alone. The filter hides the other GPU from **Vulkan only** — the compositor (KMS/EGL) still drives monitors plugged into it; Vulkan compute no longer sees it. `MESA_VK_DEVICE_SELECT` is not used (Mesa 25 dropped that layer). **Alt** is the fallback when Xwayland presentation still fails: `PROTON_ENABLE_WAYLAND=1` for a Wayland-capable Proton, which presents natively from either GPU — no filter.
-
-**Re-login** (or restart Steam with the variables set): apps started through uwsm / `systemd-run --scope` inherit the compositor's environment, so `systemctl --user set-environment` alone does not reach them mid-session. Undo with `hyprconf-vulkan-gpu remove`, then re-login.
-
-### Choosing the other GPU, and switching between them
-
-`fix` always picks the display GPU, which is the safe answer: a game rendering on a card with no monitor on it has every frame copied back across PCIe to the card that scans out, and on a narrow link that copy can cost more than the faster GPU gains — the same blit that shows up as `Buffer is marked as multigpu, forcing linear` in the compositor. When the other GPU is worth it anyway, **`use`** writes the same file for a GPU you name — `display`, `other` (the only other one, on a two-GPU box), a PCI-order index, a PCI address with or without the `0000:` domain, or a `vendor:device` id — and **`toggle`** swaps to the next GPU in PCI order, which on two GPUs is the whole switch in one word. Both derive the NVIDIA pair from the *target*, not the display GPU: it is written when the target is NVIDIA and another NVIDIA GPU precedes it in PCI order, and omitted when the target already is the driver's GPU 0, where PRIME offload has nothing to offload to. Both warn, naming the file, when a `VK_LOADER_*` or `PROTON_ENABLE_WAYLAND` line is also set outside `50-hyprconf-vulkan-gpu` — whichever the session sources last wins, so a stray `~/.config/environment.d/*.conf` silently beats the pin.
-
-`use` and `toggle` take effect at the next login. **`run`** is the mid-session switch: it sets one GPU's variables for a single command and writes nothing, so `hyprconf-vulkan-gpu run other -- steam` restarts Steam on the other GPU immediately, and as a per-game Steam launch option `hyprconf-vulkan-gpu run other -- %command%` picks a GPU for one game. It clears the NVIDIA pair when the target does not need it, so a `run` never inherits a stale offload setting from the session. Verified on the same box as the `fix` example above, after its displays were recabled from the second GPU to the *first* (`10de:2484`) — which is why the two records differ: `use display` writes the two loader lines with no pair, `toggle` writes `10de:2b85` with the pair, and a Proton game follows the pin — 99% on the pinned card, 0% on the other.
-
 ## Proton VPN
 
 hyprconf installs nothing for it. `omarchy pkg add proton-vpn-gtk-app proton-vpn-cli` — both from Arch's `extra` repository, never the AUR; `proton-vpn-daemon` comes with them. Nothing is enabled and no group is joined: the daemon's `proton.VPN.service` is D-Bus-activated (`me.proton.vpn.split_tunneling.service`), so unlike NordVPN there is no `systemctl enable` and no reboot. Sign in with `protonvpn login` (the CLI) or in the Proton VPN app (`protonvpn-app`). Remove with `omarchy pkg drop proton-vpn-gtk-app proton-vpn-cli` (`pacman -Rns`, so the daemon goes too).
@@ -324,7 +287,6 @@ hyprconf installs nothing for it. `omarchy pkg add proton-vpn-gtk-app proton-vpn
 ```bash
 hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool is still on PATH; both drop-ins and the `.verified` record go
 # enrolled by 4.0.0-4.2.0? that version put rd.luks.* INLINE on /etc/default/limine, which this tool only reads: status names them, remove leaves them — delete the two parameters by hand, keep cryptdevice=
-hyprconf-vulkan-gpu remove   # the uwsm env.d file, if you wrote one; re-login after
 omarchy plugin disable hyprconf.clock
 omarchy bar set omarchy.clock format 'dddd HH:mm'   # the disable copies the clone's WHOLE entry back onto omarchy.clock and rewrites only its id, so `hh:mm:ss AP` rides along onto a widget that samples once a minute and the seconds sit frozen 59 s of every one
 omarchy plugin disable hyprconf.workspaces

@@ -39,7 +39,7 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 | VS Code, default editor | `omarchy-install-editor-vscode`, `omarchy-default-editor` | `modules/vscode` — [its README](modules/vscode/README.md) |
 | Default terminal | `omarchy-default-terminal` | set-once stage |
 | Firefox, its policy, the default browser | `omarchy-install-browser firefox`, `/etc/firefox/policies/` (Omarchy writes only `distribution/`), `omarchy-default-browser` | `modules/firefox` — [its README](modules/firefox/README.md) |
-| Session environment | `~/.config/uwsm/env.d/` — the override dir `/usr/share/uwsm/env.d/10-omarchy` names | `bin/hyprconf-vulkan-gpu` |
+| Session environment | `~/.config/uwsm/env.d/` — the override dir `/usr/share/uwsm/env.d/10-omarchy` names | `modules/vulkan-gpu` — [its README](modules/vulkan-gpu/README.md) |
 | Kernel parameters | `/etc/limine-entry-tool.d/` drop-in, as `omarchy-hibernation-setup` does | `bin/hyprconf-yubikey` |
 | Keyboard/mouse HID | `/etc/udev/rules.d/`, as `install/hardware/framework/qmk-hid.sh` writes `default/udev/framework16-qmk-hid.rules` (Omarchy has the shape, no command) | `modules/keychron` — [its README](modules/keychron/README.md) |
 | Packages | `omarchy-pkg-add` / `-present` | `packages` |

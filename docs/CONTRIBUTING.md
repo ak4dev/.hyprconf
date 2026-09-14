@@ -20,11 +20,10 @@ publish flow and the website upload.
 │   ├── pcMonitors.kitchen.lua  # Preset "kitchen"  (SUPER+SHIFT+K), desc:-keyed
 │   └── laptopMonitors.lua      # Preset "laptop"
 │
-├── bin/                        # Tools installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted); the hotkeys bind the first two by name
+├── bin/                        # Tools installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted); the hotkeys bind the first two by name. A tool with its own module ships there instead — modules/vulkan-gpu/bin/hyprconf-vulkan-gpu
 │   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
 │   ├── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
-│   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
-│   └── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU — or one you pick — via uwsm env.d (status/fix/use/toggle/run/alt/remove)
+│   └── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
 │
 ├── plugins/                    # Omarchy bar-widget plugins, each folder a plugin on its own (manifest.json at its root, README.md, NOTICE where the code is Omarchy's — › Publishing a plugin), synced by install.sh into ~/.config/omarchy/plugins/
 │   ├── hyprconf-clock/         #   Omarchy's own clock (BarWidget.qml + Model.js) ticking seconds — clonedFrom omarchy.clock, the three deltas named in its header
@@ -35,7 +34,7 @@ publish flow and the website upload.
 ├── kitty/hyprconf.conf         # kitty include
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, firefox, firefox-theme, font, idle, keychron, themes, vscode
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, firefox, firefox-theme, font, idle, keychron, themes, vscode, vulkan-gpu
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
@@ -73,7 +72,6 @@ tests/                            # what is not a module's: install.sh, the two 
 │   ├── test_plugins.py           #   plugins/*: omarchy-plugin-validate's checks in Python (CI has no Omarchy) and the real validator where there is one, the manifest values the bar reads, the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText rule and real qmllint over every QML, what each widget's QML promises, every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent), the clock's parity with the installed stock clock (skips without Omarchy), the resources feeders' capped-backoff restart shape
 │   ├── test_stats_tools.py       #   plugins/hyprconf-resources/bin/{hyprconf-stats,hyprconf-gpu-info} (fake proc/sysfs trees, nvidia-smi and the `sleep` between ticks; a bare-PATH run pins that the default-route lookup shells out to nothing)
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
-│   ├── test_vulkan_gpu.py        #   bin/hyprconf-vulkan-gpu (fake sysfs and vulkaninfo; uwsm env.d / environment.d seams)
 │   ├── test_yubikey.py           #   bin/hyprconf-yubikey (fake sudo/cryptenroll/limine-mkinitcpio; the limine drop-in, /etc/default/limine read for the mapper and never rewritten; real shellcheck on the mkinitcpio drop-in)
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias names the checkout through @HYPRCONF_DIR@
 └── integration/
@@ -137,9 +135,8 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `LIMINE_ENTRY_CONF`, `LIMINE_USR_D`,
   `FIDO2_DROPIN`, `INITCPIO_INSTALL`, `MODULES_DIR`, `VCONSOLE`, `MACHINE_ID`,
   `EFI_DIR`);
-  `_HYPRCONF_*` in `bin/hyprconf-vulkan-gpu` for the sysfs trees and env
-  files it reads (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`, `UWSM_ENV_D`, `UWSM_ENV`,
-  `ENVIRONMENT_D`),
+  `_HYPRCONF_*` in `modules/vulkan-gpu/bin/hyprconf-vulkan-gpu` for the three
+  trees it reads outside `$HOME` (`SYS_PCI`, `SYS_DRM`, `VULKANINFO`),
   `HYPRCONF_STATS_*` in `plugins/hyprconf-resources/bin/hyprconf-stats`
   (`NET_ROOT`, `PROC_STAT`, `PROC_MEMINFO`, `PROC_ROUTE`, `HWMON_ROOT`,
   `INTERVAL`, `ITERATIONS`, and `SLEEP_BUILTIN` — the loadable sleep's path,
