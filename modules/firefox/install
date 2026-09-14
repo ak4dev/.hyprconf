@@ -109,6 +109,11 @@ fi
 
 # -- Default browser, once (rule 5) ------------------------------------------
 [[ -e $marker || -e $legacy ]] && exit 0
+# Never a default pointing at an absent browser (rule 6): with Firefox not
+# there — a --no-packages run before any terminal run — xdg-settings has no
+# firefox.desktop to record and the setter warns on every hook run; asked
+# again here because the install above may just have put it there.
+omarchy-pkg-present firefox || exit 0
 omarchy-default-browser firefox || true
 # The setter's exit status is its closing omarchy-notification-send's (no
 # set -e in bin/omarchy-default-browser, whose last line is :37), which fails

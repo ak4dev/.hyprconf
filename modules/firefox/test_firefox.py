@@ -348,11 +348,11 @@ def test_firefox_is_installed_through_omarchys_installer_when_absent(box: Box) -
     assert "omarchy-pkg-add" not in box.commands
 
 
-def test_a_failed_firefox_install_leaves_no_policy_behind(box: Box) -> None:
-    """A failed install is a warning with Omarchy's retry command, and the
-    policy half stops there: a policy for a browser that is not installed
-    would shadow nothing. The module still exits 0 — the loop goes on — and
-    the default-browser seed still gets its turn."""
+def test_a_failed_firefox_install_leaves_no_policy_and_no_default_behind(box: Box) -> None:
+    """A failed install is a warning with Omarchy's retry command, and both
+    halves stop there: a policy for a browser that is not installed would
+    shadow nothing, and a default pointing at one is never set (rule 6). The
+    module still exits 0 — the loop goes on — and the next run retries both."""
     box.stub("omarchy-pkg-present", '[ "$1" != firefox ]\n')
     box.stub("omarchy-install-browser", "exit 1\n")
     proc = _run(box)
@@ -360,7 +360,30 @@ def test_a_failed_firefox_install_leaves_no_policy_behind(box: Box) -> None:
     assert "retry with: omarchy install browser firefox" in proc.stderr
     assert not _policy(box).exists()
     assert "sudo" not in box.commands
-    assert "omarchy-default-browser" in box.commands
+    assert "omarchy-default-browser" not in box.commands
+    assert not (box.home / ".local" / "state" / "hyprconf" / "browser-applied").exists()
+
+
+def test_the_seed_waits_for_firefox_to_be_installed(box: Box) -> None:
+    """A --no-packages run on a box without Firefox (the post-update hook's,
+    before any terminal run) seeds nothing: xdg-settings has no
+    firefox.desktop to record, and a setter that took it anyway would mark a
+    default for an absent browser. The first run that finds it seeds."""
+    flag = box.tmp / "firefox-installed"
+    box.stub("omarchy-pkg-present", f'[ "$1" != firefox ] || [ -e "{flag}" ]\n')
+    marker = box.home / ".local" / "state" / "hyprconf" / "browser-applied"
+
+    proc = _run(box, env={"HYPRCONF_NO_SUDO": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-default-browser" not in box.commands
+    assert not marker.exists()
+
+    flag.touch()
+    box.reset()
+    proc = _run(box, env={"HYPRCONF_NO_SUDO": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-default-browser firefox" in box.calls
+    assert marker.is_file()
 
 
 def test_no_terminal_and_no_sudo_both_bow_out_but_still_seed_the_default(box: Box) -> None:
