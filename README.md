@@ -95,6 +95,7 @@ hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool
 hyprconf --undo           # every module's `install undo` in reverse order, then the hook and the ~/.local/bin/hyprconf link (the Firefox policy and the udev rule need sudo)
 hyprconf --undo <name>    # one module — the same as `bash ~/.hyprconf/modules/<name>/install undo`
 rm -rf ~/.local/state/hyprconf ~/.config/omarchy/plugins/.hyprconf.*.bak.* ~/.oh-my-zsh   # leftovers: the emptied state dir, folders a bar module moved aside, and the Oh My Zsh a hyprconf 7.x install left behind
+sed -i '/^  \/\/ >>> hyprconf >>>$/,/^  \/\/ <<< hyprconf <<<$/d' ~/.config/omarchy/extensions/omarchy-menu.jsonc   # a 7.x install's Proton VPN menu row, whose installer is gone (8.0 manages no menu block)
 ```
 
 What each undo puts back — the Undo section of its README:

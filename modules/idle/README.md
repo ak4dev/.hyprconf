@@ -36,5 +36,6 @@ file and reloads (`shell/shell.qml:134-143`); past the marker nothing re-asserts
 
 `bash ~/.hyprconf/modules/idle/install undo` drops the key through the same helper and removes the
 marker; the shell's own stock 150 s then applies (`shell/plugins/services/idle/Service.qml:17,21`).
+The file stays — one the first run created is Omarchy's shipped defaults, key-sorted, minus this key.
 
 ## Verified against Omarchy 4.0.3-1
