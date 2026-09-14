@@ -293,8 +293,8 @@ def test_the_installed_link_passes_omarchy_plugin_validate(box) -> None:
     """The real validator, against the installed path — a link, so with the
     trailing slash its `find` needs (bin/omarchy-plugin-validate:115 prints
     the starting point itself without -L). Skips where Omarchy is not
-    installed — one of the seven needs-the-installed-Omarchy skips AGENTS.md
-    budgets for (› Gates and CI)."""
+    installed — one of the needs-the-installed-Omarchy skips AGENTS.md › Gates
+    and CI budgets for."""
     if not PLUGIN_VALIDATE.is_file():
         pytest.skip("no installed omarchy-plugin-validate")
     box.stub("omarchy-plugin-list", LISTS_THE_PLUGIN)

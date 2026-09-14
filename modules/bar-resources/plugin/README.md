@@ -79,7 +79,12 @@ and it is the one that runs the two feeders. The widget reads the numbers back
 with `bar.shell.serviceFor("hyprconf.resources")` — the accessor Omarchy scopes
 to a plugin's own id (`shell/services/PluginShellApi.qml`). So a six-monitor
 desk pays for one pair of feeders, not six, and on NVIDIA for one NVML session
-rather than six. There is still only one id and one on/off switch.
+rather than six. There is still only one id and one on/off switch. One
+shell-lifetime quirk: a long-lived shell can refuse a *newly added*
+`entryPoints.service` with Qt's `File name case mismatch` (`WARN qml: service
+plugin load failed for <id>`) while the widget draws its null-service
+defaults — nothing on disk is wrong; `omarchy restart shell` clears it, so
+restart before changing the plugin.
 
 ## Host contract (Omarchy 4.0.3-1)
 

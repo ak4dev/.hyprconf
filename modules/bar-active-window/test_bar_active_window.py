@@ -297,7 +297,7 @@ def test_omarchy_plugin_validate_accepts_the_installed_link(box) -> None:
     the link the module makes: the validator's `find` prints the starting
     point itself for a bare symlink, so the trailing slash is load-bearing
     (bin/omarchy-plugin-validate:115). Skips without the installed Omarchy —
-    one of the seven such skips AGENTS.md budgets for (› Gates and CI)."""
+    one of the skips AGENTS.md › Gates and CI budgets for."""
     validate = Path("/usr/bin/omarchy-plugin-validate")
     if not validate.exists():
         pytest.skip("no installed Omarchy to validate against")

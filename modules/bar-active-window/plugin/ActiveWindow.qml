@@ -17,7 +17,7 @@
 //
 // Refresh, when an Omarchy release changes the widget (nothing here is
 // parity-tested — the clock's test is the clock's): diff the stock file
-// against this one, re-apply the three deltas above, bump manifest.json.
+// against this one and re-apply the three deltas above.
 import QtQuick
 import Quickshell.Wayland
 import qs.Commons
