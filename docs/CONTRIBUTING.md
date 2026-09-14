@@ -9,7 +9,7 @@ publish flow and the website upload.
 ```
 .hyprconf/
 ├── install.sh                  # The overlay installer — idempotent stages, the only entry point; served by hyprconf.sh, clones itself on the curl path
-├── packages                    # Official-repo packages, installed via omarchy-pkg-add (Firefox goes through Omarchy's installer instead; a module with packages of its own ships them beside its `install`)
+├── packages                    # Official-repo packages, installed via omarchy-pkg-add (Firefox comes through Omarchy's own installer, in modules/firefox; a module with packages of its own ships them beside its `install`)
 │
 ├── hypr/
 │   ├── README.md               # The Omarchy/Hyprland facts these files rely on (binds, desc: presets, hyprctl on 0.56)
@@ -24,26 +24,18 @@ publish flow and the website upload.
 │   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
 │   ├── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
 │   ├── hyprconf-yubikey        #   FIDO2 unlock of the LUKS2 root at boot (status/enroll/sudo/disable/remove); a limine-entry-tool drop-in, the way Omarchy adds kernel parameters
-│   ├── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU — or one you pick — via uwsm env.d (status/fix/use/toggle/run/alt/remove)
-│   └── hyprconf-firefox-theme  #   launcher for firefox_theme.py (apply / --status)
-│
-├── lib/hyprconf/               # Python package, used in place via PYTHONPATH (theme-set hook, hyprconf-firefox-theme)
-│   ├── firefox_theme.py        # Omarchy's rendered userChrome.css into Firefox/LibreWolf profiles + user.js prefs (theme-set hook)
-│   └── __init__.py             # __version__ — a copy of VERSION, read by nothing else
+│   └── hyprconf-vulkan-gpu     #   Dual-GPU box: pin Vulkan (Steam/Proton) to the display GPU — or one you pick — via uwsm env.d (status/fix/use/toggle/run/alt/remove)
 │
 ├── plugins/                    # Omarchy bar-widget plugins, each folder a plugin on its own (manifest.json at its root, README.md, NOTICE where the code is Omarchy's — › Publishing a plugin), synced by install.sh into ~/.config/omarchy/plugins/
 │   ├── hyprconf-clock/         #   Omarchy's own clock (BarWidget.qml + Model.js) ticking seconds — clonedFrom omarchy.clock, the three deltas named in its header
 │   ├── hyprconf-resources/     #   cpu/mem/net/temp + GPU readout: Widget.qml draws, Service.qml (kinds bar-widget + service — loaded once, not per bar surface) owns its two feeders in bin/ (hyprconf-stats, hyprconf-gpu-info), run by absolute path from the folder
 │   ├── hyprconf-workspaces/    #   replaces omarchy.workspaces (clonedFrom): only the workspaces that exist, two lines
 │   └── hyprconf-active-window/ #   replaces omarchy.active-window (clonedFrom): the title on two lines
-├── themed/userChrome.css.tpl   # Omarchy user template (→ ~/.config/omarchy/themed/), rendered by omarchy-theme-set-templates on every theme set
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
 ├── kitty/hyprconf.conf         # kitty include
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
-├── hooks/theme-set.d/10-hyprconf     # Runs firefox_theme.py after every omarchy theme set
 │
-│
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, firefox, font, idle, keychron, themes, vscode
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, firefox, firefox-theme, font, idle, keychron, themes, vscode
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
@@ -71,9 +63,8 @@ them in an `archlinux:latest` container, as an unprivileged user.
 ```
 conftest.py                       # the `box` fixture every test builds on (repo root: it reaches both trees below)
 modules/<name>/test_<name>.py     # one suite per module, beside its `install` — `testpaths` collects modules/ and tests/ in one pytest run
-tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
+tests/                            # what is not a module's: install.sh, the two user-run tools, and the tree-wide guards
 ├── unit/
-│   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + bin/hyprconf-firefox-theme + the template's render
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), bind only commands bin/ ships, state deltas over the theme (the shadow, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom, keep the desk presets desc:-keyed and serial-free
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, the workspace rehoming a switch dispatches)
@@ -173,10 +164,9 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   `/usr/bin` keeps none of them out: stub every one the code path can call
   (`OMARCHY_STUBS` and `_setup` in `test_omarchy_install.py` list the
   installer's, and `test_every_omarchy_command_install_sh_calls_has_a_fake`
-  holds `install.sh`'s code to that list;
-  `test_firefox_theme.py` stubs the three theme commands in the one test that
-  runs the theme-set hook as a real subprocess, where /usr/bin's copies are
-  reachable). Real when present, skipped otherwise: `jq`, `luac`,
+  holds `install.sh`'s code to that list; each module's own suite does the
+  same for its `install` through the `box` fixture, whose fakes are derived
+  from the tree). Real when present, skipped otherwise: `jq`, `luac`,
   `qmllint`, `shellcheck`, `sh`, `zsh`,
   `/usr/share/omarchy/bin/omarchy-plugin-validate`
   (reads a manifest, changes nothing), the installed clock plugin's files

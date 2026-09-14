@@ -55,18 +55,6 @@ HOOK_INSTALL = (
     'chmod 755 "$d/${2##*/}"'
 )
 
-# omarchy-theme-refresh re-sets the current theme, which renders every user
-# template (~/.config/omarchy/themed/*.tpl) into the current theme dir from
-# its colors.toml (omarchy-theme-set-templates); the fake does that part.
-THEME_REFRESH = """\
-t="$HOME/.local/state/omarchy/current/theme"; [ -f "$t/colors.toml" ] || exit 0
-s=""
-while IFS= read -r l; do k="${l%% *}"; v="${l#*\\"}"; v="${v%\\"*}"; s="$s;s|{{ $k }}|$v|g"; done \\
-  < <(grep -E '^[a-z_]+ = "' "$t/colors.toml")
-for f in "$HOME"/.config/omarchy/themed/*.tpl; do
-  [ -f "$f" ] || continue; n="${f##*/}"; sed "${s#;}" "$f" > "$t/${n%.tpl}"
-done"""
-
 # Every monitor preset the overlay ships, by the name hyprconf-monitor-preset
 # answers to. Each carries the workspace-to-monitor rules for its layout, so
 # they travel as whole files; stage_monitors seeds them all.
@@ -161,6 +149,9 @@ def _default_app_stub(tmp_path: Path, key: str, unset: str) -> str:
 # the union, which it reads off the fake directory rather than this list.
 OMARCHY_STUBS = (
     "omarchy-theme-set",
+    # modules/firefox-theme re-renders the current theme through it; the real
+    # one would re-set the developer's own theme from a test run.
+    "omarchy-theme-refresh",
     "omarchy-cmd-present",
     "omarchy-font-set",
     "omarchy-shell",
@@ -218,7 +209,6 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     shell_config = bins / "omarchy-shell-config"
     shell_config.write_text(SHELL_CONFIG_FAKE.replace("__CALLS__", str(calls)))
     shell_config.chmod(0o755)
-    _stub(bins / "omarchy-theme-refresh", calls, THEME_REFRESH)
     _stub(bins / "omarchy-default-terminal", calls, _terminal_stub(tmp_path))
     # Read back by modules/firefox and modules/vscode; the unset answers are
     # Omarchy's own (editor falls back to "nvim", bin/omarchy-default-editor:14,
@@ -302,8 +292,7 @@ def _run(
 
 
 # The payload install.sh reads at run time — enough of the repo to run every
-# stage from a copy, lib/ included: the theme-set hook's PYTHONPATH points
-# into the checkout that installed it.
+# stage and every module from a throwaway copy of the checkout.
 PAYLOAD = (
     "install.sh",
     "packages",
@@ -311,11 +300,9 @@ PAYLOAD = (
     "hypr",
     "bin",
     "hooks",
-    "lib",
     "zsh",
     "kitty",
     "plugins",
-    "themed",
 )
 
 # What a hermetic run must never do is touch the network for Oh My Zsh or
@@ -985,35 +972,14 @@ def test_unknown_flag_is_rejected(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _theme_state(env: dict) -> Path:
-    """An active Omarchy theme as omarchy-theme-set leaves it: theme.name plus
-    colors.toml (what the omarchy-theme-refresh fake renders templates from)."""
-    theme = env["home"] / ".local" / "state" / "omarchy" / "current" / "theme"
-    theme.mkdir(parents=True, exist_ok=True)
-    (theme.parent / "theme.name").write_text("lumon\n")
-    (theme / "colors.toml").write_text(
-        'mode = "dark"\nbackground = "#16242d"\nforeground = "#d6e2ee"\naccent = "#8bc9eb"\n'
-        'dark_background = "#101b21"\nlighter_background = "#1b2d40"\n'
-    )
-    return theme
-
-
-def _firefox_profile(env: dict) -> Path:
-    ff = env["home"] / ".config" / "mozilla" / "firefox"
-    profile = ff / "abc.default-release"
-    profile.mkdir(parents=True, exist_ok=True)
-    (ff / "profiles.ini").write_text(
-        "[Profile0]\nName=default-release\nIsRelative=1\nPath=abc.default-release\n"
-        "[Install4F96]\nDefault=abc.default-release\n"
-    )
-    return profile
-
-
 def test_hooks_are_installed_through_omarchy_hook_install(tmp_path: Path) -> None:
     """omarchy-update runs post-update.d/* and omarchy-theme-set ends with
-    `omarchy-hook theme-set <name>`. Each hook is rendered — the checkout path
-    resolved — under its final basename and handed to Omarchy's own
-    `omarchy-hook-install <type> <file>` (4.0.3-1: mkdir -p, cp, chmod 755)."""
+    `omarchy-hook theme-set <name>`. A full run installs one of each, through
+    Omarchy's own `omarchy-hook-install <type> <file>` (4.0.3-1: mkdir -p, cp,
+    chmod 755) and under the file's final basename, which is the name it is
+    installed as. Only install.sh's own hook is RENDERED — @HYPRCONF_DIR@
+    resolved to the checkout; modules/firefox-theme's theme-set hook carries
+    no checkout path at all, which is what lets it run from a copy."""
     env = _setup(tmp_path)
     _run(env, "--no-update")
     hooks = env["home"] / ".config" / "omarchy" / "hooks"
@@ -1023,9 +989,10 @@ def test_hooks_are_installed_through_omarchy_hook_install(tmp_path: Path) -> Non
         call = next(c for c in installs if c.split()[1] == name)
         assert call.split()[2].endswith("/10-hyprconf"), call  # installed under its basename
         installed = hooks / f"{name}.d" / "10-hyprconf"
-        body = installed.read_text()
-        assert "@HYPRCONF_DIR@" not in body and str(REPO_ROOT) in body, name
+        assert "@HYPRCONF_DIR@" not in installed.read_text(), name
         assert os.access(installed, os.X_OK), name
+    post_update = (hooks / "post-update.d" / "10-hyprconf").read_text()
+    assert str(REPO_ROOT) in post_update
 
 
 def _run_hook(env: dict, extra_env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
@@ -1095,90 +1062,6 @@ def test_post_update_hook_bows_out_when_the_checkout_is_gone(tmp_path: Path) -> 
     assert proc.returncode == 0, proc.stderr
     assert "is gone" in proc.stderr
     assert _calls(env) == []
-
-
-def test_theme_set_hook_extends_the_theme_to_firefox(tmp_path: Path) -> None:
-    """Omarchy renders hyprconf's user template into the current theme dir; the
-    hook copies it into the Firefox profile and merges user.js, and install.sh
-    runs it once for the active theme so nothing waits for the next switch.
-    (VS Code is themed by Omarchy's own omarchy-theme-set-vscode.)"""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    _theme_state(env)
-    profile = _firefox_profile(env)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-
-    rendered = env["home"] / ".local" / "state" / "omarchy" / "current" / "theme" / "userChrome.css"
-    assert rendered.is_file(), "stage_themed did not get the template rendered"
-    assert (profile / "chrome" / "userChrome.css").read_bytes() == rendered.read_bytes()
-    assert "user_pref(" in (profile / "user.js").read_text()
-
-    # Idempotent: a second run (the post-update hook's) changes nothing.
-    before = _tree_hash(profile)
-    _run(env, "--no-update")
-    assert _tree_hash(profile) == before
-
-
-def test_theme_stage_is_a_noop_without_an_active_theme(tmp_path: Path) -> None:
-    """The templates are installed either way; with no theme.name there is
-    nothing to render them from, so nothing is refreshed and no profile is
-    touched — the next `omarchy theme set` renders them."""
-    env = _setup(tmp_path)
-    profile = _firefox_profile(env)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert (env["home"] / ".config" / "omarchy" / "themed" / "userChrome.css.tpl").is_file()
-    assert not (profile / "user.js").exists()
-    assert "omarchy-theme-refresh" not in _commands(env)
-
-
-# ---------------------------------------------------------------------------
-# Theme templates — Omarchy's user template seam
-# ---------------------------------------------------------------------------
-
-
-def _themed_checkout(tmp_path: Path) -> tuple[Path, str]:
-    """A throwaway checkout with one extra user template beside the shipped
-    themed/userChrome.css.tpl — a one-variable file the re-render step can
-    rewrite and assert literally. Returns (checkout, template name)."""
-    repo = _checkout(tmp_path)
-    (repo / "themed").mkdir(exist_ok=True)
-    name = "hyprconf-test.css.tpl"
-    (repo / "themed" / name).write_text("body { color: {{ foreground }}; }\n")
-    return repo, name
-
-
-def test_templates_are_installed_and_rendered_through_omarchy_theme_refresh(
-    tmp_path: Path,
-) -> None:
-    """Every repo themed/*.tpl lands in Omarchy's user template dir, and the
-    render for the theme active right now is Omarchy's own
-    omarchy-theme-refresh — run only when a template changed or its render is
-    missing, so the hook's re-runs cost nothing; never omarchy-theme-set."""
-    env = _setup(tmp_path)
-    repo, name = _themed_checkout(tmp_path)
-    _theme_state(env)
-    proc = _run(env, "--no-update", install_sh=repo / "install.sh")
-    assert proc.returncode == 0, proc.stderr
-    assert "Firefox theming failed" not in proc.stderr  # the hook found the copy's lib/
-    installed = env["home"] / ".config" / "omarchy" / "themed" / name
-    assert installed.read_bytes() == (repo / "themed" / name).read_bytes()
-    assert _commands(env).count("omarchy-theme-refresh") == 1
-    assert "omarchy-theme-set" not in _commands(env)
-    rendered = env["home"] / ".local" / "state" / "omarchy" / "current" / "theme" / name[:-4]
-    assert rendered.read_text() == "body { color: #d6e2ee; }\n"
-
-    env["calls"].write_text("")
-    _run(env, "--no-update", install_sh=repo / "install.sh")
-    assert "omarchy-theme-refresh" not in _commands(env)
-
-    (repo / "themed" / name).write_text("body { color: {{ accent }}; }\n")
-    env["calls"].write_text("")
-    _run(env, "--no-update", install_sh=repo / "install.sh")
-    assert installed.read_text() == "body { color: {{ accent }}; }\n"
-    assert _commands(env).count("omarchy-theme-refresh") == 1
-    assert rendered.read_text() == "body { color: #8bc9eb; }\n"
 
 
 # ---------------------------------------------------------------------------

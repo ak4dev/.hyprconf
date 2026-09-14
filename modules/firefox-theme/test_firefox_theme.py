@@ -222,6 +222,30 @@ def test_undo_restores_stock(live: Box) -> None:
     assert (mine / "user.js").read_text() == FOREIGN + "\n"
 
 
+def test_undo_still_clears_the_module_when_a_profile_file_survives(live: Box) -> None:
+    """A profile file the hook cannot take away (a root-owned chrome/, ENOSPC)
+    must show in `install undo`'s exit status and its warning — and must not
+    keep the module's own three files standing, which is what the core loop's
+    `bash … undo || true` relies on. Root-proof: plain `rm -f` refuses a
+    directory for everyone."""
+    root = firefox(live)
+    rendered(live)
+    live.run(INSTALL)
+    stuck = root / "aaa.default-release" / "chrome" / "userChrome.css"
+    stuck.unlink()
+    stuck.mkdir()
+    (stuck / "keep").write_text("x")
+
+    result = live.undo("firefox-theme")
+
+    assert result.returncode != 0
+    assert "some profile files remain" in result.stderr
+    assert stuck.is_dir()
+    assert not (live.home / INSTALLED_HOOK).exists()
+    assert not (live.home / THEMED).exists()
+    assert not (live.home / RENDER).exists()
+
+
 def test_undo_removes_a_user_js_that_was_ours_alone_and_notifies_nobody(live: Box) -> None:
     root = firefox(live)
     rendered(live)
@@ -290,11 +314,18 @@ def test_the_hook_writes_the_light_prefs_for_a_light_render(box: Box) -> None:
 
 
 def test_the_hook_keeps_foreign_user_js_lines_and_rewrites_its_own_in_place(box: Box) -> None:
+    """Only a live `user_pref(` line naming one of the three is the hook's.
+    The `managed` pattern anchors on a leading `user_pref(`, so a line the
+    user commented out and a `pref(` default-branch line are foreign even
+    when they name the same pref — taking either away would change what
+    Firefox does with a pref the hook does not own."""
     root = firefox(box)
     rendered(box)
     profile = root / "aaa.default-release"
+    commented = '// user_pref("ui.systemUsesDarkTheme", 0);'
+    bare = 'pref("extensions.activeThemeID", "firefox-compact-light@mozilla.org");'
     profile.joinpath("user.js").write_text(
-        f'{FOREIGN}\nuser_pref("ui.systemUsesDarkTheme", 0);\n// mine\n'
+        f'{FOREIGN}\nuser_pref("ui.systemUsesDarkTheme", 0);\n{commented}\n{bare}\n// mine\n'
     )
 
     box.run(HOOK)
@@ -304,8 +335,8 @@ def test_the_hook_keeps_foreign_user_js_lines_and_rewrites_its_own_in_place(box:
 
     assert profile.joinpath("user.js").read_bytes() == first
     lines = first.decode().splitlines()
-    assert lines[:2] == [FOREIGN, "// mine"]
-    assert lines[2:] == PREFS
+    assert lines[:4] == [FOREIGN, commented, bare, "// mine"]
+    assert lines[4:] == PREFS
     assert "omarchy-notification-send" not in box.commands  # nothing changed the second time
 
 

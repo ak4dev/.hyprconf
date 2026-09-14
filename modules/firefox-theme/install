@@ -2,8 +2,9 @@
 # hyprconf/firefox-theme — Omarchy's active theme into Firefox, on every
 # `omarchy theme set` and now.
 # userChrome.css.tpl goes into ~/.config/omarchy/themed/, the user template
-# directory omarchy-theme-set-templates:7 reads and :375 renders FIRST (ahead
-# of $OMARCHY_PATH/default/themed) into the theme's staging dir, which
+# directory omarchy-theme-set-templates:7 reads, globs AHEAD of
+# $OMARCHY_PATH/default/themed (:375) and renders in that order (:390-399,
+# "user overrides built-in") into the theme's staging dir, which
 # omarchy-theme-set:292-293 swaps onto ~/.local/state/omarchy/current/theme.
 # `hook` is installed with omarchy-hook-install (bin/omarchy-hook-install:
 # 27-29: mkdir -p, cp, chmod 755 — under the file's BASENAME, so it is copied

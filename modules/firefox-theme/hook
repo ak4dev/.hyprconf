@@ -61,8 +61,10 @@ merge_user_js() {
   # NOT invert that, so `if ! { ...; } > "$tmp"` walks straight past an
   # unwritable profile directory and then reads the missing $tmp as "user.js
   # held nothing but ours" — taking the user's file away. `||` after a simple
-  # command does see it.
-  : > "$tmp" 2>/dev/null || { rc=1; return 1; }
+  # command does see it. The 2>/dev/null comes FIRST: redirections are applied
+  # left to right, so with it second bash has already printed the failure to
+  # the real stderr — the per-profile message below is the one to keep.
+  : 2>/dev/null > "$tmp" || { rc=1; return 1; }
   if ! { [[ -f $js ]] && LC_ALL=C grep -a -Ev "$managed" -- "$js"; cat; } > "$tmp"; then
     rm -f "$tmp"
     rc=1
@@ -90,7 +92,10 @@ fi
 while read -r p; do
   [[ -d $p ]] || continue
   if (( undo )); then
-    rm -f "$p/chrome/userChrome.css"
+    # Folded into rc like every other write: a chrome/ this user cannot write
+    # must not let `install undo` report success with our stylesheet still on
+    # disk and no warning printed.
+    rm -f "$p/chrome/userChrome.css" || rc=1
     rmdir "$p/chrome" 2>/dev/null
     merge_user_js "$p/user.js" </dev/null
     continue

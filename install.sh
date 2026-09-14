@@ -587,9 +587,8 @@ stage_bin() {
     mkdir -p "$HOME/.local/bin"
     local f dst
     # Every bin/hyprconf-* file; a new tool is one file in bin/. @HYPRCONF_DIR@
-    # is substituted the way the hooks get it, for the one tool that needs the
-    # checkout (hyprconf-firefox-theme, for PYTHONPATH). Rendered beside the
-    # target and mv'd over it:
+    # is substituted the way the post-update hook gets it, for any tool that
+    # needs the checkout path. Rendered beside the target and mv'd over it:
     # the rename is atomic, so a hotkey exec'ing one of these mid-install
     # runs old bytes or new, never a truncated prefix (a running tool keeps
     # its old inode); cmp keeps the steady-state re-run write-free, matching
@@ -1005,10 +1004,11 @@ stage_shell() {
     rm -f -- "$rendered"
 }
 
-# Every hook the overlay ships, hooks/<type>.d/<file>, into the matching
-# ~/.config/omarchy/hooks/<type>.d/ — the directories omarchy-hook runs
-# (post-update from omarchy-update, theme-set from omarchy-theme-set) —
-# through Omarchy's own `omarchy-hook-install <type> <file>` (4.0.0-1:
+# Every hook install.sh itself ships, hooks/<type>.d/<file>, into the matching
+# ~/.config/omarchy/hooks/<type>.d/ — the directories omarchy-hook runs. Only
+# post-update is left here; the theme-set hook is modules/firefox-theme's, and
+# that module installs it itself, self-contained (no @HYPRCONF_DIR@ to render).
+# Through Omarchy's own `omarchy-hook-install <type> <file>` (4.0.0-1:
 # mkdir -p the .d dir, cp under the file's basename, chmod 755; unchanged on
 # 4.0.2-1, bin/omarchy-hook-install:27-29). The hook is rendered first, with
 # @HYPRCONF_DIR@ substituted, into a temp dir under its final basename,
@@ -1029,72 +1029,6 @@ stage_hooks() {
             warn "omarchy-hook-install $type ${src##*/} failed"
     done
     rm -rf "$tmp"
-}
-
-# hyprconf's theme templates into Omarchy's user template directory,
-# ~/.config/omarchy/themed/: every <name>.tpl there is rendered by
-# omarchy-theme-set-templates on each theme set — {{ background }},
-# {{ foreground }}, {{ accent }}, {{ color0..15 }} and the rest of the list in
-# config/omarchy/themed/alacritty.toml.tpl.sample — into
-# ~/.local/state/omarchy/current/theme/<name>, user templates ahead of
-# default/themed (4.0.0-1). Copied when the bytes differ. The render for the
-# theme active RIGHT NOW is Omarchy's own `omarchy-theme-refresh` ("Refresh
-# the current theme from its templates": omarchy-theme-set of the current
-# theme.name with OMARCHY_THEME_SKIP_BACKGROUND=1, so the wallpaper stays) —
-# the templates renderer on its own writes only into theme-set's next-theme
-# staging dir and is called from nowhere else (the omarchy-theme-set-templates
-# call under omarchy-theme-set's flock, 4.0.2-1).
-# Run only when a template changed or its render is missing, so the
-# post-update hook's re-runs cost nothing; with no active theme yet the next
-# `omarchy theme set` renders it.
-stage_themed() {
-    log "Theme templates (~/.config/omarchy/themed)"
-    local dir="$HOME/.config/omarchy/themed"
-    local theme="$HOME/.local/state/omarchy/current/theme"
-    local tpl name changed=0 unrendered=0
-    for tpl in "$HERE"/themed/*.tpl; do
-        [[ -f $tpl ]] || continue
-        name="${tpl##*/}"
-        if [[ ! -f $dir/$name ]] || ! cmp -s "$tpl" "$dir/$name"; then
-            mkdir -p "$dir"
-            install -m 644 "$tpl" "$dir/$name"
-            changed=1
-            info "installed $name"
-        fi
-        [[ -f $theme/${name%.tpl} ]] || unrendered=1
-    done
-    if (( ! changed && ! unrendered )); then
-        info "already current and rendered"
-        return 0
-    fi
-    if [[ ! -r $theme.name ]]; then
-        info "no active theme yet — rendered on the next omarchy theme set"
-        return 0
-    fi
-    command -v omarchy-theme-refresh >/dev/null 2>&1 || {
-        warn "omarchy-theme-refresh not found — rendered on the next omarchy theme set"
-        return 0
-    }
-    info "rendering through omarchy-theme-refresh (Omarchy's own re-render of the current theme; the wallpaper is kept)"
-    omarchy-theme-refresh >/dev/null 2>&1 ||
-        warn "omarchy-theme-refresh failed — rendered on the next omarchy theme set"
-}
-
-# Extend the ACTIVE theme to Firefox now, not only on the next `omarchy
-# theme set`: the theme-set hook just installed is run once, the way
-# omarchy-theme-set runs it (`omarchy-hook theme-set <name>` after its own
-# fan-out — where VS Code is themed, by omarchy-theme-set-vscode). Not
-# set-once — the hook is idempotent and cheap, and a re-run keeps Firefox in
-# step with a theme switched while the overlay was not installed.
-stage_theme_apps() {
-    log "Theme into Firefox (theme-set hook)"
-    local hook="$HOME/.config/omarchy/hooks/theme-set.d/10-hyprconf"
-    local name="$HOME/.local/state/omarchy/current/theme.name"
-    if [[ ! -r $name ]]; then
-        info "no active theme yet — applies on the next omarchy theme set"
-        return 0
-    fi
-    bash "$hook" "$(cat "$name")" || warn "theme-set hook failed — see the messages above"
 }
 
 stage_update() {
@@ -1127,6 +1061,7 @@ main() {
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
     bash "$HERE/modules/fastfetch/install"
     bash "$HERE/modules/firefox/install"
+    bash "$HERE/modules/firefox-theme/install"
     bash "$HERE/modules/font/install"
     bash "$HERE/modules/idle/install"
     bash "$HERE/modules/keychron/install"
@@ -1142,9 +1077,6 @@ main() {
     stage_window_title
     stage_shell
     stage_hooks
-    # Before stage_theme_apps: its hook wants the templates rendered.
-    stage_themed
-    stage_theme_apps
     hyprctl reload >/dev/null 2>&1 || true
     if (( do_update )); then stage_update; fi
 

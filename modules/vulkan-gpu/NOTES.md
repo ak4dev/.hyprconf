@@ -49,9 +49,10 @@ Module = `install` (one symlink) + `bin/hyprconf-vulkan-gpu` + `README.md` + `te
 
 ## What to delete / rewire in the legacy tree
 
-- `install.sh`: `stage_bin` (954-982) **cannot go with this module alone** — it still installs `hyprconf-gaps`,
-  `hyprconf-monitor-preset` (hypr), `hyprconf-firefox-theme` (firefox-theme) and `hyprconf-yubikey` (yubikey).
-  Delete it once those four are modules; nothing else in `install.sh` names vulkan any more.
+- `install.sh`: `stage_bin` **cannot go with this module alone** — it still installs `hyprconf-gaps` and
+  `hyprconf-monitor-preset` (hypr) and `hyprconf-yubikey` (yubikey). (`hyprconf-firefox-theme` is already gone:
+  modules/firefox-theme replaced it with a self-contained bash hook.) Delete `stage_bin` once those three are
+  modules; nothing else in `install.sh` names vulkan any more.
 - Payload: `bin/hyprconf-vulkan-gpu` (copied — take the module's version, it is not a byte copy).
 - `tests/unit/test_vulkan_gpu.py` — delete; `modules/vulkan-gpu/test_vulkan_gpu.py` replaces it whole.
 - `tests/unit/test_omarchy_install.py`: `test_every_shipped_tool_lands_on_path` (1883-1893) asserts **copied bytes

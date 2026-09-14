@@ -3,7 +3,7 @@
 ## What
 
 Omarchy's theme fan-out is Chromium-only (`omarchy-theme-set-browser:8-13`). `userChrome.css.tpl` goes to
-`~/.config/omarchy/themed/`, rendered by `omarchy-theme-set-templates:375` to
+`~/.config/omarchy/themed/`, rendered ahead of the built-ins (`omarchy-theme-set-templates:375,390-399`) to
 `~/.local/state/omarchy/current/theme/userChrome.css` on every theme set, and `hook` to
 `~/.config/omarchy/hooks/theme-set.d/10-hyprconf`, which `omarchy-theme-set:341` runs after every set. It copies that
 render to `<profile>/chrome/userChrome.css` when the bytes differ and rewrites the three prefs below in
@@ -33,7 +33,10 @@ scheme alone: both built-in ids are `inApp` (`BuiltInThemeConfig.sys.mjs:29,38`)
 ## Undo
 
 `install undo`: hook, template, render and each profile's `chrome/userChrome.css` go, and the three `user_pref` lines
-come back out of `user.js` (removed when it held nothing else). Restart Firefox.
+come back out of `user.js` (removed when it held nothing else). Restart Firefox. `chrome/userChrome.css` is this
+module's file outright — a `userChrome.css` you wrote yourself is replaced, not merged, and removed by the undo; move
+it aside first. A profile file that will not go makes the undo exit non-zero and say so, the module's own three files
+gone regardless.
 
 ## Verified against Omarchy 4.0.3-1
 

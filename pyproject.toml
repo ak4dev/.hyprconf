@@ -4,11 +4,10 @@
 # Each module carries its own test_<name>.py beside its `install`, collected
 # through the repo-root conftest.py (a tests/conftest.py would never reach
 # modules/). Default import mode: the files under tests/ are package modules
-# (tests/__init__.py, tests/unit/__init__.py), so tests/unit/test_firefox.py
-# imports as tests.unit.test_firefox and never collides with the top-level
-# test_firefox from modules/firefox/ — and every module basename is unique.
-pythonpath = ["lib"]
-testpaths  = ["modules", "tests"]
+# (tests/__init__.py, tests/unit/__init__.py), so a name there can never
+# collide with a top-level module test — and every module basename is unique,
+# which is what the two prepend-import halves need to coexist.
+testpaths = ["modules", "tests"]
 
 [tool.ruff]
 line-length = 100
