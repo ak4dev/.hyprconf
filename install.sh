@@ -892,21 +892,6 @@ stage_monitors() {
     done
 }
 
-stage_fastfetch() {
-    log "fastfetch greeting"
-    # Omarchy's own fastfetch layout is the system-wide default,
-    # /etc/fastfetch/config.jsonc (owned by omarchy-settings 4.0.0-1) — and
-    # fastfetch reads ~/.config/fastfetch/config.jsonc first, its documented
-    # per-user override, so hyprconf's layout is linked there and Omarchy's
-    # file is left untouched. A user config already at that path is backed
-    # up first. ~/.zshrc runs it as the shell greeting.
-    local dir="$HOME/.config/fastfetch"
-    local target="$dir/config.jsonc"
-    mkdir -p "$dir"
-    backup_before_link "$target" "$HERE/fastfetch/config.jsonc"
-    ln -sfn "$HERE/fastfetch/config.jsonc" "$target"
-}
-
 stage_bin() {
     log "PATH tools (bin/hyprconf-*)"
     mkdir -p "$HOME/.local/bin"
@@ -1456,7 +1441,6 @@ main() {
     stage_hotkeys
     stage_looknfeel
     stage_monitors
-    stage_fastfetch
     stage_bin
     stage_bar_plugin
     stage_clock
@@ -1469,6 +1453,7 @@ main() {
     stage_theme_apps
     # Self-contained modules: each one applies, gates and undoes itself
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
+    bash "$HERE/modules/fastfetch/install"
     bash "$HERE/modules/keychron/install"
     hyprctl reload >/dev/null 2>&1 || true
     if (( do_update )); then stage_update; fi

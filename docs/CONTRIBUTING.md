@@ -41,13 +41,12 @@ publish flow and the website upload.
 ├── wallpapers/                 # Extra backgrounds, filed per Omarchy theme
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
 ├── kitty/hyprconf.conf         # kitty include
-├── fastfetch/config.jsonc      # Greeting layout
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 ├── hooks/theme-set.d/10-hyprconf     # Runs firefox_theme.py after every omarchy theme set
 ├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
 │
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: keychron
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, keychron
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names

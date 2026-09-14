@@ -329,7 +329,6 @@ PAYLOAD = (
     "lib",
     "zsh",
     "kitty",
-    "fastfetch",
     "themes",
     "wallpapers",
     "plugins",
@@ -841,11 +840,9 @@ def test_a_dotfiles_link_at_an_override_path_is_backed_up_as_a_link(
     theirs = tmp_path / "dotfiles"
     theirs.mkdir()
     (theirs / "bindings.lua").write_text("-- their own bindings\n")
-    (theirs / "config.jsonc").write_text('{"their": "fastfetch"}\n')
     (theirs / "p10k.zsh").write_text("# their own prompt\n")
     links = {
         env["home"] / ".config" / "hypr" / "bindings.lua": theirs / "bindings.lua",
-        env["home"] / ".config" / "fastfetch" / "config.jsonc": theirs / "config.jsonc",
         env["home"] / ".p10k.zsh": theirs / "p10k.zsh",
     }
     for link, src in links.items():
@@ -1809,28 +1806,6 @@ def test_defaults_marker_survives_the_setters_failing_notification(tmp_path: Pat
     _run(env, "--no-update")
     assert not any(c.startswith("omarchy-default-editor ") for c in _calls(env))
     assert (tmp_path / "editor").read_text() == "helix"
-
-
-def test_fastfetch_config_is_linked_with_a_stock_backup(tmp_path: Path) -> None:
-    """README: 'Symlink (an existing file backed up to config.jsonc.stock)'.
-    A user's real config.jsonc must land in the backup byte-for-byte before
-    the link replaces it — the one stage that had no pin."""
-    env = _setup(tmp_path)
-    target = env["home"] / ".config" / "fastfetch" / "config.jsonc"
-    target.parent.mkdir(parents=True)
-    target.write_text('{"user": "layout"}\n')
-    _run(env, "--no-update")
-    assert target.is_symlink()
-    assert target.resolve() == (REPO_ROOT / "fastfetch" / "config.jsonc").resolve()
-    assert (target.parent / "config.jsonc.stock").read_text() == '{"user": "layout"}\n'
-
-
-def test_fastfetch_link_without_existing_config_makes_no_backup(tmp_path: Path) -> None:
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    target = env["home"] / ".config" / "fastfetch" / "config.jsonc"
-    assert target.is_symlink()
-    assert not (target.parent / "config.jsonc.stock").exists()
 
 
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:

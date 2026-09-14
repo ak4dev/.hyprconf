@@ -47,10 +47,16 @@ typeset -g POWERLEVEL9K_OS_ICON_CONTENT_EXPANSION=$''
 # the way every other payload that names the checkout is.
 alias hyprsync='bash "@HYPRCONF_DIR@/install.sh" --sync'
 
-# Shell greeting. The layout lives in fastfetch/config.jsonc, linked to
-# ~/.config/fastfetch/config.jsonc by the installer.
-command -v fastfetch >/dev/null 2>&1 &&
-  fastfetch --logo arch2 --logo-color-1 green --logo-color-2 green
+# Shell greeting. The layout is the `fastfetch` module's, and fastfetch's own
+# default when that module is not installed. The logo flags the line used to
+# carry live in the module's config, in its own `logo` block.
+if command -v fastfetch >/dev/null 2>&1; then
+  if [ -r "$HOME/.config/hyprconf/fastfetch.jsonc" ]; then
+    fastfetch -c "$HOME/.config/hyprconf/fastfetch.jsonc"
+  else
+    fastfetch
+  fi
+fi
 
 # zsh-syntax-highlighting must be sourced last — it wraps the widgets that
 # everything above may have defined.
