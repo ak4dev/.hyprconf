@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
-# hyprconf/idle — the screensaver starts after 15 minutes instead of Omarchy's 150 s.
-#
-# Omarchy ships no command for the key (`omarchy commands --json` routes only branding /
-# launch / toggle screensaver; `omarchy toggle idle` is a stay-awake state file,
-# bin/omarchy-toggle-idle:8-9), so the seam is the sourceable writer every Omarchy
-# shell.json writer takes — bin/omarchy-shell-config (Omarchy 4.0.3-1), the way
-# bin/omarchy-bar:10 takes it. What commit() does, and why the source must be in a
-# subshell: README.md beside this file.
-#
-# Set ONCE behind a marker: shell.json is the user's file and a timeout changed later
-# stays theirs. Only .idle.screensaver is written; .idle.lock is left as Omarchy has it.
+# hyprconf/idle — the screensaver starts after 15 minutes instead of Omarchy's 150 s, once.
+# Seam: bin/omarchy-shell-config, sourced; omarchy commands --json has no writer for the key (bin/omarchy-toggle-idle:8-9 is a stay-awake flag).
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -18,20 +9,17 @@ seconds=900
 json=$HOME/.config/omarchy/shell.json
 marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/idle-applied
 
-# One shell.json edit, through Omarchy's own writer.
 edit() {
   local helper
   helper=$(command -v omarchy-shell-config) || return 1
   # shellcheck source=/dev/null
-  ( source "$helper" && commit "$1" )
+  ( source "$helper" && commit "$1" )   # subshell: the helper traps EXIT (:51) and fail() exits 1
 }
 
 if [[ ${1:-} == undo ]]; then
-  # Dropping the key restores Omarchy's own 150 s: a valid user shell.json replaces the
-  # defaults file whole, no deep merge (shell/shell.qml:73-88), and the idle service then
-  # falls back to defaultScreensaverSeconds = 150
-  # (shell/plugins/services/idle/Service.qml:17,21). Guarded, so an undo with no user
-  # shell.json does not materialise one out of the shipped defaults (source_file:20-26).
+  # Dropping the key restores the stock 150 s: a user shell.json replaces the defaults whole
+  # (shell/shell.qml:73-88), then plugins/services/idle/Service.qml:17,21 applies 150. Guarded,
+  # or commit()'s defaults fallback (omarchy-shell-config:20-26) writes a file the user never had.
   if [[ -s $json ]] && jq -e '.idle.screensaver != null' "$json" >/dev/null 2>&1; then
     edit 'del(.idle.screensaver)' ||
       echo "  could not restore idle.screensaver — remove it from $json by hand"
