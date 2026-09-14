@@ -11,8 +11,8 @@ check: lint shellcheck test
 shellcheck:
 	@# Every bash script in the tree, selected by SHEBANG — the rule
 	@# tests/unit/test_omarchy_install.py::_overlay_scripts states. Anchored:
-	@# a plain `/bash/` also matched prose, e.g. a first-line comment saying
-	@# the login shell stays bash (modules/shell-zsh/hyprconf-zsh.conf).
+	@# a plain `/bash/` also matched prose — any first-line comment that
+	@# merely mentions bash, as a config header naming a shell does.
 	@files=$$(find . -path ./.git -prune -o -type f \
 	    -exec awk 'FNR==1{if(/^#!.*bash/)print FILENAME; nextfile}' {} +); \
 	[ -n "$$files" ] || { echo "shellcheck: no bash scripts found" >&2; exit 1; }; \
