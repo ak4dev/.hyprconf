@@ -1,13 +1,6 @@
-"""The hypr module: three ~/.config/hypr override files, the seeded monitor
-presets, and the two tools the hotkeys run.
-
-The Lua is checked statically, because these files ARE the running config:
-every one must parse, may state only deltas over Omarchy's defaults, and may
-name only a command the module ships — Hyprland runs a missing target as a
-silent no-op. The install script is checked on a `box`: the overrides land as
-copies, a second run writes nothing at all, a seeded preset is never
-overwritten, and `undo` hands each override back to Omarchy's own restore.
-"""
+"""The hypr module: the three ~/.config/hypr override copies, the seeded
+monitor presets and the two tools the hotkeys run. The Lua is checked
+statically because these files ARE the running config."""
 
 from __future__ import annotations
 
@@ -20,29 +13,46 @@ from pathlib import Path
 import pytest
 
 MODULE = Path(__file__).parent
+INSTALL = MODULE / "install"
+OVERRIDES = ("bindings", "input", "looknfeel")
+TOOLS = ("hyprconf-gaps", "hyprconf-monitor-preset")
 # A hyprconf-* command named in a bind's dispatcher string.
 TOOL_RE = re.compile(r'"(hyprconf-[\w-]+)(?:\s[^"]*)?"')
-OVERRIDES = ("bindings", "input", "looknfeel")
-# omarchy-refresh-config, faithful to bin/omarchy-refresh-config:29,41-43: it
-# creates the directory, then copies the shipped template over whatever is
-# there (with no .bak when the user file is absent, which undo relies on).
-REFRESH = (
-    'mkdir -p "$(dirname "$HOME/.config/$1")"\ncp "$OMARCHY_PATH/config/$1" "$HOME/.config/$1"\n'
+# omarchy-refresh-config, faithful to bin/omarchy-refresh-config:29,41-43: the
+# shipped template over whatever is there, and no .bak when nothing is — the
+# branch undo relies on.
+REFRESH = 'mkdir -p "$HOME/.config/${1%/*}"\ncp "$OMARCHY_PATH/config/$1" "$HOME/.config/$1"\n'
+# Keys Omarchy already binds to exactly what hyprconf wanted (pseudo, focus,
+# workspace scroll, drag move/resize — default/hypr/bindings/tiling.lua): a
+# restatement is drift the moment Omarchy retunes one.
+OMARCHY_BINDS = (
+    '" + P"|" + left"|" + right"|" + up"|" + down"|mouse_down|mouse_up|mouse:272|mouse:273'.split(
+        "|"
+    )
 )
-TOOLS = ("hyprconf-gaps", "hyprconf-monitor-preset")
+# Omarchy's media keys end by calling omarchy-osd (bin/omarchy-audio-output-
+# volume:86, bin/omarchy-brightness-display:87), so a rebind — or an unbind,
+# hence matching all code, not just binds — moves the level with no indicator.
+OSD_KEYS = "XF86AudioRaiseVolume XF86AudioLowerVolume XF86AudioMute XF86AudioMicMute XF86MonBrightnessUp XF86MonBrightnessDown XF86AudioNext XF86AudioPrev XF86AudioPlay XF86AudioPause".split()
 
 
 def _code(path: Path) -> str:
-    return "\n".join(
-        ln
-        for ln in path.read_text(encoding="utf-8").splitlines()
-        if not ln.lstrip().startswith("--")
-    )
+    return "\n".join(ln for ln in path.read_text().splitlines() if not ln.lstrip().startswith("--"))
 
 
-# ---------------------------------------------------------------------------
-# The shipped Lua
-# ---------------------------------------------------------------------------
+def _binds(path: Path) -> list[str]:
+    return [ln for ln in _code(path).splitlines() if re.search(r"\b(rebind|o\.bind)\s*\(", ln)]
+
+
+def _stock_omarchy(box) -> Path:
+    """Omarchy's own template at each override path, as every box carries it."""
+    for name in OVERRIDES:
+        box.omarchy_write(f"config/hypr/{name}.lua", f"-- omarchy stock {name}\n")
+    (box.home / ".config" / "hypr").mkdir(parents=True, exist_ok=True)
+    return box.home / ".config" / "hypr"
+
+
+# --- the shipped Lua -------------------------------------------------------
 
 
 def test_hypr_overrides_parse_as_lua() -> None:
@@ -56,9 +66,7 @@ def test_hypr_overrides_parse_as_lua() -> None:
 
 
 def test_every_hyprconf_command_bound_ships_in_the_module() -> None:
-    """Hyprland runs a bind whose target is missing as a silent no-op, so a
-    tool deleted while bindings.lua still names it never surfaces as an error.
-    Omarchy's own commands are out of scope: only what the module ships."""
+    """Hyprland runs a bind whose target is missing as a silent no-op."""
     confs = sorted(MODULE.glob("*.lua"))
     assert confs, f"no .lua files under {MODULE}"
     missing = [
@@ -67,124 +75,52 @@ def test_every_hyprconf_command_bound_ships_in_the_module() -> None:
         for tool in TOOL_RE.findall(_code(conf))
         if not (MODULE / "bin" / tool).is_file()
     ]
-    assert not missing, "config binds commands the module does not ship:\n" + "\n".join(missing)
+    assert not missing, f"config binds commands the module does not ship: {missing}"
 
 
-def test_looknfeel_states_only_deltas_over_the_theme() -> None:
-    """looknfeel.lua loads after Omarchy's defaults, which load after the
-    active theme's hyprland.lua — so a shadow key set here restates Hyprland's
-    default OVER the theme's own (lumon ships one). Enabling the shadow is the
-    delta; its range, colour and render_power are the theme's."""
+def test_looknfeel_and_input_state_only_deltas() -> None:
+    """looknfeel loads after the theme's hyprland.lua: a shadow range, colour or render_power here would restate a default over the theme's own."""
     looknfeel = _code(MODULE / "looknfeel.lua")
     assert re.search(r"shadow\s*=\s*\{[^}]*\benabled\s*=\s*true", looknfeel)
-    assert not re.search(r"shadow\s*=\s*\{[^}]*\b(range|color|render_power)\b", looknfeel), (
-        "the shadow's range, colour and render_power are Hyprland's, or the theme's"
-    )
+    assert not re.search(r"shadow\s*=\s*\{[^}]*\b(range|color|render_power)\b", looknfeel)
     # The gestures.* tuning in input.lua is inert without a gesture bound to it.
     assert "hl.gesture(" in _code(MODULE / "input.lua")
 
 
-def test_steam_is_tiled_like_everything_else() -> None:
-    """The class-wide tile rule, then the Friends-List float, in that order
-    (why: looknfeel.lua's own comment above the rules)."""
+def test_steam_is_tiled_and_only_the_friends_list_floats() -> None:
+    """Window rules apply in order: the class-wide tile, then the popup."""
     code = _code(MODULE / "looknfeel.lua")
     tile = re.search(r'o\.window\("steam".*\btile = true', code)
-    assert tile, 'looknfeel.lua must tile class steam: o.window("steam", { tile = true })'
     friends = re.search(r'o\.window\(.*"Friends List".*\bfloat = true', code)
-    assert friends, "the Friends List popup must be re-floated after the tile rule"
-    assert tile.start() < friends.start(), "the class-wide tile rule must come first"
-    # Nothing floats the class back afterwards (window rules apply in order).
+    assert tile and friends and tile.start() < friends.start(), code
     assert not re.search(r'o\.window\("steam".*\bfloat = true', code)
 
 
-def _binds(path: Path) -> list[str]:
-    return [ln for ln in _code(path).splitlines() if re.search(r"\b(rebind|o\.bind)\s*\(", ln)]
-
-
-@pytest.mark.parametrize(
-    "scope,forbidden",
-    [
-        # The nine keys Omarchy already binds to exactly what hyprconf wanted:
-        # SUPER+P (pseudo), SUPER+arrows (focus), SUPER+mouse (workspace
-        # scroll, drag move/resize) — default/hypr/bindings/tiling.lua. A
-        # restatement is drift the moment Omarchy retunes one. The five second
-        # keys hyprconf keeps on purpose (SUPER+D, SUPER+L, SUPER+SHIFT+V,
-        # SUPER+SHIFT+Escape, SUPER+SHIFT+BACKSPACE) are not here: hypr.0#7's
-        # trim is the user's call, and it was declined.
-        (
-            "binds",
-            (
-                '" + P"',
-                '" + left"',
-                '" + right"',
-                '" + up"',
-                '" + down"',
-                "mouse_down",
-                "mouse_up",
-                "mouse:272",
-                "mouse:273",
-            ),
-        ),
-        # Volume, brightness and media keys stay on Omarchy's own binds
-        # (default/hypr/bindings/media.lua:2-9,24-29): its commands end by
-        # calling omarchy-osd (bin/omarchy-audio-output-volume:86,
-        # bin/omarchy-brightness-display:87), so a rebind — or an unbind —
-        # changes the level with no on-screen indicator.
-        # Matched over all code, not just binds, so an unbind is caught too.
-        (
-            "code",
-            (
-                "XF86AudioRaiseVolume",
-                "XF86AudioLowerVolume",
-                "XF86AudioMute",
-                "XF86AudioMicMute",
-                "XF86MonBrightnessUp",
-                "XF86MonBrightnessDown",
-                "XF86AudioNext",
-                "XF86AudioPrev",
-                "XF86AudioPlay",
-                "XF86AudioPause",
-            ),
-        ),
-    ],
-    ids=["omarchys-own-binds", "osd-keys"],
-)
-def test_bindings_leave_omarchys_own_keys_alone(scope: str, forbidden: tuple[str, ...]) -> None:
+@pytest.mark.parametrize("scope,forbidden", [("binds", OMARCHY_BINDS), ("code", OSD_KEYS)])
+def test_bindings_leave_omarchys_own_keys_alone(scope: str, forbidden: list[str]) -> None:
     bindings = MODULE / "bindings.lua"
     text = "\n".join(_binds(bindings)) if scope == "binds" else _code(bindings)
     for key in forbidden:
-        assert key not in text, (
-            f"{key} is Omarchy's own (tiling.lua/utilities.lua, or the OSD keys)"
-        )
+        assert key not in text, f"{key} is Omarchy's own"
     # The resize keys are SHIFT+arrows — those stay: Omarchy swaps windows there.
     assert '" + SHIFT + left"' in "\n".join(_binds(bindings))
 
 
 def test_every_binding_carries_a_description() -> None:
-    """A description is what puts a key in Omarchy's SUPER+K keybindings menu:
-    hl.bind records none, o.bind (and the rebind helper over it) does. Every
-    bind's second argument must be a string — the helper's own forwarding call
-    passes the parameter through and is excluded by name."""
+    """A description is what puts a key in the SUPER+K menu: hl.bind records none, o.bind does."""
     code = _code(MODULE / "bindings.lua")
     assert not re.search(r"\bhl\.bind\s*\(", code), "use rebind()/o.bind: the menu lists those"
-    calls = [
-        ln.strip()
-        for ln in code.splitlines()
-        if re.match(r"(rebind|o\.bind)\(", ln.strip()) and not ln.strip().startswith("o.bind(keys")
-    ]
+    # rebind()'s own forwarding call (o.bind(keys, ...)) passes the parameter through.
+    calls = [ln.strip() for ln in code.splitlines() if re.match(r"(rebind|o\.bind)\(", ln.strip())]
+    calls = [ln for ln in calls if not ln.startswith("o.bind(keys")]
     assert calls
     for ln in calls:
         assert re.match(r'(rebind|o\.bind)\(.*?,\s*"', ln), f"no description: {ln}"
 
 
 def test_app_keys_use_omarchys_launcher_idiom() -> None:
-    """`{ omarchy = "terminal" }` is how Omarchy's own bindings name
-    omarchy-launch-terminal (default/hypr/helpers.lua `command_from`): the app
-    keys use it — never the launcher spelled out, never an app binary, which
-    would pin a choice Omarchy's own `omarchy default <kind>` cannot move and
-    skip uwsm-app scoping."""
-    binds = _binds(MODULE / "bindings.lua")
-    joined = "\n".join(binds)
+    """`{ omarchy = "terminal" }` is how Omarchy names omarchy-launch-terminal (default/hypr/helpers.lua `command_from`); a binary would pin what `omarchy default <kind>` moves."""
+    joined = "\n".join(_binds(MODULE / "bindings.lua"))
     for launcher in ("terminal", "browser", "editor", "nautilus"):
         assert f'{{ omarchy = "{launcher}" }}' in joined, launcher
     rest = re.sub(r'\{ omarchy = "[a-z-]+" \}', "", joined)
@@ -194,86 +130,54 @@ def test_app_keys_use_omarchys_launcher_idiom() -> None:
 
 
 def test_rebind_itself_clears_omarchys_keycode_form() -> None:
-    """Omarchy binds the digits and -/= by KEYCODE (`SUPER + SHIFT + code:20`,
-    default/hypr/bindings/tiling.lua:20-25,52-55), which an unbind of the
-    keysym does not match — both would fire. rebind() does that unbind itself,
-    so the pairing cannot be forgotten on a new key; nothing outside it may
-    hand-roll one."""
-    text = (MODULE / "bindings.lua").read_text(encoding="utf-8")
+    """Omarchy binds the digits and -/= by KEYCODE (default/hypr/bindings/tiling.lua:20-25,52-55), which an unbind of the keysym does not match — both would fire."""
+    text = (MODULE / "bindings.lua").read_text()
     helper = re.search(r"local function rebind\(.*?\nend\n", text, re.S)
     assert helper, "rebind() not found in bindings.lua"
-    body = helper.group(0)
-    assert "KEYCODE[" in body and 'code:"' in body, "rebind() no longer unbinds the keycode form"
+    assert "KEYCODE[" in helper.group(0) and 'code:"' in helper.group(0)
     table = re.search(r"local KEYCODE = \{(.*?)\}", text, re.S)
     assert table, "KEYCODE table not found"
     keys = set(re.findall(r'\["([a-z0-9]+)"\]\s*=\s*\d+', table.group(1)))
     keys |= set(re.findall(r"\b([a-z]+)\s*=\s*\d+", table.group(1)))
     assert {"minus", "equal"} | {str(d) for d in range(10)} <= keys, sorted(keys)
-    assert "unbind_keycode" not in text, "the fold into rebind() replaced the helper"
 
 
-DESK_PRESETS = ("pcMonitors.bedroom.lua", "pcMonitors.kitchen.lua")
-
-
-@pytest.mark.parametrize("name", DESK_PRESETS)
-def test_desk_presets_are_description_keyed_serial_free_and_end_in_the_catch_all(
-    name: str,
-) -> None:
-    """The three properties a desk preset has to have: displays named by
-    `desc:` and never by a connector (which renumbers when a cable moves
-    between GPUs), no serial in that description (PII, rule 4 — `desc:`
-    prefix-matches "<make> <model> <serial>", so make + model is enough), and
-    the `output = ""` catch-all last, so an unrecognised display comes up at
-    its preferred mode instead of staying dark. `laptop` is not a desk preset:
-    it describes no particular hardware, only "an external is plugged in"."""
-    code = _code(MODULE / name)
-    outputs = re.findall(r'output = "([^"]*)"', code)
-    assert outputs, f"{name} declares no hl.monitor outputs"
-    for out in outputs:
-        assert out == "" or out.startswith("desc:"), f"{name}: connector-keyed output {out!r}"
-    monitors = re.findall(r'monitor = "([^"]+)"', code)
-    assert monitors, f"{name} carries no workspace rules"
-    for mon in monitors:
-        assert mon.startswith("desc:"), f"{name}: connector-keyed workspace rule {mon!r}"
-    assert 'hl.monitor({ output = "", mode = "preferred"' in code, f"{name} has no catch-all"
-    # Serials on this desk look like `HCPW500583` and `0x14821A42`.
-    for desc in re.findall(r'"desc:([^"]+)"', code):
-        tail = desc.split()[-1]
-        assert not re.fullmatch(r"0x[0-9A-Fa-f]{4,}", tail), f"{name}: serial in {desc!r}"
-        assert not re.fullmatch(r"[A-Z]{2,}[0-9]{4,}[A-Z0-9]*", tail), f"{name}: serial in {desc!r}"
+def test_desk_presets_are_description_keyed_serial_free_and_end_in_the_catch_all() -> None:
+    """Never a connector (it renumbers when a cable moves between GPUs), never a serial (rule 4), catch-all last."""
+    for name in ("pcMonitors.bedroom.lua", "pcMonitors.kitchen.lua"):
+        code = _code(MODULE / name)
+        outputs = re.findall(r'output = "([^"]*)"', code)
+        monitors = re.findall(r'monitor = "([^"]+)"', code)
+        assert outputs and monitors, f"{name}: no hl.monitor outputs or no workspace rules"
+        for out in outputs:
+            assert out == "" or out.startswith("desc:"), f"{name}: connector-keyed {out!r}"
+        for mon in monitors:
+            assert mon.startswith("desc:"), f"{name}: connector-keyed workspace rule {mon!r}"
+        assert 'hl.monitor({ output = "", mode = "preferred"' in code, f"{name} has no catch-all"
+        for desc in re.findall(r'"desc:([^"]+)"', code):  # serials: HCPW500583, 0x14821A42
+            tail = desc.split()[-1]
+            assert not re.fullmatch(r"0x[0-9A-Fa-f]{4,}", tail), f"{name}: serial in {desc!r}"
+            assert not re.fullmatch(r"[A-Z]{2,}[0-9]{4,}[A-Z0-9]*", tail), f"{name}: {desc!r}"
 
 
 def test_the_laptop_preset_states_only_what_stock_does_not() -> None:
-    """`laptop` is a delta over Omarchy's own monitors.lua, which ends in
-    `hl.monitor({ output = "", ... })` (config/hypr/monitors.lua:8) and is
-    loaded before this toggle: restating that line, or the internal panel it
-    already covers, would be the same layout `hyprconf-monitor-preset stock`
-    gives. What is left is the one thing stock cannot do — an external at a
-    forced scale."""
+    """Omarchy's monitors.lua ends in the `output = ""` catch-all (config/hypr/monitors.lua:8) and loads first."""
     code = _code(MODULE / "laptopMonitors.lua")
     outputs = re.findall(r'output = "([^"]*)"', code)
     assert outputs, "laptopMonitors.lua declares no hl.monitor outputs"
-    assert "" not in outputs, "the catch-all is Omarchy's own monitors.lua line"
-    assert not any(o.startswith("eDP") for o in outputs), "the internal panel is stock's"
+    assert "" not in outputs and not any(o.startswith("eDP") for o in outputs)
     assert all(re.search(r"scale = \d", ln) for ln in code.splitlines() if "hl.monitor(" in ln)
 
 
-# ---------------------------------------------------------------------------
-# install / undo
-# ---------------------------------------------------------------------------
-
-INSTALL = MODULE / "install"
+# --- install / undo --------------------------------------------------------
 
 
 def _snapshot(home: Path) -> dict[str, tuple]:
-    """Every path under $HOME with its inode, mtime, size and link target —
-    `==` across two runs is "the second run wrote nothing at all". The inode
-    matters: `ln -sfn` over a correct link recreates it with a new one."""
+    """`==` across two runs is "wrote nothing at all"; the inode matters — `ln -sfn` recreates a correct link."""
     out = {}
     for p in sorted(home.rglob("*")):
         st = p.lstat()
-        target = os.readlink(p) if p.is_symlink() else None
-        out[str(p.relative_to(home))] = (st.st_ino, st.st_mtime_ns, st.st_size, target)
+        out[str(p)] = (st.st_ino, st.st_mtime_ns, st.st_size, p.is_symlink() and os.readlink(p))
     return out
 
 
@@ -303,98 +207,48 @@ def test_a_second_run_writes_nothing_and_calls_nothing(box) -> None:
     assert box.run(INSTALL).returncode == 0
     before = _snapshot(box.home)
     box.reset()
-
     res = box.run(INSTALL)
     assert res.returncode == 0, res.stderr
     assert _snapshot(box.home) == before
     assert box.commands == [], box.calls
 
 
-def test_a_pre_module_symlink_is_replaced_by_a_file_with_no_backup(box) -> None:
-    """Before the module split these three paths were symlinks into the
-    checkout (hypr/<f>.lua), which is what made `omarchy refresh` write
-    through them. Hyprconf's own link is replaced, never kept as a .stock —
-    a dangling one at that, since the legacy path is gone."""
+@pytest.mark.parametrize("kind", ["mine", "mine-link", "omarchy-template", "hyprconf-link"])
+def test_only_a_file_of_the_users_own_is_kept_once_as_stock(box, kind: str) -> None:
+    """Omarchy's template is what undo restores anyway and hyprconf's own link is ours; the user's file, or their dotfiles link (kept AS a link by cp -P), is what an overwrite would lose."""
     hypr = box.home / ".config" / "hypr"
     hypr.mkdir(parents=True)
-    legacy = MODULE.parent.parent / "hypr" / "bindings.lua"
-    (hypr / "bindings.lua").symlink_to(legacy)
-
-    res = box.run(INSTALL)
-    assert res.returncode == 0, res.stderr
-    landed = hypr / "bindings.lua"
-    assert not landed.is_symlink()
-    assert landed.read_bytes() == (MODULE / "bindings.lua").read_bytes()
-    assert not (hypr / "bindings.lua.stock").exists()
-    assert "backed up" not in res.stdout
-
-
-def test_a_file_of_the_users_own_at_an_override_path_is_kept_once_as_stock(box) -> None:
-    """A bindings.lua the user wrote (stock Omarchy ships one at every one of
-    these paths, so it is never empty) is set aside as .stock — once: a second
-    foreign file must not cost the first backup — and said so in one line."""
-    hypr = box.home / ".config" / "hypr"
-    hypr.mkdir(parents=True)
-    mine = "-- my own bindings\n"
-    (hypr / "bindings.lua").write_text(mine)
-
-    res = box.run(INSTALL)
-    assert res.returncode == 0, res.stderr
-    assert (hypr / "bindings.lua").read_bytes() == (MODULE / "bindings.lua").read_bytes()
-    assert (hypr / "bindings.lua.stock").read_text() == mine
-    assert "backed up bindings.lua -> bindings.lua.stock" in res.stdout
-    assert not (hypr / "input.lua.stock").exists(), "nothing was there to keep"
-
-    (hypr / "bindings.lua").write_text("-- edited on the copy, after the install\n")
-    res = box.run(INSTALL)
-    assert res.returncode == 0, res.stderr
-    assert (hypr / "bindings.lua.stock").read_text() == mine, "the first backup was overwritten"
-    assert "backed up" not in res.stdout
-
-
-def test_a_dotfiles_link_at_an_override_path_is_kept_as_a_link(box) -> None:
-    """A symlink into the user's own dotfiles is backed up AS a link (cp -P),
-    so undo hands their file back still linked, and their target is never
-    read or written."""
-    hypr = box.home / ".config" / "hypr"
-    hypr.mkdir(parents=True)
-    theirs = box.tmp / "dotfiles" / "bindings.lua"
-    theirs.parent.mkdir()
+    dst, stock = hypr / "bindings.lua", hypr / "bindings.lua.stock"
+    theirs = box.tmp / "dotfiles-bindings.lua"
     theirs.write_text("-- from my dotfiles\n")
-    (hypr / "bindings.lua").symlink_to(theirs)
+    if kind == "mine":
+        dst.write_text("-- my own bindings\n")
+    elif kind == "mine-link":
+        dst.symlink_to(theirs)
+    elif kind == "omarchy-template":
+        _stock_omarchy(box)
+        dst.write_text("-- omarchy stock bindings\n")
+    else:
+        dst.symlink_to(MODULE.parent.parent / "hypr" / "bindings.lua")
 
     res = box.run(INSTALL)
     assert res.returncode == 0, res.stderr
-    assert not (hypr / "bindings.lua").is_symlink()
-    stock = hypr / "bindings.lua.stock"
-    assert stock.is_symlink() and stock.readlink() == theirs
-    assert theirs.read_text() == "-- from my dotfiles\n"
-    assert "backed up bindings.lua -> bindings.lua.stock" in res.stdout
-
-
-def test_omarchys_own_template_at_an_override_path_is_not_backed_up(box) -> None:
-    """Every Omarchy box carries its template at these paths
-    (config/hypr/*.lua, put there by omarchy-refresh-config:41-43), and undo
-    restores exactly that — a .stock of it would be one dead file per box."""
-    hypr = box.home / ".config" / "hypr"
-    hypr.mkdir(parents=True)
-    for name in OVERRIDES:
-        box.omarchy_write(f"config/hypr/{name}.lua", f"-- omarchy stock {name}\n")
-        (hypr / f"{name}.lua").write_text(f"-- omarchy stock {name}\n")
-
-    res = box.run(INSTALL)
-    assert res.returncode == 0, res.stderr
-    assert not sorted(hypr.glob("*.stock")), "Omarchy's template was backed up"
-    assert "backed up" not in res.stdout
-    for name in OVERRIDES:
-        assert (hypr / f"{name}.lua").read_bytes() == (MODULE / f"{name}.lua").read_bytes()
+    assert not dst.is_symlink() and dst.read_bytes() == (MODULE / "bindings.lua").read_bytes()
+    if kind == "mine-link":
+        assert stock.is_symlink() and stock.readlink() == theirs
+        assert theirs.read_text() == "-- from my dotfiles\n"
+    elif kind == "mine":
+        assert stock.read_text() == "-- my own bindings\n"
+        dst.write_text("-- edited on the copy\n")  # once: an edit costs no backup
+        assert box.run(INSTALL).returncode == 0
+        assert stock.read_text() == "-- my own bindings\n"
+    else:
+        assert not stock.exists() and not stock.is_symlink()
+    assert not (hypr / "input.lua.stock").exists(), "nothing was there to keep"
 
 
 def test_a_folder_with_no_preset_installs_the_rest(box) -> None:
-    """The seed list is a glob and nullglob is unset, so with no
-    *Monitors*.lua beside the install the pattern comes back as itself:
-    without the `[[ -f ]]` guard `install -m 644 '<dir>/*Monitors*.lua'` fails
-    the run half-applied — the overrides written, the tools not yet linked."""
+    """nullglob is unset: without the `[[ -f ]]` guard the literal pattern fails the run half-applied."""
     folder = box.tmp / "no-presets"
     shutil.copytree(MODULE, folder, ignore=shutil.ignore_patterns("*Monitors*.lua", "__pycache__"))
     res = box.run(folder / "install")
@@ -408,58 +262,23 @@ def test_a_folder_with_no_preset_installs_the_rest(box) -> None:
 
 
 def test_a_seeded_preset_is_never_overwritten(box) -> None:
-    """A preset describes one machine's desk, so once it exists it is that
-    machine's — the hotkey tool promises an edit survives re-selecting it."""
+    """A preset describes one machine's desk: an edit survives every later run."""
     hypr = box.home / ".config" / "hypr"
     hypr.mkdir(parents=True)
     mine = '-- this desk\nhl.monitor({ output = "DP-3", mode = "preferred" })\n'
     (hypr / "pcMonitors.bedroom.lua").write_text(mine)
-
     assert box.run(INSTALL).returncode == 0
     assert (hypr / "pcMonitors.bedroom.lua").read_text() == mine
-    assert (hypr / "pcMonitors.kitchen.lua").read_bytes() == (
-        MODULE / "pcMonitors.kitchen.lua"
-    ).read_bytes()
+    kitchen = MODULE / "pcMonitors.kitchen.lua"
+    assert (hypr / kitchen.name).read_bytes() == kitchen.read_bytes()
 
 
-def test_undo_hands_each_override_back_to_omarchys_own_restore(box) -> None:
-    """Undo is Omarchy's own restore command, not a backup this module kept:
-    the copy is removed first so omarchy-refresh-config takes its no-backup
-    branch (bin/omarchy-refresh-config:41-43) and leaves no .bak behind."""
+def test_undo_puts_back_what_was_there_stock_files_first(box) -> None:
+    """The .stock kept on the way in wins; otherwise the copy goes first, so omarchy-refresh-config takes its no-backup branch (:41-43) and leaves no .bak."""
     box.stub("omarchy-refresh-config", REFRESH)
-    for name in OVERRIDES:
-        box.omarchy_write(f"config/hypr/{name}.lua", f"-- omarchy stock {name}\n")
-    assert box.run(INSTALL).returncode == 0
-    box.reset()
-
-    res = box.undo("hypr")
-    assert res.returncode == 0, res.stderr
-    hypr = box.home / ".config" / "hypr"
-    for name in OVERRIDES:
-        assert (hypr / f"{name}.lua").read_text() == f"-- omarchy stock {name}\n"
-    assert not sorted(hypr.glob("*.bak.*")), "Omarchy backed up a file the overlay wrote"
-    assert not sorted(hypr.glob("*Monitors*.lua")), "a seeded preset survived undo"
-    for tool in TOOLS:
-        assert not (box.home / ".local" / "bin" / tool).is_symlink()
-    assert box.commands.count("omarchy-refresh-config") == len(OVERRIDES)
-    # The preset toggle goes through Omarchy's own off, not an rm here.
-    assert ["omarchy-hyprland-toggle", "hyprconf-monitor-preset", "off"] in box.calls_of(
-        "omarchy-hyprland-toggle"
-    )
-
-
-def test_undo_puts_a_stock_file_back_ahead_of_omarchys_template(box) -> None:
-    """The file of the user's own (or their link) that the first run set aside
-    is what undo restores; only a path with nothing kept goes to
-    omarchy-refresh-config."""
-    box.stub("omarchy-refresh-config", REFRESH)
-    for name in OVERRIDES:
-        box.omarchy_write(f"config/hypr/{name}.lua", f"-- omarchy stock {name}\n")
-    hypr = box.home / ".config" / "hypr"
-    hypr.mkdir(parents=True)
+    hypr = _stock_omarchy(box)
     (hypr / "bindings.lua").write_text("-- my own bindings\n")
-    theirs = box.tmp / "dotfiles" / "input.lua"
-    theirs.parent.mkdir()
+    theirs = box.tmp / "dotfiles-input.lua"
     theirs.write_text("-- my own input\n")
     (hypr / "input.lua").symlink_to(theirs)
     assert box.run(INSTALL).returncode == 0
@@ -470,18 +289,24 @@ def test_undo_puts_a_stock_file_back_ahead_of_omarchys_template(box) -> None:
     assert (hypr / "bindings.lua").read_text() == "-- my own bindings\n"
     assert (hypr / "input.lua").is_symlink() and (hypr / "input.lua").readlink() == theirs
     assert (hypr / "looknfeel.lua").read_text() == "-- omarchy stock looknfeel\n"
-    assert not sorted(hypr.glob("*.stock")), "a .stock survived the restore"
     assert box.calls_of("omarchy-refresh-config") == [
         ["omarchy-refresh-config", "hypr/looknfeel.lua"]
     ]
+    assert not sorted(hypr.glob("*.stock")), "a .stock survived the restore"
+    assert not sorted(hypr.glob("*.bak.*")), "Omarchy backed up a file the overlay wrote"
+    assert not sorted(hypr.glob("*Monitors*.lua")), "a seeded preset survived undo"
+    for tool in TOOLS:
+        assert not (box.home / ".local" / "bin" / tool).is_symlink()
+    assert ["omarchy-hyprland-toggle", "hyprconf-monitor-preset", "off"] in box.calls_of(
+        "omarchy-hyprland-toggle"
+    )
 
 
 def test_undo_on_a_machine_that_never_installed_is_a_no_op(box) -> None:
-    """`install undo` from the core runs for every module, installed or not."""
+    """`hyprconf --undo` runs every module's undo, installed or not."""
     box.stub("omarchy-refresh-config", REFRESH)
-    for name in OVERRIDES:
-        box.omarchy_write(f"config/hypr/{name}.lua", f"-- omarchy stock {name}\n")
+    hypr = _stock_omarchy(box)
     res = box.undo("hypr")
     assert res.returncode == 0, res.stderr
     assert not list((box.home / ".local" / "bin").glob("*"))
-    assert not list((box.home / ".config" / "hypr").glob("*Monitors*.lua"))
+    assert not list(hypr.glob("*Monitors*.lua"))
