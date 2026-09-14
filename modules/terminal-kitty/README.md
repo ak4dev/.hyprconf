@@ -19,7 +19,8 @@
 
 Omarchy 4.0.3-1 and `kitty` (official `extra`), from this module's `packages` via `omarchy-pkg-add` —
 skipped with a pointer line, never a failure, under `HYPRCONF_NO_SUDO` (`--no-packages`) or with no
-terminal for sudo. A box without kitty is left untouched.
+terminal for sudo; an install that fails fails the module (the core names it; re-run after pacman's
+error). A box without kitty is left untouched.
 
 ## Install alone
 

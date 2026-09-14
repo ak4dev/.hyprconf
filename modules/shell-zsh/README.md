@@ -18,7 +18,7 @@ Omarchy's `[omarchy]` repository does ship an `omarchy-zsh` package (starship, i
 
 ## Requires
 
-`zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting` (all `extra`), installed through `omarchy-pkg-add`, and `git` for the clone. With `--no-packages` (`HYPRCONF_NO_SUDO`) or no terminal for `sudo`, the packages are skipped with one line; if zsh is still missing the module configures nothing and exits 0 — kitty pointed at an absent shell would not start. `hyprsync` needs `~/.local/bin/hyprconf`, the link the core installs. The greeting uses `~/.config/hyprconf/fastfetch.jsonc` when the `fastfetch` module is installed, plain `fastfetch` otherwise. The checkout has to stay where it is: `~/.zshrc` and `~/.p10k.zsh` point into it (move it and re-run — the old line is replaced, not doubled).
+`zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting` (all `extra`), installed through `omarchy-pkg-add`, and `git` for the clone. With `--no-packages` (`HYPRCONF_NO_SUDO`) or no terminal for `sudo`, the packages are skipped with one line; an install that fails fails the module (the core names it; re-run after pacman's error); if zsh is still missing the module configures nothing and exits 0 — kitty pointed at an absent shell would not start. `hyprsync` needs `~/.local/bin/hyprconf`, the link the core installs. The greeting uses `~/.config/hyprconf/fastfetch.jsonc` when the `fastfetch` module is installed, plain `fastfetch` otherwise. The checkout has to stay where it is: `~/.zshrc` and `~/.p10k.zsh` point into it (move it and re-run — the old line is replaced, not doubled).
 
 ## Install alone
 

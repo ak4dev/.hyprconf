@@ -72,7 +72,12 @@ if (( ${#pkgs[@]} )) && ! omarchy-pkg-present "${pkgs[@]}"; then
     elif [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
         echo "  no terminal for the sudo prompt — ${pkgs[*]} left alone"
     else
-        omarchy-pkg-add "${pkgs[@]}" || warn "package install failed — see pacman's error above"
+        # A failed install is the module's failure (rule 6): the core names it
+        # at the end of the run, and the next run retries.
+        omarchy-pkg-add "${pkgs[@]}" || {
+            warn "package install failed — see pacman's error above; re-run to retry"
+            exit 1
+        }
     fi
 fi
 

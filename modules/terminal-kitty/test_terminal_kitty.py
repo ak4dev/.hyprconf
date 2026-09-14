@@ -142,16 +142,30 @@ def test_the_shipped_include_file_restates_nothing_omarchy_owns(kitty) -> None:
 
 
 def test_a_box_without_kitty_is_left_alone(box) -> None:
-    """Warn and skip, never die: this runs on every omarchy-update, and pointing
-    omarchy-default-terminal (which checks nothing) at an absent kitty would leave
-    SUPER+RETURN with no terminal at all."""
+    """Warn and skip, never die: this runs on every omarchy-update (which
+    passes --no-packages), and pointing omarchy-default-terminal (which checks
+    nothing) at an absent kitty would leave SUPER+RETURN with no terminal."""
+    _terminal_stub(box)
+    box.stub("omarchy-pkg-present", "exit 1\n")
+
+    proc = box.run(INSTALL, tty=True, env={"HYPRCONF_NO_SUDO": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert "kitty is not installed" in proc.stderr
+    assert not any(len(c) > 1 for c in box.calls_of("omarchy-default-terminal"))
+    assert box.files() == set()
+
+
+def test_a_failed_package_install_fails_the_module(box) -> None:
+    """omarchy-pkg-add exits 1 when pacman could not register the package
+    (bin/omarchy-pkg-add:16-22): the module fails — the core's loop names it
+    at the end of the run (AGENTS rule 6) — and nothing else happens."""
     _terminal_stub(box)
     box.stub("omarchy-pkg-present", "exit 1\n")
     box.stub("omarchy-pkg-add", "exit 1\n")  # the package really is unavailable
 
     proc = box.run(INSTALL, tty=True)
-    assert proc.returncode == 0, proc.stderr
-    assert "kitty is not installed" in proc.stderr
+    assert proc.returncode != 0
+    assert "package install failed" in proc.stderr
     assert not any(len(c) > 1 for c in box.calls_of("omarchy-default-terminal"))
     assert box.files() == set()
 

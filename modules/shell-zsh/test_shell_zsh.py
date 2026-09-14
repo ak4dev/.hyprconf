@@ -241,6 +241,20 @@ def test_missing_packages_are_installed_from_a_terminal(box) -> None:
     ]
 
 
+def test_a_failed_package_install_fails_the_module(box) -> None:
+    """omarchy-pkg-add exits 1 when pacman could not register a package
+    (bin/omarchy-pkg-add:16-22): the module fails — the core's loop names it
+    at the end of the run (AGENTS rule 6) — and configures nothing."""
+    box.stub("omarchy-pkg-present", PLUGINS_MISSING)
+    box.stub("omarchy-pkg-add", "exit 1\n")
+
+    proc = apply(box, tty=True)
+    assert proc.returncode != 0
+    assert "omarchy-pkg-add failed" in proc.stderr
+    assert box.files() == set()
+    assert not [c for c in box.calls_of("git") if "clone" in c]
+
+
 def test_no_sudo_and_no_terminal_both_skip_the_packages_and_still_configure(box) -> None:
     box.stub("omarchy-pkg-present", PLUGINS_MISSING)
 
