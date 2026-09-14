@@ -97,15 +97,12 @@ tests/                            # lib/ is on sys.path through pyproject's `pyt
 ```bash
 make check               # the three commit gates: lint + shellcheck + test
 
-make test                # both suites in parallel (pytest -n auto)
-make test-unit
-make test-integration
+make test                # both suites, one invocation, in parallel (pytest -n auto)
 
 # Lint gates
 make lint                # ruff check + ruff format --check
 make shellcheck          # every bash script, severity=warning; plus SC2086 (info-level) on install.sh and hyprconf-yubikey — unquoted words in root-writing code
 make fmt                 # ruff format + safe fixes
-make clean
 ```
 
 The gates need `ruff`, `shellcheck`, `python-pytest` and `python-pytest-xdist`
