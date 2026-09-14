@@ -286,12 +286,9 @@ def has_fido2_slot(box: Box) -> bool:
 
 
 def ran_as_root(box: Box, cmd: str) -> bool:
-    """Whether `cmd` went through run_root the right way for this euid:
-    through the sudo stub (recorded as `sudo -- cmd`) — or, when the suite
-    itself runs as root (CI does), NOT through sudo: run_root skips it under
-    EUID 0, and the real command it then runs leaves no record, so the callers
-    pair this with the tool's own report of the result."""
-    return (f"sudo -- {cmd}" in box.calls) is not (os.geteuid() == 0)
+    """Whether `cmd` went through run_root — the sudo stub records it as
+    `sudo -- cmd`."""
+    return f"sudo -- {cmd}" in box.calls
 
 
 def unpadded(text: str) -> str:
@@ -1068,8 +1065,7 @@ def test_status_says_unknown_instead_of_asking_sudo_per_device(box: Box) -> None
     res = run(box, "status")
     assert res.returncode == 0, res.stderr
     assert f"{DEV}  LUKS2  UUID {UUID}  systemd-fido2 slot: unknown (run as root)" in res.stdout
-    if os.geteuid() != 0:
-        assert [c for c in box.calls if c.startswith("sudo")] == ["sudo -n -- true"]
+    assert [c for c in box.calls if c.startswith("sudo")] == ["sudo -n -- true"]
 
 
 def test_status_never_fails(box: Box) -> None:
@@ -1194,8 +1190,6 @@ def test_enroll_writes_the_cmdline_dropin_before_the_hooks_dropin(box: Box) -> N
     without rd.luks.* turns the next kernel upgrade's rebuild into an
     initramfs that cannot unlock the root."""
     assert run(box, "enroll", "--yes", "--device", DEV).returncode == 0
-    if os.geteuid() == 0:
-        return  # run_root skips sudo under EUID 0 (CI): no records to order
     calls = box.calls
     limine_i = next(i for i, c in enumerate(calls) if "tee" in c and str(box.limine_dropin) in c)
     hooks_i = next(i for i, c in enumerate(calls) if "tee" in c and str(box.dropin) in c)

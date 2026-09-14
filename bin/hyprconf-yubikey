@@ -146,14 +146,17 @@ warn() { printf 'hyprconf-yubikey: warning: %s\n' "$*" >&2; }
 info() { printf '%s\n' "$*"; }
 have() { command -v -- "$1" >/dev/null 2>&1; }
 
-# Root work: direct as root, else through sudo (the suite stubs sudo).
+# Root work, always through sudo — one path, so it is the one the suite
+# exercises (it stubs sudo). Under an outer `sudo hyprconf-yubikey` this is a
+# no-op re-exec: sudo as root neither prompts nor changes the environment
+# again. `--` so a device or path that starts with a dash is an argument.
 run_root() {
-    if ((EUID == 0)); then "$@"; else sudo -- "$@"; fi
+    sudo -- "$@"
 }
 
 # Same, but never prompts (status must stay non-interactive).
 run_root_quiet() {
-    if ((EUID == 0)); then "$@"; else sudo -n -- "$@"; fi
+    sudo -n -- "$@"
 }
 
 # --yes skips the question; without a terminal there is nobody to ask, so

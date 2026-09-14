@@ -288,9 +288,6 @@ def _install_env(env: dict, *, extra_env: dict[str, str] | None = None) -> dict[
         # The plugin-discovery and shell.json waits poll stubs that never
         # answer (a test modelling the shell's writes raises it again).
         "_HYPRCONF_PLUGIN_WAIT": "0",
-        # CI runs this suite as root; the refuse-root preflight must not
-        # fire against the relocated fake HOME (its own test unsets this).
-        "_HYPRCONF_ALLOW_ROOT": "1",
         # Pinned on every run, not just the tests that exercise it: a test
         # that makes sudo real (_policy_env) would otherwise install the
         # Keychron rule into the CI container's own /etc/udev/rules.d.
@@ -758,8 +755,7 @@ def test_the_shell_line_is_written_once_however_often_the_stage_runs(tmp_path: P
     # Only the shell line, and never a second copy of what the header says.
     added = body[len((REPO_ROOT / "kitty" / "hyprconf.conf").read_text()) :]
     assert added == "\nshell /usr/bin/zsh\n", added
-    if os.geteuid() != 0:  # CI runs as root, which bypasses the mode check
-        assert conf.stat().st_mode & 0o777 == 0o644
+    assert conf.stat().st_mode & 0o777 == 0o644
 
 
 def test_the_include_is_written_even_with_no_user_kitty_conf(tmp_path: Path) -> None:
@@ -2545,16 +2541,12 @@ def test_shell_third_party_repos_are_pinned_and_never_pulled(tmp_path: Path) -> 
     assert (env["home"] / ".zshrc").exists()  # the tail still ran
 
 
-def test_refuses_to_run_as_root_without_the_harness_seam(tmp_path: Path) -> None:
+def test_refuses_to_run_as_root() -> None:
     """curl|bash users reflexively prefix sudo; under env_reset that
-    half-installs the overlay into /root. CI runs this suite as root and
-    exercises the live branch; elsewhere the guard is pinned as text."""
-    env = _setup(tmp_path)
-    if os.geteuid() == 0:
-        proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ALLOW_ROOT": ""})
-        assert proc.returncode != 0
-        assert "run as your regular user" in proc.stderr
-        assert not (env["home"] / ".zshrc").exists()
-    else:
-        code = _code_only(INSTALL_SH.read_text())
-        assert "EUID == 0" in code and "_HYPRCONF_ALLOW_ROOT" in code
+    half-installs the overlay into /root. Pinned as text, not run: the suite
+    is unprivileged everywhere now (CI included), and there is no seam left
+    to make the branch reachable — which is the point, since the seam was
+    itself a way past the guard."""
+    code = _code_only(INSTALL_SH.read_text())
+    assert re.search(r"if \(\(EUID == 0\)\); then", code)
+    assert "run as your regular user" in code

@@ -40,10 +40,10 @@ HOME_PATH_RE = re.compile(
 )
 
 # Shared, machine-provided or placeholder accounts. A match on one of these is
-# not a leak, and CI runs the suite as root — without this the check would
-# either flag every "root" in the tree or, worse, be quietly meaningless there.
-# "home": GitHub's container jobs set HOME=/github/home, whose basename is a
-# directory name, not a person — and it would match every $HOME in the tree.
+# not a leak; without the list a suite run under `sudo` would flag every
+# "root" in the tree (the word-boundary match catches REPO_ROOT too), or be
+# quietly meaningless. "home" is a directory name, not a person, and would
+# match every $HOME in the tree.
 GENERIC_ACCOUNTS = frozenset(
     {
         "root",
@@ -61,9 +61,7 @@ GENERIC_ACCOUNTS = frozenset(
         "archlinux",
         "build",
         "builder",
-        "runner",
         "ubuntu",
-        "github",
         "docker",
         "vagrant",
         # Project and vendor names, never people. "omarchy" is the hostname

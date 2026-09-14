@@ -134,8 +134,8 @@ preflight() {
     # The overlay writes the invoking user's $HOME and asks for sudo itself
     # in the four gated stages; run under sudo it half-installs into /root
     # (env_reset sets HOME) and the curl|bash habit of prefixing sudo is the
-    # dangerous one. CI runs the hermetic suite as root, hence the seam.
-    if ((EUID == 0)) && [[ -z ${_HYPRCONF_ALLOW_ROOT:-} ]]; then
+    # dangerous one. No seam: the suite runs unprivileged, CI included.
+    if ((EUID == 0)); then
         die "run as your regular user — install.sh asks for sudo itself where a stage needs it."
     fi
     [[ -d $OMARCHY_PATH ]] ||
