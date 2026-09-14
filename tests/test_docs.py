@@ -1,8 +1,9 @@
 """The docs contract, structure only (AGENTS.md rule 7 keeps the prose a
-review norm): the README branding block never changes, and the root README's
+review norm): the README branding block never changes; the root README's
 module index names exactly the modules that exist — one row each, so a module
 added or removed without its row turns red here rather than in a reader's
-hands.
+hands; and every module README carries the six sections of the module
+contract with its solo-install and undo lines.
 
 HERMETIC: reads of the checkout only.
 """
@@ -11,6 +12,8 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 README = REPO_ROOT / "README.md"
@@ -53,3 +56,27 @@ def test_root_readme_indexes_every_module_once() -> None:
         assert f"`bash modules/{name}/install undo`" in rest, f"{name}: no undo cell"
     for name in modules():
         assert f"(modules/{name}/README.md#undo)" in text, f"{name}: no Reverting-to-stock line"
+
+
+# The module README contract (the module layout's parity target, AGENTS rule 7):
+# the six sections, the solo-install line and the undo line. Length and prose
+# are a review norm, not a gate.
+SECTIONS = (
+    "## What",
+    "## Requires",
+    "## Install alone",
+    "## Settings",
+    "## Undo",
+    "## Verified against",
+)
+SOLO = "git -C ~/.hyprconf sparse-checkout set modules/{name} && bash ~/.hyprconf/modules/{name}/install"
+
+
+@pytest.mark.parametrize("name", modules())
+def test_module_readme_carries_the_contract(name: str) -> None:
+    text = (REPO_ROOT / "modules" / name / "README.md").read_text(encoding="utf-8")
+    headings = [ln for ln in text.splitlines() if ln.startswith("## ")]
+    for section in SECTIONS:
+        assert any(h.startswith(section) for h in headings), f"{name}: no {section!r} section"
+    assert SOLO.format(name=name) in text, f"{name}: no solo install line"
+    assert f"modules/{name}/install undo" in text, f"{name}: the undo line does not name the module"

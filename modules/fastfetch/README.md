@@ -37,5 +37,4 @@ a run that changes nothing writes nothing. Format variables are named
 earlier release left at `~/.config/fastfetch/config.jsonc`, putting back the
 `config.jsonc.stock` it displaced. Omarchy's `/etc/fastfetch/config.jsonc` is what is left.
 
-## Verified against Omarchy 4.0.3-1
-Paths above read from the installed tree; fastfetch 2.68.1.
+## Verified against Omarchy 4.0.3-1 — paths above read from the installed tree; fastfetch 2.68.1

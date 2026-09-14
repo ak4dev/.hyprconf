@@ -18,7 +18,7 @@ Omarchy's `[omarchy]` repository does ship an `omarchy-zsh` package (starship, i
 
 ## Requires
 
-`zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting` (all `extra`), installed through `omarchy-pkg-add`, and `git` for the clone. With `--no-packages` (`HYPRCONF_NO_SUDO`) or no terminal for `sudo`, the packages are skipped with one line; if zsh is still missing the module configures nothing and exits 0 — kitty pointed at an absent shell would not start. `hyprsync` needs `~/.local/bin/hyprconf`, the link the core installs. The greeting uses `~/.config/hyprconf/fastfetch.jsonc` when the `fastfetch` module is installed, plain `fastfetch` otherwise.
+`zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting` (all `extra`), installed through `omarchy-pkg-add`, and `git` for the clone. With `--no-packages` (`HYPRCONF_NO_SUDO`) or no terminal for `sudo`, the packages are skipped with one line; if zsh is still missing the module configures nothing and exits 0 — kitty pointed at an absent shell would not start. `hyprsync` needs `~/.local/bin/hyprconf`, the link the core installs. The greeting uses `~/.config/hyprconf/fastfetch.jsonc` when the `fastfetch` module is installed, plain `fastfetch` otherwise. The checkout has to stay where it is: `~/.zshrc` and `~/.p10k.zsh` point into it (move it and re-run — the old line is replaced, not doubled).
 
 ## Install alone
 
@@ -26,8 +26,6 @@ Omarchy's `[omarchy]` repository does ship an `omarchy-zsh` package (starship, i
 git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf \
   && git -C ~/.hyprconf sparse-checkout set modules/shell-zsh && bash ~/.hyprconf/modules/shell-zsh/install
 ```
-
-The checkout has to stay where it is: `~/.zshrc` and `~/.p10k.zsh` point into it. Move it and re-run — the old line is replaced, not doubled.
 
 ## Settings
 
@@ -39,6 +37,4 @@ Edit `zshrc` or `.p10k.zsh` in the checkout; both are live, no re-run needed. Th
 
 Two things it deliberately does not tidy. `~/.local/state/hyprconf` survives while another module's marker is still in it — undo the rest, or `rm -rf` it once you are done. And a `~/.config/kitty/kitty.conf` that did not end in a newline comes back one byte longer: the include had to terminate the last line first, and undo cannot tell that newline from one you wrote. Omarchy's own stub ends in a newline, so a stock box never sees it.
 
-## Verified against Omarchy 4.0.3-1
-
-kitty 0.48.2, zsh 5.9.2, git 2.55.0, powerlevel10k pin `3308262`, reviewed 2026-09-01.
+## Verified against Omarchy 4.0.3-1 — kitty 0.48.2, zsh 5.9.2, git 2.55.0, powerlevel10k pin `3308262`, reviewed 2026-09-01

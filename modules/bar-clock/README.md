@@ -14,9 +14,8 @@ real folder there is moved aside once as `.hyprconf.clock.bak.<ts>`.
 
 ## Requires
 
-Omarchy's shell and `jq`; no packages, no sudo. With nothing answering it
-links the folder and enables on the next run. The checkout has to stay put —
-the plugin is a link into it, and the validator wants a trailing slash.
+Omarchy's shell and `jq`; no packages, no sudo. With nothing answering it links the folder and enables on the
+next run. The checkout has to stay put — the plugin is a link into it, and the validator wants a trailing slash.
 
 ## Install alone
 
@@ -38,4 +37,4 @@ anchor left naming nothing is repaired on any run, one you chose is not.
 to `dddd HH:mm`, the anchor back, link and marker gone. A folder an install
 moved aside is left where it is: delete `.hyprconf.clock.bak.<ts>` yourself.
 
-Verified against Omarchy 4.0.3-1.
+## Verified against Omarchy 4.0.3-1

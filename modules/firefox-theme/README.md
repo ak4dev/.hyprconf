@@ -32,12 +32,9 @@ scheme alone: both built-in ids are `inApp` (`BuiltInThemeConfig.sys.mjs:29,38`)
 
 ## Undo
 
-`install undo`: hook, template, render and each profile's `chrome/userChrome.css` go, and the three `user_pref` lines
-come back out of `user.js` (removed when it held nothing else). Restart Firefox. `chrome/userChrome.css` is this
-module's file outright — a `userChrome.css` you wrote yourself is replaced, not merged, and removed by the undo; move
-it aside first. A profile file that will not go makes the undo exit non-zero and say so, the module's own three files
-gone regardless.
+`bash modules/firefox-theme/install undo`: hook, template, render and each profile's `chrome/userChrome.css` go, and the
+three `user_pref` lines come back out of `user.js` (removed when it held nothing else). Restart Firefox. `chrome/userChrome.css`
+is this module's file outright — one you wrote yourself is replaced, not merged, and removed by the undo; move it aside
+first. A profile file that will not go makes the undo exit non-zero and say so, the module's own three files gone regardless.
 
-## Verified against Omarchy 4.0.3-1
-
-Firefox 155.0.1-1, Bash 5.3.
+## Verified against Omarchy 4.0.3-1 — Firefox 155.0.1-1, Bash 5.3

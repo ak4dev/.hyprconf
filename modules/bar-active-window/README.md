@@ -15,9 +15,8 @@ Disabling it then sticks.
 
 ## Requires
 
-Omarchy 4.0.3-1 with its shell running, `jq`, coreutils; no packages, no `sudo`.
-With no shell answering the link is made and the enable retried next run, and
-the checkout stays put: what lands in the plugins directory is a symlink to it.
+Omarchy 4.0.3-1 with its shell running, `jq`, coreutils; no packages, no `sudo`. With no shell answering the
+link is made and the enable retried next run; the checkout stays put (the installed plugin is a symlink to it).
 
 ## Install alone
 
@@ -38,6 +37,4 @@ removes the module's own symlink and the marker, rescans. A real directory or a
 git checkout there is left alone; a folder an install moved aside stays as
 `.hyprconf.active-window.bak.<ts>` to delete.
 
-## Verified against Omarchy 4.0.3-1
-
-Every `PluginRegistry.qml` line above was re-read in `/usr/share/omarchy` there.
+## Verified against Omarchy 4.0.3-1 — every `PluginRegistry.qml` line above re-read in `/usr/share/omarchy`

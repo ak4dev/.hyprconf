@@ -25,8 +25,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
   && git -C ~/.hyprconf sparse-checkout set modules/themes && bash ~/.hyprconf/modules/themes/install
 ```
 
-Or copy `dracula/` to the root of a repository of your own: anyone can then `omarchy theme install <url>` it, which
-clones the repo root in and **activates** it (`omarchy-theme-install:24,32,56,63`).
+Or copy `dracula/` to the root of a repository of your own: anyone can then `omarchy theme install <url>` it, which clones the repo root in and **activates** it (`omarchy-theme-install:24,32,56,63`).
 
 ## Settings
 

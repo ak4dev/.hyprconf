@@ -18,7 +18,7 @@ something to offload from. The filter hides a GPU from *Vulkan* only: the compos
 
 ## Requires
 
-A uwsm Omarchy session and coreutils; `vulkaninfo` is optional and never installed here. No package, no `sudo`, no TTY, no marker — the link target is all a re-run looks at.
+A uwsm Omarchy session and coreutils; `vulkaninfo` is optional and never installed here. No package, no `sudo`, no TTY, no marker — the link target is all a re-run looks at. Or skip the module and copy `bin/hyprconf-vulkan-gpu` onto your own PATH: it needs no checkout, no repo and no Omarchy command.
 
 ## Install alone
 
@@ -26,8 +26,6 @@ A uwsm Omarchy session and coreutils; `vulkaninfo` is optional and never install
 git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf \
   && git -C ~/.hyprconf sparse-checkout set modules/vulkan-gpu && bash ~/.hyprconf/modules/vulkan-gpu/install
 ```
-
-Or copy `bin/hyprconf-vulkan-gpu` onto your own PATH: it needs no checkout, no repo and no Omarchy command.
 
 ## Settings
 
@@ -38,5 +36,4 @@ Or copy `bin/hyprconf-vulkan-gpu` onto your own PATH: it needs no checkout, no r
 `bash modules/vulkan-gpu/install undo` removes the `~/.local/bin` link and nothing else; the pin is yours, and `hyprconf-vulkan-gpu remove` deletes it.
 
 ## Verified against Omarchy 4.0.3-1
-`vulkan-icd-loader` 1.4.357 for the two loader variables, uwsm 0.26.7 for the `env.d` sourcing order;
-the survey that found no Omarchy command for any of this is the tool's own header, with its citations.
+`vulkan-icd-loader` 1.4.357 for the two loader variables, uwsm 0.26.7 for the `env.d` sourcing order; the survey that found no Omarchy command for any of this is the tool's own header, with its citations.

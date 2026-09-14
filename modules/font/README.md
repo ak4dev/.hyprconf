@@ -33,7 +33,7 @@ time (`omarchy font list` names them). Deleting the marker
 
 ## Undo
 
-`bash install undo` drops the marker and prints the command that puts Omarchy's own font
+`bash modules/font/install undo` drops the marker and prints the command that puts Omarchy's own font
 back — it restarts the shell, so it stays yours: `omarchy font set 'JetBrainsMono Nerd Font'`.
 
-Verified against Omarchy 4.0.3-1.
+## Verified against Omarchy 4.0.3-1
