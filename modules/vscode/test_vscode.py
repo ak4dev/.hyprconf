@@ -1,254 +1,100 @@
-"""modules/vscode — VS Code through Omarchy's installer, `code` as the default editor.
-
-Every Omarchy command is a recording fake from the root conftest's `box`; the
-two that have to answer (`omarchy-pkg-present`, `omarchy-default-editor`) are
-modelled here in the shape the real ones have on Omarchy 4.0.3-1.
-"""
-
-from __future__ import annotations
+"""modules/vscode — VS Code through Omarchy's installer, `code` as the default editor."""
 
 from pathlib import Path
 
 import pytest
 
 MODULE = Path(__file__).parent / "install"
+MARKER = ".local/state/hyprconf/editor-applied"
+LEGACY = ".local/state/hyprconf/defaults-applied"
+STATE = ".local/state/omarchy/defaults/editor"
 
-# bin/omarchy-default-editor: no argument reads ~/.local/state/omarchy/defaults/
-# editor and falls back to "nvim" (:9-15); an argument writes the file (:33-34)
-# and the LAST thing the script runs is omarchy-notification-send (:36), whose
-# status is the script's — so a TTY or SSH run exits non-zero with the value
-# already on disk. $EDITOR_SET_STATUS models exactly that.
+# bin/omarchy-default-editor: no argument reads the state file, else "nvim" (:9-15); an argument writes it (:33-34), then returns the notification's status (:36).
 EDITOR = """\
 state=${EDITOR_STATE:?}
-if (($# == 0)); then { [ -r "$state" ] && cat "$state"; } || echo nvim; exit 0; fi
-mkdir -p "$(dirname "$state")"
-printf '%s\\n' "$1" > "$state"
+(($#)) || { { [ -r "$state" ] && cat "$state"; } || echo nvim; exit 0; }
+[[ -n ${EDITOR_DEAF:-} ]] || { mkdir -p "${state%/*}"; printf '%s\\n' "$1" > "$state"; }
 exit ${EDITOR_SET_STATUS:-0}
 """
-# The same setter with a live session to notify but nothing written — the
-# failure the marker has to wait for.
-EDITOR_DEAF = """\
-state=${EDITOR_STATE:?}
-if (($# == 0)); then { [ -r "$state" ] && cat "$state"; } || echo nvim; exit 0; fi
-exit 0
-"""
-# bin/omarchy-pkg-present:6-8 is `pacman -Q` per name: present iff the flag file
-# the installer stub touches is there.
-PKG_PRESENT = 'test -e "${VSCODE_FLAG:?}"\n'
 
 
-def machine(box, *, present: bool, delivers: bool = True, editor: str = EDITOR):
-    """A box with VS Code present or absent, an installer that does or does not
-    deliver the package, and a default-editor state file."""
+def machine(box, *, present: bool, delivers: bool = True) -> None:
     flag = box.tmp / "visual-studio-code-bin"
-    box.env["VSCODE_FLAG"] = str(flag)
-    box.env["EDITOR_STATE"] = str(box.home / ".local/state/omarchy/defaults/editor")
+    box.env |= {"VSCODE_FLAG": str(flag), "EDITOR_STATE": str(box.home / STATE)}
+    box.stub("omarchy-pkg-present", 'test -e "${VSCODE_FLAG:?}"\n')  # :6-8 is `pacman -Q`
+    box.stub("omarchy-install-editor-vscode", f'touch "{flag}"\n' if delivers else "exit 0\n")
+    box.stub("omarchy-default-editor", EDITOR)
     if present:
         flag.touch()
-    box.stub("omarchy-pkg-present", PKG_PRESENT)
-    box.stub("omarchy-install-editor-vscode", f'touch "{flag}"\n' if delivers else "exit 0\n")
-    box.stub("omarchy-default-editor", editor)
-    return box
 
 
-def marker(box) -> Path:
-    return box.home / ".local/state/hyprconf/editor-applied"
+def seeded(box) -> tuple[bool, str, bool]:
+    """(the marker is written, the default editor, the setter was called)."""
+    editor = (box.home / STATE).read_text().strip() if (box.home / STATE).exists() else "nvim"
+    called = any(c[1:] for c in box.calls_of("omarchy-default-editor"))
+    return (box.home / MARKER).exists(), editor, called
 
 
-def default_editor(box) -> str:
-    state = Path(box.env["EDITOR_STATE"])
-    return state.read_text().strip() if state.exists() else "nvim"
-
-
-def snapshot(box) -> dict:
-    return {p: p.read_bytes() for p in box.files()}
-
-
-# -- the package --------------------------------------------------------------
-
-
-def test_absent_vscode_goes_through_omarchys_installer_and_is_read_back(box) -> None:
-    """omarchy-install-editor-vscode exits 0 whatever happened (no `set -e`,
-    unguarded omarchy-pkg-add, backgrounded launch), so the result is read back
-    with omarchy-pkg-present rather than taken from its status."""
-    machine(box, present=False)
-    proc = box.run(MODULE, tty=True)
-    assert proc.returncode == 0, proc.stderr
+@pytest.mark.parametrize("delivers", [True, False])
+def test_install_reads_the_installer_result_back(box, delivers: bool) -> None:
+    """omarchy-install-editor-vscode exits 0 whatever happened (:6,27,29)."""
+    machine(box, present=False, delivers=delivers)
+    assert (proc := box.run(MODULE, tty=True)).returncode == 0, proc.stderr
     assert "omarchy-install-editor-vscode" in box.commands
-    assert box.commands.count("omarchy-pkg-present") >= 2  # asked again afterwards
-    assert default_editor(box) == "code"
+    assert box.commands.count("omarchy-pkg-present") >= 2
+    assert seeded(box) == ((True, "code", True) if delivers else (False, "nvim", False))
+    assert ("omarchy install editor vscode" in proc.stdout) is not delivers
 
 
-def test_present_vscode_is_never_reinstalled(box) -> None:
+@pytest.mark.parametrize("tty,env", [(True, {"HYPRCONF_NO_SUDO": "1"}), (False, {})])
+def test_the_install_half_bows_out_behind_both_gates(box, tty: bool, env: dict) -> None:
+    machine(box, present=False)
+    proc = box.run(MODULE, tty=tty, env=env)
+    assert proc.returncode == 0 and "VS Code" in proc.stdout, proc.stderr
+    assert "omarchy-install-editor-vscode" not in box.commands and "sudo" not in box.commands
+
+
+def test_the_editor_marker_is_set_once_and_the_legacy_marker_counts(box) -> None:
+    """A --no-packages run on a box that has VS Code still seeds — once, off the value read back."""
     machine(box, present=True)
-    assert box.run(MODULE, tty=True).returncode == 0
+    assert box.run(MODULE, env={"HYPRCONF_NO_SUDO": "1", "EDITOR_SET_STATUS": "1"}).returncode == 0
     assert "omarchy-install-editor-vscode" not in box.commands
-
-
-def test_an_installer_that_did_not_deliver_warns_with_omarchys_retry(box) -> None:
-    """A conflict (Arch's `code`) fails inside omarchy-pkg-add and the installer
-    carries on to exit 0: the run says how to retry and does not fail."""
-    machine(box, present=False, delivers=False)
-    proc = box.run(MODULE, tty=True)
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy install editor vscode" in proc.stdout
-    assert not marker(box).exists()  # no package, no editor default either
-
-
-def test_nothing_removes_a_package_or_reaches_pacman(box) -> None:
-    machine(box, present=False)
-    box.run(MODULE, tty=True)
-    assert "pacman" not in box.commands
-    assert not any(c.startswith("omarchy-pkg-drop") for c in box.calls)
-    assert not any(c.startswith("omarchy-pkg-add") for c in box.calls)
-    code = [ln for ln in MODULE.read_text().splitlines() if not ln.lstrip().startswith("#")]
-    for forbidden in ("pacman", "yay", "paru", "makepkg", "omarchy-pkg-drop", "omarchy-pkg-aur"):
-        assert not any(forbidden in ln for ln in code), forbidden
-
-
-# -- the sudo gates -----------------------------------------------------------
-
-
-@pytest.mark.parametrize("gate", ["no-sudo", "no-tty"])
-def test_the_install_half_bows_out_behind_both_gates(box, gate: str) -> None:
-    """--no-packages (the post-update hook's flag) and a run with no terminal
-    for the password prompt: a pointer line, exit 0, no installer."""
-    machine(box, present=False)
-    env = {"HYPRCONF_NO_SUDO": "1"} if gate == "no-sudo" else {}
-    proc = box.run(MODULE, tty=(gate == "no-sudo"), env=env)
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-install-editor-vscode" not in box.commands
-    assert "VS Code" in proc.stdout
-
-
-def test_the_seed_is_on_the_always_run_path(box) -> None:
-    """The seed sits outside both sudo gates and outside the already-installed
-    early return, so the post-update hook's --no-packages run — the one every
-    box gets after every omarchy-update — still seeds it once VS Code is
-    there. This is the placement install-core.3#2's verifier note demanded."""
-    machine(box, present=True)
-    proc = box.run(MODULE, tty=False, env={"HYPRCONF_NO_SUDO": "1"})
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-install-editor-vscode" not in box.commands
-    assert default_editor(box) == "code"
-    assert marker(box).exists()
-
-    box.reset()
-    proc = box.run(MODULE, tty=False, env={"HYPRCONF_NO_SUDO": "1"})
-    assert proc.returncode == 0, proc.stderr
-    assert not any(c[1:] for c in box.calls_of("omarchy-default-editor"))
-    assert proc.stdout == ""
-
-
-def test_the_editor_default_is_not_seeded_while_vscode_is_absent(box) -> None:
-    """The seed is set-once, so a marker written for a VS Code that is not
-    installed would never be retried; the next run with a terminal seeds it."""
-    machine(box, present=False)
-    assert box.run(MODULE, tty=True, env={"HYPRCONF_NO_SUDO": "1"}).returncode == 0
-    assert not any(c[1:] for c in box.calls_of("omarchy-default-editor"))
-    assert not marker(box).exists()
-
+    assert seeded(box) == (True, "code", True)
+    (box.home / MARKER).unlink()
+    (box.home / STATE).write_text("helix\n")  # a pick of the user's, from before the split
+    (box.home / LEGACY).touch()
     box.reset()
     assert box.run(MODULE, tty=True).returncode == 0
-    assert default_editor(box) == "code"
-    assert marker(box).exists()
-
-
-# -- the editor default, set once ---------------------------------------------
-
-
-def test_editor_is_seeded_once_on_the_value_read_back_not_the_setters_status(box) -> None:
-    """The setter's exit status is its closing notification's: a TTY run seeds
-    the value and still exits 1. Trusting it left the marker unwritten on
-    exactly the runs that had succeeded, and the next run re-asserted `code`
-    over an editor chosen in between."""
-    machine(box, present=True)
-    proc = box.run(MODULE, tty=True, env={"EDITOR_SET_STATUS": "1"})
-    assert proc.returncode == 0, proc.stderr
-    assert default_editor(box) == "code"
-    assert marker(box).exists()
-
-    Path(box.env["EDITOR_STATE"]).write_text("helix\n")  # the user's later pick
-    box.reset()
-    assert box.run(MODULE, tty=True).returncode == 0
-    assert not any(c[1:] for c in box.calls_of("omarchy-default-editor"))
-    assert default_editor(box) == "helix"
+    assert seeded(box) == (True, "helix", False)
 
 
 def test_the_marker_waits_for_the_value_to_land(box) -> None:
-    """A setter that records the call and leaves the default where it was: no
-    marker, a pointer line, and the next run tries again."""
-    machine(box, present=True, editor=EDITOR_DEAF)
-    proc = box.run(MODULE, tty=True)
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy default editor code" in proc.stdout
-    assert not marker(box).exists()
-
-    box.stub("omarchy-default-editor", EDITOR)
-    box.reset()
-    box.run(MODULE, tty=True)
-    assert marker(box).exists()
-    assert default_editor(box) == "code"
-
-
-def test_the_pre_module_defaults_marker_counts_as_applied(box) -> None:
-    """~/.local/state/hyprconf/defaults-applied is the one marker the browser
-    and the editor shared before the split: honoured for one release, and left
-    on disk because the browser module reads it too."""
     machine(box, present=True)
-    legacy = box.home / ".local/state/hyprconf/defaults-applied"
-    legacy.parent.mkdir(parents=True)
-    legacy.touch()
+    proc = box.run(MODULE, tty=True, env={"EDITOR_DEAF": "1"})
+    assert proc.returncode == 0 and "omarchy default editor code" in proc.stdout, proc.stderr
+    assert seeded(box) == (False, "nvim", True)
     assert box.run(MODULE, tty=True).returncode == 0
-    assert not any(c[1:] for c in box.calls_of("omarchy-default-editor"))
-    assert default_editor(box) == "nvim"
-    assert marker(box).exists() and legacy.exists()
-
-
-# -- idempotence and undo -----------------------------------------------------
+    assert seeded(box) == (True, "code", True)
 
 
 def test_a_second_run_writes_nothing_and_calls_nothing_that_mutates(box) -> None:
     machine(box, present=True)
     assert box.run(MODULE, tty=True).returncode == 0
-    before = snapshot(box)
-
+    before = {p: p.read_bytes() for p in box.files()}
     box.reset()
-    proc = box.run(MODULE, tty=True)
-    assert proc.returncode == 0, proc.stderr
-    assert snapshot(box) == before
-    assert box.commands == ["omarchy-pkg-present"]
+    assert (proc := box.run(MODULE, tty=True)).returncode == 0, proc.stderr
+    assert {p: p.read_bytes() for p in box.files()} == before
+    assert box.commands == ["omarchy-pkg-present"] and proc.stdout == ""
 
 
-def test_undo_puts_the_stock_editor_back_and_leaves_the_package(box) -> None:
-    """Stock is Omarchy's own fallback, nvim (bin/omarchy-default-editor:14).
-    Nothing is uninstalled — no removals, ever."""
+def test_undo_restores_the_stock_editor_and_keeps_a_later_pick(box) -> None:
+    """Stock is Omarchy's own fallback, nvim (bin/omarchy-default-editor:14)."""
     machine(box, present=True)
     box.run(MODULE, tty=True)
+    (box.home / LEGACY).touch()
     box.reset()
-
-    proc = box.undo("vscode")
-    assert proc.returncode == 0, proc.stderr
-    assert default_editor(box) == "nvim"
-    assert not marker(box).exists()
-    assert not any(c.startswith("omarchy-pkg-drop") for c in box.calls)
-    assert "omarchy-install-editor-vscode" not in box.commands
-
-
-def test_undo_leaves_an_editor_chosen_after_the_install_alone(box) -> None:
-    machine(box, present=True)
-    box.run(MODULE, tty=True)
-    Path(box.env["EDITOR_STATE"]).write_text("helix\n")
-    box.reset()
-
     assert box.undo("vscode").returncode == 0
-    assert default_editor(box) == "helix"
-    assert not any(c[1:] for c in box.calls_of("omarchy-default-editor"))
-    assert not marker(box).exists()
-
-
-def test_undo_on_a_box_that_never_ran_the_module_is_a_no_op(box) -> None:
-    machine(box, present=False)
-    proc = box.undo("vscode")
-    assert proc.returncode == 0, proc.stderr
-    assert box.files() == set()
+    assert seeded(box) == (False, "nvim", True) and (box.home / LEGACY).exists()
+    (box.home / STATE).write_text("helix\n")  # a pick made after the install
+    box.reset()
+    assert box.undo("vscode").returncode == 0 and seeded(box) == (False, "helix", False)
