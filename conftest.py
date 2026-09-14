@@ -107,6 +107,84 @@ OMARCHY_TREE = {
     ),
 }
 
+# -- fakes with a body ------------------------------------------------------
+# What a module's real path needs the box to answer, each transcribed from the
+# Omarchy file:line beside it (4.0.3-1); a suite hands one to the box with
+# `box.stub(name, BODY)`.
+
+# bin/omarchy-hook-install:27-29: mkdir -p the .d dir, cp under the basename, chmod 755.
+HOOK_INSTALL = (
+    'd="$HOME/.config/omarchy/hooks/$1.d"; mkdir -p "$d"; cp "$2" "$d/${2##*/}"; '
+    'chmod 755 "$d/${2##*/}"\n'
+)
+# bin/omarchy-shell-config:6-26,47-62, the helper modules/idle SOURCES: functions only,
+# since the recording fake's `exit 0` would end the sourcing shell before commit() ran.
+SHELL_CONFIG = """\
+CONFIG_FILE="$HOME/.config/omarchy/shell.json"
+DEFAULTS_FILE="$OMARCHY_PATH/config/omarchy/shell.json"
+fail() { echo "omarchy-shell-config: $*" >&2; exit 1; }
+source_file() { if [[ -s $CONFIG_FILE ]]; then echo "$CONFIG_FILE"; else echo "$DEFAULTS_FILE"; fi; }
+commit() {
+  local program="$1" tmp; shift
+  mkdir -p "$(dirname "$CONFIG_FILE")"; tmp=$(mktemp)
+  jq -S -e "$@" "$program" "$(source_file)" > "$tmp" || fail "could not update shell config"
+  mv "$tmp" "$CONFIG_FILE"; omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
+}
+"""
+# The live shell's two shell.json writes: an enable swaps a clonedFrom copy into the
+# stock widget's slot (shell/services/PluginRegistry.qml:529-534); `omarchy bar set`
+# writes one key onto a layout entry, a bare id or an object with one (bin/omarchy-bar:178).
+_ENTRY_ID = 'if type == "object" then .id else . end'
+PLUGIN_ENABLE = f"""\
+json="$HOME/.config/omarchy/shell.json"
+src=$(jq -r '.omarchy.clonedFrom // empty' "$HOME/.config/omarchy/plugins/$1/manifest.json" 2>/dev/null) || exit 0
+[[ -n $src && -f $json ]] || exit 0
+jq --arg from "$src" --arg to "$1" '.bar.layout |= with_entries(.value |= map(
+  if ({_ENTRY_ID}) == $from then (if type == "object" then .id = $to else {{id: $to}} end) else . end))' \\
+  "$json" > "$json.n" && mv "$json.n" "$json"
+"""
+BAR_SET = f"""\
+[[ ${{1:-}} == set ]] || exit 0
+json="$HOME/.config/omarchy/shell.json"; [[ -f $json ]] || exit 1
+jq --arg id "$2" --arg k "$3" --arg v "$4" '.bar.layout |= with_entries(.value |= map(
+  if ({_ENTRY_ID}) == $id then (if type == "object" then . else {{id: .}} end) + {{($k): $v}} else . end))' \\
+  "$json" > "$json.n" && mv "$json.n" "$json"
+"""
+# A sudo that runs its arguments as the box's user, past its own `--` / `-n`, so a
+# root write lands in the box's /etc.
+SUDO_RUNS = 'while (($#)); do case $1 in -- | -n) shift ;; *) break ;; esac; done\nexec "$@"\n'
+# A git that never reaches the network: a clone of a directory is real (the curl path
+# clones a throwaway checkout); a clone of a URL is modelled, the directory, a .git and
+# the --revision pin as HEAD, which fetch + checkout move. Anything else does nothing.
+GIT_FAKE = """\
+case "${1:-}" in
+  clone)
+    src=${@: -2:1}; dst=${@: -1}
+    if [[ -d $src ]]; then exec "$(PATH=/usr/bin:/bin command -v git)" "$@"; fi
+    rev=; for a in "$@"; do case $a in --revision=*) rev=${a#--revision=} ;; esac; done
+    mkdir -p "$dst/.git"; printf '%s' "$rev" > "$dst/.git/head"; exit 0 ;;
+  -C)
+    d=$2; shift 2
+    case "${1:-}" in
+      rev-parse) cat "$d/.git/head" 2>/dev/null || echo unborn ;;
+      fetch)     for a in "$@"; do last=$a; done; printf '%s' "$last" > "$d/.git/fetched" ;;
+      checkout)  cat "$d/.git/fetched" > "$d/.git/head" 2>/dev/null ;;
+    esac
+    exit 0 ;;
+esac
+exit 0
+"""
+
+
+def default_app(state: Path, unset: str) -> str:
+    """omarchy-default-browser / -editor (bin/omarchy-default-browser:7-19, -editor:9-15,33-34):
+    bare, it prints the pick back, `unset` before any; with an argument it records the pick."""
+    return (
+        f'if (($# == 0)); then cat "{state}" 2>/dev/null || echo {unset}; '
+        f'else printf %s "$1" > "{state}"; fi\n'
+    )
+
+
 _OMARCHY_COMMAND = re.compile(r"\bomarchy(?:-[a-z0-9]+)+\b")
 
 
@@ -189,6 +267,10 @@ class Box:
             "PATH": f"{self.bins}:{fakes}:/usr/bin:/bin",
             "OMARCHY_PATH": str(self.omarchy),
             "FAKE_CALLS": str(self.calls_file),
+            # The two root paths a module writes, at the box's /etc: a run must never
+            # read the developer's own to decide.
+            "_HYPRCONF_UDEV_RULES": str(self.etc / "udev/rules.d"),
+            "_HYPRCONF_FIREFOX_POLICIES": str(self.etc / "firefox/policies"),
             **{k: os.environ[k] for k in GIT_IDENTITY},
         }
 
@@ -283,6 +365,17 @@ class Box:
     def files(self) -> set[Path]:
         """Every file under the box's HOME — `== set()` is "wrote nothing"."""
         return {p for p in self.home.rglob("*") if p.is_file()}
+
+    def snapshot(self) -> dict[str, tuple]:
+        """Every path under the box's HOME and /etc: mode, inode, mtime, and the bytes or
+        link target. `before == after` is "a second run wrote nothing"."""
+        out: dict[str, tuple] = {}
+        for root in (self.home, self.etc):
+            for p in sorted(root.rglob("*")):
+                st = p.lstat()
+                body = os.readlink(p) if p.is_symlink() else p.read_bytes() if p.is_file() else None
+                out[str(p.relative_to(self.tmp))] = (st.st_mode, st.st_ino, st.st_mtime_ns, body)
+        return out
 
 
 @pytest.fixture
