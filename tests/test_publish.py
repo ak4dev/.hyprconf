@@ -1,5 +1,5 @@
 """
-Integration tests for the dev → stable release pipeline.
+scripts/publish — the dev → stable release pipeline, end to end.
 
 scripts/publish runs end to end against a throwaway repository built here: a
 bare ``origin`` seeded with the script and VERSION, and a clone of it on
@@ -25,7 +25,7 @@ import pytest
 
 from conftest import git
 
-REPO_ROOT = Path(__file__).parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[1]
 PUBLISH = "scripts/publish"
 SEED = (PUBLISH, "VERSION")
 

@@ -14,7 +14,7 @@ publish flow and the website upload.
 │
 ├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload), every one wired into install.sh's loop. Every tool the overlay puts on PATH ships under its module — modules/{hypr,vulkan-gpu,yubikey}/bin/ — and is symlinked into ~/.local/bin by that module
 │
-├── tests/                      # Unit + integration (see below)
+├── tests/                      # What is not a module's: the core, the tree-wide guards, the publish pipeline (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
 ├── scripts/publish             # The three gates → tag → one atomic push of dev, stable and the tag
 ├── docs/                       # This file
@@ -34,8 +34,9 @@ The `modules/hypr/*.lua` override files are **copied** into `~/.config/hypr/`
 
 ## Testing
 
-Two suites, both hermetic (the contract is in `AGENTS.md` › Tests); CI runs
-them in an `archlinux:latest` container, as an unprivileged user.
+One hermetic suite in two places — beside each module, and `tests/` for what
+is not a module's (the contract is in `AGENTS.md` › Tests); CI runs it in an
+`archlinux:latest` container, as an unprivileged user.
 
 ```
 conftest.py                       # the `box` fixture every test builds on (repo root: it reaches both trees below)
@@ -44,11 +45,9 @@ tests/                            # what is not a module's: install.sh and the t
 ├── test_core.py                  #   install.sh: the curl bootstrap, the flags and module selection, the ~/.local/bin/hyprconf link, the post-update hook end to end, --undo, a full run of every module byte-stable across two runs, and the restraint a whole run is held to (no sudo outside a module's gate, never a theme switch)
 ├── test_scans.py                 #   every shipped bash script, by shebang: the documented header, no pacman/AUR/removal/chsh on any path, no fetch-and-execute, `--` on every root write, the working hyprctl forms, plain names in every modules/*/packages
 ├── test_plugins_contract.py      #   every shipped plugin folder (modules/bar-*/plugin): omarchy-plugin-validate's checks ported to Python (CI has no Omarchy — each module runs the real validator too), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText and implicit-size rules, real qmllint, and every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent)
-├── unit/
-│   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
-│   └── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only and stable-pinned bootstrap, every modules/*/install clone pinned and never pulled, sha-pinned least-privilege CI, the .claude guardrail entries
-└── integration/
-    └── test_publish_pipeline.py  #   scripts/publish: the gates, the tag, the atomic promotion and its refusals, against a throwaway bare origin
+├── test_no_pii.py                #   every file in the checkout (on-disk walk), identities derived at runtime
+├── test_supply_chain.py          #   the published trust surface: web/ self-contained, https-only and stable-pinned bootstrap, every modules/*/install clone pinned and never pulled, sha-pinned least-privilege CI, the .claude guardrail entries
+└── test_publish.py               #   scripts/publish: the gates, the tag, the atomic promotion and its refusals, against a throwaway bare origin
 ```
 
 ### Running tests
@@ -56,7 +55,7 @@ tests/                            # what is not a module's: install.sh and the t
 ```bash
 make check               # the three commit gates: lint + shellcheck + test
 
-make test                # both suites, one invocation, in parallel (pytest -n auto)
+make test                # the whole suite, one invocation, in parallel (pytest -n auto)
 
 # Lint gates
 make lint                # ruff check + ruff format --check
@@ -201,7 +200,7 @@ earns it; a publish whose tag already exists on another commit is refused
 naming it. The local `stable` branch is never moved — `git branch -f` exits
 128 while `stable` is checked out in another worktree, and nothing reads it.
 
-`tests/integration/test_publish_pipeline.py` runs the script end to end
+`tests/test_publish.py` runs the script end to end
 against a throwaway bare origin (a recording `make` stub stands in for the
 gates): the real promotion and its rerun, a rejected push moving no ref at
 all, the tag-on-another-commit refusal, and the argument / dirty-tree /

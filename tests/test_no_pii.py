@@ -3,8 +3,8 @@ PII guard tests.
 
 No file in the tree may carry personal information about the person who authored it
 — a real username, an absolute /home/<user>/ path, or a personal email address.
-Two separate reasons: the overlay's configs (hypr/, kitty/, zsh/, plugins/ …)
-are installed into any user's $HOME, so a hardcoded path is broken on every
+Two separate reasons: the modules' payload (modules/*/) is installed into
+any user's $HOME, so a hardcoded path is broken on every
 other machine; and the repo is published, so a name in it is published too.
 
 Scope is deliberately the WHOLE repository — a bare username in a test
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # /home/<name>/ — a real per-user absolute path. Generic placeholders
 # (/home/$USER, /home/user, /home/username, /home/<user>) are allowed.

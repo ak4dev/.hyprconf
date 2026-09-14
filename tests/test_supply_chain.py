@@ -12,7 +12,7 @@ import json
 import re
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).parent.parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[1]
 ONE_LINER = "bash <(curl -fsSL --proto '=https' https://hyprconf.sh)"
 
 # The only remote URLs the published page may carry.
