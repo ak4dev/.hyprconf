@@ -39,11 +39,10 @@ rebind(mainMod .. " + C", "Editor", { omarchy = "editor" })
 rebind(mainMod .. " + SHIFT + B", "Monitor preset: bedroom", "hyprconf-monitor-preset bedroom")
 rebind(mainMod .. " + SHIFT + K", "Monitor preset: kitchen", "hyprconf-monitor-preset kitchen")
 
--- Left to Omarchy on purpose: SUPER+arrows, SUPER+P,
--- SUPER+scroll, SUPER+LMB/RMB drag, and every key it already binds this
--- overlay would only be a second name for — the menu (SUPER+SPACE), the
--- clipboard (SUPER+CTRL+V), the lock (SUPER+CTRL+L) and the laptop display
--- (SUPER+CTRL+Delete).
+-- SUPER+D: Omarchy's own menu (its menu key is SUPER+SPACE; it binds nothing here).
+rebind(mainMod .. " + D", "Omarchy menu", "omarchy-menu toggle")
+
+-- Left to Omarchy on purpose: SUPER+arrows, SUPER+P, SUPER+scroll, SUPER+LMB/RMB drag.
 
 -- Resize active window. `relative = true` is load-bearing: without it x/y are
 -- an EXACT target size and a negative one is `error: Invalid size` — every
@@ -87,8 +86,18 @@ rebind(mainMod .. " + SHIFT + M", "Move window to magic scratchpad", hl.dsp.wind
 -- end by raising its OSD (bin/omarchy-audio-output-volume:86,
 -- bin/omarchy-brightness-display:87) and drive the shell's own media service.
 
+-- Clipboard history: Omarchy's overlay (never omarchy-clipboard-open — the hidden --history-index callback, which run bare exits 1 silently).
+rebind(mainMod .. " + SHIFT + V", "Clipboard history", "omarchy-menu-clipboard")
+
 -- Screenshots through Omarchy's own capture (frozen pick, click-to-edit, no
 -- software cursor in the frame, a second press cancels). The keycode unbind
 -- rebind() does is load-bearing here: Omarchy's move-to-workspace-4 is
 -- SUPER+SHIFT+code:13, and without it the shot was of workspace 4.
 rebind(mainMod .. " + SHIFT + 4", "Screenshot region", "omarchy-capture-screenshot region")
+
+-- Screen lock through Omarchy's own (a Quickshell session lock, reachable only over IPC); SUPER+L displaces "Toggle workspace layout" (tiling.lua:13), still omarchy-hyprland-workspace-layout-toggle.
+rebind(mainMod .. " + L",              "Lock system", "omarchy-system-lock")
+rebind(mainMod .. " + SHIFT + Escape", "Lock system", "omarchy-system-lock")
+
+-- The built-in laptop display through Omarchy's own toggle (refuses to disable the only active display); displaces "Toggle window gaps" (utilities.lua:20), still omarchy-hyprland-window-gaps-toggle.
+rebind(mainMod .. " + SHIFT + BACKSPACE", "Toggle laptop display", "omarchy-hyprland-monitor-internal toggle")

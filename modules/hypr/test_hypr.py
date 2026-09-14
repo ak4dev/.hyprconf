@@ -104,14 +104,13 @@ def _binds(path: Path) -> list[str]:
 @pytest.mark.parametrize(
     "scope,forbidden",
     [
-        # Keys Omarchy already binds to exactly what hyprconf wanted: SUPER+P
-        # (pseudo), SUPER+arrows (focus), SUPER+mouse (workspace scroll, drag
-        # move/resize) — default/hypr/bindings/tiling.lua — plus the four this
-        # overlay used to give a second key to: SUPER+SPACE (menu),
-        # SUPER+CTRL+V (clipboard), SUPER+CTRL+L (lock, tiling.lua:13 owns
-        # SUPER+L) and SUPER+CTRL+Delete (laptop display, utilities.lua:20
-        # owns SUPER+SHIFT+BACKSPACE). A restatement is drift the moment
-        # Omarchy retunes one.
+        # The nine keys Omarchy already binds to exactly what hyprconf wanted:
+        # SUPER+P (pseudo), SUPER+arrows (focus), SUPER+mouse (workspace
+        # scroll, drag move/resize) — default/hypr/bindings/tiling.lua. A
+        # restatement is drift the moment Omarchy retunes one. The five second
+        # keys hyprconf keeps on purpose (SUPER+D, SUPER+L, SUPER+SHIFT+V,
+        # SUPER+SHIFT+Escape, SUPER+SHIFT+BACKSPACE) are not here: hypr.0#7's
+        # trim is the user's call, and it was declined.
         (
             "binds",
             (
@@ -124,11 +123,6 @@ def _binds(path: Path) -> list[str]:
                 "mouse_up",
                 "mouse:272",
                 "mouse:273",
-                '" + D"',
-                '" + L"',
-                '" + SHIFT + V"',
-                '" + SHIFT + Escape"',
-                '" + SHIFT + BACKSPACE"',
             ),
         ),
         # Volume, brightness and media keys stay on Omarchy's own binds
