@@ -1,29 +1,13 @@
 #!/usr/bin/env bash
-# hyprconf/fastfetch — the shell greeting's layout, at a path nothing but the greeting
-# reads. Omarchy owns the fastfetch layout system-wide: fastfetch is base
-# (install/omarchy-base.packages:34) and /etc/fastfetch/config.jsonc is where Omarchy 4
-# moved its own file, retiring the user copy (bin/omarchy-upgrade-to-quattro:1553-1569).
-# ~/.config/fastfetch/config.jsonc is the one user slot fastfetch reads, first hit of
-# `fastfetch --list-config-paths` and no merge — so a file there does not add a greeting,
-# it REPLACES Omarchy's About screen, which runs bare `fastfetch`
-# (bin/omarchy-launch-about:161), and switches off that window's fit measurement
-# (custom_fastfetch_config, :16-18, used at :61 and :95). This module writes
-# ~/.config/hyprconf/fastfetch.jsonc instead and Omarchy's About stays stock; the greeting
-# in modules/shell-zsh runs `fastfetch -c ~/.config/hyprconf/fastfetch.jsonc`, and the
-# logo flags it used to pass live in the config's own `logo` block.
-# The copy is cmp-gated: edit config.jsonc here, re-run, and this is the only file that
-# lands. Omarchy 4.0.3-1.
+# hyprconf/fastfetch — the shell greeting's layout, for `fastfetch -c` in modules/shell-zsh.
+# No seam of fastfetch's own: ~/.config/fastfetch/config.jsonc is Omarchy's About screen (bin/omarchy-launch-about:161, custom_fastfetch_config :16-18), so the copy goes to ~/.config/hyprconf.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 target=$HOME/.config/hyprconf/fastfetch.jsonc
 legacy=$HOME/.config/fastfetch/config.jsonc
 
-# Releases before the module split linked the layout into Omarchy's own user slot. Undo
-# that once, and only when the link is still ours: the old stage's cp -P put a displaced
-# real file in .stock beside it, so restoring that is what "stock" means here. The link
-# text is compared raw, never resolved — the checkout it names may be gone, and a dangling
-# link at that path is still ours to clear.
+# Releases before the module split linked the layout into that slot. The link text is compared raw, never resolved: the checkout it names may be gone, and a dangling link there is still ours to clear.
 drop_legacy_link() {
     [[ -L $legacy ]] || return 0
     local seen
