@@ -44,7 +44,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 bash <(curl -fsSL --proto '=https' https://hyprconf.sh)
 ```
 
-Run it as your regular user — it asks for sudo itself where a stage needs it, and refuses to run as root (a sudo-prefixed bootstrap would half-install the overlay into `/root`).
+Run it as your regular user — `install.sh` asks for no sudo at all, the modules that need it ask for themselves, and it refuses to run as root (a sudo-prefixed bootstrap would half-install the overlay into `/root`).
 
 `hyprconf.sh` serves `install.sh` itself to curl. Run with no payload beside it, it refuses a box without Omarchy before touching anything, clones the `stable` branch into `~/.hyprconf` — or uses the checkout already there, without pulling it — and hands over to that checkout's `install.sh` with the same options. `HYPRCONF_REPO` (`https://github.com/ak4dev/.hyprconf`), `HYPRCONF_BRANCH` (`stable`) and `HYPRCONF_DIR` (`~/.hyprconf`) override those three. The same by hand:
 

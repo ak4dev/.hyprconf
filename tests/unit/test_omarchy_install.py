@@ -772,7 +772,7 @@ def _run_hook(env: dict, extra_env: dict[str, str] | None = None) -> subprocess.
     """The installed post-update hook run the way omarchy-hook runs it — `bash
     <hook>` (bin/omarchy-hook:26, 4.0.3-1) — under install.sh's own pinned
     environment, with a terminal: the hook's flags, not a missing tty, must be
-    what keeps the sudo stages out."""
+    what keeps the modules' sudo work out."""
     hook = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
     return subprocess.run(
         ["bash", str(hook)],

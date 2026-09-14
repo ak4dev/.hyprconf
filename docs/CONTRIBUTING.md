@@ -114,9 +114,11 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
 
 - Every path a script reads is under `$HOME` (relocated wholesale by the
   suite) or behind an env seam — in `install.sh`, `OMARCHY_PATH` (Omarchy's own
-  variable, not `_HYPRCONF_*`) for the Omarchy tree and `_HYPRCONF_*` for
-  binaries and the other non-`$HOME` paths (`PKG_ADD`, `ZSH_BIN`, `ZSH`,
-  `PLUGIN_WAIT`); `_HYPRCONF_FIREFOX_POLICIES` and `_HYPRCONF_UDEV_RULES` —
+  variable, not `_HYPRCONF_*`) for the Omarchy tree and `_HYPRCONF_PKG_ADD`
+  for the one binary it still names, the command preflight probes for to
+  decide "is this Omarchy" (derive this list rather than trusting it:
+  `grep -oh '_HYPRCONF_[A-Z_]*' install.sh modules/*/install | sort -u`);
+  `_HYPRCONF_FIREFOX_POLICIES` and `_HYPRCONF_UDEV_RULES` —
   the two root-owned destinations a module writes — with `_HYPRCONF_ASSUME_TTY`
   in `modules/firefox/install` and `modules/keychron/install`; `_HYPRCONF_*` in
   `modules/yubikey/bin/hyprconf-yubikey` for the boot files it reads and
@@ -178,7 +180,7 @@ publish; the recipe for reproducing a container-only failure is in
 
 The overlay is published: strangers clone `stable` and run `install.sh` with their own sudo. Three trust boundaries, each held by mechanical pins (AGENTS.md hard rule 8):
 
-1. **Unprivileged → root, on the local box.** `install.sh` itself asks for no sudo at all: the modules that declare it (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/{terminal-kitty,shell-zsh,font,vscode}`) and `modules/yubikey`'s `run_root` surface (rule 6 names them) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned per file, in `modules/{yubikey,firefox,keychron}/test_*.py`; the tree-wide scan over `modules/*/install` lands with `tests/test_scans.py`); a tool `install.sh` still copies is rendered beside the target and `mv`'d, never truncated in place, and one a module owns is a symlink into the checkout; every module's `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo stage names itself in README (rule 6) and lands with a pin.
+1. **Unprivileged → root, on the local box.** `install.sh` itself asks for no sudo at all: the modules that declare it (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/{terminal-kitty,shell-zsh,font,vscode}`) and `modules/yubikey`'s `run_root` surface (rule 6 names them) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned per file, in `modules/{yubikey,firefox,keychron}/test_*.py`; the tree-wide scan over `modules/*/install` lands with `tests/test_scans.py`); a tool `install.sh` still copies is rendered beside the target and `mv`'d, never truncated in place, and one a module owns is a symlink into the checkout; every module's `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo call names itself in the module's README (rule 6) and lands with a pin.
 2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`textFormat: Text.PlainText`, stock parity); nothing shipped fetches-and-executes — `test_overlay_never_fetches_and_executes` forbids curl/wget/pipe-to-shell/`base64 -d`/`eval` in shipped bash, with the allowed exceptions written down in full inside the test. A new exception is added there verbatim, with its why, or the change does not land.
 3. **Publish pipeline → strangers' boxes.** The bootstrap is https-only (`--proto '=https'`; `test_published_one_liners_are_https_only`, `test_bootstrap_defaults_are_pinned_https_and_stable` — schemeless, curl's first request is plaintext port 80 and an on-path attacker answers it before the redirect exists). powerlevel10k — the one third-party repository left, and code that runs in every interactive zsh — is cloned at a reviewed commit by `modules/shell-zsh` and never pulled; bumping the pin is a deliberate commit through the publish gates (`test_every_module_clone_is_pinned_to_a_reviewed_commit`, which holds every `modules/*/install` to the same rule). Oh My Zsh is gone with its in-tree updater. CI actions are sha-pinned under a read-only token (`test_ci_workflow_is_least_privilege`); `web/` stays self-contained (`test_web_page_is_self_contained`); secret-shaped material anywhere in the tree fails `test_no_secret_material_anywhere`; `install.sh` refuses to run as root (the curl|bash sudo-prefix habit half-installs into /root).
 

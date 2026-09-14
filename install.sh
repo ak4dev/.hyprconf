@@ -121,7 +121,7 @@ preflight() {
     # (env_reset sets HOME) and the curl|bash habit of prefixing sudo is the
     # dangerous one. No seam: the suite runs unprivileged, CI included.
     if ((EUID == 0)); then
-        die "run as your regular user — install.sh asks for sudo itself where a stage needs it."
+        die "run as your regular user — the modules ask for sudo themselves where they need it."
     fi
     [[ -d $OMARCHY_PATH ]] ||
         die "no Omarchy found at $OMARCHY_PATH — this overlay installs on top of Omarchy."
