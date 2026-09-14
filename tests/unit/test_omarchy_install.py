@@ -1259,9 +1259,11 @@ def _overlay_scripts() -> list[Path]:
     shebang, the rule `make shellcheck` selects by. Walked on disk, not `git
     ls-files`, so the scan needs no git and no ownership trust; scripts/publish
     is outside PAYLOAD and covered by the Makefile's whole-tree pass. modules/
-    is skipped: each module carries its own script-shape and forbidden-forms
-    tests (modules/<name>/test_<name>.py), and the tree-wide scan lands in
-    tests/test_scans.py with the core rewrite."""
+    is skipped here: `make shellcheck`'s find-by-shebang pass lints every
+    modules/*/install today, and the tree-wide shape and forbidden-forms scan
+    over modules/ lands in tests/test_scans.py with the core rewrite — only
+    some modules pin these themselves so far (modules/idle the script shape,
+    modules/vscode the pacman ban, modules/keychron the root-write `--`)."""
     paths: list[Path] = []
     for name in PAYLOAD:
         if name == "modules":
