@@ -14,7 +14,7 @@ import pytest
 MODULE = Path(__file__).parent
 INSTALL = MODULE / "install"
 FAMILY = "GeistMono Nerd Font"
-STOCK = "JetBrainsMono Nerd Font"  # default/fontconfig/conf.avail/50-omarchy.conf:23-30
+STOCK = "JetBrainsMono Nerd Font"  # default/fontconfig/conf.avail/50-omarchy.conf:22-29
 
 
 def marker(box) -> Path:

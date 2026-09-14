@@ -972,45 +972,6 @@ def test_default_apps_are_seeded_once_and_the_marker_waits_for_the_seed(
 
 
 # ---------------------------------------------------------------------------
-# The system font
-# ---------------------------------------------------------------------------
-
-
-def test_the_font_family_goes_to_omarchy_verbatim(tmp_path: Path) -> None:
-    """One call, the literal family: /usr/bin/omarchy-font-set:24-27 greps fc-list
-    itself and exits 1 with "Font '<name>' not found", so a second copy of
-    that check here could only disagree with it."""
-    env = _setup(tmp_path)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-font-set GeistMono Nerd Font" in _calls(env)
-    # No fc-list of our own: the harness no longer fakes one, so a call would
-    # read the developer's (or the container's) real font list.
-    assert "fc-list" not in _code_only(INSTALL_SH.read_text())
-
-
-def test_font_marker_waits_for_omarchy_font_set_to_succeed(tmp_path: Path) -> None:
-    """omarchy-font-set exits 1 on a family it cannot apply — a box without
-    otf-geist-mono-nerd is the ordinary case: the stage warns instead of dying
-    under set -e, writes no marker, and the next run tries again."""
-    env = _setup(tmp_path)
-    _stub(env["bins"] / "omarchy-font-set", env["calls"], "exit 1")
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert any(c.startswith("omarchy-font-set") for c in _calls(env))
-    assert "WARNING:" in proc.stderr
-    marker = env["home"] / ".local" / "state" / "hyprconf" / "font-applied"
-    assert not marker.exists()
-    assert (env["home"] / ".zshrc").exists()  # a stage well after the font one
-
-    _stub(env["bins"] / "omarchy-font-set", env["calls"], "exit 0")
-    env["calls"].write_text("")
-    _run(env, "--no-update")
-    assert any(c.startswith("omarchy-font-set") for c in _calls(env))
-    assert marker.exists()
-
-
-# ---------------------------------------------------------------------------
 # Flags
 # ---------------------------------------------------------------------------
 
@@ -1429,7 +1390,8 @@ def test_bootstrap_defaults_are_pinned_https_and_stable() -> None:
 
 def test_packages_file_lines_are_plain_package_names() -> None:
     """A line starting with '-' would reach the sudo package stage as an
-    option, not a package."""
+    option, not a package. Each module's own `packages` file is pinned the
+    same way by its own suite (modules/font/test_font.py)."""
     for ln in (REPO_ROOT / "packages").read_text().splitlines():
         ln = ln.strip()
         if not ln or ln.startswith("#"):

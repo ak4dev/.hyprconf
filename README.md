@@ -72,7 +72,6 @@ bash ~/.hyprconf/install.sh
 | editor | VS Code (`visual-studio-code-bin`, from Omarchy's own `[omarchy]` pacman repository) when absent. Not set-once: any interactive run that finds VS Code absent installs it. Nothing is removed to make room: Arch's `code` (Code - OSS) conflicts with the package, but stock Omarchy never installs it — if you did, the install fails inside Omarchy's installer and the stage warns with the retry command; drop `code` yourself first | `omarchy-install-editor-vscode` — Omarchy's own flow: the package, `~/.vscode/argv.json`, `update.mode none`, `omarchy-theme-set-vscode`, and it **opens VS Code once** when done, by design. Skipped without a terminal; the result is read back with `omarchy-pkg-present` |
 | terminal | kitty becomes the default terminal; `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity, `shell <zsh>`) plus one `include hyprconf.conf` line appended to `kitty.conf`, which is created if you do not have one (from 4.0.3 Omarchy's own defaults live in `/etc/xdg/kitty/kitty.conf`, so the user file is optional) | `omarchy-default-terminal kitty`; Omarchy's defaults live in `/etc/xdg/kitty/kitty.conf` (kitty merges it below the user file), and `~/.config/kitty/kitty.conf` — the theme include, plus whatever `omarchy-font-set` appends — stays authoritative above it. The setter's exit status is its closing notification's, so with no shell (a TTY first run) it warns and the re-run finds kitty already current |
 | defaults | Browser `firefox`, editor `code` — **set once** | `omarchy-default-browser` / `omarchy-default-editor`, then the value read back (their exit status is their closing notification's, which fails on a TTY or SSH run after the default is already written); marker `~/.local/state/hyprconf/defaults-applied` |
-| font | System monospace → GeistMono Nerd Font — **set once** | `omarchy-font-set`; marker `~/.local/state/hyprconf/font-applied` |
 | hotkeys | `~/.config/hypr/bindings.lua` → `hypr/bindings.lua` | Symlink (whatever was there first — Omarchy's stock file, or a dotfiles link of your own, copied as a link — backed up to `bindings.lua.stock`). The hotkey tools are `bin/` commands (below) |
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups, a link of your own kept as a link) |
 | monitors | Seeds the three presets into `~/.config/hypr/` | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. Omarchy's `monitors.lua` is never touched, a symlinked one included (a stow-style dotfiles link is yours) |
@@ -99,6 +98,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | Module | What | Undo |
 |---|---|---|
 | [`fastfetch`](modules/fastfetch/README.md) | The shell greeting's layout, copied to `~/.config/hyprconf/fastfetch.jsonc` — a path only the shell reads, so Omarchy's About screen keeps its own | `bash ~/.hyprconf/modules/fastfetch/install undo` |
+| [`font`](modules/font/README.md) | The system monospace becomes GeistMono Nerd Font — **set once**. Installs `otf-geist-mono-nerd` (official repos, `omarchy-pkg-add`) when it is missing, which needs `sudo` and a terminal | `bash ~/.hyprconf/modules/font/install undo` — drops the marker and prints the `omarchy font set 'JetBrainsMono Nerd Font'` to run (the setter restarts the shell, so it stays yours) |
 | [`idle`](modules/idle/README.md) | The screensaver starts after **15 min** instead of Omarchy's 150 s (`idle.screensaver` in `~/.config/omarchy/shell.json`; the lock timeout is left alone) — **set once** | `bash ~/.hyprconf/modules/idle/install undo` |
 | [`keychron`](modules/keychron/README.md) | One udev rule at `/etc/udev/rules.d/70-keychron.rules` so the WebHID launcher can reach Keychron (`0x3434`) and Lemokey (`0x362d`) boards and mice. Needs `sudo` and a terminal | `bash ~/.hyprconf/modules/keychron/install undo` |
 | [`themes`](modules/themes/README.md) | The `dracula` user theme, symlinked into Omarchy's theme menu and **never activated**, plus extra wallpapers filed under the Omarchy theme each belongs to | `bash ~/.hyprconf/modules/themes/install undo` |
@@ -245,12 +245,11 @@ Border and shadow colours stay with the active Omarchy theme; keyboard layout st
 
 ## Packages
 
-From `packages`, installed via `omarchy-pkg-add` — **official repositories only, never the AUR**:
+From `packages`, installed via `omarchy-pkg-add` — **official repositories only, never the AUR**. A module with packages of its own ships them in its own `packages` file and installs them the same way (`otf-geist-mono-nerd`, [`modules/font`](modules/font/README.md)):
 
 | Package | Why |
 |---|---|
 | `kitty` | Default terminal |
-| `otf-geist-mono-nerd` | System monospace font (set once) |
 | `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting` | Shell inside kitty |
 
 Firefox (`SUPER+F`) and VS Code (`SUPER+C`) are not in `packages`: they come through Omarchy's own installers (the `firefox` and `editor` stages), which set up what a bare package would not. `visual-studio-code-bin` is from Omarchy's own `[omarchy]` pacman repository (`pacman -Si`: *Repository: omarchy*; it provides `code` and conflicts with Arch's `code`) — the one package the overlay takes from outside Arch's official repositories, and only through `omarchy-install-editor-vscode`; no AUR helper is ever called. `hyprconf-yubikey enroll` adds `libfido2` on demand, through `omarchy-pkg-add`.

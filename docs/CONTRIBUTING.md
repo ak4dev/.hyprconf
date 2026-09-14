@@ -44,7 +44,7 @@ publish flow and the website upload.
 ├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
 │
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, idle, keychron, themes
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, font, idle, keychron, themes
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names

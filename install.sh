@@ -718,37 +718,6 @@ stage_defaults() {
     fi
 }
 
-# The system monospace font, set ONCE on first install and never again.
-#
-# Which font is running is a user-facing choice, and this installer re-runs
-# after every Omarchy update via the post-update hook — without the marker, a
-# font the user picked later would be silently reverted to ours on the next
-# update.
-stage_font() {
-    log "Font: Geist Mono Nerd Font"
-    local marker="$HOME/.local/state/hyprconf/font-applied"
-    if [[ -e $marker ]]; then
-        info "already applied once — the font is yours now"
-        return 0
-    fi
-
-    # The literal family, handed straight to Omarchy: omarchy-font-set already
-    # refuses a name fc-list does not know (/usr/bin/omarchy-font-set:24-27,
-    # "Font '<name>' not found", exit 1), so resolving it here first only
-    # duplicated that check — and the `geist.*(nerd|mono)` fallback it carried
-    # for a rename that never happened would have matched a STYLE, "GeistMono
-    # NF Thin", not a family. A rejection warns rather than dying under set -e:
-    # a cosmetic stage must not take the install down.
-    omarchy-font-set 'GeistMono Nerd Font' || {
-        warn "omarchy-font-set rejected GeistMono Nerd Font (is otf-geist-mono-nerd installed?)" \
-             "— leaving the system font alone"
-        return 0
-    }
-    mkdir -p "$(dirname "$marker")"
-    : > "$marker"
-    info "set to GeistMono Nerd Font (change it any time with: omarchy font set <name>)"
-}
-
 stage_hotkeys() {
     log "Hotkeys"
     mkdir -p "$HOME/.config/hypr"
@@ -1335,11 +1304,11 @@ main() {
     # Self-contained modules: each one applies, gates and undoes itself
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
     bash "$HERE/modules/fastfetch/install"
+    bash "$HERE/modules/font/install"
     bash "$HERE/modules/idle/install"
     bash "$HERE/modules/keychron/install"
     bash "$HERE/modules/themes/install"
     stage_defaults
-    stage_font
     stage_hotkeys
     stage_looknfeel
     stage_monitors

@@ -5,7 +5,7 @@
 Sets **GeistMono Nerd Font** as the system monospace, once, through Omarchy's own
 `omarchy-font-set`: it writes `~/.config/fontconfig/fonts.conf` (what the shell, Qt apps
 and anything resolving `monospace` read), rewrites or appends `font_family` in
-`~/.config/kitty/kitty.conf` and restarts the shell (`bin/omarchy-font-set:29-74`); the
+`~/.config/kitty/kitty.conf` and restarts the shell (`bin/omarchy-font-set:57-72,33-42,74`); the
 family is handed over verbatim, since the setter greps `fc-list` itself and refuses a
 name it does not know (`:24-27`). Omarchy's `ttf-jetbrains-mono-nerd-basic` stays
 installed and selectable, and the choice is **set once**: after the first run the font is

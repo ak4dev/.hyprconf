@@ -14,12 +14,6 @@
 # Terminal. Becomes Omarchy's default via `omarchy-default-terminal`.
 kitty
 
-# Font. Geist Mono is the retro-modern face hyprconf sets as the system
-# monospace on first install; the -nerd build carries the full Nerd Font glyph
-# set the bar widgets draw from. Omarchy's own ttf-jetbrains-mono-nerd-basic
-# stays installed and remains selectable with `omarchy font set`.
-otf-geist-mono-nerd
-
 # Shell. hyprconf runs zsh inside kitty while leaving the LOGIN shell as bash,
 # so Omarchy's own bash rc chain, session and scripts are untouched.
 zsh
