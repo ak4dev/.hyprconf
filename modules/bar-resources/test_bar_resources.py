@@ -1,5 +1,5 @@
 """modules/bar-resources: the install (link, rescan, enable once, undo), and the
-two facts about the payload it links that no other file can carry."""
+facts about the payload it links that no other file can carry."""
 
 from __future__ import annotations
 
@@ -177,3 +177,45 @@ def test_the_feeders_ship_executable() -> None:
     """The folder is linked, not copied: the checkout's mode is what execs."""
     for feeder in ("hyprconf-stats", "hyprconf-gpu-info"):
         assert os.access(PLUGIN / "bin" / feeder, os.X_OK), feeder
+
+
+def test_a_feeder_that_died_is_restarted_on_a_capped_doubling_backoff() -> None:
+    """Service.qml's header rule, which only this shape keeps: 1 s doubled per
+    attempt to 32 s and then parked, rearmed only by a line that parsed, and
+    only for a feeder that ever produced one — a flat interval or an uncapped
+    ladder respawns dead hardware forever (nvidia-smi --loop exits at once)."""
+    service = (PLUGIN / "Service.qml").read_text()
+    assert "readonly property int maxAttempts: 6" in service
+    assert "if (restarter.attempt >= restarter.maxAttempts) return" in service
+    assert "restarter.interval = 1000 * (1 << restarter.attempt)" in service
+    assert service.count(".start()") == 1, "died() is the only thing that arms the timer"
+    for feeder in ("stats", "gpu"):
+        assert f"if (root.{feeder}Produced) {feeder}RestartTimer.died()" in service
+        assert f"{feeder}RestartTimer.produced()" in service
+    # Latched: it also decides what the GPU cells paint.
+    assert "Produced = false" not in service
+
+
+def test_the_feeders_emit_numbers_and_the_widget_owns_every_glyph() -> None:
+    """Verified present in GeistMono Nerd Font, Omarchy's default bar font
+    (fc-list ':charset=…'): nf-fa-microchip, nf-md-expansion_card,
+    nf-md-memory, nf-md-thermometer."""
+    widget = (PLUGIN / "Widget.qml").read_text()
+    for cell, code in (("Cpu", "F2DB"), ("Gpu", "F08AE"), ("Mem", "F061A"), ("Thermo", "F050F")):
+        assert f'property string glyph{cell}: "\\u{{{code}}}"' in widget
+    assert 'root.glyphThermo + t + "\u00b0 "' in widget, "the unit is the widget's too"
+    service = (PLUGIN / "Service.qml").read_text()
+    for prop, field in (
+        ("cpuPct", "cpu"),
+        ("cpuTemp", "temp"),
+        ("memText", "mem"),
+        ("netDown", "down"),
+        ("netUp", "up"),
+        ("gpuUtil", "util"),
+        ("gpuTemp", "temp"),
+        ("gpuVramUsed", "vram_used"),
+        ("gpuVramTotal", "vram_total"),
+        ("gpuTooltip", "tooltip"),
+    ):
+        assert f"root.{prop} = j.{field}\n" in service, "the feeder's own field, unreshaped"
+    assert "j.text" not in service, "a feeder never hands over rendered text"

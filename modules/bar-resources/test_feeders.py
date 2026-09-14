@@ -17,6 +17,8 @@ FEEDERS = Path(__file__).parent / "plugin" / "bin"
 GPU_INFO = FEEDERS / "hyprconf-gpu-info"
 STATS = FEEDERS / "hyprconf-stats"
 SLEEP_TAIL = 'command -p sleep "$@"\n'  # the real sleep, never this fake again
+# What `enable -f` loads: bash ships it (package bash), and it is the seam's own default.
+SLEEP_LOADABLE = Path("/usr/lib/bash/sleep")
 
 
 def _bump(path: Path, n: int) -> str:
@@ -176,6 +178,17 @@ def test_a_tick_execs_nothing(box: Box) -> None:
     """With the stub dir as the whole PATH, a lookup that shells out reads 0B/s."""
     p = _run_stats(box, iterations=1, bare_path=True)[0]
     assert (p["down"], p["up"]) == ("5.0kB/s", "1.0kB/s")
+
+
+@pytest.mark.skipif(not SLEEP_LOADABLE.is_file(), reason="no bash sleep loadable installed")
+def test_the_loadable_sleep_builtin_takes_the_pacing_over(box: Box) -> None:
+    """`enable -f` is the last fork a tick would otherwise pay. Pointed at the
+    real loadable the seam defaults to, the PATH `sleep` — which every other
+    case here paces on, the seam aimed at a file that is not there — is never
+    exec'd again."""
+    lines = _run_stats(box, iterations=2, env={"HYPRCONF_STATS_SLEEP_BUILTIN": str(SLEEP_LOADABLE)})
+    assert len(lines) == 2
+    assert "sleep" not in box.commands
 
 
 def test_an_interface_switch_rebases_the_rate_baseline(box: Box) -> None:
