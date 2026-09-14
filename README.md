@@ -94,7 +94,7 @@ After `omarchy-update` the post-update hook re-applies the overlay by itself —
 hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool is still on PATH; both drop-ins go with it
 hyprconf --undo           # every module's `install undo` in reverse order, then the hook and the ~/.local/bin/hyprconf link (the Firefox policy and the udev rule need sudo)
 hyprconf --undo <name>    # one module — the same as `bash ~/.hyprconf/modules/<name>/install undo`
-rm -rf ~/.local/state/hyprconf ~/.config/omarchy/plugins/.hyprconf.*.bak.* ~/.config/hypr/*.lua.stock ~/.oh-my-zsh   # leftovers: the emptied state dir, folders a bar module moved aside, and what a hyprconf 7.x install left behind
+rm -rf ~/.local/state/hyprconf ~/.config/omarchy/plugins/.hyprconf.*.bak.* ~/.oh-my-zsh   # leftovers: the emptied state dir, folders a bar module moved aside, and the Oh My Zsh a hyprconf 7.x install left behind
 ```
 
 What each undo puts back — the Undo section of its README:
@@ -105,7 +105,7 @@ What each undo puts back — the Undo section of its README:
 - [`firefox`](modules/firefox/README.md#undo) — the policy and the marker gone; Firefox stays, and the search engine falls to Firefox's regional default
 - [`firefox-theme`](modules/firefox-theme/README.md#undo) — hook, template, render, each profile's `chrome/userChrome.css` and the three prefs gone
 - [`font`](modules/font/README.md#undo) — the marker gone; it prints the `omarchy font set` that restores Omarchy's family (the setter restarts the shell)
-- [`hypr`](modules/hypr/README.md#undo) — `stock` layout, Omarchy's own template back at each of the three paths, presets and tool links gone
+- [`hypr`](modules/hypr/README.md#undo) — `stock` layout, then at each of the three paths the file of your own the first run kept as `.stock`, else Omarchy's own template; presets and tool links gone
 - [`idle`](modules/idle/README.md#undo) — the key dropped, Omarchy's 150 s back
 - [`keychron`](modules/keychron/README.md#undo) — the rule removed and reloaded (`sudo`)
 - [`shell-zsh`](modules/shell-zsh/README.md#undo) — the `~/.zshrc` line, the kitty include, the `~/.p10k.zsh` link (a `.stock` restored) and the clone it made; the packages stay

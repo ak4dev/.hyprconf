@@ -310,21 +310,84 @@ def test_a_second_run_writes_nothing_and_calls_nothing(box) -> None:
     assert box.commands == [], box.calls
 
 
-def test_a_pre_module_symlink_is_replaced_by_a_file(box) -> None:
+def test_a_pre_module_symlink_is_replaced_by_a_file_with_no_backup(box) -> None:
     """Before the module split these three paths were symlinks into the
-    checkout, which is what made `omarchy refresh` write through them."""
+    checkout (hypr/<f>.lua), which is what made `omarchy refresh` write
+    through them. Hyprconf's own link is replaced, never kept as a .stock —
+    a dangling one at that, since the legacy path is gone."""
     hypr = box.home / ".config" / "hypr"
     hypr.mkdir(parents=True)
-    checkout = box.tmp / "checkout"
-    checkout.mkdir()
-    (checkout / "bindings.lua").write_text("-- the pre-module checkout\n")
-    (hypr / "bindings.lua").symlink_to(checkout / "bindings.lua")
+    legacy = MODULE.parent.parent / "hypr" / "bindings.lua"
+    (hypr / "bindings.lua").symlink_to(legacy)
 
-    assert box.run(INSTALL).returncode == 0
+    res = box.run(INSTALL)
+    assert res.returncode == 0, res.stderr
     landed = hypr / "bindings.lua"
     assert not landed.is_symlink()
     assert landed.read_bytes() == (MODULE / "bindings.lua").read_bytes()
-    assert (checkout / "bindings.lua").read_text() == "-- the pre-module checkout\n"
+    assert not (hypr / "bindings.lua.stock").exists()
+    assert "backed up" not in res.stdout
+
+
+def test_a_file_of_the_users_own_at_an_override_path_is_kept_once_as_stock(box) -> None:
+    """A bindings.lua the user wrote (stock Omarchy ships one at every one of
+    these paths, so it is never empty) is set aside as .stock — once: a second
+    foreign file must not cost the first backup — and said so in one line."""
+    hypr = box.home / ".config" / "hypr"
+    hypr.mkdir(parents=True)
+    mine = "-- my own bindings\n"
+    (hypr / "bindings.lua").write_text(mine)
+
+    res = box.run(INSTALL)
+    assert res.returncode == 0, res.stderr
+    assert (hypr / "bindings.lua").read_bytes() == (MODULE / "bindings.lua").read_bytes()
+    assert (hypr / "bindings.lua.stock").read_text() == mine
+    assert "backed up bindings.lua -> bindings.lua.stock" in res.stdout
+    assert not (hypr / "input.lua.stock").exists(), "nothing was there to keep"
+
+    (hypr / "bindings.lua").write_text("-- edited on the copy, after the install\n")
+    res = box.run(INSTALL)
+    assert res.returncode == 0, res.stderr
+    assert (hypr / "bindings.lua.stock").read_text() == mine, "the first backup was overwritten"
+    assert "backed up" not in res.stdout
+
+
+def test_a_dotfiles_link_at_an_override_path_is_kept_as_a_link(box) -> None:
+    """A symlink into the user's own dotfiles is backed up AS a link (cp -P),
+    so undo hands their file back still linked, and their target is never
+    read or written."""
+    hypr = box.home / ".config" / "hypr"
+    hypr.mkdir(parents=True)
+    theirs = box.tmp / "dotfiles" / "bindings.lua"
+    theirs.parent.mkdir()
+    theirs.write_text("-- from my dotfiles\n")
+    (hypr / "bindings.lua").symlink_to(theirs)
+
+    res = box.run(INSTALL)
+    assert res.returncode == 0, res.stderr
+    assert not (hypr / "bindings.lua").is_symlink()
+    stock = hypr / "bindings.lua.stock"
+    assert stock.is_symlink() and stock.readlink() == theirs
+    assert theirs.read_text() == "-- from my dotfiles\n"
+    assert "backed up bindings.lua -> bindings.lua.stock" in res.stdout
+
+
+def test_omarchys_own_template_at_an_override_path_is_not_backed_up(box) -> None:
+    """Every Omarchy box carries its template at these paths
+    (config/hypr/*.lua, put there by omarchy-refresh-config:41-43), and undo
+    restores exactly that — a .stock of it would be one dead file per box."""
+    hypr = box.home / ".config" / "hypr"
+    hypr.mkdir(parents=True)
+    for name in OVERRIDES:
+        box.omarchy_write(f"config/hypr/{name}.lua", f"-- omarchy stock {name}\n")
+        (hypr / f"{name}.lua").write_text(f"-- omarchy stock {name}\n")
+
+    res = box.run(INSTALL)
+    assert res.returncode == 0, res.stderr
+    assert not sorted(hypr.glob("*.stock")), "Omarchy's template was backed up"
+    assert "backed up" not in res.stdout
+    for name in OVERRIDES:
+        assert (hypr / f"{name}.lua").read_bytes() == (MODULE / f"{name}.lua").read_bytes()
 
 
 def test_a_folder_with_no_preset_installs_the_rest(box) -> None:
@@ -383,6 +446,34 @@ def test_undo_hands_each_override_back_to_omarchys_own_restore(box) -> None:
     assert ["omarchy-hyprland-toggle", "hyprconf-monitor-preset", "off"] in box.calls_of(
         "omarchy-hyprland-toggle"
     )
+
+
+def test_undo_puts_a_stock_file_back_ahead_of_omarchys_template(box) -> None:
+    """The file of the user's own (or their link) that the first run set aside
+    is what undo restores; only a path with nothing kept goes to
+    omarchy-refresh-config."""
+    box.stub("omarchy-refresh-config", REFRESH)
+    for name in OVERRIDES:
+        box.omarchy_write(f"config/hypr/{name}.lua", f"-- omarchy stock {name}\n")
+    hypr = box.home / ".config" / "hypr"
+    hypr.mkdir(parents=True)
+    (hypr / "bindings.lua").write_text("-- my own bindings\n")
+    theirs = box.tmp / "dotfiles" / "input.lua"
+    theirs.parent.mkdir()
+    theirs.write_text("-- my own input\n")
+    (hypr / "input.lua").symlink_to(theirs)
+    assert box.run(INSTALL).returncode == 0
+    box.reset()
+
+    res = box.undo("hypr")
+    assert res.returncode == 0, res.stderr
+    assert (hypr / "bindings.lua").read_text() == "-- my own bindings\n"
+    assert (hypr / "input.lua").is_symlink() and (hypr / "input.lua").readlink() == theirs
+    assert (hypr / "looknfeel.lua").read_text() == "-- omarchy stock looknfeel\n"
+    assert not sorted(hypr.glob("*.stock")), "a .stock survived the restore"
+    assert box.calls_of("omarchy-refresh-config") == [
+        ["omarchy-refresh-config", "hypr/looknfeel.lua"]
+    ]
 
 
 def test_undo_on_a_machine_that_never_installed_is_a_no_op(box) -> None:

@@ -17,6 +17,13 @@
 # loads after monitors.lua — the directory omarchy-hyprland-monitor-internal:7,44
 # writes. monitors.lua itself is never touched. Delete a preset to re-seed it.
 #
+# What is at an override path before the first run is kept ONCE as <f>.lua.stock
+# and put back by undo — unless it is Omarchy's own template (what
+# omarchy-refresh-config restores anyway; every Omarchy box carries it there),
+# a link into this checkout (the pre-module symlink), or already our bytes.
+# A file of the user's own, or their dotfiles link, is what that leaves: the
+# one thing a plain overwrite would lose for good (rule 5, reversible).
+#
 # The tools are linked into ~/.local/bin (on the session PATH,
 # default/bash/env-bootstrap:37-40) and bound by name in bindings.lua, the way
 # Omarchy binds its own. No sudo, no prompt, no set-once marker: the only
@@ -25,19 +32,26 @@
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+# Omarchy's own variable, with Omarchy's own fallback (default/bash/env-bootstrap:12,16).
+: "${OMARCHY_PATH:=/usr/share/omarchy}"
 hypr=$HOME/.config/hypr
 bin=$HOME/.local/bin
 overrides=(bindings input looknfeel)
 tools=(hyprconf-gaps hyprconf-monitor-preset)
 
 if [[ ${1:-} == undo ]]; then
-    # Omarchy's own restore, not a saved copy: the file is removed first so
-    # omarchy-refresh-config takes its no-backup branch (:41-43) and leaves no
-    # .bak behind for a file the overlay wrote.
+    # The .stock kept on the way in wins; otherwise Omarchy's own restore, not
+    # a saved copy: the file is removed first so omarchy-refresh-config takes
+    # its no-backup branch (:41-43) and leaves no .bak behind for a file the
+    # overlay wrote.
     "$dir/bin/hyprconf-monitor-preset" stock >/dev/null 2>&1 || true
     for f in "${overrides[@]}"; do
         rm -f "$hypr/$f.lua"
-        omarchy-refresh-config "hypr/$f.lua" >/dev/null
+        if [[ -e $hypr/$f.lua.stock || -L $hypr/$f.lua.stock ]]; then
+            mv -- "$hypr/$f.lua.stock" "$hypr/$f.lua"
+        else
+            omarchy-refresh-config "hypr/$f.lua" >/dev/null
+        fi
     done
     for f in "$dir"/*Monitors*.lua; do rm -f "$hypr/${f##*/}"; done
     for t in "${tools[@]}"; do rm -f "$bin/$t"; done
@@ -47,10 +61,24 @@ fi
 
 mkdir -p "$hypr" "$bin"
 changed=0
+root=${dir%/modules/hypr}
 for f in "${overrides[@]}"; do
-    [[ -L $hypr/$f.lua ]] && rm -f "$hypr/$f.lua" # a pre-module symlink into the checkout
-    cmp -s "$dir/$f.lua" "$hypr/$f.lua" 2>/dev/null && continue
-    install -m 644 "$dir/$f.lua" "$hypr/$f.lua"
+    dst=$hypr/$f.lua
+    if [[ -L $dst ]]; then
+        target=$(readlink "$dst")
+        if [[ $target != "$root"/* && ! -e $dst.stock && ! -L $dst.stock ]]; then
+            cp -P -- "$dst" "$dst.stock" # theirs: the link itself, once
+            echo "  backed up $f.lua -> $f.lua.stock"
+        fi
+        rm -f "$dst"
+    elif [[ -e $dst ]]; then
+        cmp -s "$dir/$f.lua" "$dst" && continue
+        if ! cmp -s "$OMARCHY_PATH/config/hypr/$f.lua" "$dst" && [[ ! -e $dst.stock && ! -L $dst.stock ]]; then
+            cp -P -- "$dst" "$dst.stock" # theirs: not our bytes, not Omarchy's template
+            echo "  backed up $f.lua -> $f.lua.stock"
+        fi
+    fi
+    install -m 644 "$dir/$f.lua" "$dst"
     changed=1
 done
 # The seed list is this glob, never a table; nullglob is unset, so with no

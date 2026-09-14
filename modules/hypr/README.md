@@ -4,8 +4,10 @@
 Copies `bindings.lua`, `input.lua` and `looknfeel.lua` into `~/.config/hypr/`, `require`d after Omarchy's own defaults
 (`config/hypr/hyprland.lua:20-22`) and stating only deltas over `$OMARCHY_PATH/default/hypr/`. Edit in the checkout,
 then `hyprconf hypr` (`bash ~/.hyprconf/install.sh hypr`): an `omarchy refresh` or a migration lands on the copy, and
-the next run — the post-update hook's included — puts it back. Seeds the `*Monitors*.lua` presets and links
-`hyprconf-gaps` and `hyprconf-monitor-preset` into `~/.local/bin`, bound by name in `bindings.lua`.
+the next run — the post-update hook's included — puts it back. A file of your own at one of those paths, or a
+dotfiles link, is kept once as `<file>.lua.stock` (said in one line; Omarchy's own template is not — undo restores it
+anyway). Seeds the `*Monitors*.lua` presets and links `hyprconf-gaps` and `hyprconf-monitor-preset` into
+`~/.local/bin`, bound by name in `bindings.lua`.
 
 `hyprconf-monitor-preset <name>` copies a preset — one machine's desk — into `~/.local/state/omarchy/toggles/hypr/`,
 loaded after `monitors.lua` (`default/hypr/toggles.lua:4,11`), so its `hl.monitor` lines win and `monitors.lua` is
@@ -91,13 +93,17 @@ A preset belongs to the machine: an edit survives re-selecting it.
 ## Settings
 No set-once marker — nothing here is a one-time choice. A seeded preset is yours to edit and is never overwritten;
 delete it to re-seed. A new preset is one more `*Monitors*.lua` file in this folder: the seed and the tool's `-h` line
-both derive from the glob.
+both derive from the glob. The two `pcMonitors.*` presets are the author's desks: on another machine delete both,
+here and the seeded copies in `~/.config/hypr/` — pressed against unknown displays, `SUPER+SHIFT+B`/`K` would bring
+every output up at its preferred mode for the session and point workspaces 1–6 at panels that are not there.
 
 ## Undo
-`bash modules/hypr/install undo` — `hyprconf-monitor-preset stock`, then `omarchy-refresh-config` puts each override
-back to Omarchy's own template (the copy is removed first, so no `.bak` is left), the seeded presets and the two
-`~/.local/bin` links go, `hyprctl reload`. Safe on a machine that never installed: exit 0, and what lands is Omarchy's
-own template at each of the three paths.
+`bash modules/hypr/install undo` — `hyprconf-monitor-preset stock`, then each override goes back: a
+`<file>.lua.stock` is moved into place — the file of your own the first run set aside, or the one a hyprconf 7.x
+install left, which was Omarchy's template of that day (delete it first for the current one) — and where there is
+none, `omarchy-refresh-config` puts Omarchy's own template back (the copy is removed first, so no `.bak` is left).
+The seeded presets and the two `~/.local/bin` links go, `hyprctl reload`. Safe on a machine that never installed:
+exit 0, and what lands is Omarchy's own template at each of the three paths.
 
 ## Verified against
 Omarchy 4.0.3-1 (Hyprland 0.56.2). Every `file:line` above was read from `/usr/share/omarchy` at that version.
