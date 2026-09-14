@@ -3,10 +3,8 @@ name: Tests
 on:
   push:
     branches: ["**"]
-  pull_request:
-    branches: ["**"]
 
-# Least-privilege token: these jobs only read the repo.
+# Least-privilege token: this job only reads the repo.
 permissions:
   contents: read
 
@@ -19,39 +17,8 @@ concurrency:
 # GitHub offers no native Arch runner, so the ubuntu-latest host only provides
 # the container engine; every step below executes inside the Arch container.
 jobs:
-  lint:
-    name: "Lint (shellcheck + ruff)"
-    runs-on: ubuntu-latest
-    container: archlinux:latest
-    steps:
-      - name: Install toolchain
-        run: pacman -Syu --noconfirm --needed git make ruff shellcheck
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # Teed and republished for the same reason as the suite job below.
-      - name: ShellCheck (all bash scripts)
-        run: |
-          set -o pipefail
-          make shellcheck 2>&1 | tee /tmp/hyprconf-lint.log
-      - name: Ruff (lint + format check)
-        run: |
-          set -o pipefail
-          make lint 2>&1 | tee -a /tmp/hyprconf-lint.log
-      - name: Publish the failure where a non-admin can read it
-        if: failure()
-        run: |
-          {
-            echo '### lint failed'
-            echo '```'
-            tail -n 150 /tmp/hyprconf-lint.log
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
-          tail -n 40 /tmp/hyprconf-lint.log \
-            | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
-            | awk '{ printf "%s%%0A", $0 }' \
-            | { read -r -d '' msg || true; echo "::error title=lint failed::$msg"; }
-
-  unit-integration:
-    name: "Unit + Integration"
+  check:
+    name: "make check (lint + shellcheck + test)"
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
@@ -66,35 +33,39 @@ jobs:
       # in /usr/lib/qt6/bin, where the test looks.
       - name: Install toolchain
         run: |
-          pacman -Syu --noconfirm --needed git make python \
+          pacman -Syu --noconfirm --needed git make ruff python \
             python-pytest python-pytest-xdist jq shellcheck diffutils lua \
             qt6-declarative
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      # Same target scripts/publish gates on, so CI and a release run identically.
-      # Teed, because the raw job log needs admin rights to download
-      # (`/actions/jobs/<id>/logs` answers 403 "Must have admin rights to
-      # Repository" to anyone else) — so a CI-only failure would otherwise be
-      # invisible to the person fixing it. The step below republishes the tail
-      # into the job summary, which rides out on the check run and IS public.
-      - name: Run unit + integration
+      # The suite runs as an unprivileged user, the way a developer runs it:
+      # root would bypass DAC (every permission assertion passes for free),
+      # install.sh's refuse-root preflight would fire on every run, and git
+      # would refuse the runner-owned checkout as dubious.
+      - name: Run the three gates as an unprivileged user
         run: |
-          set -o pipefail
-          make test 2>&1 | tee /tmp/hyprconf-test.log
+          useradd -m ci
+          chown -R ci: "$GITHUB_WORKSPACE"
+          # Same target scripts/publish gates on, so CI and a release run
+          # identically. Teed, because the raw job log needs admin rights to
+          # download (`/actions/jobs/<id>/logs` answers 403 "Must have admin
+          # rights to Repository" to anyone else) — so a CI-only failure would
+          # otherwise be invisible to the person fixing it. The step below
+          # republishes the tail where it can be read.
+          su ci -s /bin/bash -c 'set -o pipefail; make check 2>&1 | tee /tmp/hyprconf-check.log'
       - name: Publish the failure where a non-admin can read it
         if: failure()
         run: |
           {
-            echo '### `make test` failed'
+            echo '### `make check` failed'
             echo '```'
-            tail -n 150 /tmp/hyprconf-test.log
+            tail -n 150 /tmp/hyprconf-check.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           # The job summary shows only in the web UI. An ::error:: annotation
           # is the one piece of a red run the public API hands back
           # (/check-runs/<id>/annotations), so mirror the tail into one —
           # newlines as %0A, literal % first, per the workflow-command escaping.
-          tail -n 40 /tmp/hyprconf-test.log \
+          tail -n 40 /tmp/hyprconf-check.log \
             | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
             | awk '{ printf "%s%%0A", $0 }' \
-            | { read -r -d '' msg || true; echo "::error title=make test failed::$msg"; }
-
+            | { read -r -d '' msg || true; echo "::error title=make check failed::$msg"; }

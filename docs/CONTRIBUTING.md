@@ -68,7 +68,7 @@ checkout's copies are the live files (`AGENTS.md` › Live files).
 ## Testing
 
 Two suites, both hermetic (the contract is in `AGENTS.md` › Tests); CI runs
-them in an `archlinux:latest` container, as root.
+them in an `archlinux:latest` container, as an unprivileged user.
 
 ```
 conftest.py                       # the `box` fixture every test builds on (repo root: it reaches tests/ and, later, modules/)
@@ -186,12 +186,13 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
 
 ### CI
 
-`.github/workflows/test.yml` runs two jobs on every push and PR to any branch,
-both inside `archlinux:latest` as root, in a runner-owned workspace with no
-git-trust step: **Lint** (`make shellcheck` + `make lint`) and **Unit +
-Integration** (`make test`, the target `scripts/publish` gates on). Both must
-be green before a publish; the recipe for reproducing a container-only
-failure is in `AGENTS.md` › Gates and CI.
+`.github/workflows/test.yml` runs one job on every push to any branch:
+`make check` — the target `scripts/publish` gates on — inside
+`archlinux:latest`, as a `ci` user the job creates and hands the checkout to.
+There are no pull requests in this flow (`dev` → `stable` is a push by
+`scripts/publish`), so `push` is the only trigger. It must be green before a
+publish; the recipe for reproducing a container-only failure is in
+`AGENTS.md` › Gates and CI.
 
 ---
 
