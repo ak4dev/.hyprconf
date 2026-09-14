@@ -1,13 +1,6 @@
 #!/usr/bin/env bash
-# hyprconf/yubikey — puts `hyprconf-yubikey` on PATH: FIDO2 (YubiKey) unlock of the
-# LUKS2 root at boot, the half Omarchy's own omarchy-setup-security-fido2 (sudo +
-# polkit) leaves out. What the tool does and what it rests on: README.md beside this
-# file, and `hyprconf-yubikey help`.
-# Installing is one symlink into ~/.local/bin, which Omarchy puts on the session PATH
-# (default/bash/env-bootstrap:38-39 and default/bash/envs:32-33, Omarchy 4.0.3-1) — a
-# link, not a copy, so `git pull` in the checkout is the update. Nothing else: the tool
-# is run by hand and changes nothing until it is, so this script needs no sudo, no
-# terminal, no marker and no package.
+# hyprconf/yubikey — puts `hyprconf-yubikey` (FIDO2 unlock of the LUKS2 root at boot) on PATH.
+# Seam: ~/.local/bin, on the session PATH (default/bash/env-bootstrap:38-39, envs:32-33; Omarchy 4.0.3-1).
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -15,8 +8,6 @@ tool=hyprconf-yubikey
 bin=$HOME/.local/bin
 
 if [[ ${1:-} == undo ]]; then
-    # The link only. An enrolled box is reverted by the tool itself, which needs the
-    # tool — so run that first (README › Undo); removing the link reverts nothing.
     [[ -e $bin/$tool || -L $bin/$tool ]] || exit 0
     rm -f "$bin/$tool"
     echo "  $bin/$tool removed — if a key is enrolled, revert the boot config with: bash $dir/bin/$tool remove"
@@ -24,8 +15,7 @@ if [[ ${1:-} == undo ]]; then
 fi
 
 mkdir -p "$bin"
-# readlink first: ln -sfn recreates an already-correct link with a new inode, and a
-# second run must write nothing.
+# readlink first: ln -sfn would give an already-correct link a new inode.
 [[ $(readlink "$bin/$tool" 2>/dev/null) == "$dir/bin/$tool" ]] ||
     ln -sfn "$dir/bin/$tool" "$bin/$tool"
 exit 0
