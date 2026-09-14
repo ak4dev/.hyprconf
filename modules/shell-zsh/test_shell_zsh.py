@@ -206,3 +206,14 @@ def test_the_shipped_zsh_files_parse(box) -> None:
         pytest.skip("no zsh on this box")
     for name in ("zshrc", ".p10k.zsh"):
         assert subprocess.run(["zsh", "-n", MODULE / name], capture_output=True).returncode == 0
+
+
+def test_the_zshrc_keeps_the_four_things_omarchy_expects_of_it() -> None:
+    """README › What: Omarchy's own env/aliases flow through, `cd` keeps working, the
+    greeting is the fastfetch module's copy — never ~/.config/fastfetch, which is
+    omarchy-launch-about's (Omarchy 4.0.3-1)."""
+    rc = (MODULE / "zshrc").read_text()
+    assert re.search(r"^for \w+ in env-bootstrap envs aliases; do$", rc, re.M)
+    assert "{OMARCHY_PATH:-/usr/share/omarchy}/default/bash" in rc
+    assert "zoxide init zsh" in rc  # Omarchy aliases cd to a zoxide wrapper
+    assert ".config/hyprconf/fastfetch.jsonc" in rc and ".config/fastfetch" not in rc
