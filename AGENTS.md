@@ -92,7 +92,7 @@ Before every commit: `make check` — `make lint` (ruff check + format), `make s
 
 ```bash
 docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
-  'pacman -Syu --noconfirm --needed git make ruff python python-pytest python-pytest-xdist jq shellcheck diffutils lua qt6-declarative &&
+  'pacman -Syu --noconfirm --needed git make ruff python python-pytest python-pytest-xdist jq shellcheck diffutils lua qt6-declarative zsh &&
    cp -r /src /repo && useradd -m ci && chown -R ci: /repo && cd /repo && su ci -s /bin/bash -c "make check"'
 ```
 

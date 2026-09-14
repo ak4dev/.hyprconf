@@ -114,9 +114,9 @@ make fmt                 # ruff format + safe fixes
 The gates need `ruff`, `shellcheck`, `python-pytest` and `python-pytest-xdist`
 — official repos, the same Arch packages CI installs, so the versions match:
 `omarchy pkg add ruff shellcheck python-pytest python-pytest-xdist`. `jq`,
-`luac` and `qmllint` are used real by the tests that need them and skipped
-when absent; `git` is required. CI's own package list, with the reason each
-entry is there, lives in `.github/workflows/test.yml`; the tests that
+`luac`, `qmllint` and `zsh` are used real by the tests that need them and
+skipped when absent; `git` is required. CI's own package list, with the
+reason each entry is there, lives in `.github/workflows/test.yml`; the tests that
 skip in CI, and the recipe for reproducing a container-only failure, are in
 `AGENTS.md` › Gates and CI.
 
@@ -181,7 +181,8 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   `test_firefox_theme.py` stubs the three theme commands in the one test that
   runs the theme-set hook as a real subprocess, where /usr/bin's copies are
   reachable). Real when present, skipped otherwise: `jq`, `luac`,
-  `qmllint`, `shellcheck`, `sh`, `/usr/share/omarchy/bin/omarchy-plugin-validate`
+  `qmllint`, `shellcheck`, `sh`, `zsh`,
+  `/usr/share/omarchy/bin/omarchy-plugin-validate`
   (reads a manifest, changes nothing), the installed clock plugin's files
   (`test_plugins.py` reads them for parity).
   A test that reads a file of the installed Omarchy falls back to a
