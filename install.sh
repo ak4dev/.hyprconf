@@ -735,26 +735,6 @@ enable_plugin_once() {
     fi
 }
 
-# The focused window's title beside the workspaces, on TWO lines. Omarchy's
-# stock omarchy.active-window widget is the same thing on one line (elided
-# title, tooltip with the full one, click focuses, middle- or right-click closes) and
-# reads one setting, maxWidth, so the two-line version is the overlay's own
-# copy (plugins/hyprconf-active-window, header comment there): clonedFrom the
-# stock widget, so the shell swaps it into the stock widget's slot and routes
-# the stock IPC to it, and `omarchy plugin disable hyprconf.active-window`
-# restores stock. Synced every run,
-# enabled ONCE with no placement of its own: the manifest's defaultSection
-# is left, and the shell anchors a left-section widget right after
-# omarchy.workspaces — resolved to hyprconf.workspaces while that copy is on
-# the bar (PluginRegistry.qml barTarget / findRelativeBarLocation, 4.0.0-1).
-# The character budget is the stock setting: `omarchy bar set
-# hyprconf.active-window maxWidth 400`.
-stage_window_title() {
-    log "Bar window title, two lines (hyprconf.active-window)"
-    sync_plugin_dir hyprconf-active-window hyprconf.active-window
-    enable_plugin_once hyprconf.active-window active-window-applied
-}
-
 # clone_pinned <url> <dir> <sha> <name>: the named commit and only it —
 # cloned without checkout, the exact sha fetched shallow (GitHub serves
 # unadvertised reachable objects by full sha), checked out detached. A dir
@@ -887,6 +867,7 @@ main() {
     stage_terminal
     # Self-contained modules: each one applies, gates and undoes itself
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
+    bash "$HERE/modules/bar-active-window/install"
     bash "$HERE/modules/bar-clock/install"
     bash "$HERE/modules/bar-workspaces/install"
     bash "$HERE/modules/fastfetch/install"
@@ -904,7 +885,6 @@ main() {
     stage_monitors
     stage_bin
     stage_bar_plugin
-    stage_window_title
     stage_shell
     stage_hooks
     hyprctl reload >/dev/null 2>&1 || true

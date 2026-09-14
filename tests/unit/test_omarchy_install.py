@@ -1484,8 +1484,8 @@ def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> 
     """A TTY or SSH run has no live shell to enable against, and omarchy-plugin-list
     (set -e) exits 1 identically on every poll. So: no abort, no set-once
     marker, nothing set on a clock that never landed, and one list call per
-    enable rather than the whole discovery wait per widget. The clock and the
-    workspaces are modules now; their own suites pin the same shape, and their
+    enable rather than the whole discovery wait per widget. Three of the four
+    widgets are modules now; their own suites pin the same shape, and their
     enables and lists still count towards the four below."""
     env = _setup(tmp_path)
     _real_jq(env)
@@ -1494,9 +1494,9 @@ def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> 
     proc = _run(env, "--no-update", extra_env={"_HYPRCONF_PLUGIN_WAIT": "40"})
     assert proc.returncode == 0, proc.stderr
     state = env["home"] / ".local" / "state" / "hyprconf"
-    for widget in ("clock", "workspaces"):
+    for widget in ("active-window", "clock", "workspaces"):
         assert not (state / f"{widget}-applied").exists(), widget
-    for widget in ("resources", "active-window"):
+    for widget in ("resources",):
         assert not (state / f"{widget}-applied").exists(), widget
         assert f"hyprconf.{widget}" in proc.stderr, widget
     commands = _commands(env)
@@ -1520,20 +1520,6 @@ def test_a_changed_plugin_restarts_the_shell_when_no_rescan_answers(tmp_path: Pa
     assert "omarchy-shell shell rescanPlugins" in _calls(env)
     assert "omarchy-restart-shell" in _commands(env)
     assert not list(plugins.glob(".hyprconf.*"))
-
-
-def test_the_window_title_clone_is_enabled_never_the_stock_widget(tmp_path: Path) -> None:
-    """Enabled with no placement of its own: the manifest's defaultSection is
-    left, where the shell anchors a new widget right after omarchy.workspaces
-    — clone-resolved while our copy holds that slot (PluginRegistry.qml
-    barTarget / findRelativeBarLocation, 4.0.3-1)."""
-    env = _setup(tmp_path)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-plugin-enable hyprconf.active-window" in calls
-    assert not any("omarchy-plugin-enable omarchy.active-window" in c for c in calls)
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "active-window-applied").exists()
 
 
 # ---------------------------------------------------------------------------
