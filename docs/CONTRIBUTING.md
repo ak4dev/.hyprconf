@@ -47,7 +47,8 @@ tests/                            # what is not a module's: install.sh and the t
 ├── test_plugins_contract.py      #   every shipped plugin folder (modules/bar-*/plugin): omarchy-plugin-validate's checks ported to Python (CI has no Omarchy — each module runs the real validator too), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText and implicit-size rules, real qmllint, and every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent)
 ├── test_no_pii.py                #   every file in the checkout (on-disk walk), identities derived at runtime
 ├── test_supply_chain.py          #   the published trust surface: web/ self-contained, https-only and stable-pinned bootstrap, every modules/*/install clone pinned and never pulled, sha-pinned least-privilege CI, the .claude guardrail entries
-└── test_publish.py               #   scripts/publish: the gates, the tag, the atomic promotion and its refusals, against a throwaway bare origin
+├── test_publish.py               #   scripts/publish: the gates, the tag, the atomic promotion and its refusals, against a throwaway bare origin
+└── test_docs.py                  #   the docs contract, structure only: the README branding block byte for byte, one Modules row and one Reverting line per module
 ```
 
 ### Running tests
