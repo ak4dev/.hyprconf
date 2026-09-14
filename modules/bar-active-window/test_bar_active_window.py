@@ -99,8 +99,17 @@ def test_the_manifest_is_the_clone_contract() -> None:
     assert manifest["barWidget"] == {"category": "Compositor", "defaultSection": "left"}
 
 
-def test_the_widget_qml_parses_and_paints_the_untrusted_title_as_plain_text() -> None:
-    assert "textFormat: Text.PlainText" in (PLUGIN / "ActiveWindow.qml").read_text()
+def test_the_widget_qml_parses_and_keeps_the_stock_widget_s_behaviour() -> None:
+    qml = (PLUGIN / "ActiveWindow.qml").read_text()
+    assert "textFormat: Text.PlainText" in qml  # the title is untrusted content
+    # "Everything else is the stock widget's behaviour ... the stock IPC target keeps
+    # working" (README): the built-in moduleName, both clicks (the two identical stock
+    # close branches merged into one ||), the tooltip, and the title on two lines.
+    assert 'moduleName: "omarchy.active-window"' in qml
+    assert "mouse.button === Qt.MiddleButton || mouse.button === Qt.RightButton" in qml
+    assert "root.toplevel.close()" in qml and "root.toplevel.activate()" in qml
+    assert "bar.showTooltip(root, root.title)" in qml and "bar.hideTooltip(root)" in qml
+    assert "maximumLineCount: 2" in qml
     qmllint = shutil.which("qmllint") or shutil.which("qmllint", path="/usr/lib/qt6/bin")
     if qmllint is None:
         pytest.skip("no qmllint (qt6-declarative) to parse the plugin QML")
