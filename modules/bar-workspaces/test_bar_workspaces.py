@@ -3,9 +3,9 @@ contract the plugin folder keeps so it can be published on its own.
 
 HERMETIC: every run is `box`'s throwaway machine (repo-root conftest.py); the
 only real Omarchy command is `omarchy-plugin-validate`, which reads a folder
-and writes nothing, and the test skips where it is not installed — CI has no
-Omarchy, so `validator_problems` below is that test's other half and the one
-that runs there.
+and writes nothing, and the test skips where it is not installed. CI has no
+Omarchy: the validator's checks ported to Python run there instead, over every
+shipped folder, in tests/test_plugins_contract.py.
 """
 
 from __future__ import annotations
@@ -29,80 +29,6 @@ PLUGIN_VALIDATE = Path("/usr/share/omarchy/bin/omarchy-plugin-validate")
 # (bin/omarchy-plugin-add:163-171 is the shape it copies). Without it the fake
 # omarchy-plugin-list prints nothing and the poll spends its full 2 s.
 LISTS_THE_PLUGIN = f'printf \'[{{"id":"{ID}"}}]\\n\'\n'
-
-
-# bin/omarchy-plugin-validate's checks on one folder, in Python: CI has no
-# Omarchy, so the real-validator test below skips there and this is what holds
-# the manifest to the schema `omarchy plugin add` gates a repository on.
-REQUIRED_FIELDS = ("id", "name", "version", "kinds", "entryPoints")  # :44
-PLUGIN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")  # :51
-SECTIONS = ("left", "center", "right")  # :66-74
-
-
-def validator_problems(folder: Path) -> list[str]:
-    """What omarchy-plugin-validate would refuse in `folder`, as messages;
-    empty means it passes. Trimmed to this folder's one kind, `bar-widget`
-    (:97-103 is a table of six). The subtlety is schemaVersion: jq's `==` is
-    type-aware (:41's own comment), so `true` is refused where Python's
-    True == 1."""
-    problems: list[str] = []
-    manifest_path = folder / "manifest.json"
-    if not manifest_path.is_file():
-        return [f"missing manifest.json in {folder}"]
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except ValueError as exc:
-        return [f"manifest.json is not valid JSON: {exc}"]
-    if not isinstance(manifest, dict):
-        return ["manifest.json is not a JSON object"]
-
-    schema = manifest.get("schemaVersion")
-    if isinstance(schema, bool) or schema != 1:
-        problems.append("unsupported or missing schemaVersion (expected 1)")
-    problems += [
-        f"manifest missing required field '{f}'" for f in REQUIRED_FIELDS if f not in manifest
-    ]
-
-    plugin_id = manifest.get("id")
-    if not isinstance(plugin_id, str) or not plugin_id:
-        problems.append("manifest 'id' is empty")
-    elif not PLUGIN_ID_RE.match(plugin_id) or ".." in plugin_id or plugin_id.startswith("omarchy."):
-        problems.append(f"invalid plugin id '{plugin_id}'")  # :51-53, the reserved namespace
-
-    kinds = manifest.get("kinds")
-    if not isinstance(kinds, list) or not kinds:  # :56
-        problems.append("'kinds' must be a non-empty array")
-        kinds = []
-    entry_points = manifest.get("entryPoints")
-    if not isinstance(entry_points, dict):  # :60
-        problems.append("'entryPoints' must be an object")
-        entry_points = {}
-    if "bar-widget" in kinds and "barWidget" not in entry_points:  # :97-103
-        problems.append("kind 'bar-widget' requires an 'entryPoints.barWidget' to load")
-
-    bar_widget = manifest.get("barWidget")
-    if isinstance(bar_widget, dict) and "defaultSection" in bar_widget:  # :66-74
-        section = bar_widget["defaultSection"]
-        if not isinstance(section, str) or section not in SECTIONS:
-            problems.append("'barWidget.defaultSection' must be left, center, or right")
-
-    for key, entry in entry_points.items():  # :77-89
-        if not isinstance(entry, str) or not entry:
-            problems.append(f"entry point '{key}' is empty")
-        elif (
-            "\n" in entry
-            or entry.startswith("/")
-            or ".." in entry
-            or not (folder / entry).is_file()
-        ):
-            problems.append(f"entry point '{key}' is not a relative path to a file here: '{entry}'")
-
-    problems += [  # :115, .git pruned the way the validator prunes it
-        f"symlink inside a plugin folder: {path}"
-        for path in folder.rglob("*")
-        if path.is_symlink() and ".git" not in path.parts
-    ]
-    return problems
 
 
 def install_path(box) -> Path:
@@ -293,29 +219,6 @@ def test_undo_on_a_machine_that_never_installed_it_is_a_no_op(box) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_folder_satisfies_the_validator_contract_without_omarchy(box) -> None:
-    """The port above, on this folder: the half of the validator test that
-    runs in CI, where Omarchy is not installed and the real-validator test
-    below skips. It is the only thing holding `schemaVersion`, `name` and
-    `version` — which nothing here reads — in the manifest."""
-    assert validator_problems(PLUGIN) == []
-    assert re.fullmatch(
-        r"\d+\.\d+\.\d+", json.loads((PLUGIN / "manifest.json").read_text())["version"]
-    )
-
-
-def test_the_validator_port_refuses_what_the_validator_refuses(box, tmp_path) -> None:
-    """The port is only worth having if it fails — a copy of the folder with
-    one required field taken out is refused, field by field."""
-    for field in ("schemaVersion", "name", "version", "kinds", "entryPoints"):
-        folder = tmp_path / f"without-{field}"
-        shutil.copytree(PLUGIN, folder)
-        manifest = json.loads((folder / "manifest.json").read_text())
-        del manifest[field]
-        (folder / "manifest.json").write_text(json.dumps(manifest))
-        assert validator_problems(folder), f"a manifest with no '{field}' passed"
-
-
 def test_manifest_declares_the_slot_and_entry_point_the_shell_reads(box) -> None:
     """The keys the shell actually reads: id, kinds, entryPoints, clonedFrom.
     No `barWidget.defaultSection` — the clonedFrom swap inherits the stock
@@ -390,7 +293,8 @@ def test_the_installed_link_passes_omarchy_plugin_validate(box) -> None:
     """The real validator, against the installed path — a link, so with the
     trailing slash its `find` needs (bin/omarchy-plugin-validate:115 prints
     the starting point itself without -L). Skips where Omarchy is not
-    installed: one of the two skips AGENTS.md pins for CI."""
+    installed — one of the seven needs-the-installed-Omarchy skips AGENTS.md
+    budgets for (› Gates and CI)."""
     if not PLUGIN_VALIDATE.is_file():
         pytest.skip("no installed omarchy-plugin-validate")
     box.stub("omarchy-plugin-list", LISTS_THE_PLUGIN)

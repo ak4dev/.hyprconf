@@ -735,21 +735,6 @@ enable_plugin_once() {
     fi
 }
 
-# Only ACTIVE workspaces on the bar, on two lines, Pac-Man on the focused
-# one. The stock widget hardcodes pills 1-5 whether they exist or not, caps
-# ids at 10 (bar/widgets/Workspaces.qml, workspaceIds(): "var ids = [1, 2, 3,
-# 4, 5]"), and honors NO settings — `omarchy bar set omarchy.workspaces …`
-# writes keys the widget never reads — so the overlay ships its own widget
-# (plugins/hyprconf-workspaces, header comment there) as a clonedFrom copy:
-# the shell swaps it into the stock widget's slot and routes the stock IPC to
-# it, and `omarchy plugin disable hyprconf.workspaces` restores the stock
-# widget.
-stage_workspaces() {
-    log "Bar workspaces: only active workspaces, two lines (hyprconf.workspaces)"
-    sync_plugin_dir hyprconf-workspaces hyprconf.workspaces
-    enable_plugin_once hyprconf.workspaces workspaces-applied
-}
-
 # The focused window's title beside the workspaces, on TWO lines. Omarchy's
 # stock omarchy.active-window widget is the same thing on one line (elided
 # title, tooltip with the full one, click focuses, middle- or right-click closes) and
@@ -903,6 +888,7 @@ main() {
     # Self-contained modules: each one applies, gates and undoes itself
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
     bash "$HERE/modules/bar-clock/install"
+    bash "$HERE/modules/bar-workspaces/install"
     bash "$HERE/modules/fastfetch/install"
     bash "$HERE/modules/firefox/install"
     bash "$HERE/modules/firefox-theme/install"
@@ -918,7 +904,6 @@ main() {
     stage_monitors
     stage_bin
     stage_bar_plugin
-    stage_workspaces
     stage_window_title
     stage_shell
     stage_hooks

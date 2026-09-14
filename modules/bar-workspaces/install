@@ -14,9 +14,10 @@
 # Enabled ONCE behind a marker (AGENTS.md rule 5): `omarchy plugin disable
 # hyprconf.workspaces` then sticks, and the clonedFrom manifest hands the slot
 # back to the stock widget (PluginRegistry.qml:555 -> restoreCloneSource:441).
-# Enabled with no placement of its own: the swap into the stock widget's slot
-# (PluginRegistry.qml:530-534) happens only while `placement` is empty — a
-# --section argument would move it back out (PluginRegistry.qml:545-546 moveBarEntry).
+# Enabled with no placement of its own: the enable swaps the copy into the
+# stock widget's slot whatever it is given (PluginRegistry.qml:528-534), and a
+# --section argument would then splice it straight back out of that slot
+# (:545-546 moveBarEntry) — so no placement is the whole point.
 # The discovery wait before the enable is omarchy-plugin-add's own
 # (bin/omarchy-plugin-add:163-171): the rescan is asynchronous and an enable
 # issued before it lands fails with "plugin is not known"

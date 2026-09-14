@@ -1441,7 +1441,12 @@ def test_every_shipped_plugin_is_synced_from_the_checkout_and_enabled_once(
     assert "omarchy-restart-shell" not in _commands(env)
     assert not list(installed.glob(".hyprconf.*"))
 
-    (installed / "hyprconf.workspaces" / "Workspaces.qml").write_text("// stale\n")
+    # Drift in the installed COPY only: a module's folder is a symlink into
+    # this checkout, so a write through one would edit the repository itself.
+    stale = installed / json.loads((folders[0] / "manifest.json").read_text())["id"]
+    assert stale.is_dir() and not stale.is_symlink(), stale
+    qml = sorted(stale.glob("*.qml"))[0]
+    qml.write_text("// stale\n")
     (installed / "hyprconf.resources" / "bin" / "hyprconf-stats").chmod(0o644)
     env["calls"].write_text("")
     assert _run(env, "--no-update").returncode == 0
@@ -1479,9 +1484,9 @@ def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> 
     """A TTY or SSH run has no live shell to enable against, and omarchy-plugin-list
     (set -e) exits 1 identically on every poll. So: no abort, no set-once
     marker, nothing set on a clock that never landed, and one list call per
-    enable rather than the whole discovery wait per widget. The clock is
-    modules/bar-clock now; its own suite pins the same shape for it, and its
-    enable and list still count towards the four below."""
+    enable rather than the whole discovery wait per widget. The clock and the
+    workspaces are modules now; their own suites pin the same shape, and their
+    enables and lists still count towards the four below."""
     env = _setup(tmp_path)
     _real_jq(env)
     _stub(env["bins"] / "omarchy-plugin-list", env["calls"], "exit 1")
@@ -1489,8 +1494,9 @@ def test_bar_widget_enables_retry_until_the_shell_can_answer(tmp_path: Path) -> 
     proc = _run(env, "--no-update", extra_env={"_HYPRCONF_PLUGIN_WAIT": "40"})
     assert proc.returncode == 0, proc.stderr
     state = env["home"] / ".local" / "state" / "hyprconf"
-    assert not (state / "clock-applied").exists()
-    for widget in ("resources", "workspaces", "active-window"):
+    for widget in ("clock", "workspaces"):
+        assert not (state / f"{widget}-applied").exists(), widget
+    for widget in ("resources", "active-window"):
         assert not (state / f"{widget}-applied").exists(), widget
         assert f"hyprconf.{widget}" in proc.stderr, widget
     commands = _commands(env)
