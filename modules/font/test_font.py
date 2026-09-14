@@ -15,8 +15,12 @@ def run(box, **kw):
     return box.run(INSTALL, **kw)
 
 
-def test_install_hands_the_family_to_omarchy_verbatim(box) -> None:
-    proc = run(box)
+# The empty env is a plain run; HYPRCONF_NO_SUDO is a --no-packages one, which
+# honours the flag in one line and carries on (README › flags): the package is
+# already there, so the set-once still runs.
+@pytest.mark.parametrize("env", [{}, {"HYPRCONF_NO_SUDO": "1"}])
+def test_install_hands_the_family_to_omarchy_verbatim(box, env) -> None:
+    proc = run(box, env=env)
     assert proc.returncode == 0, proc.stderr
     assert box.calls_of("omarchy-font-set") == [["omarchy-font-set", FAMILY]]
     assert (box.home / MARKER).exists()
