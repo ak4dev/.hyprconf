@@ -1,12 +1,7 @@
 # hyprconf — Keychron / Lemokey HID access for the web-based launcher.
 #
-# TAG+="uaccess" is the whole mechanism: systemd's 73-seat-late.rules turns
-# the tag into a POSIX ACL on the hidraw node for whoever holds the active
-# session, which is what lets launcher.keychron.com reach a board over WebHID
-# without running the browser as root.
-#
-# Why 70- and not 99-, why the match is on vendor alone (and what that costs),
-# why there is no MODE=, and which boards are NOT covered: README.md beside
-# this file — the one home for all of it. Undo is there too.
+# What TAG+="uaccess" does, why the file must sort at 70-, why the match is on
+# vendor alone (and what that costs), why there is no MODE=, which boards are
+# NOT covered, and the undo: README.md beside this file — the one home for it.
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="3434", TAG+="uaccess"
 SUBSYSTEM=="hidraw", ATTRS{idVendor}=="362d", TAG+="uaccess"

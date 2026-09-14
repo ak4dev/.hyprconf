@@ -31,8 +31,9 @@ readonly HYPRCONF_DIR="@HYPRCONF_DIR@"
 
 # --no-update is the recursion guard proper: this ran FROM omarchy-update.
 # --no-packages keeps every sudo stage — packages, Firefox and its policy,
-# VS Code, the Keychron udev rule — out of the update, so an unattended run
-# (`omarchy update -y` → OMARCHY_UPDATE_UNATTENDED, bin/omarchy-update:26)
-# never blocks on a password prompt. Not a lock: omarchy-update-system-pkgs
+# VS Code — out of the update, and exports HYPRCONF_NO_SUDO so each module
+# skips its own root work too, so an unattended run (`omarchy update -y` →
+# OMARCHY_UPDATE_UNATTENDED, bin/omarchy-update:26) never blocks on a
+# password prompt. Not a lock: omarchy-update-system-pkgs
 # has returned by the time the hook runs (bin/omarchy-update:47-49).
 exec bash "$HYPRCONF_DIR/install.sh" --no-update --no-packages

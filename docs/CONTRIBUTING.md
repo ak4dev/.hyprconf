@@ -45,10 +45,9 @@ publish flow and the website upload.
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 ├── hooks/theme-set.d/10-hyprconf     # Runs firefox_theme.py after every omarchy theme set
 ├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
-├── infra/udev/70-keychron.rules # hidraw uaccess for Keychron (0x3434) / Lemokey (0x362d), so the WebHID launcher can reach the boards
 │
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload) — built, gated and committed, NOT yet wired into `install.sh`: each one replaces its legacy stage and payload above as it lands, and carries a `NOTES.md` the integration commit deletes
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: keychron
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
@@ -145,7 +144,8 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   suite) or behind an env seam — in `install.sh`, `OMARCHY_PATH` (Omarchy's own
   variable, not `_HYPRCONF_*`) for the Omarchy tree and `_HYPRCONF_*` for
   binaries and the other non-`$HOME` paths (`PKG_ADD`, `ZSH_BIN`, `ZSH`,
-  `FIREFOX_POLICIES`, `UDEV_RULES`, `ASSUME_TTY`, `PLUGIN_WAIT`); `_HYPRCONF_*` in
+  `FIREFOX_POLICIES`, `ASSUME_TTY`, `PLUGIN_WAIT`); `_HYPRCONF_UDEV_RULES` and
+  `_HYPRCONF_ASSUME_TTY` in `modules/keychron/install`; `_HYPRCONF_*` in
   `bin/hyprconf-yubikey` for the boot files it reads and writes (`MKINITCPIO_D`,
   `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `LIMINE_ENTRY_CONF`, `LIMINE_USR_D`,
   `FIDO2_DROPIN`, `INITCPIO_INSTALL`, `MODULES_DIR`, `VCONSOLE`, `MACHINE_ID`,

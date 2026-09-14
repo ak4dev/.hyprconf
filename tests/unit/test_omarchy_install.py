@@ -203,7 +203,7 @@ OMARCHY_STUBS = (
     # Asserted never to run: pacman directly (the container has a real
     # one; a call must be seen, not reach it).
     "pacman",
-    # stage_keychron reloads and retriggers udev; the real one would
+    # modules/keychron reloads and retriggers udev; the real one would
     # re-apply rules on the developer's own machine.
     "udevadm",
 )
@@ -288,9 +288,9 @@ def _install_env(env: dict, *, extra_env: dict[str, str] | None = None) -> dict[
         # The plugin-discovery and shell.json waits poll stubs that never
         # answer (a test modelling the shell's writes raises it again).
         "_HYPRCONF_PLUGIN_WAIT": "0",
-        # Pinned on every run, not just the tests that exercise it: a test
-        # that makes sudo real (_policy_env) would otherwise install the
-        # Keychron rule into the CI container's own /etc/udev/rules.d.
+        # modules/keychron's own seam, pinned on every run because main()
+        # calls that module: a test that makes sudo real (_policy_env) would
+        # otherwise install the rule into the CI container's /etc/udev/rules.d.
         "_HYPRCONF_UDEV_RULES": str(env["udev_rules"]),
     }
     if extra_env:
@@ -322,6 +322,7 @@ def _run(
 PAYLOAD = (
     "install.sh",
     "packages",
+    "modules",
     "hypr",
     "bin",
     "hooks",
@@ -1393,9 +1394,14 @@ def _overlay_scripts() -> list[Path]:
     """Every shell script the overlay ships: the PAYLOAD trees filtered by a bash
     shebang, the rule `make shellcheck` selects by. Walked on disk, not `git
     ls-files`, so the scan needs no git and no ownership trust; scripts/publish
-    is outside PAYLOAD and covered by the Makefile's whole-tree pass."""
+    is outside PAYLOAD and covered by the Makefile's whole-tree pass. modules/
+    is skipped: each module carries its own script-shape and forbidden-forms
+    tests (modules/<name>/test_<name>.py), and the tree-wide scan lands in
+    tests/test_scans.py with the core rewrite."""
     paths: list[Path] = []
     for name in PAYLOAD:
+        if name == "modules":
+            continue
         top = REPO_ROOT / name
         if not top.exists():
             continue
@@ -1604,7 +1610,8 @@ def test_firefox_policy_is_omarchys_merged_under_ours_via_sudo_when_interactive(
 def test_every_sudo_stage_bows_out_without_a_terminal(tmp_path: Path) -> None:
     """The post-update hook runs non-interactively inside omarchy-update, where a
     sudo password prompt would stall the whole update. One gate, the same line
-    in stage_firefox, stage_editor and stage_keychron: no tty, no attempt."""
+    in stage_firefox and stage_editor: no tty, no attempt. The modules carry
+    their own (modules/keychron/test_keychron.py)."""
     env = _setup(tmp_path)
     _real_jq(env)  # else stage_firefox bows out on the merge, before its gate
     _packages(env, ())
@@ -1619,7 +1626,6 @@ def test_every_sudo_stage_bows_out_without_a_terminal(tmp_path: Path) -> None:
     ):
         assert forbidden not in _commands(env), forbidden
     assert not (policies / "policies.json").exists()
-    assert not (env["udev_rules"] / "70-keychron.rules").exists()
 
 
 def test_firefox_is_installed_through_omarchys_installer_when_absent(tmp_path: Path) -> None:
@@ -1647,9 +1653,6 @@ def test_a_failed_firefox_install_leaves_no_policy_behind(tmp_path: Path) -> Non
     shadow nothing), so no sudo at all, and the run goes on."""
     env = _setup(tmp_path)
     policies, extra = _policy_env(tmp_path, env)
-    rule = env["udev_rules"] / "70-keychron.rules"
-    rule.parent.mkdir(parents=True)
-    shutil.copy2(KEYCHRON_RULE, rule)
     _stub(env["bins"] / "omarchy-pkg-present", env["calls"], '[ "$1" != firefox ]')
     _stub(env["bins"] / "omarchy-install-browser", env["calls"], "exit 1")
     proc = _run(env, "--no-update", extra_env=extra)
@@ -1657,60 +1660,10 @@ def test_a_failed_firefox_install_leaves_no_policy_behind(tmp_path: Path) -> Non
     assert "omarchy-install-browser firefox" in _calls(env)
     assert "retry with: omarchy install browser firefox" in proc.stderr
     assert not policies.exists()
-    assert "sudo" not in _commands(env)
+    # No `sudo install` of a policy — the run's other root write is
+    # modules/keychron's, which has its own gate and its own tests.
+    assert not [c for c in _calls(env) if c.startswith("sudo") and "policies" in c]
     assert (env["home"] / ".zshrc").exists()  # a stage well after the Firefox one
-
-
-# ---------------------------------------------------------------------------
-# The Keychron / Lemokey udev rule — the overlay's other write outside $HOME
-# ---------------------------------------------------------------------------
-
-KEYCHRON_RULE = REPO_ROOT / "infra" / "udev" / "70-keychron.rules"
-
-
-def test_keychron_rule_is_installed_via_sudo_when_interactive(tmp_path: Path) -> None:
-    """The shipped rule lands byte-for-byte under /etc/udev/rules.d through sudo
-    and is applied to devices already plugged in — without the reload+trigger
-    the ACL would arrive only on the next re-plug. A matching file is left
-    alone, and an edited one is repaired."""
-    env = _setup(tmp_path)
-    _, extra = _policy_env(tmp_path, env)
-    proc = _run(env, "--no-update", extra_env=extra)
-    assert proc.returncode == 0, proc.stderr
-
-    installed = env["udev_rules"] / "70-keychron.rules"
-    assert installed.read_text() == KEYCHRON_RULE.read_text()
-    calls = _calls(env)
-    assert "sudo udevadm control --reload-rules" in calls
-    assert "sudo udevadm trigger --subsystem-match=hidraw" in calls
-
-    assert installed.stat().st_mode & 0o777 == 0o644, "install -Dm644"
-
-    env["calls"].write_text("")
-    _run(env, "--no-update", extra_env=extra)
-    assert "sudo" not in _commands(env)
-    assert "udevadm" not in _commands(env)
-
-    # Drift repair. Nothing else can catch a regression here: the byte-
-    # stability gate hashes $HOME only, so a stage that stopped repairing an
-    # edited /etc file would look perfectly stable to it.
-    installed.write_text("# hand-edited\n")
-    _run(env, "--no-update", extra_env=extra)
-    assert installed.read_text() == KEYCHRON_RULE.read_text()
-
-
-def test_keychron_rule_is_vendor_only_and_sorts_before_seat_late() -> None:
-    """The three properties the rule is worthless without, written up in
-    infra/udev/70-keychron.rules' own header: it sorts before systemd's
-    73-seat-late.rules (which turns TAG+="uaccess" into an ACL), it matches on
-    vendor alone, and it carries no MODE=/GROUP=."""
-    assert int(KEYCHRON_RULE.name.split("-", 1)[0]) < 73, "must sort before 73-seat-late.rules"
-    rules = [ln for ln in KEYCHRON_RULE.read_text().splitlines() if ln and not ln.startswith("#")]
-    assert rules
-    for rule in rules:
-        assert re.fullmatch(r'SUBSYSTEM=="hidraw", ATTRS\{idVendor\}=="\w+", TAG\+="uaccess"', rule)
-    for forbidden in ("MODE=", "idProduct", "GROUP="):
-        assert forbidden not in "\n".join(rules), forbidden
 
 
 # ---------------------------------------------------------------------------

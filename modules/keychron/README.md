@@ -16,12 +16,8 @@ ACL for whoever holds the active seat. Three things are load-bearing, and all th
 **Not covered:** a board paired over *Bluetooth* — its `hidraw` parent is a Bluetooth device and `ATTRS{idVendor}` lives on the USB parent these lines walk up to, so a different match is needed. Untested here.
 
 ## Requires
-`sudo` and a terminal to answer its prompt; no packages, no running session. Omarchy has no udev command
-(`omarchy commands --json` carries no udev route) but ships this shape: `install/hardware/framework/qmk-hid.sh:4-6`
-copies `default/udev/framework16-qmk-hid.rules` into `/etc/udev/rules.d`. The rule is written only when the bytes
-differ, then `udevadm control --reload-rules` and `udevadm trigger --subsystem-match=hidraw` reach devices already plugged
-in — reload the launcher tab afterwards. Without a terminal, or with `--no-packages` (which the post-update hook passes),
-it says so in one line and does nothing; it never fails the run.
+`sudo` and a terminal to answer its prompt; no packages, no running session, no board plugged in. Reload the
+launcher tab after a run. (What the run does, and when it does nothing, is in `install`'s own header beside it.)
 
 ## Install alone
 ```bash
