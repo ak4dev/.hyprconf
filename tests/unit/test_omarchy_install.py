@@ -111,12 +111,13 @@ def _terminal_stub(tmp_path: Path, set_status: int = 0) -> str:
 
 
 # /usr/bin/omarchy-shell-config (Omarchy 4.0.3-1), transcribed: the hidden
-# helper stage_idle SOURCES to edit ~/.config/omarchy/shell.json. Written out
-# instead of stubbed for two reasons — the recording stub's closing `exit 0`
-# would end stage_idle's subshell before commit() ever ran, and $0 inside a
-# sourced file names the caller, not this file, so the recording line has to
-# name itself. Only the three functions install.sh reaches are here; NORMALIZE
-# (the helper's other half, for bar writers) is not.
+# helper modules/idle SOURCES to edit ~/.config/omarchy/shell.json — which a
+# full install.sh run reaches, and stage_clock then reads. Written out instead
+# of stubbed for two reasons — the recording stub's closing `exit 0` would end
+# the module's subshell before commit() ever ran, and $0 inside a sourced file
+# names the caller, not this file, so the recording line has to name itself.
+# Only the three functions that path reaches are here; NORMALIZE (the helper's
+# other half, for bar writers) is not.
 SHELL_CONFIG_FAKE = """#!/usr/bin/env bash
 printf '%s\\n' "omarchy-shell-config (sourced)" >> "__CALLS__"
 CONFIG_FILE="$HOME/.config/omarchy/shell.json"
@@ -256,8 +257,8 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     (home / ".config" / "hypr").mkdir(parents=True)
     for stock in ("bindings.lua", "input.lua", "looknfeel.lua"):
         (home / ".config" / "hypr" / stock).write_text(f"-- stock omarchy {stock}\n")
-    # Omarchy's shipped shell.json defaults — what stage_idle starts from
-    # when the user has no shell.json yet.
+    # Omarchy's shipped shell.json defaults — what omarchy-shell-config's
+    # source_file() starts from when the user has no shell.json yet.
     (omarchy_path / "config" / "omarchy").mkdir(parents=True)
     (omarchy_path / "config" / "omarchy" / "shell.json").write_text(
         json.dumps({"version": 1, "idle": {"lock": 300, "screensaver": 150}})
@@ -923,69 +924,6 @@ def test_never_switches_the_active_theme() -> None:
     run, which covers every branch instead of the one a run takes."""
     code = _code_only(INSTALL_SH.read_text())
     assert "omarchy-theme-set" not in re.findall(r"\bomarchy-[a-z0-9-]+\b", code)
-
-
-def test_screensaver_timeout_is_set_once(tmp_path: Path) -> None:
-    """idle.screensaver becomes 900 s from Omarchy's 150 s, seeded from the
-    shipped defaults when there is no shell.json yet; every other key
-    survives, the shell reloads, and a later user value is never taken back."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    shell_json = env["home"] / ".config" / "omarchy" / "shell.json"
-    data = json.loads(shell_json.read_text())
-    assert data["idle"] == {"lock": 300, "screensaver": 900}
-    assert data["version"] == 1
-    assert "omarchy-shell shell reloadConfig" in _calls(env)
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "idle-applied").exists()
-
-    data["idle"]["screensaver"] = 600  # the user's later choice
-    shell_json.write_text(json.dumps(data))
-    _run(env, "--no-update")
-    assert json.loads(shell_json.read_text())["idle"]["screensaver"] == 600
-
-
-def test_the_screensaver_edit_goes_through_omarchys_own_shell_config_helper(
-    tmp_path: Path,
-) -> None:
-    """Rule 1: /usr/bin/omarchy-shell-config is the helper every Omarchy
-    shell.json writer sources (omarchy-bar:10), so the stage sources it rather
-    than re-implementing commit() — whose fallback from `shell reloadConfig`
-    to `omarchy-shell -q shell rescanPlugins` (:14-18, 4.0.3-1) it had lost."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    # A shell that refuses reloadConfig: the helper's fallback branch.
-    _stub(
-        env["bins"] / "omarchy-shell",
-        env["calls"],
-        'if [ "$1" = shell ] && [ "$2" = reloadConfig ]; then exit 1; fi; exit 0',
-    )
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-shell-config (sourced)" in calls
-    assert "omarchy-shell -q shell rescanPlugins" in calls
-    data = json.loads((env["home"] / ".config" / "omarchy" / "shell.json").read_text())
-    assert data["idle"] == {"lock": 300, "screensaver": 900}
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "idle-applied").exists()
-
-
-def test_a_shell_config_the_helper_refuses_leaves_no_marker(tmp_path: Path) -> None:
-    """commit() calls fail(), which EXITS — hence the subshell in the stage.
-    Without it the whole install would end at a cosmetic step; with it the
-    stage warns, writes no marker and the next run tries again."""
-    env = _setup(tmp_path)
-    _real_jq(env)
-    (env["omarchy_path"] / "config" / "omarchy" / "shell.json").write_text("{ not json")
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "could not set idle.screensaver" in proc.stderr
-    assert not (env["home"] / ".local" / "state" / "hyprconf" / "idle-applied").exists()
-    # No half-written user file, and no stray temp left behind.
-    assert not (env["home"] / ".config" / "omarchy" / "shell.json").exists()
-    # A stage well after the idle one still ran.
-    assert (env["home"] / ".zshrc").exists()
 
 
 def test_presets_are_seeded_once_and_never_overwritten(tmp_path: Path) -> None:

@@ -669,43 +669,6 @@ stage_kitty_include() {
         printf '\n# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
 }
 
-# Omarchy's screensaver starts after 150 s (config/omarchy/shell.json,
-# idle.screensaver); the overlay's timeout is 900 s. Set ONCE — shell.json is
-# the user's file (Omarchy's manual, Dotfiles), and a timeout changed later
-# must stay theirs.
-#
-# Omarchy ships no command for these keys (`omarchy commands --json` has no
-# route for the timeout), but it does ship the editing helper every one of its
-# own shell.json writers uses: /usr/bin/omarchy-shell-config, sourced rather
-# than run (omarchy:hidden=true, "source this, don't run it") — the way
-# /usr/bin/omarchy-bar:10 takes it. commit() is source_file() (the user's file,
-# or Omarchy's shipped defaults when there is none yet) -> jq -> atomic mv ->
-# refresh_shell_config, which falls back from `shell reloadConfig` to
-# `omarchy-shell -q shell rescanPlugins` (omarchy-shell-config:14-18, 53-62,
-# 4.0.3-1). Only the screensaver key; the lock timeout is left as Omarchy has it.
-#
-# The subshell is mandatory, not style: commit()'s fail() exits, and sourcing
-# the helper installs an EXIT trap of its own (omarchy-shell-config:9-12, 51).
-stage_idle() {
-    log "Idle: screensaver after 15 minutes"
-    local marker="$HOME/.local/state/hyprconf/idle-applied"
-    if [[ -e $marker ]]; then
-        info "already applied once — the timeouts are yours now"
-        return 0
-    fi
-    (
-        # shellcheck source=/dev/null
-        source omarchy-shell-config &&
-            commit '.idle = ((.idle // {}) + { screensaver: 900 })'
-    ) || {
-        warn "could not set idle.screensaver — will retry on the next run"
-        return 0
-    }
-    mkdir -p "$(dirname "$marker")"
-    : > "$marker"
-    info "idle.screensaver = 900 s (edit ~/.config/omarchy/shell.json to change it; lock stays as it is)"
-}
-
 # hyprconf's app picks, expressed as Omarchy defaults rather than hard-coded in
 # the keymap. SUPER+F/C/T/E call omarchy-launch-browser / -editor / -terminal /
 # -nautilus, which resolve these — so `omarchy default browser zen` moves the
@@ -1036,9 +999,9 @@ wait_for_swap() {
 # disk first, or the edit lands on a stale copy and the shell's pending
 # write then takes it back. Omarchy has no command for bar.centerAnchor
 # (`omarchy bar --help` has no route for it, 4.0.3-1), and deliberately NOT
-# omarchy-shell-config's commit() the way stage_idle goes: that re-sorts the
-# whole file with jq -S and then refreshes the shell (:58, :61), which would
-# race the very write this edit just waited out.
+# omarchy-shell-config's commit() the way modules/idle takes it: that re-sorts
+# the whole file with jq -S and then refreshes the shell (:58, :61), which
+# would race the very write this edit just waited out.
 follow_center_anchor() {
     local stock="$1" keep="$2" shell_json="$HOME/.config/omarchy/shell.json" anchor
     [[ -f $shell_json ]] || return 0
@@ -1058,7 +1021,7 @@ follow_center_anchor() {
     # a failing jq is the non-final command of an && list, so set -e never
     # fired, the mv was skipped and the info line printed anyway — while a
     # failing mv, being final, took the whole install down over a cosmetic
-    # step. Same shape as stage_idle's warn-and-carry-on.
+    # step. Warn and carry on: a cosmetic edit never fails the run.
     if jq --arg id "$keep" '.bar.centerAnchor = $id' "$shell_json" > "$shell_json.tmp"; then
         mv "$shell_json.tmp" "$shell_json"
         info "bar centerAnchor follows $keep (was $anchor)"
@@ -1369,9 +1332,14 @@ main() {
     # After the package stage, never before it — see resolve_zsh.
     resolve_zsh
     stage_terminal
+    # Self-contained modules: each one applies, gates and undoes itself
+    # (modules/<name>/README.md). Order-free — call order is alphabetical.
+    bash "$HERE/modules/fastfetch/install"
+    bash "$HERE/modules/idle/install"
+    bash "$HERE/modules/keychron/install"
+    bash "$HERE/modules/themes/install"
     stage_defaults
     stage_font
-    stage_idle
     stage_hotkeys
     stage_looknfeel
     stage_monitors
@@ -1385,11 +1353,6 @@ main() {
     # Before stage_theme_apps: its hook wants the templates rendered.
     stage_themed
     stage_theme_apps
-    # Self-contained modules: each one applies, gates and undoes itself
-    # (modules/<name>/README.md). Order-free — call order is alphabetical.
-    bash "$HERE/modules/fastfetch/install"
-    bash "$HERE/modules/keychron/install"
-    bash "$HERE/modules/themes/install"
     hyprctl reload >/dev/null 2>&1 || true
     if (( do_update )); then stage_update; fi
 

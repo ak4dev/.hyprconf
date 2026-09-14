@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
 # hyprconf/idle — the screensaver starts after 15 minutes instead of Omarchy's 150 s.
 #
-# Omarchy ships no command for the key: `omarchy commands --json` routes only branding /
-# launch / toggle screensaver, and `omarchy toggle idle` is a stay-awake state file
-# (bin/omarchy-toggle-idle:8-9). It does ship the helper every one of its own shell.json
-# writers uses — sourced, never run (bin/omarchy-shell-config:3 "source this, don't run
-# it", omarchy:hidden=true), the way bin/omarchy-bar:10 sources it. commit() is jq -S -e
-# over source_file() (the user's shell.json, or the shipped defaults when there is none
-# yet) -> mktemp -> mv -> refresh_shell_config, which falls back from `omarchy-shell shell
-# reloadConfig` to `omarchy-shell -q shell rescanPlugins`
-# (bin/omarchy-shell-config:14-18,20-26,53-62; Omarchy 4.0.3-1).
-#
-# The subshell is mandatory, not style: sourcing the helper installs an EXIT trap of its
-# own (:51) and commit()'s fail() exits 1 (:9-12).
+# Omarchy ships no command for the key (`omarchy commands --json` routes only branding /
+# launch / toggle screensaver; `omarchy toggle idle` is a stay-awake state file,
+# bin/omarchy-toggle-idle:8-9), so the seam is the sourceable writer every Omarchy
+# shell.json writer takes — bin/omarchy-shell-config (Omarchy 4.0.3-1), the way
+# bin/omarchy-bar:10 takes it. What commit() does, and why the source must be in a
+# subshell: README.md beside this file.
 #
 # Set ONCE behind a marker: shell.json is the user's file and a timeout changed later
 # stays theirs. Only .idle.screensaver is written; .idle.lock is left as Omarchy has it.

@@ -34,7 +34,8 @@ The one directive file for this repo. `CLAUDE.md` is a symlink to it — Claude 
 | Theme | user theme dir `~/.config/omarchy/themes/` and the background folders `~/.config/omarchy/backgrounds/<theme>/` | `modules/themes` — [its README](modules/themes/README.md) |
 | Theme → Firefox | user templates `~/.config/omarchy/themed/*.tpl`, rendered by `omarchy-theme-set-templates` on every theme set, re-rendered by `omarchy theme refresh` | `themed/userChrome.css.tpl` + the theme-set hook → `lib/hyprconf/firefox_theme.py` (Firefox only; VS Code is themed by Omarchy's own `omarchy-theme-set-vscode`) |
 | Shell greeting | none — fastfetch's own user slot `~/.config/fastfetch/config.jsonc` is Omarchy's About screen (`omarchy-launch-about`), so it is left alone and the layout goes to a path only the shell reads | `modules/fastfetch` — [its README](modules/fastfetch/README.md) |
-| Font, default apps, terminal, idle | `omarchy-font-set`, `omarchy-default-{browser,editor,terminal}`, `shell.json` `idle.screensaver` + `omarchy-shell shell reloadConfig` | set-once stages |
+| Idle | `shell.json` `idle.screensaver`, through the sourceable `omarchy-shell-config` every Omarchy writer takes | `modules/idle` — [its README](modules/idle/README.md) |
+| Font, default apps, terminal | `omarchy-font-set`, `omarchy-default-{browser,editor,terminal}` | set-once stages |
 | Firefox, VS Code | `omarchy-install-browser firefox`, `omarchy-install-editor-vscode` | `stage_firefox` (+ the policy), `stage_editor` |
 | Session environment | `~/.config/uwsm/env.d/` — the override dir `/usr/share/uwsm/env.d/10-omarchy` names | `bin/hyprconf-vulkan-gpu` |
 | Kernel parameters | `/etc/limine-entry-tool.d/` drop-in, as `omarchy-hibernation-setup` does | `bin/hyprconf-yubikey` |
