@@ -11,9 +11,6 @@
 #   eza zoxide fastfetch starship yay ttf-jetbrains-mono-nerd-basic
 #   xdg-terminal-exec foot
 
-# Terminal. Becomes Omarchy's default via `omarchy-default-terminal`.
-kitty
-
 # Shell. hyprconf runs zsh inside kitty while leaving the LOGIN shell as bash,
 # so Omarchy's own bash rc chain, session and scripts are untouched.
 zsh

@@ -28,7 +28,7 @@
 set -euo pipefail
 
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
-# Omarchy's own variable, with Omarchy's own fallback (default/bash/env-bootstrap:16).
+# Omarchy's own variable, with Omarchy's own fallback (default/bash/env-bootstrap:10-16).
 : "${OMARCHY_PATH:=/usr/share/omarchy}"
 : "${HYPRCONF_STATE:=$HOME/.local/state/hyprconf}"
 # The suite reaches the sudo path from a non-tty pytest run through this.
@@ -109,8 +109,11 @@ if [[ ! -e $conf && -f $OMARCHY_PATH/config/kitty/kitty.conf ]]; then
 fi
 # grep answers non-zero when the file is absent too, which is the branch that creates it.
 if ! grep -qxF 'include hyprconf.conf' "$conf" 2>/dev/null; then
-    # Two lines and nothing else — no blank separator, so `install undo`'s sed puts the
-    # file back byte for byte. A file not ending in a newline gets one first.
+    # Two lines and nothing else — no blank separator, so `install undo`'s sed puts
+    # the file back as it was. One exception: a file NOT ending in a newline gets
+    # one here, and undo cannot tell that byte from the user's own, so such a file
+    # comes back one newline longer. Omarchy's own stub ends in a newline
+    # (config/kitty/kitty.conf), so a stock box never reaches it.
     [[ ! -s $conf || -z $(tail -c1 "$conf") ]] || printf '\n' >> "$conf"
     printf '# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
 fi

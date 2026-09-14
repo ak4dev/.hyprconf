@@ -25,10 +25,9 @@ publish flow and the website upload.
 │   └── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
 │
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
-├── kitty/hyprconf.conf         # kitty include
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: the four bar-* plugins, fastfetch, firefox, firefox-theme, font, idle, keychron, themes, vscode, vulkan-gpu, yubikey
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: the four bar-* plugins, fastfetch, firefox, firefox-theme, font, idle, keychron, terminal-kitty, themes, vscode, vulkan-gpu, yubikey
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
@@ -63,7 +62,7 @@ tests/                            # what is not a module's: install.sh, the two 
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), bind only commands bin/ ships, state deltas over the theme (the shadow, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom, keep the desk presets desc:-keyed and serial-free
 │   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, the workspace rehoming a switch dispatches)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: every stage left (curl bootstrap, the `omarchy refresh` guard, the terminal and shell stages …), the module loop and the post-update hook end to end, restraint invariants, idempotency; the dead-hyprctl / pacman / fetch-and-execute token scans over every shipped bash file
+│   ├── test_omarchy_install.py   #   install.sh: every stage left (curl bootstrap, the `omarchy refresh` guard, the packages and shell stages …), the module loop and the post-update hook end to end, restraint invariants, idempotency; the dead-hyprctl / pacman / fetch-and-execute token scans over every shipped bash file
 │   ├── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, sha-pinned least-privilege CI, the .claude guardrail entries
 │   └── test_zshrc_block.py       #   zsh/zshrc.block: the hyprsync alias names the checkout through @HYPRCONF_DIR@
 └── integration/

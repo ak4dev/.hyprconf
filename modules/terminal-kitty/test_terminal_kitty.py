@@ -223,6 +223,21 @@ def test_undo_restores_stock(kitty) -> None:
     assert ["omarchy-default-terminal", "foot"] in kitty.calls_of("omarchy-default-terminal")
 
 
+def test_undo_of_a_kitty_conf_with_no_final_newline_leaves_that_one_byte(kitty) -> None:
+    """The documented exception to "undo puts the file back as it was": the
+    install has to terminate the last line before appending, and undo cannot
+    tell that newline from one the user wrote. Everything else comes back, and
+    Omarchy's own stub ends in a newline, so a stock box never reaches this."""
+    conf = kitty.home / ".config/kitty/kitty.conf"
+    conf.parent.mkdir(parents=True)
+    conf.write_text("include theme.conf")  # no trailing newline
+
+    assert kitty.run(INSTALL).returncode == 0
+    assert conf.read_text() == "include theme.conf\n" + INCLUDE
+    assert kitty.undo("terminal-kitty").returncode == 0
+    assert conf.read_text() == "include theme.conf\n"
+
+
 def test_undo_on_a_seeded_kitty_conf_leaves_omarchys_own_stub(kitty) -> None:
     assert kitty.run(INSTALL).returncode == 0
     assert kitty.undo("terminal-kitty").returncode == 0

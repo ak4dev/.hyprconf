@@ -21,8 +21,9 @@
 # Omarchy's own `omarchy-pkg-add`, and --no-packages skips it — so the
 # post-update hook never needs sudo. That flag also exports HYPRCONF_NO_SUDO,
 # which every module reads: modules/firefox (Firefox and the system policy,
-# the overlay's write outside $HOME), modules/vscode, modules/font and
-# modules/keychron all bow out of their own root work behind it.
+# the overlay's write outside $HOME), modules/vscode, modules/font,
+# modules/keychron and modules/terminal-kitty all bow out of their own root
+# work behind it.
 set -euo pipefail
 
 # The checkout: the installer lives at the repository root. ${BASH_SOURCE[0]}
@@ -368,10 +369,9 @@ link_hypr_override() {
 # Resolve zsh into $_HYPRCONF_ZSH, or the empty string when it is not
 # installed. Deliberately NOT resolved at startup: on a fresh Omarchy zsh does
 # not exist until stage_packages installs it moments later, and a startup lookup
-# would pin the empty string for the whole run — kitty would never get its
-# `shell` line and stage_shell would skip itself on the very run that installed
-# zsh, leaving bash in the terminal until some later re-run. main() calls this
-# right after the package stage instead.
+# would pin the empty string for the whole run — stage_shell would skip itself
+# on the very run that installed zsh, leaving the prompt unconfigured until some
+# later re-run. main() calls this right after the package stage instead.
 #
 # Uses ${x+set} rather than := so a test can pin the value, the empty string
 # included, to simulate a box with no zsh.
@@ -449,92 +449,6 @@ stage_packages() {
     # cheap pacman -Q loop with no sudo prompt. Never bare `pacman -Syu`:
     # Omarchy installs an ALPM AbortOnFail hook that blocks sysupgrade forms.
     "$_HYPRCONF_PKG_ADD" "${pkgs[@]}" || die "package install failed"
-}
-
-stage_terminal() {
-    log "Terminal: kitty"
-    # Assert kitty is present BEFORE touching the default: omarchy-default-
-    # terminal (Omarchy 4.0.3-1) checks nothing — it writes the desktop id
-    # into ~/.config/xdg-terminals.list and notifies — so pointing it at an
-    # absent kitty would leave SUPER+RETURN and every TUI launcher with no
-    # terminal at all. Its installer is no help either: omarchy-install-
-    # terminal prints "Failed to install $package" and still exits 0
-    # (/usr/bin/omarchy-install-terminal:50-52, 4.0.3-1), so kitty comes from
-    # the packages file and this stage never calls it.
-    #
-    # Warn and skip rather than die: this is the FIRST stage after the package
-    # gate, and hooks/post-update.d/10-hyprconf re-runs the installer with
-    # --no-packages after every omarchy-update. A `die` here would take the
-    # hotkeys, the hooks and every module after it down with it on
-    # every update of a box that has no kitty — silently, forever. Every other
-    # non-package stage warns and returns for the same reason, and every
-    # module exits 0 rather than failing the run.
-    # Omarchy's own probe, not a hand-rolled `command -v`: omarchy-cmd-present
-    # is `command -v` per argument (/usr/bin/omarchy-cmd-present, 4.0.3-1,
-    # unchanged from 4.0.2), the command omarchy-font-set:33 asks the same
-    # question with — and the harness already fakes every omarchy-* name.
-    omarchy-cmd-present kitty || {
-        warn "kitty is not installed — the terminal default and its include are left alone" \
-             "(run \`bash install.sh\` from a terminal to install it)"
-        return 0
-    }
-
-    local current=""
-    current="$(omarchy-default-terminal 2>/dev/null || true)"
-    if [[ $current == kitty ]]; then
-        info "already the default terminal"
-    else
-        # One file backs this: ~/.config/xdg-terminals.list. The SUPER+RETURN
-        # bind, $TERMINAL, the floating terminals, the TUI launchers, the menu
-        # and the bar all resolve through xdg-terminal-exec, so nothing else
-        # needs patching. The setter's exit status is its closing
-        # omarchy-notification-send's (no set -e in bin/omarchy-default-
-        # terminal, 4.0.0-1), which fails with no shell to notify — a TTY
-        # first run — after the list file is already written, so a failure
-        # is a warning and the re-run finds kitty current.
-        omarchy-default-terminal kitty ||
-            warn "could not set kitty as the default terminal (set it with: omarchy default terminal kitty)"
-    fi
-    stage_kitty_include
-}
-
-# hyprconf's kitty preferences, layered as an include so Omarchy's kitty.conf
-# stays authoritative. On 4.0.3-1 that file is the theme include plus an
-# override layer (config/kitty/kitty.conf); Omarchy's real defaults —
-# listen_on and `allow_remote_control socket-only` among them — moved to
-# /etc/xdg/kitty/kitty.conf, which kitty merges BELOW the user file (its
-# SYSTEM_CONF, /usr/lib/kitty/kitty/cli.py:712). An upgraded box keeps its
-# own copies of those lines. The include below is appended LAST, so anything
-# hyprconf.conf restated would silently win over omarchy-font-set, which now
-# appends font_family to the user file when it is absent
-# (/usr/bin/omarchy-font-set:33-40) — it restates nothing.
-stage_kitty_include() {
-    # Separate `local` statements on purpose: `local a=1 b="$a"` declares both
-    # names before assigning, so $a is still unbound there — fatal under set -u.
-    local dir="$HOME/.config/kitty"
-    local conf="$dir/kitty.conf"
-    mkdir -p "$dir"
-    install -m 644 "$HERE/kitty/hyprconf.conf" "$dir/hyprconf.conf"
-
-    # Only point kitty at zsh once zsh really exists — otherwise kitty cannot
-    # start at all. The login shell is deliberately left as bash. The reason
-    # lives once, in the shipped header of kitty/hyprconf.conf.
-    if [[ -n $_HYPRCONF_ZSH ]]; then
-        printf '\nshell %s\n' "$_HYPRCONF_ZSH" >> "$dir/hyprconf.conf"
-    else
-        warn "zsh not installed — kitty will keep using the login shell"
-    fi
-
-    # Unconditional: ~/.config/kitty/kitty.conf is OPTIONAL from 4.0.3 on —
-    # Omarchy's defaults moved to /etc/xdg/kitty/kitty.conf, which kitty
-    # merges BELOW any user file (SYSTEM_CONF, /usr/lib/kitty/kitty/cli.py:712,
-    # kitty 0.48.2) — so a box with no user file must still get the include,
-    # and creating it costs Omarchy nothing. That is how omarchy-font-set
-    # reaches the same file (`mkdir -p ~/.config/kitty` then append,
-    # /usr/bin/omarchy-font-set:33-40). grep answers non-zero when the file is
-    # absent, which is the branch that creates it.
-    grep -qxF 'include hyprconf.conf' "$conf" 2>/dev/null ||
-        printf '\n# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
 }
 
 stage_hotkeys() {
@@ -644,7 +558,7 @@ stage_shell() {
     log "Shell: zsh + powerlevel10k in the terminal"
     # Deliberately NO chsh. The login shell stays bash, so Omarchy's rc chain,
     # its aliases/functions/completions, uwsm, SSH and scripts are untouched.
-    # kitty is what launches zsh (see stage_kitty_include), and .zshrc sources
+    # kitty is what launches zsh (modules/terminal-kitty), and .zshrc sources
     # Omarchy's own env/alias files so its updates keep flowing through.
     [[ -n $_HYPRCONF_ZSH ]] || { warn "zsh not installed — skipping"; return 0; }
 
@@ -737,7 +651,6 @@ main() {
     if (( do_packages )); then stage_packages; fi
     # After the package stage, never before it — see resolve_zsh.
     resolve_zsh
-    stage_terminal
     # Self-contained modules: each one applies, gates and undoes itself
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
     bash "$HERE/modules/bar-active-window/install"
@@ -750,6 +663,7 @@ main() {
     bash "$HERE/modules/font/install"
     bash "$HERE/modules/idle/install"
     bash "$HERE/modules/keychron/install"
+    bash "$HERE/modules/terminal-kitty/install"
     bash "$HERE/modules/themes/install"
     bash "$HERE/modules/vscode/install"
     bash "$HERE/modules/vulkan-gpu/install"

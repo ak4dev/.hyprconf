@@ -35,18 +35,6 @@ printf '%s\\n' "${{0##*/}} $*" >> "{calls}"
 {body}
 """
 
-# ~/.config/kitty/kitty.conf on an UPGRADED Omarchy 4.0.3-1 box, which is the
-# one a hyprconf box is in: 4.0.3 moved the defaults to /etc/xdg, but its
-# migration 1788745941.sh only refreshes a user file whose sha still matches
-# the old stock one — and a hyprconf box's carries `include hyprconf.conf`.
-# These are the lines the overlay must leave intact.
-OMARCHY_KITTY_CONF = """include ~/.local/state/omarchy/current/theme/kitty.conf
-# allow_remote_control yes
-listen_on unix:${XDG_RUNTIME_DIR}/omarchy-kitty-{kitty_pid}
-font_family JetBrainsMono Nerd Font
-font_size 10
-"""
-
 
 # omarchy-hook-install <type> <file> (4.0.0-1): mkdir -p the .d dir, cp under
 # the file's basename, chmod 755 — reproduced so later stages find the hook.
@@ -68,16 +56,6 @@ PRESETS = (
 def _stub(path: Path, calls: Path, body: str = "exit 0") -> None:
     path.write_text(STUB.format(calls=calls, body=body))
     path.chmod(0o755)
-
-
-def _terminal_stub(tmp_path: Path, set_status: int = 0) -> str:
-    """omarchy-default-terminal: reports foot until something sets it, then
-    what was set. The set form writes first and exits `set_status` — the real
-    one's status is its closing notification's (no set -e, 4.0.0-1)."""
-    return (
-        f'if [ $# -eq 0 ]; then cat "{tmp_path}/term" 2>/dev/null || echo foot;'
-        f' else printf "%s" "$1" > "{tmp_path}/term"; exit {set_status}; fi'
-    )
 
 
 # /usr/bin/omarchy-shell-config (Omarchy 4.0.3-1), transcribed: the hidden
@@ -153,6 +131,7 @@ OMARCHY_STUBS = (
     # one would re-set the developer's own theme from a test run.
     "omarchy-theme-refresh",
     "omarchy-cmd-present",
+    "omarchy-default-terminal",
     "omarchy-font-set",
     "omarchy-shell",
     "omarchy-plugin-enable",
@@ -251,7 +230,6 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     shell_config = bins / "omarchy-shell-config"
     shell_config.write_text(SHELL_CONFIG_FAKE.replace("__CALLS__", str(calls)))
     shell_config.chmod(0o755)
-    _stub(bins / "omarchy-default-terminal", calls, _terminal_stub(tmp_path))
     # Read back by modules/firefox and modules/vscode; the unset answers are
     # Omarchy's own (editor falls back to "nvim", bin/omarchy-default-editor:14,
     # and the browser reports whatever xdg-settings says — Omarchy's chromium).
@@ -263,8 +241,6 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     _stub(bins / "git", calls, 'if [ "$1" = clone ]; then mkdir -p "${@: -1}"; fi; exit 0')
 
     # Seed the parts of a fresh Omarchy $HOME the installer interacts with.
-    (home / ".config" / "kitty").mkdir(parents=True)
-    (home / ".config" / "kitty" / "kitty.conf").write_text(OMARCHY_KITTY_CONF)
     (home / ".config" / "hypr").mkdir(parents=True)
     for stock in ("bindings.lua", "input.lua", "looknfeel.lua"):
         (home / ".config" / "hypr" / stock).write_text(f"-- stock omarchy {stock}\n")
@@ -354,7 +330,6 @@ PAYLOAD = (
     "bin",
     "hooks",
     "zsh",
-    "kitty",
 )
 
 # What a hermetic run must never do is touch the network for Oh My Zsh or
@@ -536,8 +511,6 @@ SETTLED_RERUN_COMMANDS = {
     "git",  # the two third-party dirs: rev-parse, already at their pins
     "hyprctl",
     "jq",
-    "omarchy-cmd-present",  # is kitty installed
-    "omarchy-default-terminal",  # read back: what is the default now
     "omarchy-hook-install",  # Omarchy's own idempotent mkdir/cp/chmod
     "omarchy-pkg-add",  # the package list, a no-op once installed
     "omarchy-pkg-present",  # is firefox / VS Code installed
@@ -703,115 +676,10 @@ def test_a_failed_shell_clone_warns_and_the_stages_after_it_still_run(tmp_path: 
 # ---------------------------------------------------------------------------
 
 
-def test_default_terminal_is_never_set_to_an_absent_kitty(tmp_path: Path) -> None:
-    """omarchy-default-terminal (4.0.3-1) checks nothing — it writes the desktop
-    id and notifies — so pointing it at an absent kitty would leave
-    SUPER+RETURN with no terminal. It warns and skips rather than dying: this
-    is the first stage after the package gate, re-run on every update."""
-    env = _setup(tmp_path)
-    # kitty alone absent: a later omarchy-cmd-present for another command
-    # still answers, and /usr/bin stays on PATH for coreutils.
-    _stub(
-        env["bins"] / "omarchy-cmd-present",
-        env["calls"],
-        'case "$1" in kitty) exit 1 ;; esac; exit 0',
-    )
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "kitty" in proc.stderr
-    assert not any(c.startswith("omarchy-default-terminal ") for c in _calls(env)), (
-        "omarchy-default-terminal was called with an argument"
-    )
-    # And the run went on: a stage well after the terminal one still landed.
-    assert (env["home"] / ".zshrc").exists()
-
-
-def test_a_failed_terminal_setter_does_not_take_the_install_down(tmp_path: Path) -> None:
-    """omarchy-default-terminal has no set -e and exits with its closing
-    omarchy-notification-send's status (4.0.3-1), which fails on a TTY first
-    run — after the list file is written. Every later stage must still run."""
-    env = _setup(tmp_path)
-    _stub(env["bins"] / "omarchy-default-terminal", env["calls"], _terminal_stub(tmp_path, 1))
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-default-terminal kitty" in _calls(env)
-    assert (env["home"] / ".zshrc").exists()  # a stage well after the terminal one
-    env["calls"].write_text("")
-    _run(env, "--no-update")
-    assert "omarchy-default-terminal kitty" not in _calls(env)
-
-
-def test_kitty_conf_gains_only_the_include(tmp_path: Path) -> None:
-    """Every original line survives, in order, and the only thing added is one
-    include — Omarchy's file stays authoritative."""
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    conf = (env["home"] / ".config" / "kitty" / "kitty.conf").read_text()
-    assert conf == OMARCHY_KITTY_CONF + "\n# hyprconf overlay\ninclude hyprconf.conf\n"
-
-
-def test_hyprconf_kitty_include_file_is_self_contained(tmp_path: Path) -> None:
-    """It must not restate anything Omarchy sets, in either of its two homes: on
-    4.0.3-1 `listen_on` and `allow_remote_control socket-only` live in
-    /etc/xdg/kitty/kitty.conf and `font_family` is appended to the user file
-    by omarchy-font-set. The include goes LAST, so a restatement would win."""
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    body = _code_only((env["home"] / ".config" / "kitty" / "hyprconf.conf").read_text())
-    for owned in ("font_family", "font_size", "listen_on", "allow_remote_control", "include "):
-        assert owned not in body, owned
-
-
-def test_the_shell_line_is_written_once_however_often_the_stage_runs(tmp_path: Path) -> None:
-    """hyprconf.conf is re-installed from the checkout on every run (`install -m
-    644`, which also puts the mode back), so the appended `shell` line is the
-    only thing the stage adds — one copy, never a growing stack."""
-    env = _setup(tmp_path)
-    for _ in range(3):
-        assert _run(env, "--no-update", extra_env=ZSH_AT).returncode == 0
-    conf = env["home"] / ".config" / "kitty" / "hyprconf.conf"
-    body = conf.read_text()
-    assert body.count("shell /usr/bin/zsh") == 1
-    assert "shell " not in _code_only((REPO_ROOT / "kitty" / "hyprconf.conf").read_text())
-    # Only the shell line, and never a second copy of what the header says.
-    added = body[len((REPO_ROOT / "kitty" / "hyprconf.conf").read_text()) :]
-    assert added == "\nshell /usr/bin/zsh\n", added
-    assert conf.stat().st_mode & 0o777 == 0o644
-
-
-def test_the_include_is_written_even_with_no_user_kitty_conf(tmp_path: Path) -> None:
-    """From Omarchy 4.0.3 ~/.config/kitty/kitty.conf is optional (the defaults
-    moved to /etc/xdg/kitty/kitty.conf, merged BELOW any user file —
-    /usr/lib/kitty/kitty/cli.py:712), and a box without one ended up with
-    hyprconf.conf installed and nothing including it."""
-    env = _setup(tmp_path)
-    conf = env["home"] / ".config" / "kitty" / "kitty.conf"
-    conf.unlink()
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert conf.read_text() == "\n# hyprconf overlay\ninclude hyprconf.conf\n"
-    assert "nothing includes it" not in proc.stderr
-    # And a second run does not append it twice.
-    _run(env, "--no-update")
-    assert conf.read_text().count("include hyprconf.conf") == 1
-
-
-def test_shell_line_points_at_zsh_only_when_zsh_exists(tmp_path: Path) -> None:
-    """Writing `shell /bin/zsh` without zsh present would stop kitty starting."""
-    env = _setup(tmp_path)
-    # _HYPRCONF_ZSH="" is the seam for "no zsh on this box" — the real lookup
-    # would otherwise find the host's zsh, since /usr/bin has to stay on PATH
-    # for coreutils.
-    assert _run(env, "--no-update", extra_env={"_HYPRCONF_ZSH": ""}).returncode == 0
-    body = _code_only((env["home"] / ".config" / "kitty" / "hyprconf.conf").read_text())
-    assert "shell " not in body
-
-
 def test_zsh_installed_by_the_package_stage_is_used_in_the_same_run(tmp_path: Path) -> None:
     """The zsh lookup must happen AFTER packages: on a fresh Omarchy zsh does not
     exist until stage_packages installs it, and a lookup at startup pins the
-    empty string for the whole run — first install, no ~/.zshrc, bash in
-    kitty."""
+    empty string for the whole run — first install, no ~/.zshrc, no prompt."""
     env = _setup(tmp_path, with_zsh=False)
     zsh = env["bins"] / "zsh-installed-by-pkg-add"
     # Stand in for `pacman -S zsh`: the binary appears while the run is going.
@@ -827,8 +695,6 @@ def test_zsh_installed_by_the_package_stage_is_used_in_the_same_run(tmp_path: Pa
     assert (env["home"] / ".zshrc").read_text().count("powerlevel10k") >= 1
     assert (env["home"] / ".p10k.zsh").is_symlink()
     assert (env["home"] / ".oh-my-zsh").is_dir()
-    kitty_conf = (env["home"] / ".config" / "kitty" / "hyprconf.conf").read_text()
-    assert f"shell {zsh}" in kitty_conf
 
 
 # ---------------------------------------------------------------------------
@@ -1083,7 +949,9 @@ def test_post_update_hook_reapplies_the_overlay_without_update_or_sudo(tmp_path:
     assert proc.returncode == 0, proc.stderr
     assert bindings.is_symlink()  # the overlay was re-applied
     commands = _commands(env)
-    assert "omarchy-default-terminal" in commands
+    # …and so was the module loop: every bar-* module asks the shell for a
+    # rescan on every run, since inotify never descends their symlinked folder.
+    assert "omarchy-shell" in commands
     for forbidden in (
         "omarchy-update",
         "sudo",
@@ -1272,12 +1140,11 @@ USAGE_HEREDOC = re.compile(r"(?ms)^\s*cat <<'USAGE'\n.*?^USAGE$")
 
 def _fetch_exec_surface() -> list[Path]:
     """_overlay_scripts() plus the shipped shell payload its suffix filter
-    misses — the zsh block and p10k config every interactive zsh executes,
-    and the kitty conf. The scan must reach everything that runs."""
+    misses — the zsh block and p10k config every interactive zsh executes.
+    The scan must reach everything that runs."""
     return _overlay_scripts() + [
         REPO_ROOT / "zsh" / "zshrc.block",
         REPO_ROOT / "zsh" / ".p10k.zsh",
-        REPO_ROOT / "kitty" / "hyprconf.conf",
     ]
 
 

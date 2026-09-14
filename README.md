@@ -22,7 +22,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 | Look'n'feel + input | Tighter gaps, hairline rounding, blur/shadow, fade workspace animation, natural scroll, 3-finger swipe; Steam tiles like every other window |
 | Monitor presets | `bedroom` / `kitchen` / `laptop`, hot-swapped with a hotkey (`hyprconf-monitor-preset`) through Omarchy's Hyprland toggles directory — Omarchy's `monitors.lua` is never touched |
 | Bar widgets | A clock that ticks seconds, active-only workspaces on two lines with a Pac-Man on the focused one, the focused window's title, a CPU/temp/mem/GPU/net readout — all as Omarchy shell plugins |
-| Terminal + shell | kitty as the default terminal, running zsh + Oh My Zsh + Powerlevel10k *inside* the terminal; the login shell stays bash |
+| Terminal + shell | kitty as the default terminal, with two preferences as an include ([`modules/terminal-kitty`](modules/terminal-kitty/README.md)), running zsh + Oh My Zsh + Powerlevel10k *inside* the terminal; the login shell stays bash |
 | Greeting | hyprconf's `fastfetch` layout in the shell, at a path of its own — Omarchy's About screen stays stock ([`modules/fastfetch`](modules/fastfetch/README.md)) |
 | Firefox + VS Code | Installed through Omarchy's own installers (`omarchy install browser firefox`, `omarchy install editor vscode`), set as the default browser and editor once ([`modules/firefox`](modules/firefox/README.md), [`modules/vscode`](modules/vscode/README.md)) |
 | Theme reach | Every `omarchy theme set` also lands in Firefox, which Omarchy's own fan-out misses — a user template Omarchy's own engine renders ([`modules/firefox-theme`](modules/firefox-theme/README.md)) |
@@ -68,7 +68,6 @@ bash ~/.hyprconf/install.sh
 | Stage | Changes | Mechanism |
 |---|---|---|
 | packages | Installs the `packages` list (official repos only) | `omarchy-pkg-add` — idempotent, never bare `pacman -Syu` (Omarchy's ALPM hook blocks it) |
-| terminal | kitty becomes the default terminal; `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity, `shell <zsh>`) plus one `include hyprconf.conf` line appended to `kitty.conf`, which is created if you do not have one (from 4.0.3 Omarchy's own defaults live in `/etc/xdg/kitty/kitty.conf`, so the user file is optional) | `omarchy-default-terminal kitty`; Omarchy's defaults live in `/etc/xdg/kitty/kitty.conf` (kitty merges it below the user file), and `~/.config/kitty/kitty.conf` — the theme include, plus whatever `omarchy-font-set` appends — stays authoritative above it. The setter's exit status is its closing notification's, so with no shell (a TTY first run) it warns and the re-run finds kitty already current |
 | hotkeys | `~/.config/hypr/bindings.lua` → `hypr/bindings.lua` | Symlink (whatever was there first — Omarchy's stock file, or a dotfiles link of your own, copied as a link — backed up to `bindings.lua.stock`). The hotkey tools are `bin/` commands (below) |
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups, a link of your own kept as a link) |
 | monitors | Seeds the three presets into `~/.config/hypr/` | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. Omarchy's `monitors.lua` is never touched, a symlinked one included (a stow-style dotfiles link is yours) |
@@ -98,6 +97,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | [`font`](modules/font/README.md) | The system monospace becomes GeistMono Nerd Font — **set once**. Installs `otf-geist-mono-nerd` (official repos, `omarchy-pkg-add`) when it is missing, which needs `sudo` and a terminal | `bash ~/.hyprconf/modules/font/install undo` — drops the marker and prints the `omarchy font set 'JetBrainsMono Nerd Font'` to run (the setter restarts the shell, so it stays yours) |
 | [`idle`](modules/idle/README.md) | The screensaver starts after **15 min** instead of Omarchy's 150 s (`idle.screensaver` in `~/.config/omarchy/shell.json`; the lock timeout is left alone) — **set once** | `bash ~/.hyprconf/modules/idle/install undo` |
 | [`keychron`](modules/keychron/README.md) | One udev rule at `/etc/udev/rules.d/70-keychron.rules` so the WebHID launcher can reach Keychron (`0x3434`) and Lemokey (`0x362d`) boards and mice. Needs `sudo` and a terminal | `bash ~/.hyprconf/modules/keychron/install undo` |
+| [`terminal-kitty`](modules/terminal-kitty/README.md) | kitty as Omarchy's default terminal — **set once**, so `omarchy default terminal <name>` later is yours to keep — plus `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity) and one `include` line at the end of `kitty.conf`, which is seeded from Omarchy's own stub when you have none (from 4.0.3 the user file is optional; the real defaults live in `/etc/xdg/kitty/kitty.conf`). Installs `kitty`, which needs `sudo` and a terminal | `bash ~/.hyprconf/modules/terminal-kitty/install undo` — the include, `hyprconf.conf` and the marker go, and the default hands back to Omarchy's stock `foot` while kitty is still current |
 | [`themes`](modules/themes/README.md) | The `dracula` user theme, symlinked into Omarchy's theme menu and **never activated**, plus extra wallpapers filed under the Omarchy theme each belongs to | `bash ~/.hyprconf/modules/themes/install undo` |
 | [`vscode`](modules/vscode/README.md) | VS Code through Omarchy's own installer when it is absent, and `code` as the default editor — **set once**, and only once the package is really there. Installing needs `sudo` and a terminal | `bash ~/.hyprconf/modules/vscode/install undo` — the editor goes back to `nvim`; VS Code stays installed |
 | [`vulkan-gpu`](modules/vulkan-gpu/README.md) | `hyprconf-vulkan-gpu` on PATH (one symlink) — the dual-GPU Vulkan pin for Steam/Proton under Xwayland. Installing decides nothing: run `hyprconf-vulkan-gpu status`, then `fix`, on a box with two GPUs | `hyprconf-vulkan-gpu remove` first if you wrote a pin (it is yours, not the module's), then `bash ~/.hyprconf/modules/vulkan-gpu/install undo` |
@@ -124,7 +124,7 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 
 ## Repository layout
 
-The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `hypr/`, `bin/`, `zsh/`, `kitty/` and `hooks/` land in `$HOME` (the `hypr/*.lua` overrides and `.p10k.zsh` as symlinks into the checkout). `modules/` is one directory per module, each shipping its own payload — what it writes and how to undo it is in that module's own `README.md`, the system Firefox policy ([`modules/firefox`](modules/firefox/README.md)) included.
+The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `hypr/`, `bin/`, `zsh/` and `hooks/` land in `$HOME` (the `hypr/*.lua` overrides and `.p10k.zsh` as symlinks into the checkout). `modules/` is one directory per module, each shipping its own payload — what it writes and how to undo it is in that module's own `README.md`, the system Firefox policy ([`modules/firefox`](modules/firefox/README.md)) included.
 
 ## Monitor presets
 
@@ -244,11 +244,10 @@ Border and shadow colours stay with the active Omarchy theme; keyboard layout st
 
 ## Packages
 
-From `packages`, installed via `omarchy-pkg-add` — **official repositories only, never the AUR**. A module with packages of its own ships them in its own `packages` file and installs them the same way (`otf-geist-mono-nerd`, [`modules/font`](modules/font/README.md)):
+From `packages`, installed via `omarchy-pkg-add` — **official repositories only, never the AUR**. A module with packages of its own ships them in its own `packages` file and installs them the same way (`kitty`, [`modules/terminal-kitty`](modules/terminal-kitty/README.md); `otf-geist-mono-nerd`, [`modules/font`](modules/font/README.md)):
 
 | Package | Why |
 |---|---|
-| `kitty` | Default terminal |
 | `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting` | Shell inside kitty |
 
 Firefox (`SUPER+F`) and VS Code (`SUPER+C`) are not in `packages`: they come through Omarchy's own installers ([`modules/firefox`](modules/firefox/README.md) and [`modules/vscode`](modules/vscode/README.md)), which set up what a bare package would not. `visual-studio-code-bin` is from Omarchy's own `[omarchy]` pacman repository (`pacman -Si`: *Repository: omarchy*; it provides `code` and conflicts with Arch's `code`) — the one package the overlay takes from outside Arch's official repositories, and only through `omarchy-install-editor-vscode`; no AUR helper is ever called.
@@ -274,7 +273,6 @@ hyprconf-monitor-preset stock   # removes ~/.local/state/omarchy/toggles/hypr/hy
 for f in bindings input looknfeel; do mv ~/.config/hypr/$f.lua.stock ~/.config/hypr/$f.lua; done
 rm ~/.config/hypr/{pcMonitors*,laptopMonitors}.lua
 rm ~/.config/omarchy/hooks/post-update.d/10-hyprconf
-sed -i '/^# hyprconf overlay$/d; /^include hyprconf.conf$/d' ~/.config/kitty/kitty.conf; rm ~/.config/kitty/hyprconf.conf
 rm ~/.p10k.zsh ~/.local/bin/hyprconf-*; { [ -e ~/.p10k.zsh.stock ] || [ -L ~/.p10k.zsh.stock ]; } && mv ~/.p10k.zsh.stock ~/.p10k.zsh   # your own .p10k.zsh, file or dotfiles link, if you had one
 rm -rf ~/.config/omarchy/plugins/{hyprconf.*,.hyprconf.*.bak.*} ~/.local/state/hyprconf   # the four hyprconf.* entries are symlinks into the checkout; the dot-prefixed .bak.<timestamp> dirs are folders a module moved aside, or what `omarchy plugin remove` leaves of a non-git one
 omarchy default terminal <name>; omarchy default editor <name>; omarchy font set <name>; omarchy theme set <name>
