@@ -30,7 +30,7 @@ def test_install_copies_the_layout_and_writes_nothing_else(box: Box) -> None:
     assert box.files() == {target} and box.commands == []
 
 
-def test_a_second_run_writes_nothing(box: Box) -> None:
+def test_a_second_run_writes_nothing_and_a_stale_copy_is_refreshed(box: Box) -> None:
     assert box.run(INSTALL).returncode == 0
     before = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in box.files()}
     box.reset()
@@ -38,6 +38,11 @@ def test_a_second_run_writes_nothing(box: Box) -> None:
     assert r.returncode == 0 and r.stdout == ""
     assert {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in box.files()} == before
     assert box.commands == []
+    # README > Settings, the other half: the gate is cmp, not existence, so
+    # "edit config.jsonc here and re-run" writes a copy that has drifted again.
+    (target := box.home / TARGET).write_text("{}\n")
+    assert box.run(INSTALL).returncode == 0
+    assert target.read_bytes() == SRC.read_bytes() and target.stat().st_mode & 0o777 == 0o644
 
 
 @pytest.mark.parametrize("shared", [False, True])
