@@ -223,14 +223,14 @@ def test_manifest_declares_the_slot_and_entry_point_the_shell_reads(box) -> None
     """The keys the shell actually reads: id, kinds, entryPoints, clonedFrom.
     No `barWidget.defaultSection` — the clonedFrom swap inherits the stock
     widget's slot — and none of the keys shell.qml:1400-1405 already defaults
-    (`barWidget.description` duplicates `description`, `allowMultiple: false`
-    is the default)."""
+    (`displayName` duplicates `name`, `description` duplicates `description`,
+    `allowMultiple: false` is the default)."""
     manifest = json.loads((PLUGIN / "manifest.json").read_text())
     assert manifest["id"] == ID
     assert manifest["kinds"] == ["bar-widget"]
     assert manifest["entryPoints"] == {"barWidget": "Workspaces.qml"}
     assert manifest["omarchy"]["clonedFrom"] == "omarchy.workspaces"
-    assert set(manifest["barWidget"]) == {"displayName", "category"}
+    assert manifest["barWidget"] == {"category": "Compositor"}
 
 
 def test_the_widget_lists_only_the_workspaces_that_exist(box) -> None:

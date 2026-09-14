@@ -249,14 +249,14 @@ Omarchy's (MIT requires its notice on every copy), and any script the widget
 runs, under `bin/`, resolved from the plugin's own directory and never from
 `PATH`. `tests/test_plugins_contract.py` pins that shape and the validator's
 own checks over every folder, and each bar module runs Omarchy's real
-validator against its installed link. The
-manifest's `version` (SemVer) is bumped once per set of changes that reaches
-a consumer and is never left behind a shipped one — a series of commits on
-`dev` takes one bump between publishes, not one each. A published plugin is
-listed on the community directory,
-<https://omarchyplugins.com>. Until that push each plugin README gives
-Omarchy's own by-hand install instead (`/usr/share/omarchy/shell/README.md` ›
-Installing by hand) and names `omarchy plugin add <url> --enable --yes` as the
+validator against its installed link. The manifest's `version` stays at
+`1.0.0` — nothing reads it (the validator checks the key's presence,
+`omarchy plugin update` is a git fast-forward) and Omarchy's own plugin
+manifests have never moved off it. A published plugin is listed on the
+community directory, <https://omarchyplugins.com>. Until that push each
+plugin README gives Omarchy's own by-hand install instead
+(`/usr/share/omarchy/shell/README.md` › Installing by hand) and names
+`omarchy plugin add <url> --enable --yes` as the
 form that applies once the repository is there — `--yes` because
 `omarchy-plugin-add` otherwise asks for a bar section
 (`select_bar_widget_placement`, `bin/omarchy-plugin-add:161-162`) and the

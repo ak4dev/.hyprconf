@@ -232,7 +232,6 @@ def test_the_manifest_is_the_clone_contract_and_nothing_the_shell_defaults(box) 
     assert manifest["entryPoints"] == {"barWidget": "ActiveWindow.qml"}
     assert manifest["omarchy"] == {"clonedFrom": "omarchy.active-window"}
     assert manifest["barWidget"] == {"category": "Compositor", "defaultSection": "left"}
-    assert re.fullmatch(r"\d+\.\d+\.\d+", manifest["version"]), "SemVer, bumped per change"
 
 
 def test_the_folder_carries_what_a_plugin_repository_needs(box) -> None:

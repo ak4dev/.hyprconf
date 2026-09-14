@@ -371,7 +371,11 @@ def test_plugin_folders_are_publishable_on_their_own(folder: Path) -> None:
     feeder — and nothing of the overlay's around it."""
     assert publishable_problems(folder) == []
     manifest = json.loads((folder / "manifest.json").read_text())
-    assert re.fullmatch(r"\d+\.\d+\.\d+", manifest["version"]), "SemVer, bumped per change"
+    # Frozen, not a discipline: the validator checks the key's presence only
+    # (bin/omarchy-plugin-validate:44-47), `omarchy plugin update` is a
+    # fast-forward that never opens the manifest, and all 13 of Omarchy's own
+    # plugin manifests sit at 1.0.0 (Omarchy 4.0.3-1).
+    assert manifest["version"] == "1.0.0"
 
 
 def test_plugin_text_never_renders_runtime_strings_as_rich_text() -> None:

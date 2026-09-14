@@ -12,10 +12,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "hyprconf Clock",
-    "description": "Date/time label with a calendar popup",
-    "category": "Time",
-    "allowMultiple": false
+    "category": "Time"
   },
   "omarchy": {
     "clonedFrom": "omarchy.clock"

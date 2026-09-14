@@ -412,10 +412,13 @@ def test_the_manifest_claims_the_stock_clock_slot() -> None:
     assert manifest["id"] == ID
     assert manifest["omarchy"] == {"clonedFrom": STOCK}
     assert manifest["entryPoints"] == {"barWidget": "BarWidget.qml"}
-    # Nothing reads the value (omarchy-plugin-update is a fast-forward, the
-    # validator checks presence only) and Omarchy's own plugins never move
-    # theirs off 1.0.0 — so it is frozen, not a discipline.
-    assert manifest["version"] == "1.0.0"
+    # Only what the shell does not already default: shell.qml:1400-1405
+    # (Omarchy 4.0.3-1) reads `displayName: meta.displayName || manifest.name,
+    # description: meta.description || manifest.description, category:
+    # meta.category || "Plugin", allowMultiple: meta.allowMultiple === true`,
+    # so those three keys would restate the lines above them. No
+    # defaultSection either — the clonedFrom swap inherits the stock slot.
+    assert manifest["barWidget"] == {"category": "Time"}
 
 
 def test_the_widget_carries_no_panel_of_its_own() -> None:
