@@ -18,8 +18,11 @@ MODULE = Path(__file__).parent
 PLUGIN = MODULE / "plugin"
 ID = "hyprconf.resources"
 # Omarchy's own validator, the one real omarchy-* command the suite runs
-# (AGENTS.md › Tests). Absent in CI, which carries no Omarchy.
-PLUGIN_VALIDATE = Path("/usr/share/omarchy/bin/omarchy-plugin-validate")
+# (AGENTS.md › Tests). Absent in CI, which carries no Omarchy; keyed on
+# OMARCHY_PATH like every needs-Omarchy probe, so an empty one reproduces CI.
+PLUGIN_VALIDATE = (
+    Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy")) / "bin/omarchy-plugin-validate"
+)
 # omarchy-plugin-list answering with this plugin: what the discovery loop waits
 # for before the enable (bin/omarchy-plugin-add:164-171 does the same).
 LISTED = f'printf \'[{{"id":"{ID}"}}]\\n\'\n'

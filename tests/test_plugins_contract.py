@@ -295,7 +295,9 @@ PLUGIN_SHELL_API = (
     "toggle",
     "updateEntryInline",
 )
-OMARCHY_SHELL = Path("/usr/share/omarchy/shell")
+# The installed tree, through the same seam every needs-Omarchy probe keys on
+# (never a skip here: the pinned lists stand in where it is absent).
+OMARCHY_SHELL = Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy")) / "shell"
 _DECLARES_RE = re.compile(
     r"^\s*(?:readonly\s+)?(?:required\s+)?(?:property\s+\S+|function)\s+(\w+)", re.M
 )

@@ -11,6 +11,7 @@ shipped folder, in tests/test_plugins_contract.py.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -22,8 +23,12 @@ MODULE = Path(__file__).parent
 INSTALL = MODULE / "install"
 PLUGIN = MODULE / "plugin"
 ID = "hyprconf.workspaces"
-# Omarchy's own validator (pure: reads the manifest and the tree).
-PLUGIN_VALIDATE = Path("/usr/share/omarchy/bin/omarchy-plugin-validate")
+# Omarchy's own validator (pure: reads the manifest and the tree), from the
+# installed tree — the one seam every needs-Omarchy probe keys on, so pointing
+# OMARCHY_PATH at an empty directory reproduces CI's skips (AGENTS › Gates and CI).
+PLUGIN_VALIDATE = (
+    Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy")) / "bin/omarchy-plugin-validate"
+)
 
 # A shell that answers: what the install script polls for before the enable
 # (bin/omarchy-plugin-add:163-171 is the shape it copies). Without it the fake

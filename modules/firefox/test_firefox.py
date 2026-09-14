@@ -12,6 +12,7 @@ default browser, idempotence and undo.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -24,8 +25,11 @@ POLICIES_JSON = MODULE / "policies.json"
 POLICIES = json.loads(POLICIES_JSON.read_text(encoding="utf-8"))["policies"]
 
 # What omarchy-install-browser copies to /usr/lib/firefox/distribution/ and
-# what the module merges under its own file. Absent in CI (no Omarchy).
-OMARCHY_POLICY = Path("/usr/share/omarchy/default/firefox/policies.json")
+# what the module merges under its own file. Absent in CI (no Omarchy); keyed
+# on OMARCHY_PATH like every needs-Omarchy probe, so an empty one reproduces CI.
+OMARCHY_POLICY = (
+    Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy")) / "default/firefox/policies.json"
+)
 
 # Firefox's own allowlist for the Preferences policy, verbatim from
 # `Preferences.onBeforeAddons` (Policies.sys.mjs:2632-2674, Firefox
