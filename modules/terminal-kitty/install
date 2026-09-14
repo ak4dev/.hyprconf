@@ -1,62 +1,32 @@
 #!/usr/bin/env bash
-# hyprconf/terminal-kitty — kitty as Omarchy's default terminal, plus one include.
-#
-# The default is ONE file, ~/.config/xdg-terminals.list (bin/omarchy-default-terminal:31-35,
-# Omarchy 4.0.3-1); SUPER+RETURN, $TERMINAL, the floating terminals and the menu all resolve
-# through xdg-terminal-exec, so nothing else needs pointing. Set ONCE behind a marker: which
-# terminal is default is the user's choice from then on. The setter checks nothing — it writes
-# the desktop id and notifies — so kitty's presence is asked FIRST, with Omarchy's own probe
-# (bin/omarchy-pkg-present:6-8, `pacman -Q` per name). Absent kitty is a warning, never a
-# failure: this module runs on every omarchy-update through the post-update hook.
-# omarchy-install-terminal is not used: it prints "Failed to install" and still exits 0
-# (bin/omarchy-install-terminal:50-52), and its config copy and list write are what the
-# packages file and the setter already do.
-#
-# hyprconf.conf is a layer, not a rewrite: `include hyprconf.conf` goes at the END of
-# ~/.config/kitty/kitty.conf, which kitty resolves against that file's own directory
-# (/usr/lib/kitty/kitty/conf/utils.py:333-334) and skips with a log line when missing
-# (:346) — so the include is harmless on its own. From 4.0.3 the user file is OPTIONAL:
-# Omarchy's defaults moved to /etc/xdg/kitty/kitty.conf, which kitty merges BELOW any user
-# file (/usr/lib/kitty/kitty/simple_cli_definitions.py:377-379, kitty 0.48.2). When it is
-# absent it is seeded from Omarchy's own stub — the theme include lives only there
-# (config/kitty/kitty.conf:1-2) — the way omarchy-install-terminal:39-42 seeds ~/.config/kitty.
-#
-# The `shell` line is NOT here: the shell-zsh module ships its own kitty include
-# (hyprconf-zsh.conf) with `shell zsh` in it, so the two modules install in either order.
-#
+# hyprconf/terminal-kitty — kitty as Omarchy's default terminal, plus one kitty include.
+# Seams: bin/omarchy-default-terminal:31-35 (~/.config/xdg-terminals.list), config/kitty/kitty.conf.
 # Usage: install | install undo
 set -euo pipefail
-
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 # Omarchy's own variable, with Omarchy's own fallback (default/bash/env-bootstrap:10-16).
 : "${OMARCHY_PATH:=/usr/share/omarchy}"
 : "${HYPRCONF_STATE:=$HOME/.local/state/hyprconf}"
-# The suite reaches the sudo path from a non-tty pytest run through this.
 : "${_HYPRCONF_ASSUME_TTY:=}"
 
 conf_dir=$HOME/.config/kitty
 conf=$conf_dir/kitty.conf
 mine=$conf_dir/hyprconf.conf
 marker=$HYPRCONF_STATE/terminal-applied
-# Omarchy's stock default: /usr/share/xdg-terminal-exec/hyprland-xdg-terminals.list names
-# foot.desktop (omarchy-settings 4.0.3-1) and foot is in install/omarchy-base.packages:41.
+# /usr/share/xdg-terminal-exec/hyprland-xdg-terminals.list names foot.desktop (omarchy-settings 4.0.3-1).
 stock_terminal=foot
-
 warn() { printf 'terminal-kitty: %s\n' "$*" >&2; }
 
 if [[ ${1:-} == undo ]]; then
-    # --follow-symlinks and in place, the way Omarchy edits the same file
-    # (migrations/1788745941.sh:19); it keeps the file's own mode and any symlink.
+    # In place and --follow-symlinks, the way Omarchy edits it (migrations/1788745941.sh:19).
     [[ -f $conf ]] &&
         sed --follow-symlinks -i -e '/^# hyprconf overlay$/d' -e '/^include hyprconf\.conf$/d' "$conf"
     rm -f "$mine" "$marker"
-    # Back to Omarchy's stock terminal, and only when kitty is still what we set.
     [[ $(omarchy-default-terminal 2>/dev/null || true) == kitty ]] &&
         { omarchy-default-terminal "$stock_terminal" >/dev/null 2>&1 || true; }
     exit 0
 fi
 
-# --- the package ----------------------------------------------------------
 pkgs=()
 while IFS= read -r line || [[ -n $line ]]; do
     line=${line%%#*}
@@ -64,16 +34,13 @@ while IFS= read -r line || [[ -n $line ]]; do
     [[ -n $line ]] && pkgs+=("$line")
 done < "$dir/packages"
 
-# Asked before installing, so a settled box calls nothing that wants sudo and the two
-# gates below stay quiet on every re-run (the post-update hook passes --no-packages).
 if (( ${#pkgs[@]} )) && ! omarchy-pkg-present "${pkgs[@]}"; then
     if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
         echo "  --no-packages: ${pkgs[*]} not installed — run \`bash $dir/install\` from a terminal"
     elif [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
         echo "  no terminal for the sudo prompt — ${pkgs[*]} left alone"
     else
-        # A failed install is the module's failure (rule 6): the core names it
-        # at the end of the run, and the next run retries.
+        # Not omarchy-install-terminal: it prints "Failed to install" and exits 0 anyway (bin/omarchy-install-terminal:50-52).
         omarchy-pkg-add "${pkgs[@]}" || {
             warn "package install failed — see pacman's error above; re-run to retry"
             exit 1
@@ -81,12 +48,12 @@ if (( ${#pkgs[@]} )) && ! omarchy-pkg-present "${pkgs[@]}"; then
     fi
 fi
 
+# The setter checks nothing (bin/omarchy-default-terminal:20-37), so kitty is asked for first.
 omarchy-pkg-present kitty || {
     warn "kitty is not installed — the default terminal and its include are left alone"
     exit 0
 }
 
-# --- the default terminal, once -------------------------------------------
 if [[ ! -e $marker ]]; then
     mkdir -p "$HYPRCONF_STATE"
     current=$(omarchy-default-terminal 2>/dev/null || true)
@@ -96,29 +63,22 @@ if [[ ! -e $marker ]]; then
         : > "$marker"
         echo "  kitty is now the default terminal"
     else
-        # The setter has no `set -e` and exits with its closing omarchy-notification-send's
-        # status (bin/omarchy-default-terminal:37), which fails with no shell to notify —
-        # a TTY first run — AFTER the list file is written. No marker, so the next run
-        # sees kitty current and records the choice then.
+        # It exits with its closing notification's status (bin/omarchy-default-terminal:37), which
+        # fails with no shell to notify — AFTER the list file is written; the next run records it.
         warn "could not set the default terminal — retried on the next run" \
              "(or set it by hand: omarchy default terminal kitty)"
     fi
 fi
 
-# --- the include ----------------------------------------------------------
 mkdir -p "$conf_dir"
 cmp -s "$dir/hyprconf.conf" "$mine" || install -m 644 "$dir/hyprconf.conf" "$mine"
 
+# From 4.0.3 the user file is optional (defaults in /etc/xdg/kitty/kitty.conf, merged below it) and the theme include lives only in Omarchy's stub (config/kitty/kitty.conf:1-2).
 if [[ ! -e $conf && -f $OMARCHY_PATH/config/kitty/kitty.conf ]]; then
     install -m 644 "$OMARCHY_PATH/config/kitty/kitty.conf" "$conf"
 fi
-# grep answers non-zero when the file is absent too, which is the branch that creates it.
 if ! grep -qxF 'include hyprconf.conf' "$conf" 2>/dev/null; then
-    # Two lines and nothing else — no blank separator, so `install undo`'s sed puts
-    # the file back as it was. One exception: a file NOT ending in a newline gets
-    # one here, and undo cannot tell that byte from the user's own, so such a file
-    # comes back one newline longer. Omarchy's own stub ends in a newline
-    # (config/kitty/kitty.conf), so a stock box never reaches it.
+    # A file NOT ending in a newline gets one here, and undo cannot tell that byte from the user's own: such a file comes back one newline longer.
     [[ ! -s $conf || -z $(tail -c1 "$conf") ]] || printf '\n' >> "$conf"
     printf '# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
 fi
