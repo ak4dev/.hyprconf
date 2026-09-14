@@ -1,36 +1,20 @@
 #!/usr/bin/env bash
-# hyprconf/font — the system monospace font, GeistMono Nerd Font.
-# The family goes to omarchy-font-set verbatim: it greps fc-list itself and
-# exits 1 "Font '<name>' not found" on a name it does not know
-# (bin/omarchy-font-set:24-27, Omarchy 4.0.3-1), so a second copy of that
-# check here could only disagree with it. It then writes
-# ~/.config/fontconfig/fonts.conf, appends font_family to kitty.conf and
-# restarts the shell (:57-72, :33-42, :74) — which is why the choice is ONCE,
-# behind a marker: the post-update hook re-runs this after every
-# omarchy-update, and a font the user picked later must survive it.
-# Packages go through omarchy-pkg-add, guarded by omarchy-pkg-present
-# (bin/omarchy-pkg-present:6-8 is pacman -Q per name) so a re-run asks sudo
-# for nothing.
+# hyprconf/font — GeistMono Nerd Font as the system monospace, set once.
+# Seam: omarchy-font-set (bin/omarchy-font-set:24-27,33-42,57-74), omarchy-pkg-add/-present.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
-# Omarchy's own variable, with Omarchy's own fallback (default/bash/env-bootstrap:12,16).
 : "${OMARCHY_PATH:=/usr/share/omarchy}"
 family='GeistMono Nerd Font'
 stock='JetBrainsMono Nerd Font'   # Omarchy's own monospace: default/fontconfig/conf.avail/50-omarchy.conf:22-29
 marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/font-applied
 
 if [[ ${1:-} == undo ]]; then
-  # The setter restarts the shell and signals kitty (bin/omarchy-font-set:41,74),
-  # so the revert is the user's one command, not ours; dropping the marker is
-  # what makes the next install offer the font again.
   rm -f "$marker"
   echo "  put Omarchy's font back with: omarchy font set '$stock'"
   exit 0
 fi
 
-# One name per line, `# why` stripped. Split on whitespace rather than deleting
-# it: deleting would silently join a two-name line into one bogus package.
 pkgs=() words=() line=
 while IFS= read -r line || [[ -n $line ]]; do
   read -ra words <<< "${line%%#*}"
@@ -38,8 +22,6 @@ while IFS= read -r line || [[ -n $line ]]; do
 done < "$dir/packages"
 
 if (( ${#pkgs[@]} )) && ! omarchy-pkg-present "${pkgs[@]}"; then
-  # sudo needs a terminal for its prompt; the post-update hook has none to
-  # give (it passes --no-packages, which exports HYPRCONF_NO_SUDO).
   if [[ -n ${HYPRCONF_NO_SUDO:-} ]] || { [[ ! -t 0 ]] && [[ -z ${_HYPRCONF_ASSUME_TTY:-} ]]; }; then
     echo "  ${pkgs[*]} not installed — run \`bash $dir/install\` from a terminal"
     exit 0
@@ -48,15 +30,8 @@ if (( ${#pkgs[@]} )) && ! omarchy-pkg-present "${pkgs[@]}"; then
 fi
 
 [[ -e $marker ]] && exit 0
-# The setter CREATES ~/.config/kitty/kitty.conf when kitty is on PATH and the
-# file is absent — `[[ -f … ]] || omarchy-cmd-present kitty`, then
-# `printf '\nfont_family …' >>` (bin/omarchy-font-set:33-40) — as a file
-# holding nothing but font_family: no theme include, which lives only in
-# Omarchy's stub (config/kitty/kitty.conf:1-2), so kitty would lose Omarchy's
-# theming for good. Seeded from that stub first, the way
-# omarchy-install-terminal:39-42 and the two kitty modules seed it; the file
-# was absent, so nothing of the user's is displaced, and it is left on undo
-# (Omarchy's own content, the same call the kitty modules make).
+# With kitty present and no user file, bin/omarchy-font-set:33-40 creates one
+# holding font_family alone — no theme include, so kitty loses Omarchy's theming.
 kitty_conf=$HOME/.config/kitty/kitty.conf
 if [[ ! -e $kitty_conf && -f $OMARCHY_PATH/config/kitty/kitty.conf ]] && omarchy-cmd-present kitty; then
   install -Dm644 "$OMARCHY_PATH/config/kitty/kitty.conf" "$kitty_conf"
