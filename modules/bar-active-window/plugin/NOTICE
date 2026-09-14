@@ -1,8 +1,8 @@
 hyprconf.active-window is derived from Omarchy (https://omarchy.org), release
-4.0.0 (re-verified against 4.0.3):
+4.0.0:
 
-  shell/plugins/bar/widgets/ActiveWindow.qml  ->  ActiveWindow.qml here (the one
-                                                   difference is named in its header)
+  shell/plugins/bar/widgets/ActiveWindow.qml  ->  ActiveWindow.qml here (the
+                                                   deltas are named in its header)
 
 Omarchy is distributed under the MIT license; its copyright and permission
 notice follow, as that license requires of every copy.

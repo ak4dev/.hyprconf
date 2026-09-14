@@ -114,8 +114,9 @@ fi
 link=$HOME/.local/bin/hyprconf
 hook=$HERE/hooks/10-hyprconf
 # Where omarchy-hook-install puts it: ~/.config/omarchy/hooks/<type>.d/<basename>
-# (bin/omarchy-hook-install:18-20). Omarchy has no `hook remove` (`omarchy hook
-# --help` relates only `install`), so --undo removes the copy itself.
+# (bin/omarchy-hook-install:18-20). Omarchy has no `hook remove` (`omarchy
+# commands --json` lists `hook` and `hook install`, nothing else), so --undo
+# removes the copy itself.
 installed_hook=$HOME/.config/omarchy/hooks/post-update.d/${hook##*/}
 
 if (( undo )); then

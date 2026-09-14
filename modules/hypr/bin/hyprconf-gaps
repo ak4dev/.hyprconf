@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# hyprconf-gaps — step Hyprland's window gaps up or down from a hotkey
-# (SUPER+SHIFT+= / SUPER+SHIFT+- in bindings.lua, bound by name the way Omarchy
-# binds its own commands; the hypr module links this into ~/.local/bin).
+# hyprconf-gaps — step Hyprland's window gaps up or down from a hotkey (which
+# keys, and the eval-not-keyword fact below: modules/hypr/README.md).
 #
 #   hyprconf-gaps +    increase general:gaps_in and gaps_out by STEP
 #   hyprconf-gaps -    decrease both by STEP (floors at 0)
 #
-# Both move together so their difference is preserved (proportionate
-# adjustment). Runtime only — a `hyprctl reload` puts the configured values
-# back; Omarchy's own `omarchy hyprland window gaps toggle` is the all-or-
-# nothing switch and is untouched. It says nothing: the gap change is its own
-# feedback, and its one failure (an eval Hyprland refuses) is stderr + exit 1,
-# invisible from the hotkey and accepted.
+# Both move together so their difference is preserved. Runtime only — a
+# `hyprctl reload` puts the configured values back; Omarchy's own `omarchy
+# hyprland window gaps toggle` is the all-or-nothing switch and is untouched.
+# It says nothing: the gap change is its own feedback, and its one failure (an
+# eval Hyprland refuses) is stderr + exit 1, invisible from the hotkey and
+# accepted.
 set -euo pipefail
 
 readonly STEP=2
@@ -47,10 +46,7 @@ else
     new_out=$((new_out < 0 ? 0 : new_out))
 fi
 
-# `hyprctl keyword` is dead on Hyprland 0.56+: with the Lua parser it answers
-# "keyword can't work with non-legacy parsers. Use eval." AND STILL EXITS 0 —
-# a silent no-op. `eval` runs the same Lua the config does and reports
-# failure (exit 7).
+# eval, never keyword: keyword is a silent no-op under the Lua parser (exits 0), eval reports (exit 7).
 if ! out="$(hyprctl eval "hl.config({ general = { gaps_in = $new_in, gaps_out = $new_out } })" 2>&1)" ||
     [[ "$out" != ok ]]; then
     printf 'hyprconf-gaps: %s\n' "$out" >&2

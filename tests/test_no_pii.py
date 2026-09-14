@@ -1,17 +1,8 @@
-"""
-PII guard tests.
-
-No file in the tree may carry personal information about the person who authored it
-— a real username, an absolute /home/<user>/ path, or a personal email address.
-Two separate reasons: the modules' payload (modules/*/) is installed into
-any user's $HOME, so a hardcoded path is broken on every
-other machine; and the repo is published, so a name in it is published too.
-
-Scope is deliberately the WHOLE repository — a bare username in a test
-fixture is as published as one in a config, and a guard that covers part of
-the tree teaches you to trust it everywhere.
-
-The identities searched for are derived at runtime (_identities below).
+"""PII guard: no file in the tree may carry the author's identity — username,
+/home/<user>/ path, email or hostname. The payload lands in any $HOME (a
+hardcoded path breaks every other machine) and the repo is published (a name
+in a fixture is as published as one in a config), so the WHOLE tree is
+scanned, for identities derived at runtime (_identities below).
 """
 
 from __future__ import annotations
