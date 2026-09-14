@@ -1,28 +1,7 @@
 #!/usr/bin/env bash
 # hyprconf/bar-workspaces — the overlay's own workspaces widget on the bar.
-# What it is and why: plugin/README.md and plugin/Workspaces.qml's header.
-#
-# plugin/ is installed as a SYMLINK at ~/.config/omarchy/plugins/hyprconf.workspaces:
-# the third-party scan globs "$dir"/*/ and follows one (shell/services/
-# PluginRegistry.qml:712-713), `omarchy plugin remove` unlinks one instead of
-# backing it up (bin/omarchy-plugin-remove:87-88,99-101), and the validator
-# wants the trailing slash a link needs (bin/omarchy-plugin-validate:115 finds
-# the link itself without -L). The shell's `inotifywait -r` never descends a
-# link (PluginRegistry.qml:663-674), so every run asks for a rescan — that is
-# what picks a `git pull` up.
-#
-# Enabled ONCE behind a marker (AGENTS.md rule 5): `omarchy plugin disable
-# hyprconf.workspaces` then sticks, and the clonedFrom manifest hands the slot
-# back to the stock widget (PluginRegistry.qml:555 -> restoreCloneSource:441).
-# Enabled with no placement of its own: the enable swaps the copy into the
-# stock widget's slot whatever it is given (PluginRegistry.qml:528-534), and a
-# --section argument would then splice it straight back out of that slot
-# (:545-546 moveBarEntry) — so no placement is the whole point.
-# The discovery wait before the enable is omarchy-plugin-add's own
-# (bin/omarchy-plugin-add:163-171): the rescan is asynchronous and an enable
-# issued before it lands fails with "plugin is not known"
-# (bin/omarchy-plugin-enable:86-87).
-# Verified against Omarchy 4.0.3-1.
+# Seam: ~/.config/omarchy/plugins/<id>, a folder the third-party scan follows through a
+# symlink (shell/services/PluginRegistry.qml:712-713); omarchy-plugin-enable; rescanPlugins.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -30,16 +9,17 @@ id=hyprconf.workspaces
 plugins=$HOME/.config/omarchy/plugins link=$plugins/$id
 marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/workspaces-applied
 
-# Omarchy's own best-effort IPC form: -q returns success when no shell answers
-# (bin/omarchy-shell:7-11,14-17). `|| true` covers the command missing entirely.
+# -q returns success when no shell answers (bin/omarchy-shell:7-11,14-17); `|| true` covers
+# the command missing. inotifywait never descends a link (PluginRegistry.qml:663-674), so
+# this explicit rescan is what picks a `git pull` up.
 rescan() { omarchy-shell -q shell rescanPlugins >/dev/null 2>&1 || true; }
 
 if [[ ${1:-} == undo ]]; then
+  # Disabled while still installed: the clonedFrom entry hands the slot back to the stock
+  # widget (PluginRegistry.qml:555 -> restoreCloneSource:441).
   omarchy-plugin-disable "$id" >/dev/null 2>&1 || true
-  # Only the module's own link goes: a real directory here is an `omarchy
-  # plugin add` checkout or the pre-module synced copy — neither is this
-  # module's to delete (the apply path moves that one aside instead), and
-  # `rm -f` on a directory fails.
+  # Only this module's link: a real directory here is someone else's, and `rm -f` on one
+  # fails, taking the undo down with it.
   [[ -L $link ]] && rm -f "$link"
   rm -f "$marker"
   rescan
@@ -51,12 +31,16 @@ if [[ -d $link/.git ]]; then
   exit 0
 fi
 mkdir -p "$plugins" "${marker%/*}"
-# A real directory here is the pre-module synced copy (or a hand-drop): moved
-# aside once, the shape omarchy-plugin-remove uses (bin/omarchy-plugin-remove:106).
+# Moved aside, never deleted (bin/omarchy-plugin-remove:106).
 [[ -d $link && ! -L $link ]] && mv "$link" "$plugins/.$id.bak.$(date -u +%Y%m%d%H%M%S)"
 [[ $(readlink "$link" 2>/dev/null) == "$dir/plugin" ]] || ln -sfn "$dir/plugin" "$link"
 rescan
 
+# Enabled once (rule 5) with no placement: the enable swaps the copy into the stock
+# widget's slot whatever it is (PluginRegistry.qml:528-534) and a --section would splice it
+# straight back out (:545-546). The wait is omarchy-plugin-add's own (bin/omarchy-plugin-
+# add:163-171): the rescan is asynchronous, and an enable before it lands fails "plugin is
+# not known" (bin/omarchy-plugin-enable:86-87).
 [[ -e $marker ]] && exit 0
 for (( i = 0; i < 40; i++ )); do   # no shell answering → omarchy-plugin-list exits 1 → no wait
   list=$(omarchy-plugin-list --json 2>/dev/null) || break
