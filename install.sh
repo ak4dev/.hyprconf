@@ -669,35 +669,6 @@ stage_kitty_include() {
         printf '\n# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
 }
 
-stage_theme() {
-    log "Theme: dracula"
-    local link="$HOME/.config/omarchy/themes/dracula"
-    mkdir -p "${link%/*}"
-    # A real directory there is a theme the user installed themselves
-    # (omarchy theme install) — not ours to replace, and `ln -sfn` would only
-    # drop a stray link inside it (-n guards a link, not a directory).
-    if [[ -e $link && ! -L $link ]]; then
-        warn "$link is a real theme directory — left alone (move it away to get the overlay's dracula)"
-        return 0
-    fi
-    # A SYMLINK on purpose, so a `git pull` updates the theme in place, and
-    # Omarchy blesses the shape explicitly: `theme_came_from_a_repo` is
-    # `[[ ! -L $source && -d $source/.git ]]` (omarchy-theme-set:204-208,
-    # "a symlink to their own working copy [is] theirs to fill however they
-    # like"), so a linked user theme takes the plain `cp -r` branch instead of
-    # the deny-listed stage_installed_theme one. `omarchy theme update`
-    # iterates omarchy-theme-extras, whose loop skips a link with the same
-    # test (omarchy-theme-extras:12), so it never pulls into the checkout.
-    ln -sfn "$HERE/themes/dracula" "$link"
-
-    # Installed, never activated. Which theme is active is the user's choice,
-    # and an install — or any of the re-applies that follow every Omarchy
-    # update — must not take it away from them. (`omarchy-theme-set` is no
-    # cheap no-op either: it rebuilds the staged theme, swaps symlinks and fans
-    # out ~15 restart/retint commands.)
-    info "available in Omarchy's theme menu (SUPER+SHIFT+CTRL+SPACE) — the active theme is left as it is"
-}
-
 # Omarchy's screensaver starts after 150 s (config/omarchy/shell.json,
 # idle.screensaver); the overlay's timeout is 900 s. Set ONCE — shell.json is
 # the user's file (Omarchy's manual, Dotfiles), and a timeout changed later
@@ -782,41 +753,6 @@ stage_defaults() {
     else
         warn "defaults not seeded — will retry on the next run"
     fi
-}
-
-# hyprconf's extra wallpapers, filed under the Omarchy theme each belongs to.
-#
-# Omarchy's background switcher scans exactly two directories, and both are
-# keyed to the ACTIVE theme: that theme's own backgrounds/, and
-# ~/.config/omarchy/backgrounds/<theme>/ (omarchy-theme-bg-next and
-# omarchy-theme-bg-switcher agree on this). A wallpaper filed anywhere else is
-# invisible.
-#
-# The hyprconf theme's own background (dracula) is NOT here: it ships inside
-# the theme, where Omarchy already finds it.
-#
-# Copied when absent, so deleting one and re-running brings it back. To stop
-# that for good, drop the file from wallpapers/.
-stage_backgrounds() {
-    log "Wallpapers"
-    local entry file theme dest
-    # <file in wallpapers/>:<omarchy theme it belongs to>
-    local -a wallpapers=(
-        "gruvbox.jpg:gruvbox"
-    )
-    for entry in "${wallpapers[@]}"; do
-        file="${entry%%:*}"
-        theme="${entry##*:}"
-        [[ -f $HERE/wallpapers/$file ]] || continue
-        dest="$HOME/.config/omarchy/backgrounds/$theme"
-        mkdir -p "$dest"
-        if [[ -e $dest/$file ]]; then
-            info "$file already in the $theme backgrounds"
-        else
-            install -m 644 "$HERE/wallpapers/$file" "$dest/$file"
-            info "$file -> $theme backgrounds (SUPER+CTRL+SPACE to pick it)"
-        fi
-    done
 }
 
 # The system monospace font, set ONCE on first install and never again.
@@ -1433,9 +1369,7 @@ main() {
     # After the package stage, never before it — see resolve_zsh.
     resolve_zsh
     stage_terminal
-    stage_theme
     stage_defaults
-    stage_backgrounds
     stage_font
     stage_idle
     stage_hotkeys
@@ -1455,6 +1389,7 @@ main() {
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
     bash "$HERE/modules/fastfetch/install"
     bash "$HERE/modules/keychron/install"
+    bash "$HERE/modules/themes/install"
     hyprctl reload >/dev/null 2>&1 || true
     if (( do_update )); then stage_update; fi
 

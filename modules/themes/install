@@ -50,11 +50,16 @@ if [[ ${1:-} == undo ]]; then
 fi
 
 mkdir -p "$themes"
-if [[ -e $link && ! -L $link ]]; then
-    # `ln -sfn` over a directory drops a stray link inside it (-n guards a
-    # link, not a directory).
-    echo "  $link is a theme directory of your own — left alone (move it away to get hyprconf's dracula)" >&2
-elif [[ $(readlink "$link" 2>/dev/null) != "$dir/dracula" ]]; then
+# Anything already at that name is the user's, whatever its shape, and `undo`
+# treats it the same way. A directory is a theme they installed themselves and
+# `ln -sfn` over one only drops a stray link inside it (-n guards a link, not a
+# directory); a link they pointed at a working copy of their own is that copy.
+# No `.stock` backup beside it either: omarchy-theme-list:7 lists every dir and
+# link under ~/.config/omarchy/themes as a theme, so a `dracula.stock` would
+# show up in the menu as one.
+if [[ -e $link || -L $link ]] && [[ $(readlink "$link" 2>/dev/null) != "$dir/dracula" ]]; then
+    echo "  $link is yours — left alone (move it away to get hyprconf's dracula)" >&2
+elif [[ ! -L $link ]]; then
     ln -sfn "$dir/dracula" "$link"
     echo "  dracula is in the theme menu (SUPER+SHIFT+CTRL+SPACE) — the active theme is left as it is"
 fi

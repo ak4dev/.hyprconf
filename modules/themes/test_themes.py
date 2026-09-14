@@ -94,6 +94,38 @@ def test_a_theme_directory_of_your_own_is_left_alone(box) -> None:
     assert gruvbox(box).is_file(), "the wallpapers are a separate seam"
 
 
+def test_a_link_of_your_own_at_that_name_is_left_alone(box) -> None:
+    """Symmetric with undo, which refuses the same case: a link pointing at a
+    working copy of theirs is that copy. No `.stock` beside it — every dir and
+    link under ~/.config/omarchy/themes is listed as a theme
+    (omarchy-theme-list:7), so a backup there would show up in the menu."""
+    mine = box.home / "their-dracula"
+    mine.mkdir()
+    (mine / "colors.toml").write_text("theirs\n")
+    theirs = themes_dir(box) / "dracula"
+    theirs.parent.mkdir(parents=True)
+    theirs.symlink_to(mine)
+
+    proc = box.run(INSTALL)
+    assert proc.returncode == 0, proc.stderr
+    assert Path(os.readlink(theirs)) == mine
+    assert "left alone" in proc.stderr
+    assert not list(themes_dir(box).glob("*.stock"))
+    assert gruvbox(box).is_file(), "the wallpapers are a separate seam"
+
+
+def test_a_plain_file_at_that_name_is_left_alone(box) -> None:
+    """Not a shape Omarchy makes, but `ln -sfn` would replace it silently."""
+    theirs = themes_dir(box) / "dracula"
+    theirs.parent.mkdir(parents=True)
+    theirs.write_text("not a theme\n")
+
+    proc = box.run(INSTALL)
+    assert proc.returncode == 0, proc.stderr
+    assert theirs.read_text() == "not a theme\n"
+    assert "left alone" in proc.stderr
+
+
 def test_the_theme_carries_its_own_background(box) -> None:
     """Omarchy's picker scans the active theme's own backgrounds/ as well as the
     user folder (omarchy-theme-bg-next:7-12), so dracula's wallpaper ships
@@ -124,10 +156,9 @@ def test_colors_toml_omits_what_omarchy_derives_to_the_same_value(box) -> None:
 
 
 def test_wallpapers_are_seeded_where_omarchy_looks_and_then_left_alone(box) -> None:
-    """The destination is the directory name under backgrounds/ — no table:
-    Omarchy's picker scans ~/.config/omarchy/backgrounds/<active theme>/
-    (omarchy-theme-bg-next:8, omarchy-theme-bg-switcher:14), so a file filed
-    anywhere else never appears. Seeded, not synced: the folder is the user's."""
+    """The destination is the directory name under backgrounds/ — no table. Why
+    only that path is visible to the picker is in `install`'s own header.
+    Seeded, not synced: the folder is the user's to curate."""
     box.run(INSTALL)
     assert (
         gruvbox(box).read_bytes()

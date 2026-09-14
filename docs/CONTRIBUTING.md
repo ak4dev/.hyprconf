@@ -36,9 +36,7 @@ publish flow and the website upload.
 │   ├── hyprconf-resources/     #   cpu/mem/net/temp + GPU readout: Widget.qml draws, Service.qml (kinds bar-widget + service — loaded once, not per bar surface) owns its two feeders in bin/ (hyprconf-stats, hyprconf-gpu-info), run by absolute path from the folder
 │   ├── hyprconf-workspaces/    #   replaces omarchy.workspaces (clonedFrom): only the workspaces that exist, two lines
 │   └── hyprconf-active-window/ #   replaces omarchy.active-window (clonedFrom): the title on two lines
-├── themes/dracula/             # Omarchy user theme (colors.toml + backgrounds/)
 ├── themed/userChrome.css.tpl   # Omarchy user template (→ ~/.config/omarchy/themed/), rendered by omarchy-theme-set-templates on every theme set
-├── wallpapers/                 # Extra backgrounds, filed per Omarchy theme
 ├── zsh/                        # zshrc.block (managed ~/.zshrc block), .p10k.zsh
 ├── kitty/hyprconf.conf         # kitty include
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
@@ -46,7 +44,7 @@ publish flow and the website upload.
 ├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
 │
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, keychron
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, keychron, themes
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names

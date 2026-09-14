@@ -329,8 +329,6 @@ PAYLOAD = (
     "lib",
     "zsh",
     "kitty",
-    "themes",
-    "wallpapers",
     "plugins",
     "infra",
     "themed",
@@ -917,38 +915,14 @@ def test_monitor_preset_reaches_every_preset(tmp_path: Path) -> None:
         assert toggle.read_bytes() == hypr.joinpath(preset).read_bytes(), name
 
 
-def test_theme_is_installed_as_a_symlink(tmp_path: Path) -> None:
-    """A symlink, so a `git pull` updates the theme in place — and Omarchy exempts
-    the shape explicitly: theme_came_from_a_repo (omarchy-theme-set:204-208)
-    is `[[ ! -L $source && -d $source/.git ]]`, so a linked user theme takes
-    the plain `cp -r` branch."""
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    link = env["home"] / ".config" / "omarchy" / "themes" / "dracula"
-    assert link.is_symlink() and link.resolve() == REPO_ROOT / "themes" / "dracula"
-
-
 def test_never_switches_the_active_theme() -> None:
-    """Installing lists hyprconf's theme; it never takes the active one away — the
-    overlay re-applies itself after every Omarchy update. Scanned rather than
+    """install.sh never takes the active theme away — the overlay re-applies
+    itself after every Omarchy update, and the theme it ships is installed
+    from modules/themes, never activated (that module's own copy of this
+    assertion is test_installing_never_activates_a_theme). Scanned rather than
     run, which covers every branch instead of the one a run takes."""
     code = _code_only(INSTALL_SH.read_text())
     assert "omarchy-theme-set" not in re.findall(r"\bomarchy-[a-z0-9-]+\b", code)
-
-
-def test_a_user_installed_theme_directory_is_left_alone(tmp_path: Path) -> None:
-    """A real themes/dracula directory (`omarchy theme install`) is theirs: `ln
-    -sfn` over a directory would only drop a stray link inside it, so the
-    stage leaves it untouched and says so."""
-    env = _setup(tmp_path)
-    theme = env["home"] / ".config" / "omarchy" / "themes" / "dracula"
-    theme.mkdir(parents=True)
-    (theme / "colors.toml").write_text("theirs\n")
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert not theme.is_symlink()
-    assert sorted(p.name for p in theme.iterdir()) == ["colors.toml"]
-    assert "dracula" in proc.stderr
 
 
 def test_screensaver_timeout_is_set_once(tmp_path: Path) -> None:
@@ -1057,26 +1031,6 @@ def test_default_apps_are_seeded_once_and_the_marker_waits_for_the_seed(
     assert any(c.startswith("omarchy-default-browser firefox") for c in calls)
     assert any(c.startswith("omarchy-default-editor code") for c in calls)
     assert marker.exists()
-
-
-# ---------------------------------------------------------------------------
-# Wallpapers
-# ---------------------------------------------------------------------------
-
-
-def test_wallpapers_are_seeded_where_omarchy_looks_and_then_left_alone(tmp_path: Path) -> None:
-    """Omarchy's background switcher scans exactly two directories, both keyed to
-    the ACTIVE theme (omarchy-theme-bg-next, omarchy-theme-bg-switcher): a
-    wallpaper filed anywhere else never appears, with no error to say why.
-    Seeded, not synced — the folder is the user's to curate."""
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    seeded = env["home"] / ".config" / "omarchy" / "backgrounds" / "gruvbox" / "gruvbox.jpg"
-    assert seeded.read_bytes() == (REPO_ROOT / "wallpapers" / "gruvbox.jpg").read_bytes()
-
-    seeded.write_bytes(b"my own wallpaper")
-    _run(env, "--no-update")
-    assert seeded.read_bytes() == b"my own wallpaper"
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,8 @@
   and **never activated**: pick it with `omarchy theme set dracula` or `SUPER+SHIFT+CTRL+SPACE`. Omarchy blesses the
   link — a linked theme takes the plain `cp -r` branch (`omarchy-theme-set:204-208,275`) and `omarchy theme update`
   skips it (`omarchy-theme-extras:12`, read by `omarchy-theme-update:5`) — so a `git pull` here is the theme update.
-  A real directory there is a theme of yours: left alone, with a message.
+  Anything already at that name — a directory, or a link to a working copy of yours — is left alone with a message,
+  and no backup is dropped beside it: `omarchy-theme-list:7` lists every directory and link there as a theme.
 - **`backgrounds/<theme>/<file>`** — extra wallpapers (`gruvbox/gruvbox.jpg`), copied into
   `~/.config/omarchy/backgrounds/<theme>/` when absent. The picker scans two directories, both keyed to the *active*
   theme: that theme's own `backgrounds/` and this one (`omarchy-theme-bg-next:7-14`, `omarchy-theme-bg-switcher:11-14`)
