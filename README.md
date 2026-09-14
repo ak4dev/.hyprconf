@@ -24,7 +24,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 | Bar widgets | A clock that ticks seconds, active-only workspaces on two lines with a Pac-Man on the focused one, the focused window's title, a CPU/temp/mem/GPU/net readout — all as Omarchy shell plugins |
 | Terminal + shell | kitty as the default terminal, running zsh + Oh My Zsh + Powerlevel10k *inside* the terminal; the login shell stays bash |
 | Greeting | hyprconf's `fastfetch` layout in the shell, at a path of its own — Omarchy's About screen stays stock ([`modules/fastfetch`](modules/fastfetch/README.md)) |
-| Firefox + VS Code | Installed through Omarchy's own installers (`omarchy install browser firefox`, `omarchy install editor vscode`), set as the default browser and editor once |
+| Firefox + VS Code | Installed through Omarchy's own installers (`omarchy install browser firefox`, `omarchy install editor vscode`), set as the default browser and editor once ([`modules/vscode`](modules/vscode/README.md) for the editor half) |
 | Theme reach | Every `omarchy theme set` also lands in Firefox, which Omarchy's own fan-out misses — a user template Omarchy's own engine renders |
 | Firefox settings | One system policy — Omarchy's own prefs plus hyprconf's — carries the lot: telemetry off, tracking protection on, **uBlock Origin and Proton Pass** force-installed, the toolbar seeded button-for-button, **DuckDuckGo** the default engine, compact density, vertical tabs, a bare Firefox Home, DRM playback on. Policy *defaults*, not user prefs — any profile comes up configured and it all stays yours to change ([details](#firefox-settings)) |
 | YubiKey | `hyprconf-yubikey`: unlock the LUKS root at boot with a FIDO2 key (Omarchy's own `omarchy-setup-security-fido2` covers sudo/polkit) |
@@ -36,7 +36,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 ## Requirements
 
 - A running [Omarchy](https://omarchy.org) install. Verified against Omarchy 4.0.3-1 (Lua config — hyprlang `.conf` is gone); the full pin, Hyprland version included, is in [`AGENTS.md`](AGENTS.md). `install.sh` refuses to run when `/usr/share/omarchy` or `omarchy-pkg-add` is missing.
-- `git`, and a terminal for anything that needs `sudo`: the packages, Firefox and VS Code stages, and the modules that write outside `$HOME` (Modules, below).
+- `git`, and a terminal for anything that needs `sudo`: the packages and Firefox stages, and the modules that install packages or write outside `$HOME` (Modules, below).
 
 ## Install
 
@@ -60,7 +60,7 @@ bash ~/.hyprconf/install.sh
 | *(none)* | Apply every stage once. Idempotent — re-running is how you pick up changes. |
 | `--sync` | `git pull --ff-only` the checkout (after undoing any `omarchy refresh` that landed on it — see Sync), re-apply, then run `omarchy-update` — whose post-update hook re-applies the overlay once more, after Omarchy's migrations. This is what the `hyprsync` alias runs. It applies whatever `stable` now carries with no review step — the two root writes (the Keychron udev rule, the Firefox policy) included, which is the trade-off of a clone-only, https-pinned overlay (AGENTS.md rule 8). |
 | `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook, which already runs inside an update. |
-| `--no-packages` | Skip the stages that need `sudo`: packages, Firefox (and its policy) and VS Code. Exported to the modules as `HYPRCONF_NO_SUDO`, which each one honours itself — they say so in one line and carry on. The hook passes this too. |
+| `--no-packages` | Skip the stages that need `sudo`: packages and Firefox (with its policy). Exported to the modules as `HYPRCONF_NO_SUDO`, which each one honours itself — they say so in one line and carry on. The hook passes this too. |
 | `-h`, `--help` | Usage: both forms and the three variables. On the curl path it answers from the served copy — nothing is cloned. |
 
 ### What each stage does
@@ -69,9 +69,8 @@ bash ~/.hyprconf/install.sh
 |---|---|---|
 | packages | Installs the `packages` list (official repos only) | `omarchy-pkg-add` — idempotent, never bare `pacman -Syu` (Omarchy's ALPM hook blocks it) |
 | firefox | Firefox when absent; `/etc/firefox/policies/policies.json` = Omarchy's `default/firefox/policies.json` merged **under** `infra/firefox/policies.json` (extensions, search engine, privacy and UI settings — [Firefox settings](#firefox-settings)) | `omarchy-install-browser firefox` — Omarchy's own flow: `omarchy-pkg-add firefox`, its prefs to `/usr/lib/firefox/distribution/policies.json`, `MOZ_ENABLE_WAYLAND=1` in `~/.config/environment.d/`. The policy is a `jq` recursive merge (`*`, ours wins on a shared key) written with `sudo install` only when the bytes differ: `/etc/firefox/policies` takes precedence over `distribution/`, so Omarchy's prefs (VA-API, fractional scaling, overscroll) ride along instead of being shadowed. Skipped when there is no terminal for the password prompt. One of the overlay's two writes outside `$HOME` (the other is the `keychron` module's udev rule) |
-| editor | VS Code (`visual-studio-code-bin`, from Omarchy's own `[omarchy]` pacman repository) when absent. Not set-once: any interactive run that finds VS Code absent installs it. Nothing is removed to make room: Arch's `code` (Code - OSS) conflicts with the package, but stock Omarchy never installs it — if you did, the install fails inside Omarchy's installer and the stage warns with the retry command; drop `code` yourself first | `omarchy-install-editor-vscode` — Omarchy's own flow: the package, `~/.vscode/argv.json`, `update.mode none`, `omarchy-theme-set-vscode`, and it **opens VS Code once** when done, by design. Skipped without a terminal; the result is read back with `omarchy-pkg-present` |
 | terminal | kitty becomes the default terminal; `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity, `shell <zsh>`) plus one `include hyprconf.conf` line appended to `kitty.conf`, which is created if you do not have one (from 4.0.3 Omarchy's own defaults live in `/etc/xdg/kitty/kitty.conf`, so the user file is optional) | `omarchy-default-terminal kitty`; Omarchy's defaults live in `/etc/xdg/kitty/kitty.conf` (kitty merges it below the user file), and `~/.config/kitty/kitty.conf` — the theme include, plus whatever `omarchy-font-set` appends — stays authoritative above it. The setter's exit status is its closing notification's, so with no shell (a TTY first run) it warns and the re-run finds kitty already current |
-| defaults | Browser `firefox`, editor `code` — **set once** | `omarchy-default-browser` / `omarchy-default-editor`, then the value read back (their exit status is their closing notification's, which fails on a TTY or SSH run after the default is already written); marker `~/.local/state/hyprconf/defaults-applied` |
+| defaults | Default browser `firefox` — **set once** | `omarchy-default-browser`, then the value read back (its exit status is its closing notification's, which fails on a TTY or SSH run after the default is already written); marker `~/.local/state/hyprconf/browser-applied`, and the pre-split `defaults-applied` counts as applied for one release |
 | hotkeys | `~/.config/hypr/bindings.lua` → `hypr/bindings.lua` | Symlink (whatever was there first — Omarchy's stock file, or a dotfiles link of your own, copied as a link — backed up to `bindings.lua.stock`). The hotkey tools are `bin/` commands (below) |
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups, a link of your own kept as a link) |
 | monitors | Seeds the three presets into `~/.config/hypr/` | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. Omarchy's `monitors.lua` is never touched, a symlinked one included (a stow-style dotfiles link is yours) |
@@ -102,6 +101,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | [`idle`](modules/idle/README.md) | The screensaver starts after **15 min** instead of Omarchy's 150 s (`idle.screensaver` in `~/.config/omarchy/shell.json`; the lock timeout is left alone) — **set once** | `bash ~/.hyprconf/modules/idle/install undo` |
 | [`keychron`](modules/keychron/README.md) | One udev rule at `/etc/udev/rules.d/70-keychron.rules` so the WebHID launcher can reach Keychron (`0x3434`) and Lemokey (`0x362d`) boards and mice. Needs `sudo` and a terminal | `bash ~/.hyprconf/modules/keychron/install undo` |
 | [`themes`](modules/themes/README.md) | The `dracula` user theme, symlinked into Omarchy's theme menu and **never activated**, plus extra wallpapers filed under the Omarchy theme each belongs to | `bash ~/.hyprconf/modules/themes/install undo` |
+| [`vscode`](modules/vscode/README.md) | VS Code through Omarchy's own installer when it is absent, and `code` as the default editor — **set once**, and only once the package is really there. Installing needs `sudo` and a terminal | `bash ~/.hyprconf/modules/vscode/install undo` — the editor goes back to `nvim`; VS Code stays installed |
 
 ### What it deliberately leaves alone
 
@@ -252,7 +252,7 @@ From `packages`, installed via `omarchy-pkg-add` — **official repositories onl
 | `kitty` | Default terminal |
 | `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting` | Shell inside kitty |
 
-Firefox (`SUPER+F`) and VS Code (`SUPER+C`) are not in `packages`: they come through Omarchy's own installers (the `firefox` and `editor` stages), which set up what a bare package would not. `visual-studio-code-bin` is from Omarchy's own `[omarchy]` pacman repository (`pacman -Si`: *Repository: omarchy*; it provides `code` and conflicts with Arch's `code`) — the one package the overlay takes from outside Arch's official repositories, and only through `omarchy-install-editor-vscode`; no AUR helper is ever called. `hyprconf-yubikey enroll` adds `libfido2` on demand, through `omarchy-pkg-add`.
+Firefox (`SUPER+F`) and VS Code (`SUPER+C`) are not in `packages`: they come through Omarchy's own installers (the `firefox` stage and [`modules/vscode`](modules/vscode/README.md)), which set up what a bare package would not. `visual-studio-code-bin` is from Omarchy's own `[omarchy]` pacman repository (`pacman -Si`: *Repository: omarchy*; it provides `code` and conflicts with Arch's `code`) — the one package the overlay takes from outside Arch's official repositories, and only through `omarchy-install-editor-vscode`; no AUR helper is ever called. `hyprconf-yubikey enroll` adds `libfido2` on demand, through `omarchy-pkg-add`.
 
 ## zsh
 
@@ -284,7 +284,7 @@ Undo: `sudo rm /etc/firefox/policies/policies.json`, then restart Firefox — se
 
 ## Theme → Firefox
 
-Omarchy's `omarchy theme set` fans the theme out to kitty, btop, VS Code (`omarchy-theme-set-vscode`, one of its own post-theme commands — one reason the editor comes through Omarchy's installer) and Chromium-family browsers, but not to Firefox (`omarchy-theme-set-browser` writes a Chromium policy colour). The overlay closes that gap with Omarchy's own template engine and one hook:
+Omarchy's `omarchy theme set` fans the theme out to kitty, btop, VS Code (`omarchy-theme-set-vscode`, one of its own post-theme commands — one reason `modules/vscode` uses Omarchy's installer) and Chromium-family browsers, but not to Firefox (`omarchy-theme-set-browser` writes a Chromium policy colour). The overlay closes that gap with Omarchy's own template engine and one hook:
 
 | Piece | What |
 |---|---|

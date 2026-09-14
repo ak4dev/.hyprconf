@@ -18,10 +18,11 @@
 # changes the login shell, and everything Omarchy owns is either left alone or
 # extended through a documented seam (a user theme, a plugin, a hook, a kitty
 # `include`). The privileged steps are installing packages (through Omarchy's
-# own `omarchy-pkg-add`), Firefox and VS Code (through Omarchy's own
-# installers) and the system Firefox policy — the overlay's write outside
-# $HOME — and --no-packages skips them all, so the post-update hook never
-# needs sudo. It also exports HYPRCONF_NO_SUDO, which every module reads.
+# own `omarchy-pkg-add`), Firefox (through Omarchy's own installer) and the
+# system Firefox policy — the overlay's write outside $HOME — and
+# --no-packages skips them all, so the post-update hook never needs sudo. It
+# also exports HYPRCONF_NO_SUDO, which every module reads: modules/vscode and
+# modules/font install their own packages behind it.
 set -euo pipefail
 
 # The checkout: the installer lives at the repository root. ${BASH_SOURCE[0]}
@@ -98,9 +99,9 @@ Options:
                   migrations). This is what the `hyprsync` alias runs.
   --no-update     Apply only; never invoke omarchy-update. Used by the
                   post-update hook, which already runs inside an update.
-  --no-packages   Skip everything that needs sudo: packages, Firefox (and its
-                  policy) and VS Code. Exported to the modules as
-                  HYPRCONF_NO_SUDO, which each one honours itself.
+  --no-packages   Skip everything that needs sudo: packages and Firefox (with
+                  its policy). Exported to the modules as HYPRCONF_NO_SUDO,
+                  which each one honours itself.
   -h, --help      Show this help.
 
 With no options: apply every stage once, without pulling or updating.
@@ -543,46 +544,6 @@ stage_firefox() {
     rm -f "$merged"
 }
 
-# VS Code through Omarchy's own installer. omarchy-install-editor-vscode
-# (Omarchy 4.0.0-1) is omarchy-pkg-add visual-studio-code-bin — from
-# Omarchy's own [omarchy] pacman repository, never the AUR — then
-# ~/.vscode/argv.json (gnome-libsecret), update.mode none in
-# ~/.config/Code/User/settings.json, omarchy-theme-set-vscode, and one
-# `setsid uwsm-app -- gtk-launch code`: it opens VS Code once when it is
-# done, by design, and exits 0 whatever happened (no set -e; the launch is
-# backgrounded), so the result is read back with omarchy-pkg-present. Behind
-# the --no-packages gate with the other sudo work; bows out without a
-# terminal. Not set-once: like every package, VS Code is ensured present, so
-# a later interactive run that finds it gone installs it again.
-#
-# Nothing is removed first. Arch's `code` (Code - OSS) conflicts with the
-# package (pacman -Si visual-studio-code-bin: Conflicts With: code), but a
-# stock Omarchy never installs it — nothing in install/*.packages, bin/ or
-# migrations/ adds it (4.0.2-1) — so on a box that has it the user put it
-# there: theirs to drop, never this overlay's. The conflict then fails inside
-# Omarchy's installer — omarchy-pkg-add is `sudo pacman -S --noconfirm
-# --needed` (bin/omarchy-pkg-add:12), which pacman refuses, and
-# omarchy-install-editor-vscode carries on and exits 0 (no set -e) — and the
-# read-back below warns with the retry command.
-stage_editor() {
-    log "VS Code: Omarchy's installer"
-    if omarchy-pkg-present visual-studio-code-bin; then
-        info "already installed"
-        return 0
-    fi
-    if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
-        warn "no terminal for sudo — run \`bash install.sh\` from a terminal to install VS Code"
-        return 0
-    fi
-    info "installing through omarchy-install-editor-vscode — Omarchy's own flow, which opens VS Code once when it is done"
-    omarchy-install-editor-vscode || true
-    if omarchy-pkg-present visual-studio-code-bin; then
-        info "installed"
-    else
-        warn "visual-studio-code-bin did not install — retry with: omarchy install editor vscode"
-    fi
-}
-
 stage_terminal() {
     log "Terminal: kitty"
     # Assert kitty is present BEFORE touching the default: omarchy-default-
@@ -599,8 +560,8 @@ stage_terminal() {
     # --no-packages after every omarchy-update. A `die` here would take the
     # hotkeys, the plugins, the hooks and the theme stages down with it on
     # every update of a box that has no kitty — silently, forever. Every other
-    # non-package stage (font, idle, defaults, editor) warns and returns for
-    # the same reason.
+    # non-package stage warns and returns for the same reason, and every
+    # module exits 0 rather than failing the run.
     # Omarchy's own probe, not a hand-rolled `command -v`: omarchy-cmd-present
     # is `command -v` per argument (/usr/bin/omarchy-cmd-present, 4.0.3-1,
     # unchanged from 4.0.2), the command omarchy-font-set:33 asks the same
@@ -669,52 +630,43 @@ stage_kitty_include() {
         printf '\n# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
 }
 
-# hyprconf's app picks, expressed as Omarchy defaults rather than hard-coded in
-# the keymap. SUPER+F/C/T/E call omarchy-launch-browser / -editor / -terminal /
-# -nautilus, which resolve these — so `omarchy default browser zen` moves the
-# key with it, and the choice lives where Omarchy's own menu can edit it.
+# The default BROWSER. The editor half of this stage is modules/vscode's now,
+# and this half is modules/firefox's as soon as that module lands — the marker
+# name is already the module's (browser-applied), and the pre-split
+# defaults-applied counts as applied for one release so a machine that ran an
+# earlier install.sh is not re-asserted.
 #
-# Set ONCE, for the same reason as the font: the post-update hook re-runs this
-# installer after every Omarchy update, and re-asserting a default would
-# silently undo a later choice. Failures warn rather than abort — a default app
-# is not worth taking an install down over, and the browser setter needs a live
-# session for xdg-settings.
+# SUPER+F calls omarchy-launch-browser, which resolves this default — so
+# `omarchy default browser zen` moves the key with it, and the choice lives
+# where Omarchy's own menu can edit it.
 #
-# The outcome is READ BACK, never taken from the setters' exit status: that
-# status is their closing omarchy-notification-send's (no set -e in
-# /usr/bin/omarchy-default-editor:33-36 or -browser:35-37, 4.0.3-1), which
-# fails with no shell to notify — a TTY or SSH first run — long after the
-# value is on disk. Trusting it left the marker unwritten on exactly the runs
-# that had seeded both, and the next run then re-asserted `code` over an
-# `omarchy default editor helix` chosen in between. stage_terminal reads its
-# own setter back for the same reason.
+# Set ONCE: the post-update hook re-runs this installer after every Omarchy
+# update, and re-asserting a default would silently undo a later choice. A
+# failure warns rather than aborts — a default app is not worth taking an
+# install down over, and the setter needs a live session for xdg-settings.
+#
+# The outcome is READ BACK, never taken from the setter's exit status: that
+# status is its closing omarchy-notification-send's (no set -e in
+# /usr/bin/omarchy-default-browser:35-37, 4.0.3-1), which fails with no shell
+# to notify — a TTY or SSH first run — long after the value is on disk.
+# Trusting it left the marker unwritten on exactly the runs that had seeded
+# it. stage_terminal reads its own setter back for the same reason.
 stage_defaults() {
-    log "Default apps"
-    local marker="$HOME/.local/state/hyprconf/defaults-applied"
-    if [[ -e $marker ]]; then
-        info "already applied once — the defaults are yours now"
+    log "Default browser"
+    local state="$HOME/.local/state/hyprconf"
+    local marker="$state/browser-applied"
+    if [[ -e $marker || -e $state/defaults-applied ]]; then
+        info "already applied once — the default browser is yours now"
         return 0
     fi
 
-    local seeded=1
     omarchy-default-browser firefox || true
-    if [[ "$(omarchy-default-browser 2>/dev/null || true)" != firefox ]]; then
-        seeded=0
-        warn "could not set firefox as the default browser (set it with: omarchy default browser firefox)"
-    fi
-    omarchy-default-editor code || true
-    if [[ "$(omarchy-default-editor 2>/dev/null || true)" != code ]]; then
-        seeded=0
-        warn "could not set code as the default editor (set it with: omarchy default editor code)"
-    fi
-    # No marker on a failed seed — a first run with --no-packages (firefox
-    # and code not installed yet) must not record the defaults as applied.
-    if (( seeded )); then
-        mkdir -p "$(dirname "$marker")"
+    if [[ "$(omarchy-default-browser 2>/dev/null || true)" == firefox ]]; then
+        mkdir -p "$state"
         : > "$marker"
-        info "browser=firefox editor=code (change with: omarchy default browser|editor <name>)"
+        info "browser=firefox (change with: omarchy default browser <name>)"
     else
-        warn "defaults not seeded — will retry on the next run"
+        warn "could not set firefox as the default browser — will retry on the next run (omarchy default browser firefox)"
     fi
 }
 
@@ -1295,9 +1247,9 @@ main() {
     [[ -d $HERE/hypr && -f $HERE/packages ]] || bootstrap "${orig_args[@]}"
     preflight
     if (( do_pull )); then stage_pull; fi
-    # Everything install.sh itself needs sudo for: packages, Firefox (+ the
-    # policy), VS Code. Modules gate their own sudo work on HYPRCONF_NO_SUDO.
-    if (( do_packages )); then stage_packages; stage_firefox; stage_editor; fi
+    # Everything install.sh itself needs sudo for: packages and Firefox (+
+    # the policy). Modules gate their own sudo work on HYPRCONF_NO_SUDO.
+    if (( do_packages )); then stage_packages; stage_firefox; fi
     # After the package stage, never before it — see resolve_zsh.
     resolve_zsh
     stage_terminal
@@ -1308,6 +1260,7 @@ main() {
     bash "$HERE/modules/idle/install"
     bash "$HERE/modules/keychron/install"
     bash "$HERE/modules/themes/install"
+    bash "$HERE/modules/vscode/install"
     stage_defaults
     stage_hotkeys
     stage_looknfeel

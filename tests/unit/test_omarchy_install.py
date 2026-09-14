@@ -939,14 +939,15 @@ def test_presets_are_seeded_once_and_never_overwritten(tmp_path: Path) -> None:
     assert preset.read_text() == "-- my desk, my monitors\n"
 
 
-def test_default_apps_are_seeded_once_and_the_marker_waits_for_the_seed(
+def test_the_default_browser_is_seeded_once_and_the_marker_waits_for_the_seed(
     tmp_path: Path,
 ) -> None:
-    """Seeded to hyprconf's picks on first install, then the user's — but only
+    """Seeded to hyprconf's pick on first install, then the user's — but only
     once the seed took, which is the value READ BACK, not the setter's exit
-    status. The set-once half is the settled-re-run gate's."""
+    status. The editor half of this stage is modules/vscode's now; the marker
+    is already the name modules/firefox will use."""
     env = _setup(tmp_path)
-    marker = env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied"
+    marker = env["home"] / ".local" / "state" / "hyprconf" / "browser-applied"
     # The setter that records the call and leaves the default where it was.
     _stub(
         env["bins"] / "omarchy-default-browser",
@@ -965,10 +966,23 @@ def test_default_apps_are_seeded_once_and_the_marker_waits_for_the_seed(
     )
     env["calls"].write_text("")
     _run(env, "--no-update")
-    calls = _calls(env)
-    assert any(c.startswith("omarchy-default-browser firefox") for c in calls)
-    assert any(c.startswith("omarchy-default-editor code") for c in calls)
+    assert any(c.startswith("omarchy-default-browser firefox") for c in _calls(env))
     assert marker.exists()
+
+
+def test_the_pre_split_defaults_marker_still_counts_as_applied(tmp_path: Path) -> None:
+    """A machine that ran an install.sh from before the module split carries
+    ~/.local/state/hyprconf/defaults-applied. The browser must not be
+    re-asserted over a pick made since, and the file is left in place —
+    modules/vscode honours it too, for one release."""
+    env = _setup(tmp_path)
+    state = env["home"] / ".local" / "state" / "hyprconf"
+    state.mkdir(parents=True)
+    (state / "defaults-applied").touch()
+    proc = _run(env, "--no-update")
+    assert proc.returncode == 0, proc.stderr
+    assert not any(c.startswith("omarchy-default-browser firefox") for c in _calls(env))
+    assert (state / "defaults-applied").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1461,8 +1475,8 @@ def test_firefox_policy_is_omarchys_merged_under_ours_via_sudo_when_interactive(
 def test_every_sudo_stage_bows_out_without_a_terminal(tmp_path: Path) -> None:
     """The post-update hook runs non-interactively inside omarchy-update, where a
     sudo password prompt would stall the whole update. One gate, the same line
-    in stage_firefox and stage_editor: no tty, no attempt. The modules carry
-    their own (modules/keychron/test_keychron.py)."""
+    in stage_packages and stage_firefox: no tty, no attempt. The modules carry
+    their own (modules/keychron/test_keychron.py, modules/vscode)."""
     env = _setup(tmp_path)
     _real_jq(env)  # else stage_firefox bows out on the merge, before its gate
     _packages(env, ())
@@ -1518,14 +1532,15 @@ def test_a_failed_firefox_install_leaves_no_policy_behind(tmp_path: Path) -> Non
 
 
 # ---------------------------------------------------------------------------
-# VS Code — Omarchy's own installer, nothing removed ahead of it
+# Package presence — the helper the Firefox and sudo-gate tests share
 # ---------------------------------------------------------------------------
 
 
 def _packages(env: dict, present: tuple[str, ...]) -> None:
     """omarchy-pkg-present answering for exactly these package names. The
     VS Code installer stub then makes visual-studio-code-bin present, the way
-    the real one does (omarchy-pkg-add inside)."""
+    the real one does (omarchy-pkg-add inside) — modules/vscode runs inside a
+    full install.sh run and reads the result back."""
     marker = env["home"].parent / "vscode-installed"
     names = " ".join(present)
     _stub(
@@ -1535,38 +1550,6 @@ def _packages(env: dict, present: tuple[str, ...]) -> None:
         f'[ "$1" = visual-studio-code-bin ] && [ -e "{marker}" ]',
     )
     _stub(env["bins"] / "omarchy-install-editor-vscode", env["calls"], f'touch "{marker}"')
-
-
-def test_vscode_is_installed_through_omarchys_installer_when_absent(tmp_path: Path) -> None:
-    """omarchy-install-editor-vscode, then the result read back with
-    omarchy-pkg-present — the installer exits 0 whatever happened. Nothing
-    runs pacman itself and no package is removed to make room; a conflict
-    fails inside Omarchy's installer and the read-back warns with the retry."""
-    env = _setup(tmp_path)
-    _packages(env, ("firefox", "code"))
-    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-install-editor-vscode " in calls
-    assert "pacman" not in _commands(env)
-    assert not any(c.startswith("omarchy-pkg-drop") for c in calls)
-    pkg_add = [c for c in calls if c.startswith("omarchy-pkg-add")]
-    assert pkg_add and not any("code" in c.split() for c in pkg_add)
-
-    env["calls"].write_text("")  # installed now: nothing more to do
-    _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
-    assert "omarchy-install-editor-vscode" not in _commands(env)
-
-    # The installer that did not deliver (a conflict, say): the stage warns
-    # with Omarchy's retry command and the run goes on.
-    env["calls"].write_text("")
-    (env["home"].parent / "vscode-installed").unlink()
-    _stub(env["bins"] / "omarchy-install-editor-vscode", env["calls"], "exit 0")
-    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ASSUME_TTY": "1"})
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-install-editor-vscode" in _commands(env)
-    assert "retry with: omarchy install editor vscode" in proc.stderr
-    assert (env["home"] / ".zshrc").exists()  # a stage well after the editor one
 
 
 # omarchy-plugin-enable and omarchy-bar mutate the config the shell holds in
@@ -1633,33 +1616,28 @@ def test_shell_json_edits_wait_for_the_shells_asynchronous_writes(tmp_path: Path
     assert "omarchy.clock" not in [e["id"] for e in data["bar"]["layout"]["center"]]
 
 
-def test_defaults_marker_survives_the_setters_failing_notification(tmp_path: Path) -> None:
-    """Both setters write the value and THEN notify, and their exit status is the
+def test_browser_marker_survives_the_setters_failing_notification(tmp_path: Path) -> None:
+    """The setter writes the value and THEN notifies, and its exit status is the
     notification's (no set -e, 4.0.3-1) — so trusting it left the marker
     unwritten on exactly the runs that had succeeded, and the next in-session
-    run re-asserted `code` over an editor chosen in between."""
+    run re-asserted firefox over a browser chosen in between."""
     env = _setup(tmp_path)
-    for name, key, unset in (
-        ("omarchy-default-browser", "browser", "chromium"),
-        ("omarchy-default-editor", "editor", "nvim"),
-    ):
-        _stub(
-            env["bins"] / name,
-            env["calls"],
-            _default_app_stub(tmp_path, key, unset, set_status=1),
-        )
+    _stub(
+        env["bins"] / "omarchy-default-browser",
+        env["calls"],
+        _default_app_stub(tmp_path, "browser", "chromium", set_status=1),
+    )
     proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     assert "default browser" not in proc.stderr
-    assert "default editor" not in proc.stderr
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "defaults-applied").exists()
+    assert (env["home"] / ".local" / "state" / "hyprconf" / "browser-applied").exists()
 
     # The user's later pick, which the re-run must not take back.
-    (tmp_path / "editor").write_text("helix")
+    (tmp_path / "browser").write_text("zen")
     env["calls"].write_text("")
     _run(env, "--no-update")
-    assert not any(c.startswith("omarchy-default-editor ") for c in _calls(env))
-    assert (tmp_path / "editor").read_text() == "helix"
+    assert not any(c.startswith("omarchy-default-browser ") for c in _calls(env))
+    assert (tmp_path / "browser").read_text() == "zen"
 
 
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:

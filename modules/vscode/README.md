@@ -6,8 +6,9 @@
   `update.mode none`, `omarchy-theme-set-vscode` — and it **opens VS Code once** when done, by design.
   Not set-once: a later run that finds the package gone installs it again.
 - Sets **`code` as the default editor**, once: `omarchy-launch-editor` (so `SUPER+C`) resolves it, and
-  `omarchy default editor helix` moves the key with it. Seeded only once the package is present, so a
-  `--no-packages` run never points the editor at a VS Code that is not installed.
+  `omarchy default editor helix` moves the key with it. Seeded only once the package is really there —
+  set-once means a choice recorded for an absent VS Code would never be retried. (`SUPER+C` is safe
+  either way: `omarchy-launch-editor:21` falls back to `nvim` for an editor that is not on PATH.)
 - Removes nothing. Arch's `code` (Code - OSS) conflicts with the package and stock Omarchy never
   installs it — if you did, the install fails inside Omarchy's installer and this module prints the
   retry command; drop `code` yourself first.

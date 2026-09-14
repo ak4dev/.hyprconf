@@ -9,7 +9,7 @@ publish flow and the website upload.
 ```
 .hyprconf/
 ├── install.sh                  # The overlay installer — idempotent stages, the only entry point; served by hyprconf.sh, clones itself on the curl path
-├── packages                    # Official-repo packages, installed via omarchy-pkg-add (Firefox and VS Code go through Omarchy's installers instead)
+├── packages                    # Official-repo packages, installed via omarchy-pkg-add (Firefox goes through Omarchy's installer instead; a module with packages of its own ships them beside its `install`)
 │
 ├── hypr/
 │   ├── README.md               # The Omarchy/Hyprland facts these files rely on (binds, desc: presets, hyprctl on 0.56)
@@ -44,7 +44,7 @@ publish flow and the website upload.
 ├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
 │
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, font, idle, keychron, themes
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, font, idle, keychron, themes, vscode
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names

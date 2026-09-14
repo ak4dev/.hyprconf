@@ -121,9 +121,28 @@ def test_the_install_half_bows_out_behind_both_gates(box, gate: str) -> None:
     assert "VS Code" in proc.stdout
 
 
+def test_the_seed_is_on_the_always_run_path(box) -> None:
+    """The seed sits outside both sudo gates and outside the already-installed
+    early return, so the post-update hook's --no-packages run — the one every
+    box gets after every omarchy-update — still seeds it once VS Code is
+    there. This is the placement install-core.3#2's verifier note demanded."""
+    machine(box, present=True)
+    proc = box.run(MODULE, tty=False, env={"HYPRCONF_NO_SUDO": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert "omarchy-install-editor-vscode" not in box.commands
+    assert default_editor(box) == "code"
+    assert marker(box).exists()
+
+    box.reset()
+    proc = box.run(MODULE, tty=False, env={"HYPRCONF_NO_SUDO": "1"})
+    assert proc.returncode == 0, proc.stderr
+    assert not any(c[1:] for c in box.calls_of("omarchy-default-editor"))
+    assert proc.stdout == ""
+
+
 def test_the_editor_default_is_not_seeded_while_vscode_is_absent(box) -> None:
-    """A --no-packages first run must never point the editor at a VS Code that
-    is not installed; the next run with a terminal seeds it."""
+    """The seed is set-once, so a marker written for a VS Code that is not
+    installed would never be retried; the next run with a terminal seeds it."""
     machine(box, present=False)
     assert box.run(MODULE, tty=True, env={"HYPRCONF_NO_SUDO": "1"}).returncode == 0
     assert not any(c[1:] for c in box.calls_of("omarchy-default-editor"))
