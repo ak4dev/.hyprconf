@@ -156,7 +156,6 @@ OMARCHY_STUBS = (
     "omarchy-font-set",
     "omarchy-shell",
     "omarchy-plugin-enable",
-    "omarchy-restart-shell",
     "omarchy-bar",
     "omarchy-update",
     # Firefox and VS Code go in through Omarchy's own installers.
@@ -1374,13 +1373,6 @@ def _packages(env: dict, present: tuple[str, ...]) -> None:
     _stub(env["bins"] / "omarchy-install-editor-vscode", env["calls"], f'touch "{marker}"')
 
 
-# omarchy-plugin-enable and omarchy-bar mutate the config the shell holds in
-# memory and persist it to shell.json LATER — shell.qml writes through a
-# FileView (PluginRegistry.qml, Omarchy 4.0.3-1). The enable's swap is
-# modelled synchronously, so wait_for_swap has a cause to return on; the
-# `omarchy bar set` that follows snapshots the file AT CALL TIME and writes
-# the snapshot back after a delay, which is the stale-read hazard itself:
-# anything the installer writes to shell.json before that lands is lost.
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
     """Every bin/hyprconf-* file, installed by glob with @HYPRCONF_DIR@
     substituted for the checkout path — byte for byte, and executable."""

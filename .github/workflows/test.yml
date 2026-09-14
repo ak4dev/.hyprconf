@@ -33,7 +33,8 @@ jobs:
       # in /usr/lib/qt6/bin, where the test looks.
       # zsh: modules/shell-zsh/test_shell_zsh.py parses the two shipped zsh
       # files with `zsh -n`, and would otherwise skip — the only skips CI may
-      # show are the nine that need the installed Omarchy (AGENTS › Gates and CI).
+      # show are the seven that need the installed Omarchy (AGENTS › Gates and
+      # CI).
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm --needed git make ruff python \
