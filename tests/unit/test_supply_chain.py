@@ -101,12 +101,25 @@ def test_claude_settings_guardrails_keep_their_entries() -> None:
     } <= ask
 
 
-def test_omz_updater_is_disabled_beside_the_pin() -> None:
-    """stage_shell pins Oh My Zsh to a reviewed commit, but the updater
-    shipping INSIDE it would re-open the auto-update channel with one
-    keypress — the zstyle disable must precede the source line."""
-    block = (REPO_ROOT / "zsh" / "zshrc.block").read_text(encoding="utf-8")
-    disable = block.find("zstyle ':omz:update' mode disabled")
-    source = block.find("oh-my-zsh.sh")
-    assert disable != -1, "the omz updater disable is gone"
-    assert source != -1 and disable < source, "the disable must come before the source"
+def test_every_module_clone_is_pinned_to_a_reviewed_commit() -> None:
+    """Third-party code a module clones runs on the user's box — powerlevel10k
+    in every interactive zsh — so it stays at a commit somebody read: every
+    `git clone` a module makes names a `--revision=$<name>pin` variable, and no
+    module pulls. Bumping a pin is a deliberate commit through the publish
+    gates (AGENTS rule 8), never an auto-update."""
+    for install in sorted((REPO_ROOT / "modules").glob("*/install")):
+        # Code only: a module's own prose says what `git pull` would do to a
+        # symlinked plugin folder, and a comment is not a call.
+        text = "\n".join(
+            ln
+            for ln in install.read_text(encoding="utf-8").splitlines()
+            if not ln.lstrip().startswith("#")
+        )
+        for clone in re.findall(r"git clone[^\n]*", text):
+            assert re.search(r'--revision="?\$[a-z0-9_]*pin', clone), (
+                f"{install.parent.name}: {clone}"
+            )
+        assert "git pull" not in text, install.parent.name
+    shell = (REPO_ROOT / "modules" / "shell-zsh" / "install").read_text(encoding="utf-8")
+    assert re.search(r"^p10k_url=https://", shell, re.M)
+    assert re.search(r"^p10k_pin=[0-9a-f]{40}$", shell, re.M)

@@ -183,6 +183,53 @@ def test_an_existing_source_line_keeps_its_place_in_the_file(box) -> None:
     assert zshrc_lines(box) == ["# above", SOURCE_LINE, "# below"]
 
 
+def test_a_hand_duplicated_source_line_is_collapsed_to_one(box) -> None:
+    """ "Exactly one source line, never two" holds over a file that already
+    carries two identical copies — sourcing `zshrc` twice would run every
+    `compinit`, plugin and greeting in it twice."""
+    (box.home / ".zshrc").write_text(f"# above\n{SOURCE_LINE}\n# middle\n{SOURCE_LINE}\n")
+
+    apply(box)
+
+    assert zshrc_lines(box) == ["# above", SOURCE_LINE, "# middle"]
+
+
+def test_blank_lines_in_the_users_zshrc_survive_the_drop(box) -> None:
+    """The dedupe rule compares against an empty `want` in undo's drop mode —
+    the guard that keeps it from eating every blank line the user wrote."""
+    (box.home / ".zshrc").write_text(f"# above\n\n\n{SOURCE_LINE}\n\n# below\n")
+    apply(box)
+
+    assert box.undo("shell-zsh").returncode == 0
+    assert zshrc_lines(box) == ["# above", "", "", "", "# below"]
+
+
+def test_a_dotfiles_link_at_p10k_zsh_is_backed_up_as_a_link_once(box, tmp_path) -> None:
+    """A stow-style link there is somebody's own arrangement: `cp -P` keeps it
+    a link, so the README's restore hands it back pointing where it pointed —
+    and the FIRST backup is the one that matters, so a user who re-creates
+    their link and re-runs does not lose it."""
+    theirs = tmp_path / "dotfiles" / "p10k.zsh"
+    theirs.parent.mkdir()
+    theirs.write_text("# their own prompt\n")
+    (box.home / ".p10k.zsh").symlink_to(theirs)
+
+    apply(box)
+    backup = box.home / ".p10k.zsh.stock"
+    assert backup.is_symlink() and backup.readlink() == theirs
+    assert (box.home / ".p10k.zsh").readlink() == MODULE / ".p10k.zsh"
+
+    # They put their link back, then re-run: the first backup stays theirs.
+    (box.home / ".p10k.zsh").unlink()
+    (box.home / ".p10k.zsh").symlink_to(theirs)
+    apply(box)
+    assert backup.is_symlink() and backup.readlink() == theirs
+
+    # And the restore line puts it back, still a link to their file.
+    assert box.undo("shell-zsh").returncode == 0
+    assert (box.home / ".p10k.zsh").readlink() == theirs
+
+
 def test_missing_packages_are_installed_from_a_terminal(box) -> None:
     box.stub("omarchy-pkg-present", PLUGINS_MISSING)
 

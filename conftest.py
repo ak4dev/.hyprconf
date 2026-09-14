@@ -80,7 +80,7 @@ EXTRA_FAKES = (
 OMARCHY_TREE = {
     # default/bash/env-bootstrap:10-16,37-41 — OMARCHY_PATH exported, and
     # ~/.local/bin appended to PATH; envs and aliases are the other two
-    # files zsh/zshrc.block sources.
+    # files modules/shell-zsh/zshrc sources.
     "default/bash/env-bootstrap": ': "${OMARCHY_PATH:=/usr/share/omarchy}"\nexport OMARCHY_PATH\n',
     "default/bash/envs": 'export EDITOR="${EDITOR:-omarchy-launch-editor --inline}"\n',
     "default/bash/aliases": "alias ff=fastfetch\n",

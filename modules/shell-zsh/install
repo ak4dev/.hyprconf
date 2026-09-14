@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # hyprconf/shell-zsh — zsh + powerlevel10k inside the terminal. The LOGIN shell
-# stays bash and is never touched (no chsh): Omarchy is bash-only — its rc
-# chain, uwsm session, SSH and scripts all read bash, and on 4.0.3-1 the whole
-# tree mentions zsh twice, inertly (`grep -RIl zsh /usr/share/omarchy`: a
-# commented-out menu entry, config/omarchy/extensions/omarchy-menu.jsonc:29,
-# and a comment in migrations/1786952219.sh:8 — nothing in default/, install/
-# or any omarchy-* command) — so zsh is the terminal's shell and nothing else's.
+# stays bash and is never touched (no chsh); the evidence for that, and why
+# Omarchy's own omarchy-zsh package is not adopted, is in README.md beside
+# this file — the one place in the tree either is written down.
 #
 # No framework: `zshrc` is the whole interactive shell, and the prompt is ONE
 # pinned clone of powerlevel10k in ~/.local/share (AUR-only as a package —
@@ -13,8 +10,9 @@
 # omarchy-pkg-add cannot supply it; the pin below is what makes that safe).
 #
 # ~/.zshrc gets ONE grep-guarded source line, the idiom Omarchy's own
-# /etc/skel/.bashrc:9 uses (`source "$OMARCHY_PATH/default/bash/rc"`), so the
-# user's file is never rewritten — and the pre-module managed block is cut once.
+# /etc/skel/.bashrc:2 uses (`[[ -r … ]] && source …`; :9 is the same source
+# unguarded), so the user's file is never rewritten — and the pre-module
+# managed block is cut once.
 # kitty runs zsh through this module's own include, beside Omarchy's theme
 # include: the user file is optional from 4.0.3 (defaults are in
 # /etc/xdg/kitty/kitty.conf, merged below it), so an absent one is seeded from
@@ -74,12 +72,16 @@ rewrite_zshrc() {
     # already in the file from matching — it would be dropped and re-appended at
     # the end on every run. `mark` is this module's own path-free substring, so
     # -v is safe for it. An empty first file (the drop mode) leaves `want` empty,
-    # which no line carrying `mark` can equal.
+    # which no line carrying `mark` can equal — and the `want != ""` guard on
+    # the dedupe rule below keeps that empty value from matching the user's own
+    # blank lines. The dedupe is what makes "exactly one source line" true even
+    # of a file that already carried two identical copies of it.
     if [[ $mode == keep ]]; then printf '%s\n' "$line" > "$keep"; fi
     awk -v b="$b" -v e="$e" -v mark="$mark" '
         FILENAME == ARGV[1] { want = $0; next }
         b && FNR >= b && FNR <= e { next }
         $0 != want && index($0, mark) { next }
+        want != "" && $0 == want { if (seen) next; seen = 1 }
         { print }
     ' "$keep" "$zshrc" > "$tmp"
     if [[ $mode == keep ]] && ! grep -qxF -- "$line" "$tmp"; then
@@ -130,9 +132,10 @@ clone_p10k() {
 if [[ ${1:-} == undo ]]; then
     rewrite_zshrc drop
     # Stock Omarchy has no ~/.zshrc at all (/etc/skel ships .bashrc,
-    # .bash_profile and .bash_logout, no zsh file), so one this module created
-    # and has now emptied goes too — never a symlink of the user's, and never a
-    # file with anything left in it.
+    # .bash_profile and .bash_logout, no zsh file), so one the line above has
+    # left empty goes too — never a symlink of the user's, and never a file
+    # with anything left in it. An empty ~/.zshrc of the user's own is
+    # indistinguishable from one this module made, and holds as little.
     if [[ -f $zshrc && ! -L $zshrc && ! -s $zshrc ]]; then rm -f "$zshrc"; fi
     # One line and nothing else went in, so taking it out puts the file back byte
     # for byte. --follow-symlinks and in place, the way Omarchy edits this same
@@ -217,8 +220,11 @@ if [[ -f $kitty/kitty.conf ]] || omarchy-cmd-present kitty; then
     fi
     # grep answers non-zero for a missing file too — the branch that creates it.
     if ! grep -qxF 'include hyprconf-zsh.conf' "$kitty/kitty.conf" 2>/dev/null; then
-        # One line, no blank separator, so `undo` puts the file back byte for
-        # byte. A file not ending in a newline gets one first.
+        # One line, no blank separator, so `undo` puts the file back as it
+        # was. One exception: a file NOT ending in a newline gets one here,
+        # and undo cannot tell that byte from the user's own, so such a file
+        # comes back a newline longer. Omarchy's own stub ends in a newline
+        # (config/kitty/kitty.conf), so a stock box never reaches it.
         if [[ -s $kitty/kitty.conf && -n $(tail -c1 "$kitty/kitty.conf") ]]; then
             printf '\n' >> "$kitty/kitty.conf"
         fi

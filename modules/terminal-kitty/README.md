@@ -10,8 +10,8 @@
   hyprconf.conf` line at the END of `~/.config/kitty/kitty.conf` — created from Omarchy's own
   stub when you have none, since from 4.0.3 the user file is optional and the defaults live in
   `/etc/xdg/kitty/kitty.conf`, merged *below* it. The include restates nothing Omarchy sets.
-- Left alone: the body of `kitty.conf`, the login shell (no `chsh`), everything outside `$HOME` but
-  the package. `omarchy refresh config kitty/kitty.conf` drops the include; the next run restores it.
+- Left alone: the body of `kitty.conf`, the login shell (never `chsh` — why, in
+  [`shell-zsh`](../shell-zsh/README.md)), everything outside `$HOME` but the package. `omarchy refresh config kitty/kitty.conf` drops the include; the next run restores it.
   `shell zsh` is **not** here — `shell-zsh` ships its own kitty include (`hyprconf-zsh.conf`), so
   kitty runs zsh once both are installed, in either order.
 

@@ -189,7 +189,7 @@ jq --arg id "$2" --arg k "$3" --arg v "$4" '
 """
 
 
-def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
+def _setup(tmp_path: Path) -> dict:
     """Build a throwaway HOME + fake-bins tree resembling a fresh Omarchy box."""
     home = tmp_path / "home"
     bins = tmp_path / "bins"
@@ -202,8 +202,6 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     for name in OMARCHY_STUBS:
         _stub(bins / name, calls)
     _stub(bins / "omarchy-pkg-add", calls)
-    if with_zsh:
-        _stub(bins / "zsh", calls)
     # No shell answering the plugin list is what a TTY or SSH run really finds
     # (omarchy-plugin-list is `set -e` over an IPC call that exits 1 the moment
     # omarchy-shell reports "is not running"), so a discovery wait has nothing
@@ -263,6 +261,14 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     (omarchy_path / "config" / "omarchy").mkdir(parents=True)
     (omarchy_path / "config" / "omarchy" / "shell.json").write_text(
         json.dumps({"version": 1, "idle": {"lock": 300, "screensaver": 150}})
+    )
+    # Omarchy's kitty stub: the file modules/{shell-zsh,terminal-kitty} seed
+    # an absent ~/.config/kitty/kitty.conf from, since the theme include lives
+    # only there (config/kitty/kitty.conf:1-2, 4.0.3-1). Without it a full run
+    # takes the degraded branch and the box stops modelling a real Omarchy.
+    (omarchy_path / "config" / "kitty").mkdir(parents=True)
+    (omarchy_path / "config" / "kitty" / "kitty.conf").write_text(
+        OMARCHY_TREE["config/kitty/kitty.conf"]
     )
     # Omarchy's Firefox prefs — what modules/firefox merges under its own.
     # The stand-in is conftest's, the one the module's own suite drift-checks
@@ -324,57 +330,25 @@ def _run(
 # stage and every module from a throwaway copy of the checkout.
 PAYLOAD = (
     "install.sh",
-    "packages",
     "modules",
     "hypr",
     "bin",
     "hooks",
-    "zsh",
 )
-
-# What a hermetic run must never do is touch the network for Oh My Zsh or
-# powerlevel10k, so the pin dance against those two dirs (fetch <sha> /
-# checkout FETCH_HEAD / rev-parse HEAD) is faked through marker files:
-# clone_pinned sees a repo that lands at — and stays at — whatever sha it
-# fetched. `.fail-fetch` in a dir models a pin the box cannot reach.
-GIT_PIN_PROTOCOL = """\
-if [ "$1" = -C ]; then case "$2" in *oh-my-zsh*|*powerlevel10k*)
-  dir=$2; shift 2
-  case "$1" in
-    fetch)     if [ -e "$dir/.fail-fetch" ]; then exit 1; fi
-               printf %s "$4" > "$dir/.fake-fetch-head"; exit 0 ;;
-    checkout)  cat "$dir/.fake-fetch-head" > "$dir/.fake-head" 2>/dev/null; exit 0 ;;
-    rev-parse) cat "$dir/.fake-head" 2>/dev/null || echo unborn; exit 0 ;;
-    *)         exit 0 ;;
-  esac ;;
-esac; fi
-"""
 
 # Real git for everything the refresh guard needs (`checkout --`) and for a
 # clone of a LOCAL directory (the throwaway checkout under tmp_path, which is
 # how the curl path is exercised); a clone of a URL only makes the directory,
 # and a pull is a no-op.
-GIT_PASSTHROUGH = (
-    """\
+GIT_PASSTHROUGH = """\
 if [ "$1" = clone ]; then
   src="${@: -2:1}"
   if [ -d "$src" ]; then exec "$(PATH=/usr/bin:/bin command -v git)" "$@"; fi
   mkdir -p "${@: -1}"; exit 0
 fi
-"""
-    + GIT_PIN_PROTOCOL
-    + """\
 case " $* " in *" pull "*) exit 0 ;; esac
 exec "$(PATH=/usr/bin:/bin command -v git)" "$@"
 """
-)
-
-# The pin dance with no real git behind it at all — its consumer runs
-# install.sh from the real checkout, where a passthrough stub would run git
-# against the developer's own working tree.
-GIT_PIN_DANCE = (
-    'if [ "$1" = clone ]; then mkdir -p "${@: -1}"; fi\n' + GIT_PIN_PROTOCOL + "exit 0\n"
-)
 
 
 def _checkout(tmp_path: Path) -> Path:
@@ -394,11 +368,6 @@ def _checkout(tmp_path: Path) -> Path:
     for args in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "payload"]):
         subprocess.run(["git", *args], cwd=repo, check=True, timeout=30)
     return repo
-
-
-# "zsh is on this box, here": install.sh keys on ${_HYPRCONF_ZSH+set}, so a
-# set-but-empty value is "no zsh" and the PATH lookup is skipped either way.
-ZSH_AT = {"_HYPRCONF_ZSH": "/usr/bin/zsh"}
 
 
 def _child_env(env: dict) -> dict[str, str]:
@@ -460,6 +429,44 @@ def _stage_body(name: str) -> str:
     return _code_only(src[start:end])
 
 
+MODULES = REPO_ROOT / "modules"
+
+
+@pytest.mark.parametrize(
+    "order",
+    [("shell-zsh", "terminal-kitty"), ("terminal-kitty", "shell-zsh")],
+    ids=["loop-order", "reversed"],
+)
+def test_the_two_kitty_includes_are_order_free(box, order) -> None:
+    """main()'s module loop is alphabetical, so shell-zsh runs BEFORE
+    terminal-kitty — and both write ~/.config/kitty/kitty.conf. Neither may
+    depend on that: both seed an absent file from Omarchy's own stub (the theme
+    include lives only there, config/kitty/kitty.conf:1-2) and both guard only
+    their own line, so either order ends with the stub plus exactly one of each
+    include — and undoing both puts Omarchy's stub back byte for byte."""
+    conf = box.home / ".config" / "kitty" / "kitty.conf"
+    stub = (box.omarchy / "config" / "kitty" / "kitty.conf").read_text()
+
+    for _ in range(2):  # and a re-run of either adds nothing
+        for name in order:
+            proc = box.run(MODULES / name / "install")
+            assert proc.returncode == 0, f"{name}: {proc.stderr}"
+
+    text = conf.read_text()
+    assert text.startswith(stub), text
+    assert text.count("include hyprconf.conf\n") == 1, text
+    assert text.count("include hyprconf-zsh.conf\n") == 1, text
+    assert sorted(text[len(stub) :].splitlines()) == [
+        "# hyprconf overlay",
+        "include hyprconf-zsh.conf",
+        "include hyprconf.conf",
+    ], text
+
+    for name in reversed(order):
+        assert box.undo(name).returncode == 0
+    assert conf.read_text() == stub
+
+
 def _tree_hash(root: Path) -> str:
     """Hash every path and file body under root, for byte-stability checks."""
     h = hashlib.sha256()
@@ -508,12 +515,10 @@ def test_refuses_without_omarchy_path(tmp_path: Path) -> None:
 # sudo on a re-run shows up here as a name outside the set, which is why the
 # per-stage tests below do not each pay a second install.sh run for it.
 SETTLED_RERUN_COMMANDS = {
-    "git",  # the two third-party dirs: rev-parse, already at their pins
     "hyprctl",
     "jq",
     "omarchy-hook-install",  # Omarchy's own idempotent mkdir/cp/chmod
-    "omarchy-pkg-add",  # the package list, a no-op once installed
-    "omarchy-pkg-present",  # is firefox / VS Code installed
+    "omarchy-pkg-present",  # every module's own `pacman -Q` probe
     # modules/bar-* install their plugin folder as a SYMLINK, and the shell's
     # inotifywait -r never descends one (PluginRegistry.qml:663-667), so the
     # rescan is what picks a `git pull` up and repeats on every run by design.
@@ -551,151 +556,9 @@ def test_full_run_succeeds_and_is_byte_stable(tmp_path: Path) -> None:
     assert set(_commands(env)) <= SETTLED_RERUN_COMMANDS, set(_commands(env))
 
 
-def _zshrc_block(checkout: Path = REPO_ROOT) -> list[str]:
-    """zsh/zshrc.block as stage_shell writes it: the @HYPRCONF_DIR@ of the
-    hyprsync alias rendered to the checkout that installed it, the same `sed`
-    pass stage_bin and stage_hooks run on their own payloads."""
-    text = (REPO_ROOT / "zsh" / "zshrc.block").read_text()
-    return text.replace("@HYPRCONF_DIR@", str(checkout)).splitlines()
-
-
-def test_zshrc_preserves_content_outside_the_block_in_place(tmp_path: Path) -> None:
-    """Everything outside the markers survives WHERE IT WAS, and a stale block is
-    replaced at its own position. The strip-then-append this replaces moved a
-    trailing line above the block, silently changing zsh's evaluation order —
-    the block sources zsh-syntax-highlighting last for a reason."""
-    env = _setup(tmp_path)
-    zshrc = env["home"] / ".zshrc"
-    zshrc.write_text("export MY_OWN_THING=1\n")
-    _run(env, "--no-update")
-    text = zshrc.read_text()
-    assert text.startswith("export MY_OWN_THING=1\n\n# >>> hyprconf >>>\n")
-    assert text.endswith("# <<< hyprconf <<<\n")
-
-    zshrc.write_text(text + "source ~/.zshrc.local\n")
-    _run(env, "--no-update")
-    lines = zshrc.read_text().splitlines()
-    assert lines[0] == "export MY_OWN_THING=1"
-    assert lines.count("# >>> hyprconf >>>") == 1 and lines.count("# <<< hyprconf <<<") == 1
-    assert lines[-1] == "source ~/.zshrc.local"
-    assert lines.index("source ~/.zshrc.local") > lines.index("# <<< hyprconf <<<")
-
-    block = _zshrc_block()
-    stale = zshrc.read_text().replace("alias hyprsync=", "alias hyprsync_old=")
-    assert stale != zshrc.read_text()
-    zshrc.write_text(stale)
-    _run(env, "--no-update")
-    lines = zshrc.read_text().splitlines()
-    begin, end = lines.index("# >>> hyprconf >>>"), lines.index("# <<< hyprconf <<<")
-    assert lines[begin : end + 1] == block
-    assert lines[:begin] == ["export MY_OWN_THING=1", ""]
-    assert lines[end + 1 :] == ["source ~/.zshrc.local"]
-
-
-def test_a_backslash_in_the_checkout_path_keeps_the_zshrc_block(tmp_path: Path) -> None:
-    """HYPRCONF_DIR is the user's to choose, and `awk -v blk=...` runs the value
-    through POSIX escape processing — so a checkout path carrying a backslash
-    made `getline < blk` open nothing, and run 2 ate both marker lines and the
-    block at exit 0. Same class as HERE_SED."""
-    env = _setup(tmp_path)
-    odd = tmp_path / "my\\stuff"
-    _checkout(tmp_path).rename(odd)
-    assert "\\" in str(odd)
-    block = _zshrc_block(odd)
-    zshrc = env["home"] / ".zshrc"
-
-    for run in range(1, 3):
-        proc = _run(env, "--no-update", install_sh=odd / "install.sh")
-        assert proc.returncode == 0, proc.stderr
-        lines = zshrc.read_text().splitlines()
-        assert lines.count("# >>> hyprconf >>>") == 1, f"run {run}: {proc.stderr}"
-        begin, end = lines.index("# >>> hyprconf >>>"), lines.index("# <<< hyprconf <<<")
-        assert lines[begin : end + 1] == block, f"run {run}"
-
-
-def _unpaired_markers(text: str, begin: str, end: str) -> dict[str, str]:
-    """The three ways a marker pair stops bounding a block: either line gone,
-    or the two of them in the wrong order. All three leave the rewrite's
-    skip=1 latch with nothing to clear it."""
-    lines = text.splitlines(keepends=True)
-    b = next(i for i, ln in enumerate(lines) if ln.rstrip() == begin)
-    e = next(i for i, ln in enumerate(lines) if ln.rstrip() == end)
-    swapped = list(lines)
-    swapped[b], swapped[e] = swapped[e], swapped[b]
-    return {
-        "no end marker": "".join(ln for ln in lines if ln.rstrip() != end),
-        "no begin marker": "".join(ln for ln in lines if ln.rstrip() != begin),
-        "markers swapped": "".join(swapped),
-    }
-
-
-def test_marker_lines_that_are_not_an_ordered_pair_leave_zshrc_alone(tmp_path: Path) -> None:
-    """One marker line gone — or an end marker ABOVE the begin marker, which the
-    warning's own advice can produce — leaves the rewrite's skip=1 latch with
-    nothing to clear it, and used to cost everything from the marker to EOF at
-    exit 0. None of the three is a file the installer understands."""
-    env = _setup(tmp_path)
-    zshrc = env["home"] / ".zshrc"
-    zshrc.write_text("export MY_OWN_THING=1\n")
-    assert _run(env, "--no-update").returncode == 0
-    full = zshrc.read_text() + "source ~/.zshrc.local\nexport SECOND_OWN_THING=2\n"
-
-    for shape, maimed in _unpaired_markers(
-        full, "# >>> hyprconf >>>", "# <<< hyprconf <<<"
-    ).items():
-        assert maimed != full
-        zshrc.write_text(maimed)
-        proc = _run(env, "--no-update")
-        assert proc.returncode == 0, proc.stderr
-        assert zshrc.read_text() == maimed, shape
-        assert "marker" in proc.stderr and ".zshrc" in proc.stderr, shape
-
-    # The pair back: the block is rewritten in place and the tail survives.
-    zshrc.write_text(full)
-    assert _run(env, "--no-update").returncode == 0
-    assert zshrc.read_text() == full
-
-
-def test_a_failed_shell_clone_warns_and_the_stages_after_it_still_run(tmp_path: Path) -> None:
-    """A dead network must not abort the apply — or the post-update hook's run.
-    The clones run under `set -e`; unguarded, a DNS failure killed the whole
-    run before stage_hooks, so a first install on a flaky network never got
-    the post-update hook."""
-    env = _setup(tmp_path)
-    _stub(env["bins"] / "git", env["calls"], 'if [ "$1" = clone ]; then exit 1; fi; exit 0')
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "could not clone Oh My Zsh" in proc.stderr
-    assert not (env["home"] / ".oh-my-zsh").is_dir()
-    assert not (env["home"] / ".zshrc").exists()
-    assert "omarchy-hook-install" in _commands(env)
-
-
 # ---------------------------------------------------------------------------
 # Restraint — what the installer must never do
 # ---------------------------------------------------------------------------
-
-
-def test_zsh_installed_by_the_package_stage_is_used_in_the_same_run(tmp_path: Path) -> None:
-    """The zsh lookup must happen AFTER packages: on a fresh Omarchy zsh does not
-    exist until stage_packages installs it, and a lookup at startup pins the
-    empty string for the whole run — first install, no ~/.zshrc, no prompt."""
-    env = _setup(tmp_path, with_zsh=False)
-    zsh = env["bins"] / "zsh-installed-by-pkg-add"
-    # Stand in for `pacman -S zsh`: the binary appears while the run is going.
-    _stub(
-        env["bins"] / "omarchy-pkg-add",
-        env["calls"],
-        f'printf "#!/usr/bin/env bash\\nexit 0\\n" > "{zsh}"; chmod 755 "{zsh}"',
-    )
-
-    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_ZSH_BIN": zsh.name})
-    assert proc.returncode == 0, proc.stderr
-
-    assert (env["home"] / ".zshrc").read_text().count("powerlevel10k") >= 1
-    assert (env["home"] / ".p10k.zsh").is_symlink()
-    assert (env["home"] / ".oh-my-zsh").is_dir()
-
 
 # ---------------------------------------------------------------------------
 # The ~/.config/hypr override files
@@ -722,15 +585,14 @@ def test_a_dotfiles_link_at_an_override_path_is_backed_up_as_a_link(
     """A stow-style link at one of these paths is somebody's own arrangement. The
     guard used to skip every link, so `ln -sfn` overwrote it with no backup
     and no message; `cp -P` keeps it a link, so the README's `mv …stock` hands
-    it back pointing where it pointed."""
+    it back pointing where it pointed. The same rule at ~/.p10k.zsh is
+    modules/shell-zsh's, pinned in its own suite."""
     env = _setup(tmp_path)
     theirs = tmp_path / "dotfiles"
     theirs.mkdir()
     (theirs / "bindings.lua").write_text("-- their own bindings\n")
-    (theirs / "p10k.zsh").write_text("# their own prompt\n")
     links = {
         env["home"] / ".config" / "hypr" / "bindings.lua": theirs / "bindings.lua",
-        env["home"] / ".p10k.zsh": theirs / "p10k.zsh",
     }
     for link, src in links.items():
         link.parent.mkdir(parents=True, exist_ok=True)
@@ -866,20 +728,8 @@ def test_a_failed_pull_stops_the_sync_before_anything_is_applied(tmp_path: Path)
     assert "git pull failed" in proc.stderr
     assert any(" pull " in f" {c} " for c in _calls(env))
     assert "omarchy-update" not in _commands(env)
-    assert "omarchy-pkg-add" not in _commands(env)  # the first stage after the pull
-    assert "omarchy-default-terminal" not in _commands(env)  # and a later one
-    assert not (env["home"] / ".zshrc").exists()
-
-
-def test_package_install_failure_stops_the_run(tmp_path: Path) -> None:
-    """The packages stage has no terminal guard of its own (AGENTS › Hard
-    rules, 6): with no terminal for sudo, omarchy-pkg-add fails on a missing
-    package, and the run must die there instead of carrying on."""
-    env = _setup(tmp_path)
-    _stub(env["bins"] / "omarchy-pkg-add", env["calls"], "exit 1")
-    proc = _run(env, "--no-update")
-    assert proc.returncode != 0
-    assert "package install failed" in proc.stderr
+    assert "omarchy-shell" not in _commands(env)  # the module loop never started
+    assert "omarchy-hook-install" not in _commands(env)  # nor the stages after it
     assert not (env["home"] / ".zshrc").exists()
 
 
@@ -1140,12 +990,10 @@ USAGE_HEREDOC = re.compile(r"(?ms)^\s*cat <<'USAGE'\n.*?^USAGE$")
 
 def _fetch_exec_surface() -> list[Path]:
     """_overlay_scripts() plus the shipped shell payload its suffix filter
-    misses — the zsh block and p10k config every interactive zsh executes.
-    The scan must reach everything that runs."""
-    return _overlay_scripts() + [
-        REPO_ROOT / "zsh" / "zshrc.block",
-        REPO_ROOT / "zsh" / ".p10k.zsh",
-    ]
+    misses — the rc file and p10k config every interactive zsh executes, which
+    modules/shell-zsh ships. The scan must reach everything that runs."""
+    zsh = REPO_ROOT / "modules" / "shell-zsh"
+    return _overlay_scripts() + [zsh / "zshrc", zsh / ".p10k.zsh"]
 
 
 def test_overlay_never_fetches_and_executes() -> None:
@@ -1167,14 +1015,18 @@ def test_bootstrap_defaults_are_pinned_https_and_stable() -> None:
 
 
 def test_packages_file_lines_are_plain_package_names() -> None:
-    """A line starting with '-' would reach the sudo package stage as an
-    option, not a package. Each module's own `packages` file is pinned the
-    same way by its own suite (modules/font/test_font.py)."""
-    for ln in (REPO_ROOT / "packages").read_text().splitlines():
-        ln = ln.strip()
-        if not ln or ln.startswith("#"):
-            continue
-        assert re.fullmatch(r"[a-z0-9][a-z0-9@._+-]*", ln), f"packages: {ln!r}"
+    """A line starting with '-' would reach a module's sudo `omarchy-pkg-add`
+    as an option, not a package. One rule over every module's own file — the
+    root `packages` list is gone with stage_packages — and each line may carry
+    a trailing `# why`, which comes off the way each `install` takes it off."""
+    files = sorted((REPO_ROOT / "modules").glob("*/packages"))
+    assert files, "no module packages file found — the scan is broken"
+    for path in files:
+        for ln in path.read_text().splitlines():
+            ln = ln.split("#", 1)[0].strip()
+            if not ln:
+                continue
+            assert re.fullmatch(r"[a-z0-9][a-z0-9@._+-]*", ln), f"{path.parent.name}: {ln!r}"
 
 
 def test_overlay_never_uses_the_dead_hyprctl_forms() -> None:
@@ -1200,10 +1052,11 @@ def test_overlay_never_uses_the_dead_hyprctl_forms() -> None:
 
 def test_every_sudo_stage_bows_out_without_a_terminal(tmp_path: Path) -> None:
     """The post-update hook runs non-interactively inside omarchy-update, where
-    a sudo password prompt would stall the whole update. install.sh's own gate
-    is stage_packages'; every module carries the same one, and this is the one
-    place all of them are held to it in a single real run. The per-module
-    contracts are modules/{firefox,keychron,vscode,font}/test_*.py."""
+    a sudo password prompt would stall the whole update. install.sh itself asks
+    for no sudo at all now; every module carries its own gate, and this is the
+    one place all of them are held to it in a single real run. The per-module
+    contracts are modules/{firefox,keychron,vscode,font,terminal-kitty,
+    shell-zsh}/test_*.py."""
     env = _setup(tmp_path)
     _real_jq(env)  # else modules/firefox bows out on the merge, before its gate
     _packages(env, ())
@@ -1252,6 +1105,20 @@ def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
         assert os.access(installed, os.X_OK), name
         expected = (REPO_ROOT / "bin" / name).read_text().replace("@HYPRCONF_DIR@", str(REPO_ROOT))
         assert installed.read_text() == expected, name
+
+
+def test_the_installer_itself_lands_on_path_as_hyprconf(tmp_path: Path) -> None:
+    """`hyprconf --sync` is what modules/shell-zsh's `hyprsync` alias runs, and
+    what the post-update hook will exec once the core rewrite lands. A SYMLINK,
+    so a `git pull` in the checkout is the update and no checkout path is baked
+    into the alias — the alias names the link, which is what lets the checkout
+    move."""
+    env = _setup(tmp_path)
+    for _ in range(2):  # re-pointed in place, never stacked
+        assert _run(env, "--no-update").returncode == 0
+    link = env["home"] / ".local" / "bin" / "hyprconf"
+    assert link.is_symlink()
+    assert Path(os.readlink(link)) == INSTALL_SH
 
 
 # ---------------------------------------------------------------------------
@@ -1523,7 +1390,7 @@ def test_curl_path_clones_the_checkout_and_hands_over_to_it(tmp_path: Path) -> N
     # The stages ran, from the checkout: the tools and hooks resolve to it and
     # the override links point into it.
     assert "omarchy-default-terminal kitty" in _calls(env)
-    assert "omarchy-pkg-add" in _commands(env)
+    assert "omarchy-shell" in _commands(env)  # the module loop, from the clone
     hook = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
     assert f'HYPRCONF_DIR="{target}"' in hook.read_text()
     bindings = env["home"] / ".config" / "hypr" / "bindings.lua"
@@ -1597,37 +1464,6 @@ def test_curl_path_help_and_bad_options_never_clone(tmp_path: Path) -> None:
     assert proc.returncode != 0
     assert not target.exists()
     assert _calls(env) == []
-
-
-def test_shell_third_party_repos_are_pinned_and_never_pulled(tmp_path: Path) -> None:
-    """Oh My Zsh and powerlevel10k execute in every interactive zsh, so they stay
-    at the reviewed pins: the per-apply `git pull` this replaces was a silent
-    auto-update channel from two upstream HEADs into every box on every
-    omarchy-update. A dir at another commit is moved to the pin."""
-    pins = dict(re.findall(r"local (omz_pin|p10k_pin)=([0-9a-f]{40})", INSTALL_SH.read_text()))
-    assert set(pins) == {"omz_pin", "p10k_pin"}, "stage_shell must name both pins"
-    env = _setup(tmp_path)
-    _stub(env["bins"] / "git", env["calls"], GIT_PIN_DANCE)
-    _run(env, "--no-update")
-    omz = env["home"] / ".oh-my-zsh"
-    p10k = omz / "custom" / "themes" / "powerlevel10k"
-    assert (omz / ".fake-head").read_text() == pins["omz_pin"]
-    assert (p10k / ".fake-head").read_text() == pins["p10k_pin"]
-    assert not any(" pull " in f" {c} " for c in _calls(env))
-    # the migration: a checkout left at any other commit moves to the pin
-    (p10k / ".fake-head").write_text("0" * 40)
-    _run(env, "--no-update")
-    assert (p10k / ".fake-head").read_text() == pins["p10k_pin"]
-    # an offline box mid-migration keeps the usable checkout AND the stage
-    # tail: .zshrc must not be held hostage by an unreachable pin
-    (p10k / ".fake-head").write_text("1" * 40)
-    (p10k / ".fail-fetch").write_text("")
-    (env["home"] / ".zshrc").unlink()
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert (p10k / ".fake-head").read_text() == "1" * 40  # unpinned, but in use
-    assert "WARNING:" in proc.stderr
-    assert (env["home"] / ".zshrc").exists()  # the tail still ran
 
 
 def test_refuses_to_run_as_root() -> None:
