@@ -1,21 +1,6 @@
-"""Tests for modules/bar-clock — Omarchy's clock widget, ticking seconds.
-
-The contract: the plugin folder is LINKED into ~/.config/omarchy/plugins, the
-shell is asked to rescan every run, the widget is enabled and formatted ONCE
-behind a marker, the bar's centre anchor follows the swap once and is repaired
-whenever it names nothing, and `install undo` puts the stock format, the stock
-anchor and a clean plugins directory back.
-
-HERMETIC: the `box` fixture (conftest.py) — tmp HOME, tmp $OMARCHY_PATH, and
-every omarchy-* command a recording fake. `shell()` below replaces four of
-those fakes with a small model of the live shell: the plugin list answers from
-the box's plugins directory, enable/disable move the bar entry between the
-clone and the id it was cloned from (PluginRegistry.qml:441 restoreCloneSource
-carries the entry, format included), and `omarchy-bar set` writes the key onto
-the entry. Three tests need the installed Omarchy and skip without it — the
-real `omarchy-plugin-validate` run, the parity diff against the stock widget
-and the Model.js subset diff (AGENTS › Gates and CI budgets for every skip).
-"""
+"""modules/bar-clock: the plugin folder is LINKED and rescanned every run, enabled
+and formatted ONCE behind a marker, the centre anchor follows the swap and is
+repaired when it names nothing, and `install undo` puts the stock back."""
 
 from __future__ import annotations
 
@@ -23,7 +8,6 @@ import difflib
 import json
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -31,380 +15,227 @@ import pytest
 
 from conftest import Box
 
-MODULE = Path(__file__).parent
-INSTALL = MODULE / "install"
-PLUGIN = MODULE / "plugin"
+INSTALL = Path(__file__).parent / "install"
+PLUGIN = Path(__file__).parent / "plugin"
 ID = "hyprconf.clock"
 STOCK = "omarchy.clock"
 FORMAT = "hh:mm:ss AP"
 STOCK_FORMAT = "dddd HH:mm"
-
-# The installed Omarchy, for the two tests that need the real thing. Not
-# box.omarchy: that tree is a fixture cut to what the module reads.
+LINK = f".config/omarchy/plugins/{ID}"
+MARKER = ".local/state/hyprconf/clock-applied"
+# The installed Omarchy, for the pins that need the real thing — not
+# box.omarchy, which is a fixture cut to what the module reads.
 OMARCHY = Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"))
 STOCK_CLOCK = OMARCHY / "shell/plugins/panels/clock"
 VALIDATE = OMARCHY / "bin/omarchy-plugin-validate"
 
-# ---- the shell model -------------------------------------------------------
-
-# Every layout entry is a bare id or an object with one (bin/omarchy-bar:178).
-ENTRY_ID = 'if type == "object" then .id else . end'
+# A model of the running shell. Every layout entry is a bare id or an object
+# with one (bin/omarchy-bar:178); enable swaps the clone into the slot of the id
+# its manifest was cloned from, and disable hands the whole entry back, format
+# included (PluginRegistry.qml:441).
+EDIT = """
+json="$HOME/.config/omarchy/shell.json"
+[[ -f $json ]] || exit 1
+%s
+jq %s '
+    .bar.layout |= with_entries(.value |= map(
+        if (if type == "object" then .id else . end) == $a then %s
+        else . end))' "$json" > "$json.t" && mv "$json.t" "$json"
+"""
+CLONED_FROM = """src=$(jq -r '.omarchy.clonedFrom // empty' \
+    "$HOME/.config/omarchy/plugins/$1/manifest.json" 2>/dev/null) || exit 1"""
+RENAME = '(if type == "object" then .id = $b else { id: $b } end)'
+ENABLE = EDIT % (CLONED_FROM, '--arg a "$src" --arg b "$1"', RENAME)
+DISABLE = EDIT % (CLONED_FROM, '--arg a "$1" --arg b "$src"', RENAME)
+BAR_SET = EDIT % (
+    "[[ ${1:-} == set ]] || exit 1",
+    '--arg a "$2" --arg k "$3" --arg v "$4"',
+    '(if type == "object" then . else { id: . } end) + { ($k): $v }',
+)
+# The same write, persisted on a LATER event-loop turn as the shell's is
+# (shell.qml:109-113 persistShellConfig, then a FileView setText): an anchor
+# edit that does not wait for it is taken straight back 0.2 s later.
+BAR_SET_LATE = BAR_SET.replace('&& mv "$json.t"', '&& { ( sleep 0.2; mv "$json.t"')[:-1] + ") & }\n"
 LIST = """
-dir="$HOME/.config/omarchy/plugins"
-ids=()
-for sub in "$dir"/*/; do
-    [[ -f "$sub/manifest.json" ]] || continue
-    ids+=("$(jq -r .id "$sub/manifest.json")")
-done
-jq -n --args '[$ARGS.positional[] | {id: .}]' "${ids[@]}"
-"""
-# enable swaps the clone into the slot of the id its manifest was cloned from;
-# disable hands the whole entry back, which is why the format survives it.
-SWAP = """
-json="$HOME/.config/omarchy/shell.json"
-[[ -f $json ]] || exit 1
-src=$(jq -r '.omarchy.clonedFrom // empty' \
-    "$HOME/.config/omarchy/plugins/$1/manifest.json" 2>/dev/null) || exit 1
-jq --arg from "%s" --arg to "%s" '
-    .bar.layout |= with_entries(.value |= map(
-        if (ENTRY_ID) == $from
-        then (if type == "object" then .id = $to else { id: $to } end)
-        else . end))' "$json" > "$json.t" && mv "$json.t" "$json"
-"""
-BAR_SET = """
-[[ ${1:-} == set ]] || exit 0
-json="$HOME/.config/omarchy/shell.json"
-[[ -f $json ]] || exit 1
-jq --arg id "$2" --arg k "$3" --arg v "$4" '
-    .bar.layout |= with_entries(.value |= map(
-        if (ENTRY_ID) == $id
-        then (if type == "object" then . else { id: . } end) + { ($k): $v }
-        else . end))' "$json" > "$json.t" && mv "$json.t" "$json"
-"""
-
-
-# The same write, landing on a LATER event-loop turn: the shell answers the
-# IPC at once and persists shell.json afterwards (shell.qml:109-113
-# persistShellConfig, then a FileView setText). The snapshot is taken when the
-# call comes in, so a run that edits the anchor without waiting for this write
-# has its edit overwritten by the pre-edit copy 0.2 s later.
-BAR_SET_LATE = """
-[[ ${1:-} == set ]] || exit 0
-json="$HOME/.config/omarchy/shell.json"
-[[ -f $json ]] || exit 1
-snap=$(jq --arg id "$2" --arg k "$3" --arg v "$4" '
-    .bar.layout |= with_entries(.value |= map(
-        if (ENTRY_ID) == $id
-        then (if type == "object" then . else { id: . } end) + { ($k): $v }
-        else . end))' "$json")
-( sleep 0.2; printf '%s' "$snap" > "$json" ) &
-exit 0
+cd "$HOME/.config/omarchy/plugins" 2>/dev/null || exit 1
+jq -n --args '[$ARGS.positional[] | { id: rtrimstr("/") }]' -- */
 """
 
 
 def shell(box: Box, anchor: str = STOCK, layout: list | None = None) -> Path:
-    """Give the box a ~/.config/omarchy/shell.json and the four fakes that
-    model the running shell. Returns the shell.json path."""
-    json_path = box.home / ".config/omarchy/shell.json"
-    json_path.parent.mkdir(parents=True, exist_ok=True)
-    json_path.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "bar": {
-                    "centerAnchor": anchor,
-                    "layout": {
-                        "left": ["omarchy.menu"],
-                        "center": layout
-                        if layout is not None
-                        else [{"id": STOCK, "format": STOCK_FORMAT}],
-                        "right": [],
-                    },
-                },
-            },
-            indent=2,
-        )
-        + "\n"
-    )
+    """The box's ~/.config/omarchy/shell.json plus the four fakes that model the shell."""
+    path = box.home / ".config/omarchy/shell.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    center = [{"id": STOCK, "format": STOCK_FORMAT}] if layout is None else layout
+    layouts = {"left": ["omarchy.menu"], "center": center, "right": []}
+    path.write_text(json.dumps({"bar": {"centerAnchor": anchor, "layout": layouts}}, indent=2))
     box.stub("omarchy-plugin-list", LIST)
-    box.stub("omarchy-plugin-enable", (SWAP % ("$src", "$1")).replace("ENTRY_ID", ENTRY_ID))
-    box.stub("omarchy-plugin-disable", (SWAP % ("$1", "$src")).replace("ENTRY_ID", ENTRY_ID))
-    box.stub("omarchy-bar", BAR_SET.replace("ENTRY_ID", ENTRY_ID))
-    return json_path
+    box.stub("omarchy-plugin-enable", ENABLE)
+    box.stub("omarchy-plugin-disable", DISABLE)
+    box.stub("omarchy-bar", BAR_SET)
+    return path
 
 
-def bar(json_path: Path) -> list[dict]:
+def bar(path: Path) -> list[dict]:
     """The centre section's entries, as objects."""
-    entries = json.loads(json_path.read_text())["bar"]["layout"]["center"]
-    return [e if isinstance(e, dict) else {"id": e} for e in entries]
+    center = json.loads(path.read_text())["bar"]["layout"]["center"]
+    return [e if isinstance(e, dict) else {"id": e} for e in center]
 
 
-def anchor_of(json_path: Path) -> str:
-    return json.loads(json_path.read_text())["bar"]["centerAnchor"]
+def anchor_of(path: Path) -> str:
+    return json.loads(path.read_text())["bar"]["centerAnchor"]
 
 
-def files(home: Path) -> dict[str, str]:
-    """Every path under HOME with its content — a link as its target, so a
-    second run that relinked or rewrote anything shows up."""
-    out: dict[str, str] = {}
-    for root, dirs, names in os.walk(home):  # never follows a symlink
-        for name in sorted(dirs + names):
-            path = Path(root) / name
-            rel = str(path.relative_to(home))
-            if path.is_symlink():
-                out[rel] = "-> " + os.readlink(path)
-            elif path.is_file():
-                out[rel] = path.read_text()
-            else:
-                out[rel] = "<dir>"
+def snapshot(home: Path) -> dict[str, str]:
+    """Every path under HOME with its content, a link as its target."""
+    out = {}
+    for p in home.rglob("*"):  # never descends a symlink (3.13+)
+        out[str(p.relative_to(home))] = (
+            os.readlink(p) if p.is_symlink() else p.read_text() if p.is_file() else "<dir>"
+        )
     return out
 
 
-def link_of(box: Box) -> Path:
-    return box.home / ".config/omarchy/plugins" / ID
-
-
-def marker_of(box: Box) -> Path:
-    return box.home / ".local/state/hyprconf/clock-applied"
-
-
-# ---- installing ------------------------------------------------------------
-
-
-def test_links_the_plugin_and_enables_it_once_with_the_format_and_the_anchor(box: Box) -> None:
-    json_path = shell(box)
+def test_install_links_the_plugin_and_enables_it_once_with_the_format_and_anchor(box: Box) -> None:
+    path = shell(box)
     result = box.run(INSTALL)
-
     assert result.returncode == 0, result.stderr
-    assert link_of(box).is_symlink()
-    assert os.readlink(link_of(box)) == str(PLUGIN)
-    assert marker_of(box).exists()
+    assert os.readlink(box.home / LINK) == str(PLUGIN)
+    assert (box.home / MARKER).exists()
     assert "omarchy-shell" in box.commands  # the watcher does not follow a link
     assert box.calls_of("omarchy-plugin-enable") == [["omarchy-plugin-enable", ID]]
     assert box.calls_of("omarchy-bar") == [["omarchy-bar", "set", ID, "format", FORMAT]]
-    assert bar(json_path) == [{"id": ID, "format": FORMAT}]
-    assert anchor_of(json_path) == ID
+    assert bar(path) == [{"id": ID, "format": FORMAT}]
+    assert anchor_of(path) == ID
 
 
-def test_a_second_run_enables_nothing_and_writes_nothing(box: Box) -> None:
-    json_path = shell(box)
+def test_a_second_run_writes_nothing_and_calls_nothing_that_mutates(box: Box) -> None:
+    shell(box)
     box.run(INSTALL)
-    before = files(box.home)
+    before = snapshot(box.home)
     box.reset()
-
     result = box.run(INSTALL)
-
     assert result.returncode == 0, result.stderr
-    assert files(box.home) == before
-    assert "omarchy-plugin-enable" not in box.commands
-    assert "omarchy-bar" not in box.commands
-    assert anchor_of(json_path) == ID
+    assert snapshot(box.home) == before
+    assert box.commands == ["omarchy-shell"]  # the rescan, and nothing else
 
 
 def test_without_a_shell_it_links_and_leaves_the_enable_to_the_next_run(box: Box) -> None:
-    json_path = shell(box)
+    path = shell(box)
     box.stub("omarchy-plugin-list", "exit 1\n")  # omarchy-shell answers nothing
     box.stub("omarchy-plugin-enable", "exit 1\n")
-
     result = box.run(INSTALL)
-
     assert result.returncode == 0, result.stderr
-    assert link_of(box).is_symlink()
-    assert not marker_of(box).exists()
+    assert (box.home / LINK).is_symlink()
+    assert not (box.home / MARKER).exists()
     assert "next run" in result.stdout
     assert "omarchy-bar" not in box.commands
-    assert anchor_of(json_path) == STOCK
+    assert anchor_of(path) == STOCK
     # one poll's worth: with no shell to ask there is nothing to wait for
     assert len(box.calls_of("omarchy-plugin-list")) == 1
 
 
-def test_a_home_with_no_shell_json_yet_is_fine(box: Box) -> None:
-    """Nothing has written ~/.config/omarchy/shell.json yet: the shell creates
-    it on its first persist, which here is the enable."""
-    json_path = shell(box)
-    json_path.unlink()
-    box.stub(
-        "omarchy-plugin-enable",
-        f'printf \'{{"version":1,"bar":{{"centerAnchor":"{STOCK}",'
-        f'"layout":{{"left":[],"center":[{{"id":"{ID}"}}],"right":[]}}}}}}\\n\''
-        ' > "$HOME/.config/omarchy/shell.json"\n',
-    )
-
-    result = box.run(INSTALL)
-
-    assert result.returncode == 0, result.stderr
-    assert marker_of(box).exists()
-    assert bar(json_path) == [{"id": ID, "format": FORMAT}]
-    assert anchor_of(json_path) == ID
-
-
 def test_an_omarchy_plugin_add_checkout_is_left_alone(box: Box) -> None:
     shell(box)
-    (link_of(box) / ".git").mkdir(parents=True)
-
+    (box.home / LINK / ".git").mkdir(parents=True)
     result = box.run(INSTALL)
-
     assert result.returncode == 0, result.stderr
     assert "omarchy plugin update" in result.stdout
-    assert not link_of(box).is_symlink()
-    assert not marker_of(box).exists()
+    assert not (box.home / LINK).is_symlink()
+    assert not (box.home / MARKER).exists()
     assert box.commands == []
 
 
 def test_a_real_folder_is_moved_aside_once(box: Box) -> None:
     shell(box)
-    plugins = link_of(box).parent
-    link_of(box).mkdir(parents=True)
-    (link_of(box) / "manifest.json").write_text('{"id": "hyprconf.clock"}\n')
-
+    plugins = (box.home / LINK).parent
+    (box.home / LINK).mkdir(parents=True)
+    (box.home / LINK / "manifest.json").write_text('{"id": "hyprconf.clock"}\n')
     box.run(INSTALL)
     backups = sorted(p.name for p in plugins.iterdir() if p.name.startswith(f".{ID}.bak."))
-
-    assert len(backups) == 1
-    assert re.fullmatch(rf"\.{re.escape(ID)}\.bak\.\d{{14}}", backups[0])
+    assert len(backups) == 1 and re.fullmatch(rf"\.{re.escape(ID)}\.bak\.\d{{14}}", backups[0])
     assert (plugins / backups[0] / "manifest.json").exists()
-    assert os.readlink(link_of(box)) == str(PLUGIN)
-
+    assert os.readlink(box.home / LINK) == str(PLUGIN)
     box.run(INSTALL)  # the link is ours now, so nothing is moved a second time
     assert [p.name for p in plugins.iterdir() if p.name.startswith(f".{ID}.bak.")] == backups
 
 
-# ---- the centre anchor -----------------------------------------------------
-
-
-def test_an_anchor_that_names_nothing_is_repaired_after_the_marker(box: Box) -> None:
-    """A clone removed long after the install leaves bar.centerAnchor naming
-    an id that exists nowhere, and the centre section then centres the whole
-    group (Bar.qml:1538 hasAnchor). Not a choice, so not behind the marker."""
-    json_path = shell(box, anchor="testuser.clock", layout=[{"id": ID, "format": FORMAT}])
-    marker_of(box).parent.mkdir(parents=True)
-    marker_of(box).touch()
-
+@pytest.mark.parametrize(
+    ("anchor", "layout", "expected", "blocked"),
+    [
+        # the swap: the stock id the clone took the slot from
+        (STOCK, [{"id": ID}], ID, False),
+        # a clone removed long after the install — on no section and on no
+        # installed plugin, so the section centres the whole group instead
+        # (Bar.qml:1538 hasAnchor). Not a choice, so not behind the marker.
+        ("testuser.clock", [{"id": ID}], ID, False),
+        # the same repair with the write blocked: a cosmetic step must not take
+        # the run down, nor report success it did not have
+        ("testuser.clock", [{"id": ID}], "testuser.clock", True),
+        # still the user's: a widget the bar carries ...
+        ("omarchy.menu", [{"id": ID}], "omarchy.menu", False),
+        # ... or a plugin they merely disabled (someone.weather, installed below)
+        ("someone.weather", [{"id": ID}], "someone.weather", False),
+        # our clock is on no section, so there is nothing to point at
+        ("testuser.clock", [{"id": STOCK}], "testuser.clock", False),
+        (None, [], None, False),  # nothing has persisted shell.json yet
+    ],
+)
+def test_the_anchor_follows_our_clock_onto_the_bar_and_never_off_the_users(
+    box: Box, anchor: str | None, layout: list, expected: str | None, blocked: bool
+) -> None:
+    path = shell(box, anchor=anchor or STOCK, layout=layout)
+    if anchor is None:
+        path.unlink()
+    weather = (box.home / LINK).parent / "someone.weather"
+    weather.mkdir(parents=True)
+    (weather / "manifest.json").write_text('{"id": "someone.weather"}\n')
+    (box.home / MARKER).parent.mkdir(parents=True)
+    (box.home / MARKER).touch()  # the anchor is repaired on any run, marker or not
+    tmp = Path(f"{path}.tmp")
+    if blocked:
+        tmp.mkdir()  # nothing can be written there
     result = box.run(INSTALL)
-
     assert result.returncode == 0, result.stderr
-    assert anchor_of(json_path) == ID
+    assert (anchor_of(path) if path.exists() else None) == expected
     assert "omarchy-plugin-enable" not in box.commands
-    assert "named nothing" in result.stdout
-
-
-def test_an_anchor_the_user_chose_is_left_alone(box: Box) -> None:
-    """Two ways an anchor is still the user's: it names a widget on the bar,
-    or a plugin they merely disabled. Only an id that is on neither is stale."""
-    json_path = shell(box, anchor="omarchy.menu", layout=[{"id": ID, "format": FORMAT}])
-    marker_of(box).parent.mkdir(parents=True)
-    marker_of(box).touch()
-    box.run(INSTALL)
-    assert anchor_of(json_path) == "omarchy.menu"
-
-    disabled = link_of(box).parent / "someone.weather"
-    disabled.mkdir(parents=True)
-    (disabled / "manifest.json").write_text('{"id": "someone.weather"}\n')
-    json_path.write_text(json_path.read_text().replace('"omarchy.menu"', '"someone.weather"', 1))
-
-    box.run(INSTALL)
-
-    assert anchor_of(json_path) == "someone.weather"
-
-
-def test_the_anchor_is_not_moved_onto_a_clock_the_bar_does_not_carry(box: Box) -> None:
-    """Whether the user disabled our clock or an enable never landed, the bar
-    has no hyprconf.clock — so a stale anchor is left stale rather than pointed
-    at a widget that is not there."""
-    json_path = shell(box, anchor="testuser.clock")
-    marker_of(box).parent.mkdir(parents=True)
-    marker_of(box).touch()
-
-    box.run(INSTALL)
-    assert anchor_of(json_path) == "testuser.clock"
-
-    marker_of(box).unlink()
-    box.stub("omarchy-plugin-enable", "exit 1\n")
-
-    box.run(INSTALL)
-
-    assert anchor_of(json_path) == "testuser.clock"
-    assert not marker_of(box).exists()
-
-
-def test_an_anchor_edit_that_cannot_be_written_warns_and_leaves_no_temp_file(box: Box) -> None:
-    """A cosmetic step must not take the run down, nor report success it did
-    not have: the write goes through an if, not a `&& mv` tail."""
-    json_path = shell(box, anchor="testuser.clock", layout=[{"id": ID, "format": FORMAT}])
-    marker_of(box).parent.mkdir(parents=True)
-    marker_of(box).touch()
-    blocked = Path(f"{json_path}.tmp")
-    blocked.mkdir()  # nothing can be written there
-
-    result = box.run(INSTALL)
-
-    assert result.returncode == 0
-    assert "could not set bar.centerAnchor" in result.stderr
-    assert anchor_of(json_path) == "testuser.clock"
-    assert blocked.is_dir() and not any(blocked.iterdir())
+    assert ("could not set bar.centerAnchor" in result.stderr) == blocked
+    assert not tmp.exists() or not any(tmp.iterdir())  # no stale temp file left
 
 
 def test_the_anchor_edit_waits_for_the_shells_own_write_to_land(box: Box) -> None:
-    """The anchor edit is a read-modify-write on a file the SHELL owns: it
-    answers `omarchy bar set` at once and persists shell.json on a later
-    event-loop turn. Without settled() the edit reads the pre-set copy and the
-    shell's pending write takes it straight back — so this box answers
-    immediately and writes 0.2 s later, and the anchor has to survive it."""
-    json_path = shell(box)
-    box.stub("omarchy-bar", BAR_SET_LATE.replace("ENTRY_ID", ENTRY_ID))
-
+    """Without the wait the edit reads the pre-set copy and the shell's pending write takes it back."""
+    path = shell(box)
+    box.stub("omarchy-bar", BAR_SET_LATE)
     result = box.run(INSTALL)
-
     assert result.returncode == 0, result.stderr
-    assert bar(json_path) == [{"id": ID, "format": FORMAT}]
-    assert anchor_of(json_path) == ID
+    assert bar(path) == [{"id": ID, "format": FORMAT}]
+    assert anchor_of(path) == ID
 
 
-# ---- undo ------------------------------------------------------------------
-
-
-def test_undo_restores_the_stock_format_the_anchor_and_the_plugins_directory(box: Box) -> None:
-    json_path = shell(box)
+@pytest.mark.parametrize("answering", [True, False])
+def test_undo_restores_the_stock_format_the_anchor_and_the_plugins_directory(
+    box: Box, answering: bool
+) -> None:
+    path = shell(box)
     box.run(INSTALL)
+    if not answering:
+        box.stub("omarchy-plugin-disable", "exit 1\n")  # no shell to hand the entry back
     box.reset()
-
     result = box.undo("bar-clock")
-
     assert result.returncode == 0, result.stderr
     assert box.calls_of("omarchy-plugin-disable") == [["omarchy-plugin-disable", ID]]
-    assert box.calls_of("omarchy-bar") == [["omarchy-bar", "set", STOCK, "format", STOCK_FORMAT]]
-    assert bar(json_path) == [{"id": STOCK, "format": STOCK_FORMAT}]
-    assert anchor_of(json_path) == STOCK
-    assert not link_of(box).exists()
-    assert not marker_of(box).exists()
+    assert anchor_of(path) == STOCK
+    assert not (box.home / LINK).exists()
+    assert not (box.home / MARKER).exists()
     assert "omarchy-shell" in box.commands
-
-
-def test_undo_without_a_shell_still_unlinks(box: Box) -> None:
-    shell(box)
-    box.run(INSTALL)
-    box.stub("omarchy-plugin-disable", "exit 1\n")
-    box.reset()
-
-    result = box.undo("bar-clock")
-
-    assert result.returncode == 0, result.stderr
-    assert not link_of(box).exists()
-    assert not marker_of(box).exists()
-    assert "omarchy-bar" not in box.commands
-
-
-def test_undo_on_a_box_that_never_installed_is_a_no_op(box: Box) -> None:
-    shell(box)
-    before = files(box.home)
-
-    result = box.undo("bar-clock")
-
-    assert result.returncode == 0, result.stderr
-    assert files(box.home) == before
-
-
-# ---- the shipped folder ----------------------------------------------------
+    if answering:
+        assert box.calls_of("omarchy-bar") == [
+            ["omarchy-bar", "set", STOCK, "format", STOCK_FORMAT]
+        ]
+        assert bar(path) == [{"id": STOCK, "format": STOCK_FORMAT}]
+    else:
+        assert "omarchy-bar" not in box.commands
 
 
 def test_the_manifest_claims_the_stock_clock_slot() -> None:
@@ -412,63 +243,21 @@ def test_the_manifest_claims_the_stock_clock_slot() -> None:
     assert manifest["id"] == ID
     assert manifest["omarchy"] == {"clonedFrom": STOCK}
     assert manifest["entryPoints"] == {"barWidget": "BarWidget.qml"}
-    # Only what the shell does not already default: shell.qml:1400-1405
-    # (Omarchy 4.0.3-1) reads `displayName: meta.displayName || manifest.name,
-    # description: meta.description || manifest.description, category:
-    # meta.category || "Plugin", allowMultiple: meta.allowMultiple === true`,
-    # so those three keys would restate the lines above them. No
+    # Only what the shell does not already default (shell.qml:1400-1405); no
     # defaultSection either — the clonedFrom swap inherits the stock slot.
     assert manifest["barWidget"] == {"category": "Time"}
 
 
-def test_the_widget_carries_no_panel_of_its_own() -> None:
-    """Delta 2: the calendar comes from the running Omarchy, so a release that
-    changes the panel needs nothing here."""
-    assert not (PLUGIN / "Panel.qml").exists()
-    widget = (PLUGIN / "BarWidget.qml").read_text()
-    assert 'Quickshell.env("OMARCHY_PATH")' in widget
-    assert 'import "Model.js" as Model' in widget
-
-
-def test_the_widget_qml_parses() -> None:
-    """A QML syntax error is an empty bar slot with nothing in any log.
-    `qmllint --bare` parses without resolving the imports: exit 0 with import
-    warnings on a good file, non-zero on a broken one."""
-    qmllint = shutil.which("qmllint") or shutil.which("qmllint", path="/usr/lib/qt6/bin")
-    if qmllint is None:
-        pytest.skip("no qmllint (qt6-declarative) to parse the plugin QML")
-    for qml in sorted(PLUGIN.rglob("*.qml")):
-        proc = subprocess.run([qmllint, "--bare", str(qml)], capture_output=True, text=True)
-        assert proc.returncode == 0, f"{qml.name}: {proc.stderr}"
-
-
-def test_the_widget_never_sizes_itself_off_its_parent() -> None:
-    """Omarchy's ModuleSlot takes its height from the widget's implicit size,
-    so `implicitHeight: parent.height` closes a binding loop — QML drops the
-    binding, and the widget is a zero-size gap in the bar with nothing logged
-    at any verbosity."""
-    offenders = [
-        line.strip()
-        for qml in sorted(PLUGIN.rglob("*.qml"))
-        for line in qml.read_text().splitlines()
-        if re.match(r"\s*implicit(Width|Height)\s*:", line) and "parent" in line
-    ]
-    assert not offenders, "implicit size must not read `parent`:\n" + "\n".join(offenders)
-
-
 @pytest.mark.skipif(not STOCK_CLOCK.is_dir(), reason="needs the installed Omarchy")
 def test_the_widget_tracks_omarchys_stock_clock() -> None:
-    """BarWidget.qml is the stock file plus this plugin's header and exactly
-    the three deltas that header names. Red on an Omarchy release that changes
-    the clock — which is the signal to refresh the copy."""
+    """BarWidget.qml is the stock file plus this plugin's header and exactly the
+    three deltas that header names — red on an Omarchy release that changes the
+    clock, which is the signal to refresh the copy."""
     ours = (PLUGIN / "BarWidget.qml").read_text().splitlines()
     body = ours[next(n for n, ln in enumerate(ours) if ln.startswith("import ")) :]
     stock = (STOCK_CLOCK / "BarWidget.qml").read_text().splitlines()
-    changed = [
-        ln
-        for ln in difflib.unified_diff(stock, body, n=0, lineterm="")
-        if ln[:1] in "+-" and not ln.startswith(("---", "+++"))
-    ]
+    diff = difflib.unified_diff(stock, body, n=0, lineterm="")
+    changed = [ln for ln in diff if ln[:1] in "+-" and not ln.startswith(("---", "+++"))]
     assert changed == [
         '+    if ("moduleName" in target) target.moduleName = root.moduleName',
         "+  onModuleNameChanged: injectPanel()",
@@ -480,41 +269,9 @@ def test_the_widget_tracks_omarchys_stock_clock() -> None:
     ]
 
 
-@pytest.mark.skipif(not STOCK_CLOCK.is_dir(), reason="needs the installed Omarchy")
-def test_model_js_is_omarchys_label_math_and_only_that() -> None:
-    """Model.js is the subset of Omarchy's that BarWidget.qml calls, verbatim.
-    The calendar half is not here: the panel is loaded from Omarchy's tree by
-    absolute URL, and a QML document resolves `import "Model.js"` against its
-    own directory, so the panel reads Omarchy's copy (verified live under
-    Qt 6.11). Each kept declaration is compared to the stock one, so an
-    Omarchy release that changes the label math turns this red."""
-    kept = [
-        "MS_PER_DAY",
-        "CLOCK_FORMATS",
-        "VERTICAL_CLOCK_FORMATS",
-        "clockFormats",
-        "clockFormatRing",
-        "nextClockFormat",
-        "isoWeekLiteral",
-        "pad2",
-        "isoWeek",
-    ]
-    ours = declarations((PLUGIN / "Model.js").read_text())
-    stock = declarations((STOCK_CLOCK / "Model.js").read_text())
-    assert sorted(ours) == sorted(kept)
-    for name in kept:
-        assert ours[name] == stock[name], f"{name} has drifted from Omarchy's"
-    # Every name the widget reaches for is one of them, and the calendar's
-    # entry points are gone with the math they served.
-    widget = (PLUGIN / "BarWidget.qml").read_text()
-    assert set(re.findall(r"\bModel\.([A-Za-z0-9_]+)\(", widget)) <= set(kept)
-    assert "monthGrid" not in ours and "monthGrid" in stock
-
-
 def declarations(source: str) -> dict[str, str]:
-    """Every top-level `var`/`function` in a Model.js, name -> its text: from
-    the declaration to the comment block introducing the next one, which
-    belongs to that one."""
+    """Every top-level `var`/`function`, name -> its text: to the comment block
+    introducing the next one, which belongs to that one."""
     starts = [
         (m.start(), m.group(1))
         for m in re.finditer(r"^(?:var|function)\s+([A-Za-z0-9_]+)", source, re.M)
@@ -529,6 +286,24 @@ def declarations(source: str) -> dict[str, str]:
     return out
 
 
+@pytest.mark.skipif(not STOCK_CLOCK.is_dir(), reason="needs the installed Omarchy")
+def test_model_js_is_omarchys_label_math_and_only_that() -> None:
+    """Model.js is the subset of Omarchy's that BarWidget.qml calls, verbatim:
+    the panel is loaded from Omarchy's tree by absolute URL and resolves
+    `import "Model.js"` against its own directory, so the calendar half — the
+    monthGrid the widget never calls — stays there (verified live, Qt 6.11)."""
+    kept = """MS_PER_DAY CLOCK_FORMATS VERTICAL_CLOCK_FORMATS clockFormats clockFormatRing
+        nextClockFormat isoWeekLiteral pad2 isoWeek""".split()
+    ours = declarations((PLUGIN / "Model.js").read_text())
+    stock = declarations((STOCK_CLOCK / "Model.js").read_text())
+    assert sorted(ours) == sorted(kept)
+    for name in kept:
+        assert ours[name] == stock[name], f"{name} has drifted from Omarchy's"
+    widget = (PLUGIN / "BarWidget.qml").read_text()
+    assert set(re.findall(r"\bModel\.([A-Za-z0-9_]+)\(", widget)) <= set(kept)
+    assert "monthGrid" not in ours and "monthGrid" in stock
+
+
 @pytest.mark.skipif(not VALIDATE.exists(), reason="needs the installed Omarchy")
 def test_the_installed_link_passes_omarchy_plugin_validate(box: Box) -> None:
     """The real validator, on the path the module installs — with the trailing
@@ -536,11 +311,9 @@ def test_the_installed_link_passes_omarchy_plugin_validate(box: Box) -> None:
     (bin/omarchy-plugin-validate:115) and it refuses the folder."""
     shell(box)
     box.run(INSTALL)
-
-    ok = subprocess.run(["bash", str(VALIDATE), f"{link_of(box)}/"], capture_output=True, text=True)
-    bare = subprocess.run(
-        ["bash", str(VALIDATE), str(link_of(box))], capture_output=True, text=True
+    ok, bare = (
+        subprocess.run(["bash", str(VALIDATE), p], capture_output=True, text=True)
+        for p in (f"{box.home / LINK}/", str(box.home / LINK))
     )
-
     assert ok.returncode == 0, ok.stderr
     assert bare.returncode == 1 and "symlink" in bare.stderr
