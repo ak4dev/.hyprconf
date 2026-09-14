@@ -33,7 +33,7 @@ fi
 
 mkdir -p "$bin"
 if [[ $(readlink "$dst" 2>/dev/null) != "$src" ]]; then
-    # -f replaces the pre-module copy install.sh's stage_bin left here, -n
+    # -f replaces the rendered copy a hyprconf 7.x install.sh left here, -n
     # keeps a link to a directory from being followed.
     ln -sfn "$src" "$dst"
     echo "  $tool on PATH — on a dual-GPU box: $tool status, then $tool fix"

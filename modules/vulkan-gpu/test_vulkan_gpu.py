@@ -194,7 +194,7 @@ def test_a_second_run_writes_nothing(box: Box) -> None:
 
 
 def test_install_replaces_the_pre_module_copy(box: Box) -> None:
-    """install.sh's stage_bin left a rendered regular file at that name."""
+    """A hyprconf 7.x install.sh left a rendered regular file at that name."""
     linked_tool(box).parent.mkdir(parents=True)
     linked_tool(box).write_text("#!/usr/bin/env bash\n# an older, copied hyprconf-vulkan-gpu\n")
     assert box.run(INSTALL).returncode == 0

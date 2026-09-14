@@ -18,9 +18,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 
 | Layer | What you get |
 |---|---|
-| Hotkeys | hyprconf's keymap in `~/.config/hypr/bindings.lua`, with descriptions so it shows in Omarchy's `SUPER+K` menu |
-| Look'n'feel + input | Tighter gaps, hairline rounding, blur/shadow, fade workspace animation, natural scroll, 3-finger swipe; Steam tiles like every other window |
-| Monitor presets | `bedroom` / `kitchen` / `laptop`, hot-swapped with a hotkey (`hyprconf-monitor-preset`) through Omarchy's Hyprland toggles directory — Omarchy's `monitors.lua` is never touched |
+| Hyprland | hyprconf's keymap in `~/.config/hypr/bindings.lua` (with descriptions, so it shows in Omarchy's `SUPER+K` menu); tighter gaps, hairline rounding, blur/shadow, fade workspace animation, natural scroll, 3-finger swipe, Steam tiled like every other window; the `bedroom` / `kitchen` / `laptop` monitor presets, hot-swapped on a hotkey through Omarchy's Hyprland toggles directory — Omarchy's `monitors.lua` is never touched ([`modules/hypr`](modules/hypr/README.md)) |
 | Bar widgets | A clock that ticks seconds, active-only workspaces on two lines with a Pac-Man on the focused one, the focused window's title, a CPU/temp/mem/GPU/net readout — all as Omarchy shell plugins |
 | Terminal + shell | kitty as the default terminal, with two preferences as an include ([`modules/terminal-kitty`](modules/terminal-kitty/README.md)), running zsh + Powerlevel10k *inside* the terminal, no framework in between ([`modules/shell-zsh`](modules/shell-zsh/README.md)) |
 | Greeting | hyprconf's `fastfetch` layout in the shell, at a path of its own — Omarchy's About screen stays stock ([`modules/fastfetch`](modules/fastfetch/README.md)) |
@@ -57,8 +55,9 @@ bash ~/.hyprconf/install.sh
 
 | Flag | Effect |
 |---|---|
-| *(none)* | Apply every stage once. Idempotent — re-running is how you pick up changes. |
-| `--sync` | `git pull --ff-only` the checkout (after undoing any `omarchy refresh` that landed on it — see Sync), re-apply, then run `omarchy-update` — whose post-update hook re-applies the overlay once more, after Omarchy's migrations. This is what the `hyprsync` alias runs. It applies whatever `stable` now carries with no review step — the two root writes (the Keychron udev rule, the Firefox policy) included, which is the trade-off of a clone-only, https-pinned overlay (AGENTS.md rule 8). |
+| *(none)* | Apply every module once. Idempotent — re-running is how you pick up changes. |
+| `<module>…` | Apply only the modules named — the re-apply after an edit to that module's files, e.g. `hyprconf hypr`. A name that is not a directory under `modules/` is refused before anything runs. |
+| `--sync` | `git pull --ff-only` the checkout, re-apply, then run `omarchy-update` — whose post-update hook re-applies the overlay once more, after Omarchy's migrations. This is what the `hyprsync` alias runs. It applies whatever `stable` now carries with no review step — the two root writes (the Keychron udev rule, the Firefox policy) included, which is the trade-off of a clone-only, https-pinned overlay (AGENTS.md rule 8). |
 | `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook, which already runs inside an update. |
 | `--no-packages` | Skip everything that needs `sudo`: every module's packages and its own root work. `install.sh` itself asks for none. Exported to the modules as `HYPRCONF_NO_SUDO`, which each one honours itself — they say so in one line and carry on. The hook passes this too. |
 | `-h`, `--help` | Usage: both forms and the three variables. On the curl path it answers from the served copy — nothing is cloned. |
@@ -67,16 +66,13 @@ bash ~/.hyprconf/install.sh
 
 | Stage | Changes | Mechanism |
 |---|---|---|
-| hotkeys | `~/.config/hypr/bindings.lua` → `hypr/bindings.lua` | Symlink (whatever was there first — Omarchy's stock file, or a dotfiles link of your own, copied as a link — backed up to `bindings.lua.stock`). The hotkey tools are `bin/` commands (below) |
-| looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups, a link of your own kept as a link) |
-| monitors | Seeds the three presets into `~/.config/hypr/` | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. Omarchy's `monitors.lua` is never touched, a symlinked one included (a stow-style dotfiles link is yours) |
-| bin | Every `bin/hyprconf-*` tool → `~/.local/bin/`: `hyprconf-monitor-preset` and `hyprconf-gaps`, the two hotkey tools — plus `~/.local/bin/hyprconf`, a symlink to `install.sh` itself, which is what `hyprsync` (`hyprconf --sync`) runs | Copied, with `@HYPRCONF_DIR@` substituted for the checkout path; `bindings.lua` binds the hotkey tools by name, the way Omarchy binds its own commands. The resources widget's two feeders are not here: they ship inside [`modules/bar-resources`](modules/bar-resources/README.md)'s own plugin folder and land with it |
+| link | `~/.local/bin/hyprconf` → `install.sh` | A symlink, re-pointed only when it is wrong: what `hyprsync` (`hyprconf --sync`) and `hyprconf <module>` run. Every `hyprconf-*` tool is a module's, linked into the same directory by that module ([`hypr`](modules/hypr/README.md), [`vulkan-gpu`](modules/vulkan-gpu/README.md), [`yubikey`](modules/yubikey/README.md)) |
 | hooks | `~/.config/omarchy/hooks/post-update.d/10-hyprconf` | `omarchy hook install <type> <file>` (Omarchy's own: mkdir, copy under the file's basename, `chmod 755`) on a copy rendered with `@HYPRCONF_DIR@` substituted. It re-runs `install.sh --no-update --no-packages` after every `omarchy-update`. The theme-set hook is [`modules/firefox-theme`](modules/firefox-theme/README.md)'s, which installs its own |
-| *(end)* | `hyprctl reload`; with `--sync`, `omarchy-update` | `hyprctl reload` re-reads the Hyprland files the stages above wrote, tolerated failing (no compositor on a TTY). A bar widget needs no reload from here: each `bar-*` module rescans the shell itself as it syncs its own folder |
+| *(end)* | with `--sync`, `omarchy-update` | Nothing else: [`modules/hypr`](modules/hypr/README.md) reloads Hyprland itself when a copy changed, and each `bar-*` module rescans the shell as it syncs its own folder |
 
 ### Modules
 
-Each row is a self-contained directory under `modules/` — its own `install`, `README.md`, tests and payload. `install.sh` runs every one of them; to install (or re-install) just one, take `<name>` from the first column:
+Each row is a self-contained directory under `modules/` — its own `install`, `README.md`, tests and payload. `install.sh` runs every one of them; from a checkout, `hyprconf <name>` re-runs just one. To install one on its own, take `<name>` from the first column:
 
 ```bash
 git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf \
@@ -92,6 +88,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | [`fastfetch`](modules/fastfetch/README.md) | The shell greeting's layout, copied to `~/.config/hyprconf/fastfetch.jsonc` — a path only the shell reads, so Omarchy's About screen keeps its own | `bash ~/.hyprconf/modules/fastfetch/install undo` |
 | [`firefox`](modules/firefox/README.md) | Firefox through Omarchy's own installer when it is absent, one system policy at `/etc/firefox/policies/policies.json` — Omarchy's own `default/firefox/policies.json` merged **under** hyprconf's (extensions, search engine, privacy and UI settings) — and `firefox` as the default browser, **set once**. The policy needs `sudo` and a terminal | `bash ~/.hyprconf/modules/firefox/install undo` — drops the policy and the marker; Firefox stays installed |
 | [`firefox-theme`](modules/firefox-theme/README.md) | Every `omarchy theme set` reaches Firefox too — Omarchy's fan-out is Chromium-only. A user template Omarchy's own engine renders, a `theme-set` hook that copies the render into the profile Firefox starts and rewrites three `user_pref` lines. Takes effect at the next Firefox start | `bash ~/.hyprconf/modules/firefox-theme/install undo` — hook, template, render and each profile's `chrome/userChrome.css` and three prefs |
+| [`hypr`](modules/hypr/README.md) | The keymap, the look'n'feel and input deltas and the three monitor presets: `bindings.lua`, `input.lua` and `looknfeel.lua` **copied** into `~/.config/hypr/` (`require`d after Omarchy's defaults, deltas only; an `omarchy refresh` lands on the copy and the next run puts it back — edit in the checkout, then `hyprconf hypr`), the `*Monitors*.lua` presets seeded once and never overwritten, and `hyprconf-gaps` / `hyprconf-monitor-preset` linked into `~/.local/bin`. Omarchy's `monitors.lua` is never touched | `bash ~/.hyprconf/modules/hypr/install undo` — `stock` layout, Omarchy's own template back at each of the three paths (no `.bak`), presets and tool links gone |
 | [`font`](modules/font/README.md) | The system monospace becomes GeistMono Nerd Font — **set once**. Installs `otf-geist-mono-nerd` (official repos, `omarchy-pkg-add`) when it is missing, which needs `sudo` and a terminal | `bash ~/.hyprconf/modules/font/install undo` — drops the marker and prints the `omarchy font set 'JetBrainsMono Nerd Font'` to run (the setter restarts the shell, so it stays yours) |
 | [`idle`](modules/idle/README.md) | The screensaver starts after **15 min** instead of Omarchy's 150 s (`idle.screensaver` in `~/.config/omarchy/shell.json`; the lock timeout is left alone) — **set once** | `bash ~/.hyprconf/modules/idle/install undo` |
 | [`keychron`](modules/keychron/README.md) | One udev rule at `/etc/udev/rules.d/70-keychron.rules` so the WebHID launcher can reach Keychron (`0x3434`) and Lemokey (`0x362d`) boards and mice. Needs `sudo` and a terminal | `bash ~/.hyprconf/modules/keychron/install undo` |
@@ -118,29 +115,12 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 ```
 
 - **After `omarchy-update`** the post-update hook re-applies the overlay automatically (a migration replaces `bindings.lua` when it hash-matches stock; `omarchy refresh config kitty/kitty.conf` drops the `include` line) — under `hyprsync` too, where that second apply is the one that outlives the migrations, which run between `--sync`'s own apply and the hook.
-- **`omarchy refresh config hypr/<file>` / `omarchy refresh hyprland` write *through* the symlinks** into the checkout. `install.sh` detects a `hypr/*.lua` that is byte-identical to Omarchy's stock template (the installed one, or the last one the installer saw — cached under `~/.local/state/hyprconf/stock/`, so an Omarchy release that changes the template cannot turn an unrepaired refresh into a permanent one; the cache is best-effort — one it cannot write is a warning, not a failed run, and the guard falls back to the installed template) and restores it with `git checkout` — `--sync` does this before its pull, so a refreshed file never blocks the fast-forward. `monitors.lua` is Omarchy's own real file, so a refresh of it lands where it should.
-- **Edit workflow:** the files in `~/.hyprconf/hypr/` *are* the live files — edit them there, then `bash install.sh` (or `hyprsync`) after a pull or a refresh.
+- **`omarchy refresh config hypr/<file>` / `omarchy refresh hyprland`** land on the copies in `~/.config/hypr/` — the checkout is never touched — and the next run puts hyprconf's back: `hyprconf hypr`, or the post-update hook.
+- **Edit workflow:** the Hyprland files are copies of `~/.hyprconf/modules/hypr/*.lua` — edit them in the checkout, then `hyprconf hypr`; `bash install.sh` (or `hyprsync`) re-applies everything after a pull.
 
 ## Repository layout
 
-The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `hypr/`, `bin/` and `hooks/` land in `$HOME` (the `hypr/*.lua` overrides as symlinks into the checkout). `modules/` is one directory per module, each shipping its own payload — what it writes and how to undo it is in that module's own `README.md`, the system Firefox policy ([`modules/firefox`](modules/firefox/README.md)) included.
-
-## Monitor presets
-
-| Preset | File | Hotkey |
-|---|---|---|
-| `bedroom` | `~/.config/hypr/pcMonitors.bedroom.lua` | `SUPER+SHIFT+B` |
-| `kitchen` | `~/.config/hypr/pcMonitors.kitchen.lua` | `SUPER+SHIFT+K` |
-| `laptop` | `~/.config/hypr/laptopMonitors.lua` | — |
-| `stock` | — (`omarchy-hyprland-toggle hyprconf-monitor-preset off` removes the toggle file; Omarchy's `monitors.lua` alone speaks) | — |
-
-```bash
-hyprconf-monitor-preset <preset>
-```
-
-`hyprconf-monitor-preset` copies the preset (never links it) to `~/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua` — Omarchy's Hyprland toggles directory, which its `default/hypr/toggles.lua` loads (`require_all`, reloaded on every `hyprctl reload`) *after* `~/.config/hypr/monitors.lua` in `hyprland.lua`, so a later `hl.monitor` for the same output wins; it is the seam Omarchy's own `omarchy-hyprland-monitor-internal` toggle writes to. Then `hyprctl reload`, then it walks the preset's `hl.workspace_rule` lines and moves each existing workspace to its monitor (a reload only places *future* workspaces). Dark outputs get a `dpms` wake retry. Feedback goes through `omarchy-osd` and `omarchy-notification-send`. `stock` is that toggle's own `off`, so it runs `omarchy-hyprland-toggle hyprconf-monitor-preset off` rather than a copy of it (the `on` half cannot be reused: it reads only `$OMARCHY_PATH/default/hypr/toggles/`). Omarchy's `monitors.lua` is never touched, so `omarchy-hyprland-monitor-scaling` and `omarchy refresh` keep working on their own file. Each preset carries its workspace-to-monitor rules, and edits to a preset survive re-selecting it.
-
-The two desk presets name their displays by **description** (`output = "desc:<make> <model>"`), not by connector. `DP-N`/`HDMI-A-N` numbering follows the GPU the session drives the displays through — probe order, `AQ_DRM_DEVICES`, cabling — so moving a cable between two GPUs renumbers every connector and a connector-keyed preset lights nothing. A description follows the panel. `desc:` prefix-matches Hyprland's `"<make> <model> <serial>"` string, so make + model is enough and the serial stays out of a tracked file. Both presets end with an `output = ""` catch-all so an unrecognised display comes up at its preferred mode rather than staying dark; named rules win over it whatever the order, disables included. `laptop` stays connector-keyed — it describes no particular hardware.
+The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `install.sh` itself puts only the `hooks/` post-update hook and the `~/.local/bin/hyprconf` link in `$HOME`; `modules/` is one directory per module, each shipping its own payload — what it writes and how to undo it is in that module's own `README.md`, the system Firefox policy ([`modules/firefox`](modules/firefox/README.md)) included.
 
 ## Bar widgets
 
@@ -154,92 +134,6 @@ The two desk presets name their displays by **description** (`output = "desc:<ma
 Every widget is *enabled* once, and the clock's format and anchor are set once — disabling any of them sticks. Each of the four modules **symlinks** its plugin folder into `~/.config/omarchy/plugins/` and asks the shell to rescan on every run, so a `git pull` in the checkout is the update: the third-party scan follows a link but the shell's own file watch does not descend one, and the rescan is what carries a change into the running bar. `omarchy bar set hyprconf.clock format 'HH:mm'` reformats the clock.
 
 Each `modules/bar-*/plugin` folder is also a plugin on its own — `manifest.json` at its root, a `README.md` with its install line, dependencies and settings, and where the code is Omarchy's a `NOTICE` with its MIT notice — installable on any Omarchy box on its own: today by Omarchy's by-hand path (copy the folder to `~/.config/omarchy/plugins/hyprconf.<id>`, `omarchy-shell shell rescanPlugins`, `omarchy plugin enable hyprconf.<id>` — `/usr/share/omarchy/shell/README.md` › Installing by hand), and with `omarchy plugin add <url> --enable --yes` once the repositories are split out (CONTRIBUTING › Publishing a plugin) — `--yes` there because `omarchy-plugin-add`'s bar-section question would otherwise move a `clonedFrom` widget out of the stock slot it just took. A folder `omarchy plugin add` cloned (it has a `.git`) is Omarchy's — `omarchy plugin update` fast-forwards it and the module leaves it alone with a note. To take a widget off the bar use `omarchy plugin disable <id>` (a `clonedFrom` copy hands its slot back to the stock widget); `omarchy plugin remove <id>` unlinks the module's folder rather than deleting it, and the next run links it back — disabled, since the enable was set once.
-
-## Keybindings
-
-`mainMod` is `SUPER`. Everything below is bound with `o.bind` (Omarchy's helper, which records the description for `SUPER+K`); keys hyprconf takes over from Omarchy are unbound first, including Omarchy's keycode-form binds (`code:10…21`), so only one binding fires. Omarchy's launchers are named the way Omarchy's own bindings name them (`{ omarchy = "terminal" }` → `omarchy-launch-terminal`), and hyprconf's own tools by command name from `~/.local/bin`, the way Omarchy binds its commands. The keymap is `hypr/bindings.lua` — edit it there, one bind per line.
-
-### Applications
-
-| Key | Action |
-|---|---|
-| `SUPER+T` | Terminal (`omarchy-launch-terminal` — follows `omarchy default terminal`) |
-| `SUPER+F` | Browser (`omarchy-launch-browser`) |
-| `SUPER+C` | Editor (`omarchy-launch-editor`) |
-| `SUPER+E` | File manager (`omarchy-launch-nautilus`) |
-| `SUPER+D` | Omarchy menu (`omarchy-menu toggle`) — Omarchy's own menu key is `SUPER+SPACE`, which stays |
-
-### Windows
-
-| Key | Action |
-|---|---|
-| `SUPER+Q` | Close window |
-| `SUPER+SHIFT+Q` | Log out (`omarchy-system-logout`) |
-| `SUPER+V` / `SUPER+SHIFT+SPACE` | Toggle window floating |
-| `SUPER+SHIFT+F` | Full screen |
-| `SUPER+SHIFT+← → ↑ ↓` | Shrink/expand window (repeating) |
-| `SUPER+SHIFT+A / D / W / S` | Move window left / right / up / down — and onto the neighbouring monitor when there is no window that way |
-| `SUPER+SHIFT+=` / `SUPER+SHIFT+-` | Increase / decrease window gaps (`hyprconf-gaps`, runtime only — a reload restores the configured values) |
-
-### Workspaces
-
-| Key | Action |
-|---|---|
-| `SUPER+1, 2, 5–0` | Switch to workspace 1, 2, 5–10 |
-| `SUPER+F1` / `SUPER+F2` | Switch to workspace 3 / 4 |
-| `SUPER+SHIFT+1, 2, 5–0` | Move window to workspace 1, 2, 5–10 |
-| `SUPER+SHIFT+F1` / `SUPER+SHIFT+F2` | Move window to workspace 3 / 4 |
-| `SUPER+3` / `SUPER+4` / `SUPER+SHIFT+3` | Left to Omarchy (workspace 3 / 4; move window to 3) |
-| `SUPER+M` / `SUPER+SHIFT+M` | Toggle magic scratchpad / move window to it |
-
-### System
-
-| Key | Action |
-|---|---|
-| `SUPER+L` / `SUPER+SHIFT+Escape` | Lock system (`omarchy-system-lock`) |
-| `SUPER+SHIFT+4` | Screenshot region (`omarchy-capture-screenshot region`) |
-| `SUPER+SHIFT+V` | Clipboard history (`omarchy-menu-clipboard`) |
-| `SUPER+SHIFT+BACKSPACE` | Toggle laptop display (`omarchy-hyprland-monitor-internal toggle`) |
-| `SUPER+SHIFT+B` / `SUPER+SHIFT+K` | Monitor preset bedroom / kitchen |
-
-**Left to Omarchy on purpose:** volume, brightness and media keys (Omarchy's drive its OSD and media service), `SUPER+K`, `SUPER+SPACE`, `SUPER+3`/`4`, `SUPER+SHIFT+3` — and its own `SUPER+P` (pseudo), `SUPER+← → ↑ ↓` (focus), `SUPER+scroll` (workspace scroll) and `SUPER+LMB`/`RMB` drag (move/resize), which hyprconf does not restate (`default/hypr/bindings/tiling.lua`). **Displaced Omarchy defaults** (`/usr/share/omarchy/default/hypr/bindings/*.lua`; each still reachable by command or by another Omarchy key):
-
-| Key | Omarchy's binding | Still available as |
-|---|---|---|
-| `SUPER+T` | Toggle window floating | hyprconf's `SUPER+V` |
-| `SUPER+F` | Full screen | hyprconf's `SUPER+SHIFT+F` |
-| `SUPER+C` / `SUPER+V` | Universal copy / paste | `CTRL+C` / `CTRL+V` in the app |
-| `SUPER+SHIFT+F` | File manager (`omarchy-launch-nautilus`) | hyprconf's `SUPER+E`; Omarchy's `SUPER+ALT+SHIFT+F` (cwd) |
-| `SUPER+SHIFT+B` | Browser (`omarchy-launch-browser`) | hyprconf's `SUPER+F`; Omarchy's `SUPER+SHIFT+RETURN` |
-| `SUPER+SHIFT+← → ↑ ↓` | Swap window | Nothing binds swap any more — hyprconf's `SUPER+SHIFT+A / D / W / S` *moves* the window in the layout instead, which in a two-window split reads the same and, unlike swap, also crosses to the next monitor |
-| `SUPER+SHIFT+-` / `SUPER+SHIFT+=` | Shrink window up / expand window down (keycode binds `code:20`/`code:21`) | Omarchy's `SUPER+SHIFT+ALT+-`/`=` (a little) and `SUPER+CTRL+SHIFT+-`/`=` (a lot) |
-| `SUPER+SHIFT+4` | Move window to workspace 4 (`SUPER+SHIFT+code:13`) | hyprconf's `SUPER+SHIFT+F2` |
-| `SUPER+SHIFT+SPACE` | Toggle top bar | `omarchy toggle bar` |
-| `SUPER+L` | Toggle workspace layout | `omarchy-hyprland-workspace-layout-toggle`; lock stays on Omarchy's `SUPER+CTRL+L` too |
-| `SUPER+SHIFT+BACKSPACE` | Toggle window gaps | `omarchy-hyprland-window-gaps-toggle` |
-| `SUPER+SHIFT+A` / `D` / `W` / `S` / `M` | ChatGPT / Docker / Omawrite / Google Maps / Music — only while Omarchy's preinstalled-app bindings are on (`o.preinstalled_bindings_enabled()`: until `~/.local/state/omarchy/preinstalls-removed` exists) | `omarchy-launch-webapp`, `omarchy-launch-docker-tui` (lazydocker behind Omarchy's polkit gate — the socket is root-owned), `omawrite`, `omarchy-launch-spotify` |
-
-## Look'n'feel and input deltas
-
-Only what differs from `/usr/share/omarchy/default/hypr/`:
-
-| File | Setting | hyprconf | Omarchy |
-|---|---|---|---|
-| `looknfeel.lua` | `general.gaps_in` / `gaps_out` | 3 / 3 | 5 / 10 |
-| | `decoration.rounding` / `rounding_power` | 1 / 3 | 0 / – |
-| | `decoration.inactive_opacity` | 0.8 | 1 |
-| | `decoration.shadow` | on | off |
-| | `decoration.blur` | on (size 3, passes 4) | off |
-| | animations | `windows` easeOutQuint 4.79; `workspaces`/`In`/`Out` fade | workspaces animation off |
-| | `dwindle.force_split` / `precise_mouse_move` / `smart_split` | 0 / true / true | 2 / – / – |
-| | window rules: class `steam` | **tiled** (`o.window("steam", { tile = true })`; the Friends List stays floating) | every Steam window floats (`default/hypr/apps/steam.lua`) |
-| `input.lua` | `input.natural_scroll` + `touchpad.natural_scroll` | true | false |
-| | `hl.gesture` 3-finger horizontal → workspace | on | – |
-| | `gestures.workspace_swipe_min_speed_to_force` / `workspace_swipe_forever` | 15 / true | – (Hyprland: 30 / false) |
-
-`inactive_opacity` is not what you see: Omarchy tags every window `+default-opacity` and applies `opacity = "0.985 0.96"` to the tag (`default/hypr/windows.lua:6, 25`), and a window rule's `opacity` multiplies the global setting unless `override` is given — so an ordinary inactive window lands near 0.77, and only the apps Omarchy opts out of the tag (`opacity = "1 1"`: steam, qemu) show the full 0.8.
-
-Border and shadow colours stay with the active Omarchy theme; keyboard layout stays with Omarchy's `input.lua` logic.
 
 ## Packages
 
@@ -266,9 +160,8 @@ bash ~/.hyprconf/modules/bar-clock/install undo   # disable, `omarchy.clock`'s f
 bash ~/.hyprconf/modules/bar-workspaces/install undo
 bash ~/.hyprconf/modules/bar-resources/install undo
 bash ~/.hyprconf/modules/bar-active-window/install undo
-hyprconf-monitor-preset stock   # removes ~/.local/state/omarchy/toggles/hypr/hyprconf-monitor-preset.lua
-for f in bindings input looknfeel; do mv ~/.config/hypr/$f.lua.stock ~/.config/hypr/$f.lua; done
-rm ~/.config/hypr/{pcMonitors*,laptopMonitors}.lua
+bash ~/.hyprconf/modules/hypr/install undo   # the `stock` layout, Omarchy's own template back at each of the three override paths, the seeded presets and the two tool links gone
+rm -f ~/.config/hypr/{bindings,input,looknfeel}.lua.stock   # only a machine installed before 8.0 has them: the backups the symlink era kept, dead now — as is ~/.local/state/hyprconf/stock/, which the rm -rf below removes
 rm ~/.config/omarchy/hooks/post-update.d/10-hyprconf
 rm ~/.local/bin/hyprconf ~/.local/bin/hyprconf-*
 rm -rf ~/.config/omarchy/plugins/{hyprconf.*,.hyprconf.*.bak.*} ~/.local/state/hyprconf   # the four hyprconf.* entries are symlinks into the checkout; the dot-prefixed .bak.<timestamp> dirs are folders a module moved aside, or what `omarchy plugin remove` leaves of a non-git one
@@ -278,7 +171,7 @@ omarchy default terminal <name>; omarchy default editor <name>; omarchy font set
 
 Each module undoes itself: the Undo column of the Modules table above, or `bash ~/.hyprconf/modules/<name>/install undo`.
 
-Then delete `~/.hyprconf` — and `~/.oh-my-zsh`, if a hyprconf 7.x or earlier put one there (nothing installs or uses it now). Do not `omarchy refresh hyprland` instead of the `mv` line: it also overwrites `hyprland.lua`, `autostart.lua` and `monitors.lua` with Omarchy's templates.
+Then delete `~/.hyprconf` — and `~/.oh-my-zsh`, if a hyprconf 7.x or earlier put one there (nothing installs or uses it now). Do not `omarchy refresh hyprland` instead of the hypr module's undo: it also overwrites `hyprland.lua`, `autostart.lua` and `monitors.lua` with Omarchy's templates.
 
 ## Testing & development
 

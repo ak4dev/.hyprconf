@@ -24,10 +24,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "install.sh"
 HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
 
-# Where hyprconf-monitor-preset puts the chosen preset: Omarchy's Hyprland
-# toggles directory, loaded after ~/.config/hypr/monitors.lua.
-TOGGLE = Path(".local") / "state" / "omarchy" / "toggles" / "hypr" / "hyprconf-monitor-preset.lua"
-
 # A recording stub: appends its own name + args to the calls log, then runs an
 # optional body. One template covers every external the installer touches.
 STUB = """#!/usr/bin/env bash
@@ -41,15 +37,6 @@ printf '%s\\n' "${{0##*/}} $*" >> "{calls}"
 HOOK_INSTALL = (
     'd="$HOME/.config/omarchy/hooks/$1.d"; mkdir -p "$d"; cp "$2" "$d/${2##*/}"; '
     'chmod 755 "$d/${2##*/}"'
-)
-
-# Every monitor preset the overlay ships, by the name hyprconf-monitor-preset
-# answers to. Each carries the workspace-to-monitor rules for its layout, so
-# they travel as whole files; stage_monitors seeds them all.
-PRESETS = (
-    ("bedroom", "pcMonitors.bedroom.lua"),
-    ("kitchen", "pcMonitors.kitchen.lua"),
-    ("laptop", "laptopMonitors.lua"),
 )
 
 
@@ -141,14 +128,9 @@ OMARCHY_STUBS = (
     "omarchy-install-browser",
     "omarchy-install-editor-vscode",
     "sudo",
+    # modules/hypr reloads Hyprland once its copies land; the real one would
+    # reload the developer's own compositor from a test run.
     "hyprctl",
-    # hyprconf-monitor-preset (run by several tests here) reports through these;
-    # the real ones would put a notification and an OSD on the developer's
-    # desktop every time the suite runs. Its `stock` hands over to
-    # omarchy-hyprland-toggle, which would reload the developer's Hyprland.
-    "omarchy-notification-send",
-    "omarchy-osd",
-    "omarchy-hyprland-toggle",
     # Asserted never to run: pacman directly (the container has a real
     # one; a call must be seen, not reach it).
     "pacman",
@@ -238,7 +220,8 @@ def _setup(tmp_path: Path) -> dict:
     # `clone` must materialise a directory; everything else is a no-op.
     _stub(bins / "git", calls, 'if [ "$1" = clone ]; then mkdir -p "${@: -1}"; fi; exit 0')
 
-    # Seed the parts of a fresh Omarchy $HOME the installer interacts with.
+    # Seed the parts of a fresh Omarchy $HOME the installer interacts with:
+    # Omarchy's three stock override files, which modules/hypr copies over.
     (home / ".config" / "hypr").mkdir(parents=True)
     for stock in ("bindings.lua", "input.lua", "looknfeel.lua"):
         (home / ".config" / "hypr" / stock).write_text(f"-- stock omarchy {stock}\n")
@@ -327,19 +310,16 @@ def _run(
 
 
 # The payload install.sh reads at run time — enough of the repo to run every
-# stage and every module from a throwaway copy of the checkout.
+# module and the hook from a throwaway copy of the checkout.
 PAYLOAD = (
     "install.sh",
     "modules",
-    "hypr",
-    "bin",
     "hooks",
 )
 
-# Real git for everything the refresh guard needs (`checkout --`) and for a
-# clone of a LOCAL directory (the throwaway checkout under tmp_path, which is
-# how the curl path is exercised); a clone of a URL only makes the directory,
-# and a pull is a no-op.
+# Real git for a clone of a LOCAL directory (the throwaway checkout under
+# tmp_path, which is how the curl path is exercised); a clone of a URL only
+# makes the directory, and a pull is a no-op.
 GIT_PASSTHROUGH = """\
 if [ "$1" = clone ]; then
   src="${@: -2:1}"
@@ -352,9 +332,8 @@ exec "$(PATH=/usr/bin:/bin command -v git)" "$@"
 
 
 def _checkout(tmp_path: Path) -> Path:
-    """A throwaway git checkout of the overlay payload — the refresh-guard tests
-    rehearse `omarchy refresh` clobbering a checkout and git repairing it,
-    which must never happen to the repository the suite runs from."""
+    """A throwaway git checkout of the overlay payload — what the curl-path
+    tests clone and run from, never the repository the suite runs in."""
     repo = tmp_path / "checkout"
     repo.mkdir()
     for name in PAYLOAD:
@@ -383,18 +362,6 @@ def _real_jq(env: dict) -> None:
     if jq is None:
         pytest.skip("no jq available")
     _stub(env["bins"] / "jq", env["calls"], f'exec {jq} "$@"')
-
-
-def _switch(env: dict, *args: str) -> subprocess.CompletedProcess:
-    """hyprconf-monitor-preset as stage_bin installed it, against the fakes."""
-    tool = env["home"] / ".local" / "bin" / "hyprconf-monitor-preset"
-    return subprocess.run(
-        ["bash", str(tool), *args],
-        capture_output=True,
-        text=True,
-        env=_child_env(env),
-        timeout=30,
-    )
 
 
 def _calls(env: dict) -> list[str]:
@@ -515,7 +482,6 @@ def test_refuses_without_omarchy_path(tmp_path: Path) -> None:
 # sudo on a re-run shows up here as a name outside the set, which is why the
 # per-stage tests below do not each pay a second install.sh run for it.
 SETTLED_RERUN_COMMANDS = {
-    "hyprctl",
     "jq",
     "omarchy-hook-install",  # Omarchy's own idempotent mkdir/cp/chmod
     "omarchy-pkg-present",  # every module's own `pacman -Q` probe
@@ -560,111 +526,6 @@ def test_full_run_succeeds_and_is_byte_stable(tmp_path: Path) -> None:
 # Restraint — what the installer must never do
 # ---------------------------------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# The ~/.config/hypr override files
-# ---------------------------------------------------------------------------
-
-
-def test_hypr_overrides_are_symlinked_with_a_stock_backup(tmp_path: Path) -> None:
-    """bindings/input/looknfeel are Omarchy's own post-defaults require points,
-    and each stock file is its commented template — so the backup is what
-    makes the overlay reversible by hand."""
-    env = _setup(tmp_path)
-    for _ in range(2):  # the backup must not be re-taken from our own symlink
-        _run(env, "--no-update")
-    hypr = env["home"] / ".config" / "hypr"
-    for name in ("bindings.lua", "input.lua", "looknfeel.lua"):
-        assert hypr.joinpath(name).is_symlink(), name
-        assert hypr.joinpath(name).resolve() == REPO_ROOT / "hypr" / name
-        assert hypr.joinpath(f"{name}.stock").read_text() == f"-- stock omarchy {name}\n"
-
-
-def test_a_dotfiles_link_at_an_override_path_is_backed_up_as_a_link(
-    tmp_path: Path,
-) -> None:
-    """A stow-style link at one of these paths is somebody's own arrangement. The
-    guard used to skip every link, so `ln -sfn` overwrote it with no backup
-    and no message; `cp -P` keeps it a link, so the README's `mv …stock` hands
-    it back pointing where it pointed. The same rule at ~/.p10k.zsh is
-    modules/shell-zsh's, pinned in its own suite."""
-    env = _setup(tmp_path)
-    theirs = tmp_path / "dotfiles"
-    theirs.mkdir()
-    (theirs / "bindings.lua").write_text("-- their own bindings\n")
-    links = {
-        env["home"] / ".config" / "hypr" / "bindings.lua": theirs / "bindings.lua",
-    }
-    for link, src in links.items():
-        link.parent.mkdir(parents=True, exist_ok=True)
-        link.unlink(missing_ok=True)
-        link.symlink_to(src)
-
-    for _ in range(2):  # a re-run must not overwrite the backup with our link
-        assert _run(env, "--no-update").returncode == 0
-
-    for link, src in links.items():
-        backup = link.with_name(link.name + ".stock")
-        assert backup.is_symlink(), f"{backup} is not a link"
-        assert Path(os.readlink(backup)) == src
-        assert link.is_symlink() and link.resolve() != src
-    # And the revert line puts each one back unchanged.
-    for link, src in links.items():
-        backup = link.with_name(link.name + ".stock")
-        link.unlink()
-        backup.rename(link)
-        assert Path(os.readlink(link)) == src
-
-
-def test_a_backup_a_user_re_created_their_link_over_is_never_overwritten(
-    tmp_path: Path,
-) -> None:
-    """The first .stock is the one that matters: a user who puts their own link
-    back after an install, then re-runs, must not have the first backup
-    replaced by the second (or, later, by ours)."""
-    env = _setup(tmp_path)
-    hypr = env["home"] / ".config" / "hypr"
-    _run(env, "--no-update")
-    assert hypr.joinpath("bindings.lua.stock").read_text() == "-- stock omarchy bindings.lua\n"
-
-    theirs = tmp_path / "their-bindings.lua"
-    theirs.write_text("-- their own bindings\n")
-    hypr.joinpath("bindings.lua").unlink()
-    hypr.joinpath("bindings.lua").symlink_to(theirs)
-    _run(env, "--no-update")
-    assert hypr.joinpath("bindings.lua.stock").read_text() == "-- stock omarchy bindings.lua\n"
-
-
-def test_monitor_presets_are_installed_without_touching_the_active_layout(
-    tmp_path: Path,
-) -> None:
-    """Presets are inert files; monitors.lua stays whatever the machine chose. A
-    chosen preset goes to Omarchy's Hyprland toggles directory, which
-    hyprland.lua requires AFTER monitors.lua (config/hypr/hyprland.lua:19,26,
-    4.0.3-1), so no backup of monitors.lua is needed or taken."""
-    env = _setup(tmp_path)
-    hypr = env["home"] / ".config" / "hypr"
-    hypr.joinpath("monitors.lua").write_text("-- omarchy auto layout\n")
-    _run(env, "--no-update")
-    for _, preset in PRESETS:
-        assert hypr.joinpath(preset).is_file(), preset
-    assert hypr.joinpath("monitors.lua").read_text() == "-- omarchy auto layout\n"
-    assert not hypr.joinpath("monitors.lua.stock").exists()
-    assert not (env["home"] / TOGGLE).exists()
-
-
-def test_monitor_preset_reaches_every_preset(tmp_path: Path) -> None:
-    """What couples stage_monitors' seed list to the names the tool answers
-    to: a preset that cannot be named is dead config. `stock` and the toggle
-    mechanics are test_monitor_preset.py's, against a faithful fake."""
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    hypr = env["home"] / ".config" / "hypr"
-    toggle = env["home"] / TOGGLE
-    for name, preset in PRESETS:
-        proc = _switch(env, name)
-        assert proc.returncode == 0, proc.stderr
-        assert toggle.read_bytes() == hypr.joinpath(preset).read_bytes(), name
-
 
 def test_never_switches_the_active_theme() -> None:
     """install.sh never takes the active theme away — the overlay re-applies
@@ -674,19 +535,6 @@ def test_never_switches_the_active_theme() -> None:
     run, which covers every branch instead of the one a run takes."""
     code = _code_only(INSTALL_SH.read_text())
     assert "omarchy-theme-set" not in re.findall(r"\bomarchy-[a-z0-9-]+\b", code)
-
-
-def test_presets_are_seeded_once_and_never_overwritten(tmp_path: Path) -> None:
-    """A preset describes one machine's desk, so the machine owns it after
-    seeding: hyprconf-monitor-preset's header promises edits survive
-    re-selecting a preset, and the post-update hook re-runs this installer
-    after every Omarchy update."""
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    preset = env["home"] / ".config" / "hypr" / "pcMonitors.bedroom.lua"
-    preset.write_text("-- my desk, my monitors\n")
-    _run(env, "--no-update")
-    assert preset.read_text() == "-- my desk, my monitors\n"
 
 
 # ---------------------------------------------------------------------------
@@ -792,12 +640,13 @@ def test_post_update_hook_reapplies_the_overlay_without_update_or_sudo(tmp_path:
     _stub(env["bins"] / "omarchy-pkg-present", env["calls"], "exit 1")
     assert _run(env, "--no-update").returncode == 0
     bindings = env["home"] / ".config" / "hypr" / "bindings.lua"
-    bindings.unlink()  # never write through the link: it points into the real checkout
     bindings.write_text("-- a migration put the stock file back\n")
     env["calls"].write_text("")
     proc = _run_hook(env)
     assert proc.returncode == 0, proc.stderr
-    assert bindings.is_symlink()  # the overlay was re-applied
+    # The overlay was re-applied: modules/hypr's copy is back, as a file.
+    assert not bindings.is_symlink()
+    assert bindings.read_bytes() == (MODULES / "hypr" / "bindings.lua").read_bytes()
     commands = _commands(env)
     # …and so was the module loop: every bar-* module asks the shell for a
     # rescan on every run, since inotify never descends their symlinked folder.
@@ -983,8 +832,7 @@ FETCH_EXEC_ALLOWED = (
     'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"',
 )
 # install.sh's usage() heredoc: prose that documents the curl one-liner, not a
-# call. Dropped for this scan only — _code_only must keep every other heredoc
-# (bin/hyprconf-monitor-preset) inside it.
+# call. Dropped for this scan only.
 USAGE_HEREDOC = re.compile(r"(?ms)^\s*cat <<'USAGE'\n.*?^USAGE$")
 
 
@@ -1032,13 +880,16 @@ def test_packages_file_lines_are_plain_package_names() -> None:
 def test_overlay_never_uses_the_dead_hyprctl_forms() -> None:
     """`hyprctl keyword` and a two-token `hyprctl dispatch dpms on` are both
     dead under Hyprland 0.56's Lua parser; the working forms are `hyprctl eval`
-    and `hyprctl dispatch 'hl.dsp.…'` (AGENTS.md › Known quirks)."""
+    and `hyprctl dispatch 'hl.dsp.…'` (AGENTS.md › Known quirks). Over the
+    modules too — the two hotkey tools that make these calls ship in
+    modules/hypr/bin — since this scan reads code only and its patterns match
+    no prose."""
     dead = re.compile(
         r"hyprctl\s+(--batch\s+)?[\"']?keyword\b|hyprctl\s+dispatch\s+[a-z_]+\s+[a-z_]+"
     )
     offenders = [
         f"{script.relative_to(REPO_ROOT)}:{lineno}: {line.strip()}"
-        for script in _overlay_scripts()
+        for script in _overlay_scripts() + _module_scripts()
         for lineno, line in enumerate(_code_only(script.read_text(errors="ignore")).splitlines(), 1)
         if dead.search(line)
     ]
@@ -1093,26 +944,12 @@ def _packages(env: dict, present: tuple[str, ...]) -> None:
     _stub(env["bins"] / "omarchy-install-editor-vscode", env["calls"], f'touch "{marker}"')
 
 
-def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:
-    """Every bin/hyprconf-* file, installed by glob with @HYPRCONF_DIR@
-    substituted for the checkout path — byte for byte, and executable."""
-    env = _setup(tmp_path)
-    _run(env, "--no-update")
-    shipped = sorted(p.name for p in (REPO_ROOT / "bin").glob("hyprconf-*"))
-    assert shipped, "no tools in bin/"
-    for name in shipped:
-        installed = env["home"] / ".local" / "bin" / name
-        assert os.access(installed, os.X_OK), name
-        expected = (REPO_ROOT / "bin" / name).read_text().replace("@HYPRCONF_DIR@", str(REPO_ROOT))
-        assert installed.read_text() == expected, name
-
-
 def test_the_installer_itself_lands_on_path_as_hyprconf(tmp_path: Path) -> None:
-    """`hyprconf --sync` is what modules/shell-zsh's `hyprsync` alias runs, and
-    what the post-update hook will exec once the core rewrite lands. A SYMLINK,
-    so a `git pull` in the checkout is the update and no checkout path is baked
-    into the alias — the alias names the link, which is what lets the checkout
-    move."""
+    """`hyprconf --sync` is what modules/shell-zsh's `hyprsync` alias runs,
+    `hyprconf <module>` the re-apply after an edit, and what the post-update
+    hook will exec once the core rewrite lands. A SYMLINK, so a `git pull` in
+    the checkout is the update and no checkout path is baked into the alias —
+    the alias names the link, which is what lets the checkout move."""
     env = _setup(tmp_path)
     for _ in range(2):  # re-pointed in place, never stacked
         assert _run(env, "--no-update").returncode == 0
@@ -1121,231 +958,24 @@ def test_the_installer_itself_lands_on_path_as_hyprconf(tmp_path: Path) -> None:
     assert Path(os.readlink(link)) == INSTALL_SH
 
 
-# ---------------------------------------------------------------------------
-# The `omarchy refresh` guard
-# ---------------------------------------------------------------------------
-
-
-STOCK_BINDINGS = "-- Keep only your personal keybinding overrides here.\n"
-
-
-def _stock_templates(env: dict) -> Path:
-    """Omarchy's config/ templates — what omarchy-refresh-config copies from."""
-    templates = env["omarchy_path"] / "config" / "hypr"
-    templates.mkdir(parents=True, exist_ok=True)
-    (templates / "bindings.lua").write_text(STOCK_BINDINGS)
-    (templates / "monitors.lua").write_text('hl.monitor({ output = "", mode = "preferred" })\n')
-    return templates
-
-
-def _refresh_config(env: dict, templates: Path, name: str) -> None:
-    """What omarchy-refresh-config does to ~/.config/hypr/<name>: cp -f from the
-    template. cp -f follows a symlink, so with the overlay installed this
-    writes THROUGH the link into the checkout. Reproduced with the real cp."""
-    subprocess.run(
-        ["cp", "-f", str(templates / name), str(env["home"] / ".config" / "hypr" / name)],
-        check=True,
-        timeout=30,
-    )
-
-
-def _guard_env(tmp_path: Path, *, git: str | None = None) -> tuple[dict, Path, Path]:
-    """The refresh guard's fixture: a throwaway checkout to install from (never
-    the repository the suite runs in), Omarchy's config/hypr templates to
-    refresh from, and by default a git real enough to `checkout --`;
-    `git=None` leaves the no-op stub, which is a checkout with no git at all."""
+def test_a_module_named_on_the_command_line_runs_alone(tmp_path: Path) -> None:
+    """`hyprconf hypr` is the re-apply after an edit to that module's files:
+    only the modules named run (plus the link and the hook, both idempotent),
+    and a name that is not a module dies before anything runs."""
     env = _setup(tmp_path)
-    repo = _checkout(tmp_path)
-    if git:
-        _stub(env["bins"] / "git", env["calls"], git)
-    return env, repo, _stock_templates(env)
-
-
-def _apply(env: dict, repo: Path, *args: str) -> subprocess.CompletedProcess:
-    """install.sh run out of the throwaway checkout."""
-    return _run(env, *(args or ("--no-update",)), install_sh=repo / "install.sh")
-
-
-def test_refresh_through_the_symlink_is_undone_from_git(tmp_path: Path) -> None:
-    """`omarchy refresh hyprland` cp -f's the stock template over every
-    ~/.config/hypr/*.lua, following the overlay's symlinks straight into the
-    checkout — every hyprconf hotkey gone (observed on 4.0.0-1). A re-run
-    notices the byte-identical stock template and puts the commit back."""
-    env, repo, templates = _guard_env(tmp_path, git=GIT_PASSTHROUGH)
-    committed = (repo / "hypr" / "bindings.lua").read_text()
-    assert _apply(env, repo).returncode == 0
-
-    _refresh_config(env, templates, "bindings.lua")
-    assert (repo / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS  # the damage
-
-    proc = _apply(env, repo)
+    proc = _run(env, "--no-update", "hypr")
     assert proc.returncode == 0, proc.stderr
-    assert (repo / "hypr" / "bindings.lua").read_text() == committed
-    assert "stock template" in proc.stderr
-    live = env["home"] / ".config" / "hypr" / "bindings.lua"
-    assert live.is_symlink() and live.read_text() == committed
+    bindings = env["home"] / ".config" / "hypr" / "bindings.lua"
+    assert bindings.read_bytes() == (MODULES / "hypr" / "bindings.lua").read_bytes()
+    assert set(_commands(env)) == {"hyprctl", "omarchy-hook-install"}, _commands(env)
+    assert not (env["home"] / ".zshrc").exists()  # modules/shell-zsh did not run
 
-
-def test_a_clobber_is_still_repaired_after_omarchy_ships_a_new_template(tmp_path: Path) -> None:
-    """`cmp` against the INSTALLED template alone stops recognising a clobber the
-    moment Omarchy ships that file's next version — and omarchy-update
-    upgrades the package BEFORE running the hook (4.0.3-1) — so the installer
-    caches the last template it saw and accepts that one too."""
-    env, repo, templates = _guard_env(tmp_path, git=GIT_PASSTHROUGH)
-    committed = (repo / "hypr" / "bindings.lua").read_text()
-    assert _apply(env, repo).returncode == 0
-
-    _refresh_config(env, templates, "bindings.lua")  # the damage, at template A
-    bumped = STOCK_BINDINGS + "-- Omarchy 4.1 says something new here.\n"
-    (templates / "bindings.lua").write_text(bumped)  # the package upgrade
-
-    proc = _apply(env, repo)
-    assert proc.returncode == 0, proc.stderr
-    assert "stock template" in proc.stderr
-    assert (repo / "hypr" / "bindings.lua").read_text() == committed
-    # And the cache moved on with Omarchy, so the next bump is covered too.
-    cached = env["home"] / ".local" / "state" / "hyprconf" / "stock" / "bindings.lua"
-    assert cached.read_text() == bumped
-
-
-def test_a_cache_the_installer_cannot_write_warns_and_the_run_goes_on(tmp_path: Path) -> None:
-    """The stock cache is an optimisation for the NEXT template bump, so it warns
-    and carries on like every other state write. Unguarded under `set -e` its
-    `mkdir -p` failure killed the whole run at the first hypr override — no
-    hooks, no plugins, no clock, on every post-update run from then on."""
-    env, repo, templates = _guard_env(tmp_path, git=GIT_PASSTHROUGH)
-    committed = (repo / "hypr" / "bindings.lua").read_text()
-    stock_dir = env["home"] / ".local" / "state" / "hyprconf" / "stock"
-    stock_dir.parent.mkdir(parents=True, exist_ok=True)
-    stock_dir.write_text("not a directory\n")  # mkdir -p fails here for root too
-    assert _apply(env, repo).returncode == 0
-
-    _refresh_config(env, templates, "bindings.lua")
-    proc = _apply(env, repo)
-    assert proc.returncode == 0, proc.stderr
-    assert "WARNING:" in proc.stderr
-    assert (repo / "hypr" / "bindings.lua").read_text() == committed
-    assert stock_dir.read_text() == "not a directory\n"
-    assert "omarchy-hook-install" in _commands(env)  # the stages after it still ran
-
-
-def test_a_clobber_git_cannot_undo_is_reported_as_unrepaired_after_a_bump(
-    tmp_path: Path,
-) -> None:
-    """The guard's two messages must stay honest: it says it restored the file
-    only when the file changed. A clobber the user committed is one git
-    checkout cannot undo, and the cached template still recognises it."""
-    env, repo, templates = _guard_env(tmp_path, git=GIT_PASSTHROUGH)
-    assert _apply(env, repo).returncode == 0
-
-    _refresh_config(env, templates, "bindings.lua")  # the damage, at template A
-    subprocess.run(["git", "-C", str(repo), "commit", "-qam", "oops"], check=True, timeout=30)
-    (templates / "bindings.lua").write_text(STOCK_BINDINGS + "-- 4.1\n")  # the package upgrade
-
-    proc = _apply(env, repo)
-    assert proc.returncode == 0, proc.stderr
-    assert (repo / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS  # still clobbered
-    assert "could not be" in proc.stderr and "restored it from git" not in proc.stderr
-
-
-def test_a_real_edit_survives_a_template_bump(tmp_path: Path) -> None:
-    """The guard keys on byte-identity with a stock template and nothing else, and
-    the cache only ever ADDS a set of Omarchy bytes to recognise: an edit made
-    through the symlink is the user editing their own dotfiles."""
-    env, repo, templates = _guard_env(tmp_path, git=GIT_PASSTHROUGH)
-    assert _apply(env, repo).returncode == 0
-
-    live = env["home"] / ".config" / "hypr" / "bindings.lua"
-    edited = live.read_text() + '\no.bind("SUPER + SHIFT + R", "SSH", "kitty -e ssh box")\n'
-    live.write_text(edited)  # through the symlink, like an editor would
-    (templates / "bindings.lua").write_text(STOCK_BINDINGS + "-- 4.1\n")
-
-    proc = _apply(env, repo)
-    assert proc.returncode == 0, proc.stderr
-    assert "stock template" not in proc.stderr
-    assert (repo / "hypr" / "bindings.lua").read_text() == edited
-
-
-def test_guard_reports_when_git_cannot_repair(tmp_path: Path) -> None:
-    """No git to restore from (a checkout without .git — a zip download): the
-    clobber is still reported, and the run still completes."""
-    env, repo, templates = _guard_env(tmp_path)  # git is the no-op stub
-    assert _apply(env, repo).returncode == 0
-    _refresh_config(env, templates, "bindings.lua")
-
-    proc = _apply(env, repo)
-    assert proc.returncode == 0, proc.stderr
-    assert "could not be restored" in proc.stderr
-    assert (repo / "hypr" / "bindings.lua").read_text() == STOCK_BINDINGS
-
-
-# The overrides install.sh links into ~/.config/hypr, read from its own
-# link_hypr_override call sites — the set stage_pull has to repair before it
-# pulls, and the whole point of deriving that set rather than re-listing it.
-LINKED_OVERRIDES = tuple(
-    sorted(
-        set(re.findall(r"^\s*link_hypr_override\s+(\S+\.lua)\s*$", INSTALL_SH.read_text(), re.M))
-    )
-)
-
-
-def test_every_linked_hypr_override_ships_in_the_checkout() -> None:
-    """`ln -sfn` on a source the checkout does not ship makes a DANGLING link and
-    stage_pull then skips it silently, so every file link_hypr_override points
-    at has to be one of hypr/*.lua."""
-    assert LINKED_OVERRIDES, "the link_hypr_override scan found nothing"
-    for name in LINKED_OVERRIDES:
-        assert (REPO_ROOT / "hypr" / name).is_file(), name
-
-
-def test_sync_repairs_any_clobbered_override_before_it_pulls(tmp_path: Path) -> None:
-    """A clobbered override is a dirty tracked file, and `git pull --ff-only`
-    refuses to merge over one upstream also changed — so hyprsync after a
-    refresh died on the pull until stage_pull ran the guard first, over a set
-    derived from "$HERE"/hypr/*.lua. An UNTRACKED look-alike stays a no-op."""
-    env = _setup(tmp_path)
-    up = _checkout(tmp_path)
-    (up / "hypr" / "autostart.lua").write_text('hl.exec_once("waybar")\n')
-    subprocess.run(["git", "-C", str(up), "add", "-A"], check=True, timeout=30)
-    subprocess.run(["git", "-C", str(up), "commit", "-qm", "four"], check=True, timeout=30)
-    clone = tmp_path / "clone"
-    subprocess.run(["git", "clone", "-q", str(up), str(clone)], check=True, timeout=30)
-    git_with_pull = GIT_PASSTHROUGH.replace('case " $* " in *" pull "*) exit 0 ;; esac\n', "")
-    assert git_with_pull != GIT_PASSTHROUGH, "the pull short-circuit moved"
-    _stub(env["bins"] / "git", env["calls"], git_with_pull)
-    templates = _stock_templates(env)
-    stock = "-- Omarchy's own autostart.lua\n"
-    (templates / "autostart.lua").write_text(stock)
-    assert _apply(env, clone).returncode == 0
-
-    # What `omarchy refresh` leaves behind: the checkout's copy IS Omarchy's
-    # template — for a linked override, through the symlink; for autostart.lua,
-    # which nothing links yet, written straight into the clone.
-    _refresh_config(env, templates, "bindings.lua")
-    (clone / "hypr" / "autostart.lua").write_text(stock)
-    # And an untracked look-alike beside it, which must stay a silent no-op.
-    (templates / "spare.lua").write_text(stock)
-    (clone / "hypr" / "spare.lua").write_text(stock)
-
-    moved = {
-        "bindings.lua": (up / "hypr" / "bindings.lua").read_text() + "\n-- upstream moved\n",
-        "autostart.lua": 'hl.exec_once("waybar")\n-- upstream moved\n',
-    }
-    for name, body in moved.items():
-        (up / "hypr" / name).write_text(body)
-    subprocess.run(["git", "-C", str(up), "commit", "-qam", "five"], check=True, timeout=30)
-
-    proc = _apply(env, clone, "--sync")
-    assert proc.returncode == 0, proc.stderr
-    assert "restored it from git" in proc.stderr and "hypr/autostart.lua" in proc.stderr
-    for name, body in moved.items():
-        assert (clone / "hypr" / name).read_text() == body, name
-    # The repaired link is re-pointed at the restored file, not left dangling.
-    live = env["home"] / ".config" / "hypr" / "bindings.lua"
-    assert live.is_symlink() and live.read_text() == moved["bindings.lua"]
-    assert "omarchy-update" in _commands(env)  # the pull did not stop the sync
-    assert "spare.lua" not in proc.stderr
-    assert (clone / "hypr" / "spare.lua").read_text() == stock
+    env = _setup(tmp_path / "unknown")
+    proc = _run(env, "--no-update", "hypr", "no-such-module")
+    assert proc.returncode != 0
+    assert "no module named no-such-module" in proc.stderr
+    assert _calls(env) == []
+    assert not (env["home"] / ".config" / "omarchy" / "hooks").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1387,14 +1017,17 @@ def test_curl_path_clones_the_checkout_and_hands_over_to_it(tmp_path: Path) -> N
     assert (target / ".git").is_dir()
     for name in PAYLOAD:
         assert (target / name).exists(), name
-    # The stages ran, from the checkout: the tools and hooks resolve to it and
-    # the override links point into it.
+    # The modules ran, from the checkout: the hook and the tool links resolve
+    # to it, and the hypr copies carry its bytes.
     assert "omarchy-default-terminal kitty" in _calls(env)
     assert "omarchy-shell" in _commands(env)  # the module loop, from the clone
     hook = env["home"] / ".config" / "omarchy" / "hooks" / "post-update.d" / "10-hyprconf"
     assert f'HYPRCONF_DIR="{target}"' in hook.read_text()
     bindings = env["home"] / ".config" / "hypr" / "bindings.lua"
-    assert Path(os.readlink(bindings)) == target / "hypr" / "bindings.lua"
+    assert not bindings.is_symlink()
+    assert bindings.read_bytes() == (target / "modules" / "hypr" / "bindings.lua").read_bytes()
+    gaps = env["home"] / ".local" / "bin" / "hyprconf-gaps"
+    assert Path(os.readlink(gaps)) == target / "modules" / "hypr" / "bin" / "hyprconf-gaps"
     assert (env["home"] / ".zshrc").exists()
     assert "omarchy-update" not in _commands(env)
 

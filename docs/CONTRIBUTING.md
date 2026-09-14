@@ -8,24 +8,11 @@ publish flow and the website upload.
 
 ```
 .hyprconf/
-├── install.sh                  # The overlay installer — idempotent stages, the only entry point; served by hyprconf.sh, clones itself on the curl path
-│
-├── hypr/
-│   ├── README.md               # The Omarchy/Hyprland facts these files rely on (binds, desc: presets, hyprctl on 0.56)
-│   ├── bindings.lua            # Hotkeys (o.bind with descriptions; unbind-then-rebind)
-│   ├── input.lua               # Input/gesture deltas from Omarchy's defaults
-│   ├── looknfeel.lua           # Look'n'feel deltas from Omarchy's defaults
-│   ├── pcMonitors.bedroom.lua  # Preset "bedroom"  (SUPER+SHIFT+B), desc:-keyed
-│   ├── pcMonitors.kitchen.lua  # Preset "kitchen"  (SUPER+SHIFT+K), desc:-keyed
-│   └── laptopMonitors.lua      # Preset "laptop"
-│
-├── bin/                        # The two hotkey tools, installed by install.sh (→ ~/.local/bin, @HYPRCONF_DIR@ substituted) and bound by name in bindings.lua. A tool with its own module ships under it instead — modules/{vulkan-gpu,yubikey}/bin/
-│   ├── hyprconf-monitor-preset #   copy a preset into Omarchy's toggles dir (~/.local/state/omarchy/toggles/hypr), reload, rehome workspaces; `stock` removes it
-│   └── hyprconf-gaps           #   SUPER+SHIFT+= / - via hyprctl eval
+├── install.sh                  # The only entry point: preflight, the module loop (alphabetical, or the modules named), the ~/.local/bin/hyprconf link, the hook; served by hyprconf.sh, clones itself on the curl path
 │
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: the four bar-* plugins, fastfetch, firefox, firefox-theme, font, idle, keychron, shell-zsh, terminal-kitty, themes, vscode, vulkan-gpu, yubikey
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload), every one wired into install.sh's loop. Every tool the overlay puts on PATH ships under its module — modules/{hypr,vulkan-gpu,yubikey}/bin/ — and is symlinked into ~/.local/bin by that module
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
@@ -40,8 +27,8 @@ publish flow and the website upload.
 ```
 
 What reaches a user's machine, and how, is `README.md` › Repository layout.
-The `hypr/*.lua` override files are **symlinked** into `~/.config/hypr/` — the
-checkout's copies are the live files (`AGENTS.md` › Live files).
+The `modules/hypr/*.lua` override files are **copied** into `~/.config/hypr/`
+— `hyprconf hypr` after an edit (`AGENTS.md` › The Hyprland copies).
 
 ---
 
@@ -53,14 +40,11 @@ them in an `archlinux:latest` container, as an unprivileged user.
 ```
 conftest.py                       # the `box` fixture every test builds on (repo root: it reaches both trees below)
 modules/<name>/test_<name>.py     # one suite per module, beside its `install` — `testpaths` collects modules/ and tests/ in one pytest run
-tests/                            # what is not a module's: install.sh, the two user-run tools, and the tree-wide guards
+tests/                            # what is not a module's: install.sh and the tree-wide guards
 ├── test_plugins_contract.py      #   every shipped plugin folder (modules/bar-*/plugin): omarchy-plugin-validate's checks ported to Python (CI has no Omarchy — each module runs the real validator too), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText and implicit-size rules, real qmllint, and every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent)
 ├── unit/
-│   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
-│   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), bind only commands bin/ ships, state deltas over the theme (the shadow, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom, keep the desk presets desc:-keyed and serial-free
-│   ├── test_monitor_preset.py    #   bin/hyprconf-monitor-preset (the toggle-file contract, stock, the workspace rehoming a switch dispatches)
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: every stage left (curl bootstrap, the `omarchy refresh` guard, the hypr overrides, the presets and the tools), the module loop and the post-update hook end to end, restraint invariants, idempotency; the dead-hyprctl / pacman / fetch-and-execute token scans over every shipped bash file
+│   ├── test_omarchy_install.py   #   install.sh: the curl bootstrap, the flags and module selection, the ~/.local/bin/hyprconf link, the module loop and the post-update hook end to end, restraint invariants, idempotency (a full run byte-stable across two runs); the dead-hyprctl / pacman / fetch-and-execute token scans over the shipped bash (the dead-hyprctl one over the modules too)
 │   └── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, every modules/*/install clone pinned and never pulled, sha-pinned least-privilege CI, the .claude guardrail entries
 └── integration/
     └── test_publish_pipeline.py  #   scripts/publish: the gates, the tag, the atomic promotion and its refusals, against a throwaway bare origin
@@ -180,7 +164,7 @@ publish; the recipe for reproducing a container-only failure is in
 
 The overlay is published: strangers clone `stable` and run `install.sh` with their own sudo. Three trust boundaries, each held by mechanical pins (AGENTS.md hard rule 8):
 
-1. **Unprivileged → root, on the local box.** `install.sh` itself asks for no sudo at all: the modules that declare it (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/{terminal-kitty,shell-zsh,font,vscode}`) and `modules/yubikey`'s `run_root` surface (rule 6 names them) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned per file, in `modules/{yubikey,firefox,keychron}/test_*.py`; the tree-wide scan over `modules/*/install` lands with `tests/test_scans.py`); a tool `install.sh` still copies is rendered beside the target and `mv`'d, never truncated in place, and one a module owns is a symlink into the checkout; every module's `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo call names itself in the module's README (rule 6) and lands with a pin.
+1. **Unprivileged → root, on the local box.** `install.sh` itself asks for no sudo at all: the modules that declare it (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/{terminal-kitty,shell-zsh,font,vscode}`) and `modules/yubikey`'s `run_root` surface (rule 6 names them) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned per file, in `modules/{yubikey,firefox,keychron}/test_*.py`; the tree-wide scan over `modules/*/install` lands with `tests/test_scans.py`); every tool on PATH is a module's, a symlink into the checkout — `install.sh` copies none; every module's `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo call names itself in the module's README (rule 6) and lands with a pin.
 2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`textFormat: Text.PlainText`, stock parity); nothing shipped fetches-and-executes — `test_overlay_never_fetches_and_executes` forbids curl/wget/pipe-to-shell/`base64 -d`/`eval` in shipped bash, with the allowed exceptions written down in full inside the test. A new exception is added there verbatim, with its why, or the change does not land.
 3. **Publish pipeline → strangers' boxes.** The bootstrap is https-only (`--proto '=https'`; `test_published_one_liners_are_https_only`, `test_bootstrap_defaults_are_pinned_https_and_stable` — schemeless, curl's first request is plaintext port 80 and an on-path attacker answers it before the redirect exists). powerlevel10k — the one third-party repository left, and code that runs in every interactive zsh — is cloned at a reviewed commit by `modules/shell-zsh` and never pulled; bumping the pin is a deliberate commit through the publish gates (`test_every_module_clone_is_pinned_to_a_reviewed_commit`, which holds every `modules/*/install` to the same rule). Oh My Zsh is gone with its in-tree updater. CI actions are sha-pinned under a read-only token (`test_ci_workflow_is_least_privilege`); `web/` stays self-contained (`test_web_page_is_self_contained`); secret-shaped material anywhere in the tree fails `test_no_secret_material_anywhere`; `install.sh` refuses to run as root (the curl|bash sudo-prefix habit half-installs into /root).
 
