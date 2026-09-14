@@ -33,7 +33,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 
 ## Requirements
 
-- A running [Omarchy](https://omarchy.org) install. Verified against Omarchy 4.0.3-1 (Lua config — hyprlang `.conf` is gone); the full pin, Hyprland version included, is in [`AGENTS.md`](AGENTS.md). `install.sh` refuses to run when `/usr/share/omarchy` or `omarchy-pkg-add` is missing.
+- A running [Omarchy](https://omarchy.org) install. Verified against Omarchy 4.0.3-1 (Lua config — hyprlang `.conf` is gone); the full pin, Hyprland version included, is in [`AGENTS.md`](AGENTS.md). `install.sh` refuses a box with no Omarchy tree at `/usr/share/omarchy` (`$OMARCHY_PATH`), and refuses to run as root.
 - `git`, and a terminal for anything that needs `sudo`: every module that installs packages or writes outside `$HOME` (Modules, below). `install.sh` itself asks for none.
 
 ## Install
@@ -44,7 +44,7 @@ bash <(curl -fsSL --proto '=https' https://hyprconf.sh)
 
 Run it as your regular user — `install.sh` asks for no sudo at all, the modules that need it ask for themselves, and it refuses to run as root (a sudo-prefixed bootstrap would half-install the overlay into `/root`).
 
-`hyprconf.sh` serves `install.sh` itself to curl. Run with no payload beside it, it refuses a box without Omarchy before touching anything, clones the `stable` branch into `~/.hyprconf` — or uses the checkout already there, without pulling it — and hands over to that checkout's `install.sh` with the same options. `HYPRCONF_REPO` (`https://github.com/ak4dev/.hyprconf`), `HYPRCONF_BRANCH` (`stable`) and `HYPRCONF_DIR` (`~/.hyprconf`) override those three. The same by hand:
+`hyprconf.sh` serves `install.sh` itself to curl. Run with no payload beside it, it refuses a box without Omarchy before touching anything, clones the `stable` branch into `~/.hyprconf` — or uses the checkout already there, without pulling it — and hands over to that checkout's `install.sh` with the same arguments; that first run makes `~/.local/bin/hyprconf`, the command from then on. `HYPRCONF_REPO` (`https://github.com/ak4dev/.hyprconf`), `HYPRCONF_BRANCH` (`stable`) and `HYPRCONF_DIR` (`~/.hyprconf`) override those three. The same by hand:
 
 ```bash
 git clone -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf
@@ -60,19 +60,23 @@ bash ~/.hyprconf/install.sh
 | `--sync` | `git pull --ff-only` the checkout, re-apply, then run `omarchy-update` — whose post-update hook re-applies the overlay once more, after Omarchy's migrations. This is what the `hyprsync` alias runs. It applies whatever `stable` now carries with no review step — the two root writes (the Keychron udev rule, the Firefox policy) included, which is the trade-off of a clone-only, https-pinned overlay (AGENTS.md rule 8). |
 | `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook, which already runs inside an update. |
 | `--no-packages` | Skip everything that needs `sudo`: every module's packages and its own root work. `install.sh` itself asks for none. Exported to the modules as `HYPRCONF_NO_SUDO`, which each one honours itself — they say so in one line and carry on. The hook passes this too. |
+| `--undo` | Every module's `install undo`, in the reverse of the apply order — each module's Undo cell below says what it puts back — then the hook and the `~/.local/bin/hyprconf` link. With module names, only those, and the hook and link stay. A module whose undo fails is named at the end; the others still run. |
 | `-h`, `--help` | Usage: both forms and the three variables. On the curl path it answers from the served copy — nothing is cloned. |
 
-### What each stage does
+### What `install.sh` itself does
 
-| Stage | Changes | Mechanism |
+Beyond running the modules, two things — the only files it puts in `$HOME` of its own:
+
+| | Changes | Mechanism |
 |---|---|---|
-| link | `~/.local/bin/hyprconf` → `install.sh` | A symlink, re-pointed only when it is wrong: what `hyprsync` (`hyprconf --sync`) and `hyprconf <module>` run. Every `hyprconf-*` tool is a module's, linked into the same directory by that module ([`hypr`](modules/hypr/README.md), [`vulkan-gpu`](modules/vulkan-gpu/README.md), [`yubikey`](modules/yubikey/README.md)) |
-| hooks | `~/.config/omarchy/hooks/post-update.d/10-hyprconf` | `omarchy hook install <type> <file>` (Omarchy's own: mkdir, copy under the file's basename, `chmod 755`) on a copy rendered with `@HYPRCONF_DIR@` substituted. It re-runs `install.sh --no-update --no-packages` after every `omarchy-update`. The theme-set hook is [`modules/firefox-theme`](modules/firefox-theme/README.md)'s, which installs its own |
-| *(end)* | with `--sync`, `omarchy-update` | Nothing else: [`modules/hypr`](modules/hypr/README.md) reloads Hyprland itself when a copy changed, and each `bar-*` module rescans the shell as it syncs its own folder |
+| link | `~/.local/bin/hyprconf` → `install.sh` | A symlink, re-pointed only when it is wrong: what `hyprsync` (`hyprconf --sync`), `hyprconf <module>` and the hook run. Every `hyprconf-*` tool is a module's, linked into the same directory by that module ([`hypr`](modules/hypr/README.md), [`vulkan-gpu`](modules/vulkan-gpu/README.md), [`yubikey`](modules/yubikey/README.md)) |
+| hook | `~/.config/omarchy/hooks/post-update.d/10-hyprconf` | `omarchy hook install post-update hooks/10-hyprconf` (Omarchy's own: mkdir, copy under the file's basename, `chmod 755`) — the shipped file as it is, no path rendered in. After every `omarchy-update` it runs `~/.local/bin/hyprconf --no-update --no-packages`, and bows out (exit 0) when that link is gone. The theme-set hook is [`modules/firefox-theme`](modules/firefox-theme/README.md)'s, which installs its own |
+
+A module that fails does not stop the others: it is named at the end, once the rest and the hook have run, and with `--sync` it stops `omarchy-update`. Nothing reloads from here — [`modules/hypr`](modules/hypr/README.md) reloads Hyprland itself when a copy changed, and each `bar-*` module rescans the shell as it links its own folder.
 
 ### Modules
 
-Each row is a self-contained directory under `modules/` — its own `install`, `README.md`, tests and payload. `install.sh` runs every one of them; from a checkout, `hyprconf <name>` re-runs just one. To install one on its own, take `<name>` from the first column:
+Each row is a self-contained directory under `modules/` — its own `install`, `README.md`, tests and payload. `install.sh` runs every one of them, in no particular order (each is order-free); from a checkout, `hyprconf <name>` re-runs just one and `hyprconf --undo` undoes them all. To install one on its own, take `<name>` from the first column:
 
 ```bash
 git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf \
@@ -120,7 +124,7 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 
 ## Repository layout
 
-The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `install.sh` itself puts only the `hooks/` post-update hook and the `~/.local/bin/hyprconf` link in `$HOME`; `modules/` is one directory per module, each shipping its own payload — what it writes and how to undo it is in that module's own `README.md`, the system Firefox policy ([`modules/firefox`](modules/firefox/README.md)) included.
+The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `install.sh` itself puts only the post-update hook (`hooks/10-hyprconf`) and the `~/.local/bin/hyprconf` link in `$HOME`; `modules/` is one directory per module, each shipping its own payload — what it writes and how to undo it is in that module's own `README.md`, the system Firefox policy ([`modules/firefox`](modules/firefox/README.md)) included.
 
 ## Bar widgets
 
@@ -156,23 +160,17 @@ hyprconf installs nothing for it. `omarchy pkg add proton-vpn-gtk-app proton-vpn
 ```bash
 hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool is still on PATH; both drop-ins go with it
 # enrolled by 4.0.0-4.2.0? that version put rd.luks.* INLINE on /etc/default/limine, which this tool only reads: status names them, remove leaves them — delete the two parameters by hand, keep cryptdevice=
-bash ~/.hyprconf/modules/bar-clock/install undo   # disable, `omarchy.clock`'s format back to 'dddd HH:mm' and the bar's centre anchor back to it — one command, not three: the disable copies the clone's WHOLE entry back onto omarchy.clock and rewrites only its id, so 'hh:mm:ss AP' would otherwise ride along onto a widget that samples once a minute, and the anchor edit has to wait out the shell's own asynchronous shell.json write first
-bash ~/.hyprconf/modules/bar-workspaces/install undo
-bash ~/.hyprconf/modules/bar-resources/install undo
-bash ~/.hyprconf/modules/bar-active-window/install undo
-bash ~/.hyprconf/modules/hypr/install undo   # the `stock` layout, Omarchy's own template back at each of the three override paths, the seeded presets and the two tool links gone
+hyprconf --undo   # every module's `install undo` in reverse order (the Undo column above says what each puts back), then the hook and the ~/.local/bin/hyprconf link; the Firefox policy and the udev rule need sudo and a terminal
 rm -f ~/.config/hypr/{bindings,input,looknfeel}.lua.stock   # only a machine installed before 8.0 has them: the backups the symlink era kept, dead now — as is ~/.local/state/hyprconf/stock/, which the rm -rf below removes
-rm ~/.config/omarchy/hooks/post-update.d/10-hyprconf
-rm ~/.local/bin/hyprconf ~/.local/bin/hyprconf-*
-rm -rf ~/.config/omarchy/plugins/{hyprconf.*,.hyprconf.*.bak.*} ~/.local/state/hyprconf   # the four hyprconf.* entries are symlinks into the checkout; the dot-prefixed .bak.<timestamp> dirs are folders a module moved aside, or what `omarchy plugin remove` leaves of a non-git one
-omarchy default terminal <name>; omarchy default editor <name>; omarchy font set <name>; omarchy theme set <name>
+rm -rf ~/.config/omarchy/plugins/.hyprconf.*.bak.* ~/.local/state/hyprconf   # the dot-prefixed .bak.<timestamp> dirs are folders a module moved aside, or what `omarchy plugin remove` leaves of a non-git one; the state dir holds nothing once the markers are gone
+omarchy default terminal <name>; omarchy default editor <name>; omarchy font set <name>; omarchy theme set <name>   # if stock is not what you want: the undos hand the terminal to foot, the editor to nvim, and print the font command rather than restart your shell
 # Firefox and VS Code are Omarchy's installs and stay; `omarchy pkg drop visual-studio-code-bin firefox` if you want them gone
 ```
 
-Each module undoes itself: the Undo column of the Modules table above, or `bash ~/.hyprconf/modules/<name>/install undo`.
+One module alone: `hyprconf --undo <name>`, or `bash ~/.hyprconf/modules/<name>/install undo` — the Undo column of the Modules table.
 
 Then delete `~/.hyprconf` — and `~/.oh-my-zsh`, if a hyprconf 7.x or earlier put one there (nothing installs or uses it now). Do not `omarchy refresh hyprland` instead of the hypr module's undo: it also overwrites `hyprland.lua`, `autostart.lua` and `monitors.lua` with Omarchy's templates.
 
 ## Testing & development
 
-`make test` runs the hermetic unit + integration suites; `make lint` and `make shellcheck` are the other two CI gates. The test tree, the publish flow and the website upload are in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md); [`AGENTS.md`](AGENTS.md) holds the rules, gates and CI recipe that bind every change.
+`make test` runs the hermetic suites — one beside each module, and `tests/` for the core and the tree-wide guards; `make lint` and `make shellcheck` are the other two CI gates. The test tree, the publish flow and the website upload are in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md); [`AGENTS.md`](AGENTS.md) holds the rules, gates and CI recipe that bind every change.

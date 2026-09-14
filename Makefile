@@ -10,7 +10,7 @@ check: lint shellcheck test
 
 shellcheck:
 	@# Every bash script in the tree, selected by SHEBANG — the rule
-	@# tests/unit/test_omarchy_install.py::_overlay_scripts states. Anchored:
+	@# tests/test_scans.py::shipped_bash states. Anchored:
 	@# a plain `/bash/` also matched prose — any first-line comment that
 	@# merely mentions bash, as a config header naming a shell does.
 	@files=$$(find . -path ./.git -prune -o -type f \
@@ -22,8 +22,8 @@ shellcheck:
 	@# argument to a root command. SC2068 is error-level and already caught
 	@# everywhere by the main pass. modules/{firefox,keychron}/install are the
 	@# two module installs that call sudo; modules/yubikey's tool writes root
-	@# files through its own run_root.
-	shellcheck --include=SC2086 install.sh \
+	@# files through its own run_root. install.sh asks for no sudo at all.
+	shellcheck --include=SC2086 \
 	    modules/firefox/install modules/keychron/install \
 	    modules/yubikey/bin/hyprconf-yubikey
 	@echo "shellcheck: clean"

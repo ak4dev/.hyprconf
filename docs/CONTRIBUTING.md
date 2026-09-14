@@ -8,9 +8,9 @@ publish flow and the website upload.
 
 ```
 .hyprconf/
-├── install.sh                  # The only entry point: preflight, the module loop (alphabetical, or the modules named), the ~/.local/bin/hyprconf link, the hook; served by hyprconf.sh, clones itself on the curl path
+├── install.sh                  # The only entry point: preflight, the module loop (or the modules named), the ~/.local/bin/hyprconf link, the hook, --undo; served by hyprconf.sh, clones itself on the curl path
 │
-├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
+├── hooks/10-hyprconf           # The post-update hook: execs ~/.local/bin/hyprconf --no-update --no-packages (installed with omarchy hook install, no path rendered in)
 │
 ├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload), every one wired into install.sh's loop. Every tool the overlay puts on PATH ships under its module — modules/{hypr,vulkan-gpu,yubikey}/bin/ — and is symlinked into ~/.local/bin by that module
 │
@@ -41,11 +41,12 @@ them in an `archlinux:latest` container, as an unprivileged user.
 conftest.py                       # the `box` fixture every test builds on (repo root: it reaches both trees below)
 modules/<name>/test_<name>.py     # one suite per module, beside its `install` — `testpaths` collects modules/ and tests/ in one pytest run
 tests/                            # what is not a module's: install.sh and the tree-wide guards
+├── test_core.py                  #   install.sh: the curl bootstrap, the flags and module selection, the ~/.local/bin/hyprconf link, the post-update hook end to end, --undo, a full run of every module byte-stable across two runs, and the restraint a whole run is held to (no sudo outside a module's gate, never a theme switch)
+├── test_scans.py                 #   every shipped bash script, by shebang: the documented header, no pacman/AUR/removal/chsh on any path, no fetch-and-execute, `--` on every root write, the working hyprctl forms, plain names in every modules/*/packages
 ├── test_plugins_contract.py      #   every shipped plugin folder (modules/bar-*/plugin): omarchy-plugin-validate's checks ported to Python (CI has no Omarchy — each module runs the real validator too), the publishable shape (README, NOTICE, nothing of the overlay's, exec bits), the Text.PlainText and implicit-size rules, real qmllint, and every `bar.`/`bar.shell.` read against the installed PluginBarApi/PluginShellApi (pinned lists when Omarchy is absent)
 ├── unit/
 │   ├── test_no_pii.py            #   every file in the checkout (on-disk walk), identities derived at runtime
-│   ├── test_omarchy_install.py   #   install.sh: the curl bootstrap, the flags and module selection, the ~/.local/bin/hyprconf link, the module loop and the post-update hook end to end, restraint invariants, idempotency (a full run byte-stable across two runs); the dead-hyprctl / pacman / fetch-and-execute token scans over the shipped bash (the dead-hyprctl one over the modules too)
-│   └── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only one-liners, every modules/*/install clone pinned and never pulled, sha-pinned least-privilege CI, the .claude guardrail entries
+│   └── test_supply_chain.py      #   the published trust surface: web/ self-contained, https-only and stable-pinned bootstrap, every modules/*/install clone pinned and never pulled, sha-pinned least-privilege CI, the .claude guardrail entries
 └── integration/
     └── test_publish_pipeline.py  #   scripts/publish: the gates, the tag, the atomic promotion and its refusals, against a throwaway bare origin
 ```
@@ -60,8 +61,8 @@ make test                # both suites, one invocation, in parallel (pytest -n a
 # Lint gates
 make lint                # ruff check + ruff format --check
 make shellcheck          # every bash script (selected by shebang), severity=warning; plus SC2086 (info-level) on
-                         #   the root-writing files — install.sh, modules/yubikey/bin/hyprconf-yubikey,
-                         #   modules/firefox/install and modules/keychron/install (the two module installs that call sudo)
+                         #   the root-writing files — modules/yubikey/bin/hyprconf-yubikey, modules/firefox/install
+                         #   and modules/keychron/install (the two module installs that call sudo)
 make fmt                 # ruff format + safe fixes
 ```
 
@@ -97,11 +98,10 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   the whole session, CI's identity-less container included.
 
 - Every path a script reads is under `$HOME` (relocated wholesale by the
-  suite) or behind an env seam — in `install.sh`, `OMARCHY_PATH` (Omarchy's own
-  variable, not `_HYPRCONF_*`) for the Omarchy tree and `_HYPRCONF_PKG_ADD`
-  for the one binary it still names, the command preflight probes for to
-  decide "is this Omarchy" (derive this list rather than trusting it:
-  `grep -oh '_HYPRCONF_[A-Z_]*' install.sh modules/*/install | sort -u`);
+  suite) or behind an env seam — in `install.sh` only `OMARCHY_PATH` (Omarchy's
+  own variable, not `_HYPRCONF_*`), whose `default/` tree the preflight tests
+  for; in the modules (derive this list rather than trusting it:
+  `grep -oh '_HYPRCONF_[A-Z_]*' modules/*/install modules/*/bin/* | sort -u`)
   `_HYPRCONF_FIREFOX_POLICIES` and `_HYPRCONF_UDEV_RULES` —
   the two root-owned destinations a module writes — with `_HYPRCONF_ASSUME_TTY`
   in `modules/firefox/install` and `modules/keychron/install`; `_HYPRCONF_*` in
@@ -124,20 +124,18 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   (the real one would re-apply rules on the developer's own machine),
   `vulkaninfo` (it would answer for the host's GPUs), `nvidia-smi` (likewise),
   `sleep` (the feeders' hook between ticks: it advances the fake counters and
-  mutates the fake trees, then runs the real sleep), `git` (a clone only makes its directory —
-  the curl-path tests let a clone of a local directory run the real git — the
-  pinned fetch/checkout/rev-parse dance against the two third-party shell
-  dirs is faked through marker files, and a pull is a no-op; the real git
-  otherwise runs only inside a throwaway checkout under `tmp_path`, never
-  the repository the suite runs from) …
-  `/usr/bin` carries
-  every `omarchy-*` command (`pacman -Ql omarchy omarchy-settings omarchy-nvim | grep -c /usr/bin/omarchy-`), so a PATH of fakes plus
-  `/usr/bin` keeps none of them out: stub every one the code path can call
-  (`OMARCHY_STUBS` and `_setup` in `test_omarchy_install.py` list the
-  installer's, and `test_every_omarchy_command_install_sh_calls_has_a_fake`
-  holds `install.sh`'s code to that list; each module's own suite does the
-  same for its `install` through the `box` fixture, whose fakes are derived
-  from the tree). Real when present, skipped otherwise: `jq`, `luac`,
+  mutates the fake trees, then runs the real sleep), `git` (the shared fake
+  exits 0; `tests/test_core.py`'s `live` box gives it a body — a clone of a
+  local directory runs the real git, which is how the curl path is exercised,
+  a clone of a URL makes the directory with the pinned revision as its HEAD,
+  and a pull is a no-op; the real git otherwise runs only inside a throwaway
+  checkout under `tmp_path`, never the repository the suite runs from).
+  `/usr/bin` carries every `omarchy-*` command (`pacman -Ql omarchy
+  omarchy-settings omarchy-nvim | grep -c /usr/bin/omarchy-`), so a PATH of
+  fakes plus `/usr/bin` keeps none of them out: the `box` fixture derives a
+  fake for every `omarchy-*` name the shipped scripts and payload carry, so
+  a new call is covered the moment it is written. Real when present, skipped
+  otherwise: `jq`, `luac`,
   `qmllint`, `shellcheck`, `sh`, `zsh`,
   `/usr/share/omarchy/bin/omarchy-plugin-validate`
   (reads a manifest, changes nothing), the installed clock plugin's files
@@ -164,8 +162,8 @@ publish; the recipe for reproducing a container-only failure is in
 
 The overlay is published: strangers clone `stable` and run `install.sh` with their own sudo. Three trust boundaries, each held by mechanical pins (AGENTS.md hard rule 8):
 
-1. **Unprivileged → root, on the local box.** `install.sh` itself asks for no sudo at all: the modules that declare it (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/{terminal-kitty,shell-zsh,font,vscode}`) and `modules/yubikey`'s `run_root` surface (rule 6 names them) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned per file, in `modules/{yubikey,firefox,keychron}/test_*.py`; the tree-wide scan over `modules/*/install` lands with `tests/test_scans.py`); every tool on PATH is a module's, a symlink into the checkout — `install.sh` copies none; every module's `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo call names itself in the module's README (rule 6) and lands with a pin.
-2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`textFormat: Text.PlainText`, stock parity); nothing shipped fetches-and-executes — `test_overlay_never_fetches_and_executes` forbids curl/wget/pipe-to-shell/`base64 -d`/`eval` in shipped bash, with the allowed exceptions written down in full inside the test. A new exception is added there verbatim, with its why, or the change does not land.
+1. **Unprivileged → root, on the local box.** `install.sh` itself asks for no sudo at all: the modules that declare it (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/{terminal-kitty,shell-zsh,font,vscode}`) and `modules/yubikey`'s `run_root` surface (rule 6 names them) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (`tests/test_scans.py::test_every_root_write_carries_the_end_of_options_marker`, over every shipped script, beside the per-file pins in `modules/{yubikey,firefox,keychron}/test_*.py`); every tool on PATH is a module's, a symlink into the checkout — `install.sh` copies none; every module's `packages` file holds plain package names only (`test_every_packages_file_holds_plain_package_names`). A new root write or sudo call names itself in the module's README (rule 6) and lands with a pin.
+2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`textFormat: Text.PlainText`, stock parity); nothing shipped fetches-and-executes — `tests/test_scans.py::test_nothing_shipped_fetches_and_executes` forbids curl/wget/pipe-to-shell/`base64 -d`/`eval` in every shipped script and the zsh payload, with the allowed exceptions written down in full inside the test. A new exception is added there verbatim, with its why, or the change does not land.
 3. **Publish pipeline → strangers' boxes.** The bootstrap is https-only (`--proto '=https'`; `test_published_one_liners_are_https_only`, `test_bootstrap_defaults_are_pinned_https_and_stable` — schemeless, curl's first request is plaintext port 80 and an on-path attacker answers it before the redirect exists). powerlevel10k — the one third-party repository left, and code that runs in every interactive zsh — is cloned at a reviewed commit by `modules/shell-zsh` and never pulled; bumping the pin is a deliberate commit through the publish gates (`test_every_module_clone_is_pinned_to_a_reviewed_commit`, which holds every `modules/*/install` to the same rule). Oh My Zsh is gone with its in-tree updater. CI actions are sha-pinned under a read-only token (`test_ci_workflow_is_least_privilege`); `web/` stays self-contained (`test_web_page_is_self_contained`); secret-shaped material anywhere in the tree fails `test_no_secret_material_anywhere`; `install.sh` refuses to run as root (the curl|bash sudo-prefix habit half-installs into /root).
 
 The checklist for any change: does it add a network touch, execute anything it did not ship with, widen a root path or a udev match, or move bytes from an untrusted source toward a shell, QML or root sink? Then the matching pin above changes in the same commit, its reasoning beside it. A pin loosened without its why is a finding, not a diff.
@@ -242,8 +240,8 @@ plugin README gives Omarchy's own by-hand install instead
 form that applies once the repository is there — `--yes` because
 `omarchy-plugin-add` otherwise asks for a bar section
 (`select_bar_widget_placement`, `bin/omarchy-plugin-add:161-162`) and the
-answer moves a `clonedFrom` widget out of the stock slot it just took. The
-overlay keeps syncing the same folders from the checkout, and `install.sh` leaves a folder that is a git checkout (`omarchy
+answer moves a `clonedFrom` widget out of the stock slot it just took. Each
+bar module links the same folder from the checkout, and leaves a folder that is a git checkout (`omarchy
 plugin add`'s) to `omarchy plugin update`.
 
 ## Updating the website

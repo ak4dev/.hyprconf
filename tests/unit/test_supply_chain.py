@@ -54,6 +54,15 @@ def test_published_one_liners_are_https_only() -> None:
     assert ONE_LINER in (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
 
+def test_bootstrap_defaults_are_pinned_https_and_stable() -> None:
+    """The first bytes strangers run. Every behavioural curl-path test
+    (tests/test_core.py) overrides HYPRCONF_REPO, so an http:// downgrade or
+    a fork URL in the default would ship green without this literal pin."""
+    text = (REPO_ROOT / "install.sh").read_text(encoding="utf-8")
+    assert ': "${HYPRCONF_REPO:=https://github.com/ak4dev/.hyprconf}"' in text
+    assert ': "${HYPRCONF_BRANCH:=stable}"' in text
+
+
 def test_ci_workflow_is_least_privilege() -> None:
     workflows = sorted(
         p for ext in ("*.yml", "*.yaml") for p in (REPO_ROOT / ".github" / "workflows").glob(ext)

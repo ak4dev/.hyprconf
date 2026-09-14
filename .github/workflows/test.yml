@@ -25,8 +25,9 @@ jobs:
       # jq: modules/hypr/bin/hyprconf-gaps parses `hyprctl getoption -j` with it.
       # shellcheck: modules/yubikey/test_yubikey.py lints the generated mkinitcpio
       # drop-in and would otherwise skip silently.
-      # diffutils: install.sh compares files with `cmp -s` (a test stub does
-      # too); Omarchy has it through mkinitcpio, the bare container does not.
+      # diffutils: the modules cmp-gate their copies (`cmp -s` in nine
+      # modules/*/install and the firefox-theme hook); Omarchy has it through
+      # mkinitcpio, the bare container does not.
       # lua: luac parses the modules/hypr/*.lua overrides, which would otherwise skip.
       # qt6-declarative: qmllint parses the plugin QML
       # (test_plugin_qml_parses), which would otherwise skip — Arch keeps it
