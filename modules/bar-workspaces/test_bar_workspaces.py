@@ -3,6 +3,7 @@ The shape every plugin folder keeps: tests/test_plugins_contract.py."""
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -106,6 +107,17 @@ def test_manifest_declares_the_slot_and_entry_point_the_shell_reads(box):
     assert manifest["entryPoints"] == {"barWidget": "Workspaces.qml"}
     assert manifest["omarchy"]["clonedFrom"] == "omarchy.workspaces"
     assert manifest["barWidget"] == {"category": "Compositor"}
+
+
+def test_the_widget_lists_live_workspaces_and_keeps_the_stock_ipc_target():
+    """Why this widget replaces the stock one, and what it must not break: the ids come from
+    Hyprland, never a fixed 1-5 list or an id cap the way stock does, and `moduleName` stays
+    the built-in id, which is the stable IPC target the clonedFrom swap hands over."""
+    code = re.sub(r"//.*", "", (PLUGIN / "Workspaces.qml").read_text())  # comments off
+    assert 'moduleName: "omarchy.workspaces"' in code
+    assert "Hyprland.workspaces.values" in code
+    assert not re.search(r"\[\s*1\s*,\s*2\b", code), "a fixed pill list"
+    assert not re.search(r"[<>]=?\s*[1-9]\d*", code), "an id cap (`id > 0` is the only bound)"
 
 
 def test_the_installed_link_passes_omarchy_plugin_validate(box):
