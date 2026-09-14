@@ -1,19 +1,6 @@
 #!/usr/bin/env bash
-# hyprconf/firefox-theme — Omarchy's active theme into Firefox, on every
-# `omarchy theme set` and now.
-# userChrome.css.tpl goes into ~/.config/omarchy/themed/, the user template
-# directory omarchy-theme-set-templates:7 reads, globs AHEAD of
-# $OMARCHY_PATH/default/themed (:375) and renders in that order (:390-399,
-# "user overrides built-in") into the theme's staging dir, which
-# omarchy-theme-set:292-293 swaps onto ~/.local/state/omarchy/current/theme.
-# `hook` is installed with omarchy-hook-install (bin/omarchy-hook-install:
-# 27-29: mkdir -p, cp, chmod 755 — under the file's BASENAME, so it is copied
-# to the final name first); omarchy-theme-set:341 runs it after every set.
-# Re-rendering the CURRENT theme is omarchy-theme-refresh (bin/omarchy-theme-
-# refresh:5-8 = omarchy-theme-set of theme.name, wallpaper kept) — which ends
-# in that same hook call, so the hook is run by hand only when no refresh ran
-# — and only over a render: with none it could only repeat what was just said.
-# No packages, no sudo: every path is under $HOME.
+# hyprconf/firefox-theme — Omarchy's active theme into Firefox, now and on every theme set.
+# Seams: ~/.config/omarchy/themed, globbed ahead of the built-ins (omarchy-theme-set-templates:375,390-399); the theme-set hook, which omarchy-hook-install:27-29 copies under its BASENAME and omarchy-theme-set:341 runs.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -23,8 +10,6 @@ current=$HOME/.local/state/omarchy/current
 render=$current/theme/userChrome.css
 
 if [[ ${1:-} == undo ]]; then
-  # Best effort: a profile the hook could not write (ENOSPC, a root-owned
-  # user.js) must not keep the module's own three files standing.
   rc=0
   bash "$dir/hook" --undo ||
     { rc=$?; echo "  theme-set hook --undo failed — some profile files remain" >&2; }
