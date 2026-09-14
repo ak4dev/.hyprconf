@@ -17,12 +17,12 @@
 # Design rule throughout: impact Omarchy as little as possible. Nothing here
 # changes the login shell, and everything Omarchy owns is either left alone or
 # extended through a documented seam (a user theme, a plugin, a hook, a kitty
-# `include`). The privileged steps are installing packages (through Omarchy's
-# own `omarchy-pkg-add`), Firefox (through Omarchy's own installer) and the
-# system Firefox policy — the overlay's write outside $HOME — and
-# --no-packages skips them all, so the post-update hook never needs sudo. It
-# also exports HYPRCONF_NO_SUDO, which every module reads: modules/vscode and
-# modules/font install their own packages behind it.
+# `include`). The one privileged step here is installing packages, through
+# Omarchy's own `omarchy-pkg-add`, and --no-packages skips it — so the
+# post-update hook never needs sudo. That flag also exports HYPRCONF_NO_SUDO,
+# which every module reads: modules/firefox (Firefox and the system policy,
+# the overlay's write outside $HOME), modules/vscode, modules/font and
+# modules/keychron all bow out of their own root work behind it.
 set -euo pipefail
 
 # The checkout: the installer lives at the repository root. ${BASH_SOURCE[0]}
@@ -50,12 +50,6 @@ HERE_SED=${HERE//\\/\\\\}; HERE_SED=${HERE_SED//&/\\&}; HERE_SED=${HERE_SED//|/\
 # The zsh binary looked up on PATH. Overridable so a test can point the lookup
 # at a name that does not exist until the package stage creates it.
 : "${_HYPRCONF_ZSH_BIN:=zsh}"
-# Where the system Firefox policy lands. Root-owned, so the stage that writes
-# it goes through sudo; overridable so the hermetic suite can point it at a tmp
-# tree. _HYPRCONF_ASSUME_TTY lets that suite reach the sudo path from a non-tty
-# pytest run.
-: "${_HYPRCONF_FIREFOX_POLICIES:=/etc/firefox/policies}"
-: "${_HYPRCONF_ASSUME_TTY:=}"
 # How long activate_plugin_copy waits for the shell to discover a freshly
 # copied plugin (attempts x 0.05s). The hermetic suite sets it to 0 — its
 # omarchy-plugin-list is a stub that never lists the copy.
@@ -99,9 +93,9 @@ Options:
                   migrations). This is what the `hyprsync` alias runs.
   --no-update     Apply only; never invoke omarchy-update. Used by the
                   post-update hook, which already runs inside an update.
-  --no-packages   Skip everything that needs sudo: packages and Firefox (with
-                  its policy). Exported to the modules as HYPRCONF_NO_SUDO,
-                  which each one honours itself.
+  --no-packages   Skip everything that needs sudo: the package list here, and
+                  every module's own root work. Exported to the modules as
+                  HYPRCONF_NO_SUDO, which each one honours itself.
   -h, --help      Show this help.
 
 With no options: apply every stage once, without pulling or updating.
@@ -460,90 +454,6 @@ stage_packages() {
     "$_HYPRCONF_PKG_ADD" "${pkgs[@]}" || die "package install failed"
 }
 
-# Firefox through Omarchy's own installer, plus the system Firefox policy.
-#
-# `omarchy-install-browser firefox` (bin/omarchy-install-browser, the
-# `firefox)` case, Omarchy 4.0.2-1) is omarchy-pkg-add firefox, its own
-# policies.json into /usr/lib/firefox/distribution/ through
-# install/helpers/browser-policy.sh's browser_policy_setup_firefox_distribution
-# (the directory made root-owned 0755, files not root's purged, the policy
-# `install -m 644 -o root -g root`, all as root), and MOZ_ENABLE_WAYLAND=1 in
-# ~/.config/environment.d/ — every step idempotent, and nothing is launched.
-# Its browser-policy migration (migrations/1787515927.sh) hardens the same
-# directory and never touches /etc/firefox, where the file below lives. Run
-# only when omarchy-pkg-present firefox fails.
-#
-# The policy — telemetry off, tracking protection on, uBlock Origin and
-# Proton Pass force-installed, DuckDuckGo the default engine, and the UI
-# settings this config carries (compact density, vertical tabs, a bare
-# Firefox Home, DRM playback on) — lives at /etc/firefox/policies/
-# policies.json: Firefox reads enterprise policies only from root-owned
-# paths, and that one takes precedence over the distribution/ file Omarchy
-# writes, which would shadow Omarchy's own prefs (VA-API, fractional
-# scaling, overscroll). So the file installed is a superset: Omarchy's
-# $OMARCHY_PATH/default/firefox/policies.json merged UNDER
-# infra/firefox/policies.json (jq `*` is a recursive object merge — a shared
-# "Preferences" keeps both sides, and ours wins on the same key), written
-# only when the merged bytes differ. Every captured pref is a Status
-# "default": it seeds a profile and the user can still change it — the
-# toolbar arrangement included, a seeded browser.uiCustomization.state that
-# a fresh profile's first window is built from (tests/unit/test_firefox.py
-# pins the semantics, with the live verification). Firefox silently drops any pref outside its own allowlist,
-# so tests/unit/test_firefox.py pins that list — the one setting no policy
-# can make stick (the find bar's Highlight All, which that allowlist
-# rejects) is left to the user, in README › Firefox settings. The one write
-# install.sh itself makes outside $HOME, hence behind the --no-packages gate
-# with the other sudo work; it bows out
-# when no terminal can take sudo's password
-# prompt — the post-update hook runs non-interactively inside omarchy-update,
-# where a hung prompt would stall the whole update.
-stage_firefox() {
-    log "Firefox: Omarchy's installer, plus hyprconf's policy"
-    local src="$HERE/infra/firefox/policies.json"
-    local dst="$_HYPRCONF_FIREFOX_POLICIES/policies.json"
-    local theirs="$OMARCHY_PATH/default/firefox/policies.json"
-    local merged
-    merged="$(mktemp)"
-    local -a layers=()
-    [[ -f $theirs ]] && layers+=("$theirs")
-    layers+=("$src")
-    if ! jq -s 'reduce .[] as $layer ({}; . * $layer)' "${layers[@]}" > "$merged" 2>/dev/null; then
-        rm -f "$merged"
-        warn "jq could not merge the Firefox policies — will retry on the next run"
-        return 0
-    fi
-
-    local install_firefox=0 install_policy=0
-    omarchy-pkg-present firefox || install_firefox=1
-    [[ -f $dst ]] && cmp -s "$merged" "$dst" || install_policy=1
-    if (( ! install_firefox && ! install_policy )); then
-        rm -f "$merged"
-        info "installed; policy current at $dst"
-        return 0
-    fi
-    if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
-        rm -f "$merged"
-        warn "no terminal for sudo — run \`bash install.sh\` from a terminal to install Firefox and its policy"
-        return 0
-    fi
-    if (( install_firefox )); then
-        info "installing through omarchy-install-browser firefox (Omarchy's own flow: the package, its prefs under /usr/lib/firefox/distribution, MOZ_ENABLE_WAYLAND)"
-        if ! omarchy-install-browser firefox; then
-            rm -f "$merged"
-            warn "omarchy-install-browser firefox failed — retry with: omarchy install browser firefox"
-            return 0
-        fi
-    fi
-    if (( install_policy )); then
-        if sudo install -Dm644 "$merged" "$dst"; then
-            info "policy installed at $dst (Omarchy's prefs + hyprconf's)"
-        else
-            warn "could not install the Firefox policy — skipping"
-        fi
-    fi
-    rm -f "$merged"
-}
-
 stage_terminal() {
     log "Terminal: kitty"
     # Assert kitty is present BEFORE touching the default: omarchy-default-
@@ -628,46 +538,6 @@ stage_kitty_include() {
     # absent, which is the branch that creates it.
     grep -qxF 'include hyprconf.conf' "$conf" 2>/dev/null ||
         printf '\n# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
-}
-
-# The default BROWSER. The editor half of this stage is modules/vscode's now,
-# and this half is modules/firefox's as soon as that module lands — the marker
-# name is already the module's (browser-applied), and the pre-split
-# defaults-applied counts as applied for one release so a machine that ran an
-# earlier install.sh is not re-asserted.
-#
-# SUPER+F calls omarchy-launch-browser, which resolves this default — so
-# `omarchy default browser zen` moves the key with it, and the choice lives
-# where Omarchy's own menu can edit it.
-#
-# Set ONCE: the post-update hook re-runs this installer after every Omarchy
-# update, and re-asserting a default would silently undo a later choice. A
-# failure warns rather than aborts — a default app is not worth taking an
-# install down over, and the setter needs a live session for xdg-settings.
-#
-# The outcome is READ BACK, never taken from the setter's exit status: that
-# status is its closing omarchy-notification-send's (no set -e in
-# /usr/bin/omarchy-default-browser:35-37, 4.0.3-1), which fails with no shell
-# to notify — a TTY or SSH first run — long after the value is on disk.
-# Trusting it left the marker unwritten on exactly the runs that had seeded
-# it. stage_terminal reads its own setter back for the same reason.
-stage_defaults() {
-    log "Default browser"
-    local state="$HOME/.local/state/hyprconf"
-    local marker="$state/browser-applied"
-    if [[ -e $marker || -e $state/defaults-applied ]]; then
-        info "already applied once — the default browser is yours now"
-        return 0
-    fi
-
-    omarchy-default-browser firefox || true
-    if [[ "$(omarchy-default-browser 2>/dev/null || true)" == firefox ]]; then
-        mkdir -p "$state"
-        : > "$marker"
-        info "browser=firefox (change with: omarchy default browser <name>)"
-    else
-        warn "could not set firefox as the default browser — will retry on the next run (omarchy default browser firefox)"
-    fi
 }
 
 stage_hotkeys() {
@@ -1247,21 +1117,21 @@ main() {
     [[ -d $HERE/hypr && -f $HERE/packages ]] || bootstrap "${orig_args[@]}"
     preflight
     if (( do_pull )); then stage_pull; fi
-    # Everything install.sh itself needs sudo for: packages and Firefox (+
-    # the policy). Modules gate their own sudo work on HYPRCONF_NO_SUDO.
-    if (( do_packages )); then stage_packages; stage_firefox; fi
+    # The only sudo install.sh itself still needs. Modules gate their own
+    # root work on HYPRCONF_NO_SUDO, which --no-packages exports.
+    if (( do_packages )); then stage_packages; fi
     # After the package stage, never before it — see resolve_zsh.
     resolve_zsh
     stage_terminal
     # Self-contained modules: each one applies, gates and undoes itself
     # (modules/<name>/README.md). Order-free — call order is alphabetical.
     bash "$HERE/modules/fastfetch/install"
+    bash "$HERE/modules/firefox/install"
     bash "$HERE/modules/font/install"
     bash "$HERE/modules/idle/install"
     bash "$HERE/modules/keychron/install"
     bash "$HERE/modules/themes/install"
     bash "$HERE/modules/vscode/install"
-    stage_defaults
     stage_hotkeys
     stage_looknfeel
     stage_monitors

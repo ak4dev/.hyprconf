@@ -238,6 +238,14 @@ BROWSER_DEAF = """
 if (($#)); then exit 0; fi
 echo chromium
 """
+# The set takes and the command still fails: bin/omarchy-default-browser has
+# no `set -e` and its last line (:35-37) is an omarchy-notification-send, so
+# its status is the notification's — which fails with no shell to notify.
+BROWSER_NOISY = """
+pick="$HOME/.default-browser"
+if (($#)); then printf '%s\\n' "$1" > "$pick"; exit 1; fi
+cat "$pick" 2>/dev/null || echo chromium
+"""
 
 
 def _env(box: Box) -> dict[str, str]:
@@ -397,6 +405,41 @@ def test_the_default_browser_is_seeded_once_and_read_back(box: Box) -> None:
     _run(box)
     assert "omarchy-default-browser" not in box.commands
     assert (box.home / ".default-browser").read_text() == "zen\n"
+
+
+def test_the_marker_survives_the_setters_failing_notification(box: Box) -> None:
+    """The other side of the read-back: the value took and the setter still
+    exited non-zero. Trusting that status left the marker unwritten on exactly
+    the runs that had seeded, and the next run re-asserted firefox over a
+    browser chosen in between."""
+    marker = box.home / ".local" / "state" / "hyprconf" / "browser-applied"
+    box.stub("sudo", SUDO_RUNS)
+    box.stub("omarchy-default-browser", BROWSER_NOISY)
+    proc = box.run(INSTALL, tty=True, env=_env(box))
+    assert proc.returncode == 0, proc.stderr
+    assert "not the default browser" not in proc.stderr
+    assert marker.is_file()
+
+    (box.home / ".default-browser").write_text("zen\n")
+    box.reset()
+    box.stub("omarchy-default-browser", BROWSER_NOISY)
+    assert box.run(INSTALL, tty=True, env=_env(box)).returncode == 0
+    assert "omarchy-default-browser" not in box.commands
+    assert (box.home / ".default-browser").read_text() == "zen\n"
+
+
+def test_every_root_call_carries_the_end_of_options_marker() -> None:
+    """AGENTS.md rule 8: a path handed to a root call is never readable as an
+    option. The same pin modules/keychron carries over the overlay's other
+    write outside $HOME; the tree-wide scan lands with tests/test_scans.py."""
+    root_calls = [
+        ln.strip()
+        for ln in INSTALL.read_text().splitlines()
+        if re.search(r"(?:^|;|&&|\|\||\bif )\s*sudo\s", ln) and not ln.lstrip().startswith("#")
+    ]
+    assert root_calls
+    for call in root_calls:
+        assert " -- " in call, call
 
 
 def test_the_v7_defaults_marker_is_honoured_for_one_release(box: Box) -> None:

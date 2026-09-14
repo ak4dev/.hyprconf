@@ -33,7 +33,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 
 ## Undo
 
-`bash modules/firefox/install undo` — removes the policy (`sudo`) and the marker. Firefox stays installed, and the two extensions become ordinary add-ons you can remove. Dropping the policy hands the search engine to Firefox's region default rather than back to your old pick, because setting it by policy cleared the profile's record: set it again in Settings › Search. Choose a browser with `omarchy default browser <name>`.
+`bash modules/firefox/install undo` — removes the policy (`sudo`) and the `browser-applied` marker; a v7 `defaults-applied` is left, because it is `vscode`'s too, so on an upgraded box a re-install seeds no default browser until you delete it. Firefox stays installed, and the two extensions become ordinary add-ons you can remove. Dropping the policy hands the search engine to Firefox's region default rather than back to your old pick, because setting it by policy cleared the profile's record: set it again in Settings › Search. Choose a browser with `omarchy default browser <name>`.
 
 ## Verified against Omarchy 4.0.3-1
 

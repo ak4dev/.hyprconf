@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from conftest import OMARCHY_TREE
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALL_SH = REPO_ROOT / "install.sh"
 HOOK = REPO_ROOT / "hooks" / "post-update.d" / "10-hyprconf"
@@ -45,26 +47,6 @@ font_family JetBrainsMono Nerd Font
 font_size 10
 """
 
-
-# Omarchy's default/firefox/policies.json as omarchy-install-browser copies
-# it (4.0.0-1: Preferences only) — its five prefs verbatim, plus one synthetic
-# pref hyprconf's policy also sets, so the merge test can show Omarchy's
-# prefs surviving and ours winning on a shared key.
-SHARED_PREF = "browser.compactmode.show"
-OMARCHY_FIREFOX_POLICY = {
-    "policies": {
-        "Preferences": {
-            "apz.overscroll.enabled": {"Value": True, "Status": "default"},
-            "media.ffmpeg.vaapi.enabled": {"Value": True, "Status": "default"},
-            "media.hardware-video-decoding.force-enabled": {"Value": True, "Status": "default"},
-            "widget.disable-swipe-tracker": {"Value": False, "Status": "default"},
-            "widget.wayland.fractional-scale.enabled": {"Value": True, "Status": "default"},
-            SHARED_PREF: {"Value": False, "Status": "default"},
-        }
-    }
-}
-# What omarchy-install-browser copies to /usr/lib/firefox/distribution/.
-OMARCHY_POLICY = Path("/usr/share/omarchy/default/firefox/policies.json")
 
 # omarchy-hook-install <type> <file> (4.0.0-1): mkdir -p the .d dir, cp under
 # the file's basename, chmod 755 — reproduced so later stages find the hook.
@@ -161,18 +143,15 @@ commit() {
 """
 
 
-def _default_app_stub(
-    tmp_path: Path, key: str, unset: str, *, writes: bool = True, set_status: int = 0
-) -> str:
-    """omarchy-default-browser / -editor: reports `unset` until something sets it,
-    then what was set — the read-back stage_defaults decides on. The set form
-    writes FIRST and exits `set_status` (no set -e, 4.0.3-1: the real ones
-    notify last and inherit that status); `writes=False` is a setter that
-    recorded the call and changed nothing."""
-    write = f'printf "%s" "$1" > "{tmp_path}/{key}"; ' if writes else ""
+def _default_app_stub(tmp_path: Path, key: str, unset: str) -> str:
+    """omarchy-default-browser / -editor: reports `unset` until something sets
+    it, then what was set — the value modules/firefox and modules/vscode read
+    back instead of trusting the setter's exit status. Those two modules own
+    the set-once contract and its failure modes; this is the working setter a
+    full install.sh run needs."""
     return (
         f'if [ $# -eq 0 ]; then cat "{tmp_path}/{key}" 2>/dev/null || echo {unset};'
-        f" else {write}exit {set_status}; fi"
+        f' else printf "%s" "$1" > "{tmp_path}/{key}"; fi'
     )
 
 
@@ -241,9 +220,9 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     shell_config.chmod(0o755)
     _stub(bins / "omarchy-theme-refresh", calls, THEME_REFRESH)
     _stub(bins / "omarchy-default-terminal", calls, _terminal_stub(tmp_path))
-    # Read back by stage_defaults; the unset answers are Omarchy's own (editor
-    # falls back to "nvim", bin/omarchy-default-editor:14, and the browser
-    # reports whatever xdg-settings says — stock Omarchy's chromium).
+    # Read back by modules/firefox and modules/vscode; the unset answers are
+    # Omarchy's own (editor falls back to "nvim", bin/omarchy-default-editor:14,
+    # and the browser reports whatever xdg-settings says — Omarchy's chromium).
     _stub(
         bins / "omarchy-default-browser", calls, _default_app_stub(tmp_path, "browser", "chromium")
     )
@@ -263,10 +242,12 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
     (omarchy_path / "config" / "omarchy" / "shell.json").write_text(
         json.dumps({"version": 1, "idle": {"lock": 300, "screensaver": 150}})
     )
-    # Omarchy's Firefox prefs — what stage_firefox merges under hyprconf's.
+    # Omarchy's Firefox prefs — what modules/firefox merges under its own.
+    # The stand-in is conftest's, the one the module's own suite drift-checks
+    # against the installed file.
     (omarchy_path / "default" / "firefox").mkdir(parents=True)
     (omarchy_path / "default" / "firefox" / "policies.json").write_text(
-        json.dumps(OMARCHY_FIREFOX_POLICY, indent=2) + "\n"
+        OMARCHY_TREE["default/firefox/policies.json"]
     )
 
     env = {
@@ -275,6 +256,7 @@ def _setup(tmp_path: Path, *, with_zsh: bool = True) -> dict:
         "omarchy_path": omarchy_path,
         "calls": calls,
         "udev_rules": tmp_path / "etc" / "udev" / "rules.d",
+        "firefox_policies": tmp_path / "etc" / "firefox" / "policies",
     }
     return env
 
@@ -289,10 +271,12 @@ def _install_env(env: dict, *, extra_env: dict[str, str] | None = None) -> dict[
         # The plugin-discovery and shell.json waits poll stubs that never
         # answer (a test modelling the shell's writes raises it again).
         "_HYPRCONF_PLUGIN_WAIT": "0",
-        # modules/keychron's own seam, pinned on every run because main()
-        # calls that module: a test that makes sudo real (_policy_env) would
-        # otherwise install the rule into the CI container's /etc/udev/rules.d.
+        # The two module seams that name a root-owned path, pinned on every
+        # run because main() calls both modules: a test that makes sudo real
+        # would otherwise write into the CI container's own /etc, and a plain
+        # run would read the developer's /etc/firefox to decide.
         "_HYPRCONF_UDEV_RULES": str(env["udev_rules"]),
+        "_HYPRCONF_FIREFOX_POLICIES": str(env["firefox_policies"]),
     }
     if extra_env:
         child_env.update(extra_env)
@@ -331,7 +315,6 @@ PAYLOAD = (
     "zsh",
     "kitty",
     "plugins",
-    "infra",
     "themed",
 )
 
@@ -480,17 +463,6 @@ def _tree_hash(root: Path) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_the_omarchy_firefox_policy_fixture_names_no_pref_omarchy_dropped() -> None:
-    """OMARCHY_FIREFOX_POLICY stands in for Omarchy's own file where there is
-    no Omarchy (CI); with one installed it must name no pref Omarchy stopped
-    shipping. SHARED_PREF is synthetic and is not one of Omarchy's."""
-    if not OMARCHY_POLICY.is_file():
-        return
-    theirs = json.loads(OMARCHY_POLICY.read_text())["policies"]["Preferences"]
-    ours = set(OMARCHY_FIREFOX_POLICY["policies"]["Preferences"]) - {SHARED_PREF}
-    assert ours <= set(theirs), ours - set(theirs)
-
-
 def test_refuses_without_omarchy_command(tmp_path: Path) -> None:
     # A name that really is absent: /usr/bin/omarchy-pkg-add exists on the
     # machines this overlay is developed on, so not stubbing it proves nothing.
@@ -541,8 +513,14 @@ def test_full_run_succeeds_and_is_byte_stable(tmp_path: Path) -> None:
     nothing outside SETTLED_RERUN_COMMANDS."""
     env = _setup(tmp_path)
     _real_jq(env)
-    _, extra = _policy_env(tmp_path, env)
-    extra["PATH"] = f"{env['bins']}:{env['home']}/.local/bin:/usr/bin:/bin"
+    # A sudo that really runs its argument list, so every module's root write
+    # lands in the box's own /etc (the two seams _install_env pins) instead of
+    # being merely recorded — the byte-stability of those files is theirs.
+    _stub(env["bins"] / "sudo", env["calls"], '"$@"')
+    extra = {
+        "_HYPRCONF_ASSUME_TTY": "1",
+        "PATH": f"{env['bins']}:{env['home']}/.local/bin:/usr/bin:/bin",
+    }
     first = _run(env, "--no-update", extra_env=extra)
     assert first.returncode == 0, first.stderr
 
@@ -937,52 +915,6 @@ def test_presets_are_seeded_once_and_never_overwritten(tmp_path: Path) -> None:
     preset.write_text("-- my desk, my monitors\n")
     _run(env, "--no-update")
     assert preset.read_text() == "-- my desk, my monitors\n"
-
-
-def test_the_default_browser_is_seeded_once_and_the_marker_waits_for_the_seed(
-    tmp_path: Path,
-) -> None:
-    """Seeded to hyprconf's pick on first install, then the user's — but only
-    once the seed took, which is the value READ BACK, not the setter's exit
-    status. The editor half of this stage is modules/vscode's now; the marker
-    is already the name modules/firefox will use."""
-    env = _setup(tmp_path)
-    marker = env["home"] / ".local" / "state" / "hyprconf" / "browser-applied"
-    # The setter that records the call and leaves the default where it was.
-    _stub(
-        env["bins"] / "omarchy-default-browser",
-        env["calls"],
-        _default_app_stub(tmp_path, "browser", "chromium", writes=False),
-    )
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "default browser" in proc.stderr
-    assert not marker.exists()
-
-    _stub(
-        env["bins"] / "omarchy-default-browser",
-        env["calls"],
-        _default_app_stub(tmp_path, "browser", "chromium"),
-    )
-    env["calls"].write_text("")
-    _run(env, "--no-update")
-    assert any(c.startswith("omarchy-default-browser firefox") for c in _calls(env))
-    assert marker.exists()
-
-
-def test_the_pre_split_defaults_marker_still_counts_as_applied(tmp_path: Path) -> None:
-    """A machine that ran an install.sh from before the module split carries
-    ~/.local/state/hyprconf/defaults-applied. The browser must not be
-    re-asserted over a pick made since, and the file is left in place —
-    modules/vscode honours it too, for one release."""
-    env = _setup(tmp_path)
-    state = env["home"] / ".local" / "state" / "hyprconf"
-    state.mkdir(parents=True)
-    (state / "defaults-applied").touch()
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert not any(c.startswith("omarchy-default-browser firefox") for c in _calls(env))
-    assert (state / "defaults-applied").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1432,58 +1364,20 @@ def test_overlay_never_uses_the_dead_hyprctl_forms() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The Firefox policy — one of the overlay's two writes outside $HOME
+# The sudo gate, across the whole run
 # ---------------------------------------------------------------------------
 
 
-def _policy_env(tmp_path: Path, env: dict) -> tuple[Path, dict[str, str]]:
-    """A sudo that actually runs its command (so the policy lands in the
-    tree), the real jq (the merge), and the policy path under tmp_path."""
-    _real_jq(env)
-    _stub(env["bins"] / "sudo", env["calls"], '"$@"')
-    policies = tmp_path / "etc" / "firefox" / "policies"
-    return policies, {"_HYPRCONF_ASSUME_TTY": "1", "_HYPRCONF_FIREFOX_POLICIES": str(policies)}
-
-
-def test_firefox_policy_is_omarchys_merged_under_ours_via_sudo_when_interactive(
-    tmp_path: Path,
-) -> None:
-    """Firefox reads enterprise policies only from root-owned paths, and
-    /etc/firefox/policies takes precedence over the distribution/ file
-    omarchy-install-browser writes — so what lands is Omarchy's policy merged
-    UNDER ours. A matching file is left alone: no re-prompt on a re-run."""
-    env = _setup(tmp_path)
-    policies, extra = _policy_env(tmp_path, env)
-    proc = _run(env, "--no-update", extra_env=extra)
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-install-browser" not in _commands(env)  # firefox is present
-
-    installed = json.loads((policies / "policies.json").read_text())["policies"]
-    ours = json.loads((REPO_ROOT / "infra" / "firefox" / "policies.json").read_text())["policies"]
-    for key, value in ours.items():
-        if key != "Preferences":
-            assert installed[key] == value, key
-    for pref, value in ours["Preferences"].items():  # SHARED_PREF included: ours wins
-        assert installed["Preferences"][pref] == value, pref
-    for pref, value in OMARCHY_FIREFOX_POLICY["policies"]["Preferences"].items():
-        if pref != SHARED_PREF:
-            assert installed["Preferences"][pref] == value, pref
-
-    env["calls"].write_text("")
-    _run(env, "--no-update", extra_env=extra)
-    assert "sudo" not in _commands(env)
-
-
 def test_every_sudo_stage_bows_out_without_a_terminal(tmp_path: Path) -> None:
-    """The post-update hook runs non-interactively inside omarchy-update, where a
-    sudo password prompt would stall the whole update. One gate, the same line
-    in stage_packages and stage_firefox: no tty, no attempt. The modules carry
-    their own (modules/keychron/test_keychron.py, modules/vscode)."""
+    """The post-update hook runs non-interactively inside omarchy-update, where
+    a sudo password prompt would stall the whole update. install.sh's own gate
+    is stage_packages'; every module carries the same one, and this is the one
+    place all of them are held to it in a single real run. The per-module
+    contracts are modules/{firefox,keychron,vscode,font}/test_*.py."""
     env = _setup(tmp_path)
-    _real_jq(env)  # else stage_firefox bows out on the merge, before its gate
+    _real_jq(env)  # else modules/firefox bows out on the merge, before its gate
     _packages(env, ())
-    policies = tmp_path / "etc" / "firefox" / "policies"
-    proc = _run(env, "--no-update", extra_env={"_HYPRCONF_FIREFOX_POLICIES": str(policies)})
+    proc = _run(env, "--no-update")
     assert proc.returncode == 0, proc.stderr
     for forbidden in (
         "sudo",
@@ -1492,45 +1386,7 @@ def test_every_sudo_stage_bows_out_without_a_terminal(tmp_path: Path) -> None:
         "omarchy-install-editor-vscode",
     ):
         assert forbidden not in _commands(env), forbidden
-    assert not (policies / "policies.json").exists()
-
-
-def test_firefox_is_installed_through_omarchys_installer_when_absent(tmp_path: Path) -> None:
-    """`omarchy-install-browser firefox` — Omarchy's own flow: omarchy-pkg-add,
-    its prefs under /usr/lib/firefox/distribution, MOZ_ENABLE_WAYLAND — runs
-    before the policy lands; never a bare omarchy-pkg-add firefox."""
-    env = _setup(tmp_path)
-    policies, extra = _policy_env(tmp_path, env)
-    _stub(env["bins"] / "omarchy-pkg-present", env["calls"], '[ "$1" != firefox ]')
-    proc = _run(env, "--no-update", extra_env=extra)
-    assert proc.returncode == 0, proc.stderr
-    calls = _calls(env)
-    assert "omarchy-install-browser firefox" in calls
-    assert calls.index("omarchy-install-browser firefox") < next(
-        i for i, c in enumerate(calls) if c.startswith("sudo install")
-    )
-    assert (policies / "policies.json").is_file()
-    pkg_add = [c for c in calls if c.startswith("omarchy-pkg-add")]
-    assert pkg_add and not any("firefox" in c.split() for c in pkg_add)
-
-
-def test_a_failed_firefox_install_leaves_no_policy_behind(tmp_path: Path) -> None:
-    """A failed install is a warning with Omarchy's retry command, and the stage
-    stops there: no policy for a Firefox that is not installed (it would
-    shadow nothing), so no sudo at all, and the run goes on."""
-    env = _setup(tmp_path)
-    policies, extra = _policy_env(tmp_path, env)
-    _stub(env["bins"] / "omarchy-pkg-present", env["calls"], '[ "$1" != firefox ]')
-    _stub(env["bins"] / "omarchy-install-browser", env["calls"], "exit 1")
-    proc = _run(env, "--no-update", extra_env=extra)
-    assert proc.returncode == 0, proc.stderr
-    assert "omarchy-install-browser firefox" in _calls(env)
-    assert "retry with: omarchy install browser firefox" in proc.stderr
-    assert not policies.exists()
-    # No `sudo install` of a policy — the run's other root write is
-    # modules/keychron's, which has its own gate and its own tests.
-    assert not [c for c in _calls(env) if c.startswith("sudo") and "policies" in c]
-    assert (env["home"] / ".zshrc").exists()  # a stage well after the Firefox one
+    assert not (env["firefox_policies"] / "policies.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -1616,30 +1472,6 @@ def test_shell_json_edits_wait_for_the_shells_asynchronous_writes(tmp_path: Path
     assert data["bar"]["centerAnchor"] == "hyprconf.clock"
     assert {"id": "hyprconf.clock", "format": "hh:mm:ss AP"} in data["bar"]["layout"]["center"]
     assert "omarchy.clock" not in [e["id"] for e in data["bar"]["layout"]["center"]]
-
-
-def test_browser_marker_survives_the_setters_failing_notification(tmp_path: Path) -> None:
-    """The setter writes the value and THEN notifies, and its exit status is the
-    notification's (no set -e, 4.0.3-1) — so trusting it left the marker
-    unwritten on exactly the runs that had succeeded, and the next in-session
-    run re-asserted firefox over a browser chosen in between."""
-    env = _setup(tmp_path)
-    _stub(
-        env["bins"] / "omarchy-default-browser",
-        env["calls"],
-        _default_app_stub(tmp_path, "browser", "chromium", set_status=1),
-    )
-    proc = _run(env, "--no-update")
-    assert proc.returncode == 0, proc.stderr
-    assert "default browser" not in proc.stderr
-    assert (env["home"] / ".local" / "state" / "hyprconf" / "browser-applied").exists()
-
-    # The user's later pick, which the re-run must not take back.
-    (tmp_path / "browser").write_text("zen")
-    env["calls"].write_text("")
-    _run(env, "--no-update")
-    assert not any(c.startswith("omarchy-default-browser ") for c in _calls(env))
-    assert (tmp_path / "browser").read_text() == "zen"
 
 
 def test_every_shipped_tool_lands_on_path(tmp_path: Path) -> None:

@@ -24,9 +24,9 @@ preferences on top, always through Omarchy's own tools and documented seams:
 | Bar widgets | A clock that ticks seconds, active-only workspaces on two lines with a Pac-Man on the focused one, the focused window's title, a CPU/temp/mem/GPU/net readout — all as Omarchy shell plugins |
 | Terminal + shell | kitty as the default terminal, running zsh + Oh My Zsh + Powerlevel10k *inside* the terminal; the login shell stays bash |
 | Greeting | hyprconf's `fastfetch` layout in the shell, at a path of its own — Omarchy's About screen stays stock ([`modules/fastfetch`](modules/fastfetch/README.md)) |
-| Firefox + VS Code | Installed through Omarchy's own installers (`omarchy install browser firefox`, `omarchy install editor vscode`), set as the default browser and editor once ([`modules/vscode`](modules/vscode/README.md) for the editor half) |
+| Firefox + VS Code | Installed through Omarchy's own installers (`omarchy install browser firefox`, `omarchy install editor vscode`), set as the default browser and editor once ([`modules/firefox`](modules/firefox/README.md), [`modules/vscode`](modules/vscode/README.md)) |
 | Theme reach | Every `omarchy theme set` also lands in Firefox, which Omarchy's own fan-out misses — a user template Omarchy's own engine renders |
-| Firefox settings | One system policy — Omarchy's own prefs plus hyprconf's — carries the lot: telemetry off, tracking protection on, **uBlock Origin and Proton Pass** force-installed, the toolbar seeded button-for-button, **DuckDuckGo** the default engine, compact density, vertical tabs, a bare Firefox Home, DRM playback on. Policy *defaults*, not user prefs — any profile comes up configured and it all stays yours to change ([details](#firefox-settings)) |
+| Firefox settings | One system policy — Omarchy's own prefs plus hyprconf's — carries the lot: telemetry off, tracking protection on, **uBlock Origin and Proton Pass** force-installed, the toolbar seeded button-for-button, **DuckDuckGo** the default engine, compact density, vertical tabs, a bare Firefox Home, DRM playback on. Policy *defaults*, not user prefs — any profile comes up configured and it all stays yours to change ([`modules/firefox`](modules/firefox/README.md)) |
 | YubiKey | `hyprconf-yubikey`: unlock the LUKS root at boot with a FIDO2 key (Omarchy's own `omarchy-setup-security-fido2` covers sudo/polkit) |
 | Dual-GPU gaming | `hyprconf-vulkan-gpu`: on a box with two GPUs, pins Vulkan (Steam/Proton under Xwayland) to the GPU that drives the displays — session environment in uwsm's `env.d`, written by `hyprconf-vulkan-gpu fix`; `use` / `toggle` pin either card and `run` switches for one command, no re-login |
 | Keychron / Lemokey | One udev rule so [launcher.keychron.com](https://launcher.keychron.com) can reach your boards and mice over WebHID — a `hidraw` node is `0600 root:root` until something says otherwise ([`modules/keychron`](modules/keychron/README.md)) |
@@ -36,7 +36,7 @@ preferences on top, always through Omarchy's own tools and documented seams:
 ## Requirements
 
 - A running [Omarchy](https://omarchy.org) install. Verified against Omarchy 4.0.3-1 (Lua config — hyprlang `.conf` is gone); the full pin, Hyprland version included, is in [`AGENTS.md`](AGENTS.md). `install.sh` refuses to run when `/usr/share/omarchy` or `omarchy-pkg-add` is missing.
-- `git`, and a terminal for anything that needs `sudo`: the packages and Firefox stages, and the modules that install packages or write outside `$HOME` (Modules, below).
+- `git`, and a terminal for anything that needs `sudo`: the `packages` stage, and the modules that install packages or write outside `$HOME` (Modules, below).
 
 ## Install
 
@@ -60,7 +60,7 @@ bash ~/.hyprconf/install.sh
 | *(none)* | Apply every stage once. Idempotent — re-running is how you pick up changes. |
 | `--sync` | `git pull --ff-only` the checkout (after undoing any `omarchy refresh` that landed on it — see Sync), re-apply, then run `omarchy-update` — whose post-update hook re-applies the overlay once more, after Omarchy's migrations. This is what the `hyprsync` alias runs. It applies whatever `stable` now carries with no review step — the two root writes (the Keychron udev rule, the Firefox policy) included, which is the trade-off of a clone-only, https-pinned overlay (AGENTS.md rule 8). |
 | `--no-update` | Apply only; never invoke `omarchy-update`. Used by the post-update hook, which already runs inside an update. |
-| `--no-packages` | Skip the stages that need `sudo`: packages and Firefox (with its policy). Exported to the modules as `HYPRCONF_NO_SUDO`, which each one honours itself — they say so in one line and carry on. The hook passes this too. |
+| `--no-packages` | Skip everything that needs `sudo`: the `packages` stage here, and every module's own root work. Exported to the modules as `HYPRCONF_NO_SUDO`, which each one honours itself — they say so in one line and carry on. The hook passes this too. |
 | `-h`, `--help` | Usage: both forms and the three variables. On the curl path it answers from the served copy — nothing is cloned. |
 
 ### What each stage does
@@ -68,9 +68,7 @@ bash ~/.hyprconf/install.sh
 | Stage | Changes | Mechanism |
 |---|---|---|
 | packages | Installs the `packages` list (official repos only) | `omarchy-pkg-add` — idempotent, never bare `pacman -Syu` (Omarchy's ALPM hook blocks it) |
-| firefox | Firefox when absent; `/etc/firefox/policies/policies.json` = Omarchy's `default/firefox/policies.json` merged **under** `infra/firefox/policies.json` (extensions, search engine, privacy and UI settings — [Firefox settings](#firefox-settings)) | `omarchy-install-browser firefox` — Omarchy's own flow: `omarchy-pkg-add firefox`, its prefs to `/usr/lib/firefox/distribution/policies.json`, `MOZ_ENABLE_WAYLAND=1` in `~/.config/environment.d/`. The policy is a `jq` recursive merge (`*`, ours wins on a shared key) written with `sudo install` only when the bytes differ: `/etc/firefox/policies` takes precedence over `distribution/`, so Omarchy's prefs (VA-API, fractional scaling, overscroll) ride along instead of being shadowed. Skipped when there is no terminal for the password prompt. One of the overlay's two writes outside `$HOME` (the other is the `keychron` module's udev rule) |
 | terminal | kitty becomes the default terminal; `~/.config/kitty/hyprconf.conf` (cursor trail, 0.85 opacity, `shell <zsh>`) plus one `include hyprconf.conf` line appended to `kitty.conf`, which is created if you do not have one (from 4.0.3 Omarchy's own defaults live in `/etc/xdg/kitty/kitty.conf`, so the user file is optional) | `omarchy-default-terminal kitty`; Omarchy's defaults live in `/etc/xdg/kitty/kitty.conf` (kitty merges it below the user file), and `~/.config/kitty/kitty.conf` — the theme include, plus whatever `omarchy-font-set` appends — stays authoritative above it. The setter's exit status is its closing notification's, so with no shell (a TTY first run) it warns and the re-run finds kitty already current |
-| defaults | Default browser `firefox` — **set once** | `omarchy-default-browser`, then the value read back (its exit status is its closing notification's, which fails on a TTY or SSH run after the default is already written); marker `~/.local/state/hyprconf/browser-applied`, and the pre-split `defaults-applied` counts as applied for one release |
 | hotkeys | `~/.config/hypr/bindings.lua` → `hypr/bindings.lua` | Symlink (whatever was there first — Omarchy's stock file, or a dotfiles link of your own, copied as a link — backed up to `bindings.lua.stock`). The hotkey tools are `bin/` commands (below) |
 | looknfeel | `~/.config/hypr/looknfeel.lua` and `input.lua` → the repo's | Symlinks (`.stock` backups, a link of your own kept as a link) |
 | monitors | Seeds the three presets into `~/.config/hypr/` | Seeded, never overwritten — a preset is machine-local; delete one to re-seed. Omarchy's `monitors.lua` is never touched, a symlinked one included (a stow-style dotfiles link is yours) |
@@ -97,6 +95,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | Module | What | Undo |
 |---|---|---|
 | [`fastfetch`](modules/fastfetch/README.md) | The shell greeting's layout, copied to `~/.config/hyprconf/fastfetch.jsonc` — a path only the shell reads, so Omarchy's About screen keeps its own | `bash ~/.hyprconf/modules/fastfetch/install undo` |
+| [`firefox`](modules/firefox/README.md) | Firefox through Omarchy's own installer when it is absent, one system policy at `/etc/firefox/policies/policies.json` — Omarchy's own `default/firefox/policies.json` merged **under** hyprconf's (extensions, search engine, privacy and UI settings) — and `firefox` as the default browser, **set once**. The policy needs `sudo` and a terminal | `bash ~/.hyprconf/modules/firefox/install undo` — drops the policy and the marker; Firefox stays installed |
 | [`font`](modules/font/README.md) | The system monospace becomes GeistMono Nerd Font — **set once**. Installs `otf-geist-mono-nerd` (official repos, `omarchy-pkg-add`) when it is missing, which needs `sudo` and a terminal | `bash ~/.hyprconf/modules/font/install undo` — drops the marker and prints the `omarchy font set 'JetBrainsMono Nerd Font'` to run (the setter restarts the shell, so it stays yours) |
 | [`idle`](modules/idle/README.md) | The screensaver starts after **15 min** instead of Omarchy's 150 s (`idle.screensaver` in `~/.config/omarchy/shell.json`; the lock timeout is left alone) — **set once** | `bash ~/.hyprconf/modules/idle/install undo` |
 | [`keychron`](modules/keychron/README.md) | One udev rule at `/etc/udev/rules.d/70-keychron.rules` so the WebHID launcher can reach Keychron (`0x3434`) and Lemokey (`0x362d`) boards and mice. Needs `sudo` and a terminal | `bash ~/.hyprconf/modules/keychron/install undo` |
@@ -125,7 +124,7 @@ bash install.sh     # after any `omarchy refresh` or when you just want to re-ap
 
 ## Repository layout
 
-The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `hypr/`, `bin/`, `plugins/`, `themed/`, `zsh/`, `kitty/` and `hooks/` land in `$HOME` (the `hypr/*.lua` overrides and `.p10k.zsh` as symlinks into the checkout; the template into `~/.config/omarchy/themed/`; `lib/hyprconf/` is used in place), and `infra/firefox/policies.json` (merged over Omarchy's own) is the system file `install.sh` itself writes. `modules/` is one directory per module, each shipping its own payload — what it writes and how to undo it is in that module's own `README.md`.
+The tree is in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md). What reaches your machine: `hypr/`, `bin/`, `plugins/`, `themed/`, `zsh/`, `kitty/` and `hooks/` land in `$HOME` (the `hypr/*.lua` overrides and `.p10k.zsh` as symlinks into the checkout; the template into `~/.config/omarchy/themed/`; `lib/hyprconf/` is used in place). `modules/` is one directory per module, each shipping its own payload — what it writes and how to undo it is in that module's own `README.md`, the system Firefox policy ([`modules/firefox`](modules/firefox/README.md)) included.
 
 ## Monitor presets
 
@@ -252,35 +251,11 @@ From `packages`, installed via `omarchy-pkg-add` — **official repositories onl
 | `kitty` | Default terminal |
 | `zsh`, `zsh-autosuggestions`, `zsh-syntax-highlighting` | Shell inside kitty |
 
-Firefox (`SUPER+F`) and VS Code (`SUPER+C`) are not in `packages`: they come through Omarchy's own installers (the `firefox` stage and [`modules/vscode`](modules/vscode/README.md)), which set up what a bare package would not. `visual-studio-code-bin` is from Omarchy's own `[omarchy]` pacman repository (`pacman -Si`: *Repository: omarchy*; it provides `code` and conflicts with Arch's `code`) — the one package the overlay takes from outside Arch's official repositories, and only through `omarchy-install-editor-vscode`; no AUR helper is ever called. `hyprconf-yubikey enroll` adds `libfido2` on demand, through `omarchy-pkg-add`.
+Firefox (`SUPER+F`) and VS Code (`SUPER+C`) are not in `packages`: they come through Omarchy's own installers ([`modules/firefox`](modules/firefox/README.md) and [`modules/vscode`](modules/vscode/README.md)), which set up what a bare package would not. `visual-studio-code-bin` is from Omarchy's own `[omarchy]` pacman repository (`pacman -Si`: *Repository: omarchy*; it provides `code` and conflicts with Arch's `code`) — the one package the overlay takes from outside Arch's official repositories, and only through `omarchy-install-editor-vscode`; no AUR helper is ever called. `hyprconf-yubikey enroll` adds `libfido2` on demand, through `omarchy-pkg-add`.
 
 ## zsh
 
 The `~/.zshrc` managed block (`# >>> hyprconf >>>` … `# <<< hyprconf <<<`, source `zsh/zshrc.block`) sources Omarchy's `default/bash/{env-bootstrap,envs,aliases}`, initialises `zoxide` (Omarchy aliases `cd` to it), loads Oh My Zsh with the `powerlevel10k` theme and `~/.p10k.zsh`, `zsh-autosuggestions`, the `hyprsync` alias, a `fastfetch` greeting (the `fastfetch` module's layout when it is installed, fastfetch's own default otherwise), and `zsh-syntax-highlighting` last. Everything outside the markers is preserved in place: a re-run replaces the block where it stands, so a line you add after the end marker stays after it. Both marker lines have to be there, in that order — with only one of the pair, or the two swapped, the installer leaves `~/.zshrc` untouched and says so, rather than rewriting a file it cannot bound; put the missing line back (or delete the odd one) and re-run.
-
-## Firefox settings
-
-Every setting below rides in the one system policy the `firefox` stage installs — `/etc/firefox/policies/policies.json`, Omarchy's own `default/firefox/policies.json` merged **under** [`infra/firefox/policies.json`](infra/firefox/policies.json). Firefox reads it at every startup, so any profile, a fresh one included, comes up configured. No `user.js`, and not one user pref: what reaches profile state is the search engine and — on a fresh profile's first start — the toolbar arrangement, the two with a caveat when you undo. (The theme writes into the profile too, and has [its own section](#theme--firefox).)
-
-| What | How |
-|---|---|
-| **uBlock Origin** and **Proton Pass**, both pinned to the toolbar | `ExtensionSettings`: `force_installed` by the id each signed XPI declares, from the AMO `.../downloads/latest/<slug>/latest.xpi` URL, with `default_area: "navbar"` — Firefox's own knob for where a browser action lands (without it an extension falls into the overflow menu), the fallback when no saved layout names the button; the seeded arrangement below pins the exact slots. Neither entry sets `private_browsing`: its presence at *any* value would take the about:addons toggle away from you |
-| **The toolbar arrangement** — the exact button order, `sidebar-button` and the two extension buttons included, the downloads button off the bar | `browser.uiCustomization.state` seeded as a policy *default*: CustomizableUI reads the pref before a fresh profile has its own value, so the **first** window is built from it, and the profile's own first serialization owns the layout from then on — rearrange freely, nothing re-asserts. Like every default here it shows only where the profile has not recorded its own choice: a toolbar ever customized, or ever serialized (placing any extension button does it), stays as it is (verified on fresh and existing profiles, release Firefox 154.0). `browser.engagement.sidebar-button.has-used` rides along so Firefox's proton-toolbar first-run migration keeps `sidebar-button` at its seeded slot |
-| **DuckDuckGo** as the default search engine | `SearchEngines`. Despite what Mozilla's docs still say, this is **not** ESR-only — verified applying on release Firefox 154.0. The name has to be exactly the one Firefox knows — on a miss Firefox logs `Search engine lookup failed` to the Browser Console and leaves the default engine alone, which on a fresh profile means the region default (Google) and so *looks* like a silent fallback |
-| **Compact density**, **vertical tabs**, the revamped sidebar | `browser.uidensity` (with `browser.compactmode.show`, which is what makes the density reachable in the UI), `sidebar.verticalTabs`, `sidebar.revamp` |
-| A **bare Firefox Home** — no shortcuts, no web search, no sponsored tiles, no stories, no weather | the `browser.newtabpage.activity-stream.*` block |
-| **DRM playback** on | `EncryptedMediaExtensions` |
-| Telemetry, studies and feedback off; tracking protection on with cryptominer and fingerprinter blocking; `userChrome.css` loading on (what [Theme → Firefox](#theme--firefox) needs) | the rest of the policy |
-
-Every captured pref is a `Status: "default"` — it seeds the profile and then gets out of the way; the one locked pref is `browser.discovery.enabled`, off. (Firefox locks a few of its own besides: `OverrideFirstRunPage` and `OverridePostUpdatePage` lock the welcome-page prefs they set. Dropping the policy file unlocks all of them.)
-
-**One setting is deliberately not shipped**, because Firefox has no mechanism that would make it stick:
-
-- **The find bar's *Highlight All*.** `findbar.highlightAll` is outside Firefox's allowlist for the `Preferences` policy and there is no policy for it, so it is a per-profile checkbox. Tick it once in the find bar.
-
-Firefox drops any pref outside its own allowlist **silently** — the policy still loads, the pref simply never applies — so `tests/unit/test_firefox.py` pins that allowlist and checks every pref against it. (Omarchy's own policy trips this: `apz.overscroll.enabled` is rejected on every start. That one is Omarchy's to fix, and the overlay does not touch it.)
-
-Undo: `sudo rm /etc/firefox/policies/policies.json`, then restart Firefox — see [Reverting to stock](#reverting-to-stock). Force-installed extensions are removed by policy, not by hand; drop the file and they become ordinary add-ons you can uninstall.
 
 ## Theme → Firefox
 
@@ -378,9 +353,7 @@ rm ~/.config/omarchy/themed/userChrome.css.tpl ~/.local/state/omarchy/current/th
 sed -i '/^# hyprconf overlay$/d; /^include hyprconf.conf$/d' ~/.config/kitty/kitty.conf; rm ~/.config/kitty/hyprconf.conf
 rm ~/.p10k.zsh ~/.local/bin/hyprconf-*; { [ -e ~/.p10k.zsh.stock ] || [ -L ~/.p10k.zsh.stock ]; } && mv ~/.p10k.zsh.stock ~/.p10k.zsh   # your own .p10k.zsh, file or dotfiles link, if you had one
 rm -rf ~/.config/omarchy/plugins/{hyprconf.*,.hyprconf.*.bak.*} ~/.local/state/hyprconf   # the dot-prefixed .bak.<timestamp> dirs are what `omarchy plugin remove` leaves of a non-git plugin folder
-omarchy default terminal <name>; omarchy default browser <name>; omarchy default editor <name>; omarchy font set <name>; omarchy theme set <name>
-sudo rm /etc/firefox/policies/policies.json   # Omarchy's own prefs stay in /usr/lib/firefox/distribution/policies.json, which its browser-policy migration seeds on every box that has Firefox (whoever installed it)
-# ^ this also un-manages uBlock Origin and Proton Pass (they stay installed, as ordinary add-ons you can now remove). Every captured pref was a default, never a user value, so the prefs you had changed yourself are untouched — except the search engine: setting it by policy *clears* the profile's record of any engine you had chosen yourself, so dropping the file hands it to Firefox's region default rather than back to your old pick. Set it again in Settings › Search. The toolbar arrangement also stays as you have it: installing the two extensions on the profile's first start serialized the layout as the profile's own, so dropping the file changes nothing there (a profile that never completed an online first start has nothing serialized and falls back to Firefox's stock order) — Customize Toolbar puts the stock order back if you want it
+omarchy default terminal <name>; omarchy default editor <name>; omarchy font set <name>; omarchy theme set <name>
 # Firefox and VS Code are Omarchy's installs and stay; `omarchy pkg drop visual-studio-code-bin firefox` if you want them gone
 ```
 

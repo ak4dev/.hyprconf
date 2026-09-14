@@ -94,8 +94,10 @@ else
         fi
         if (( need_policy )); then
             # `--` on every root write: nothing an unprivileged process can
-            # name may be read as an option (AGENTS rule 8). The shape is
-            # Omarchy's own (bin/omarchy-hibernation-setup:42-43).
+            # name may be read as an option (AGENTS rule 8). Omarchy carries
+            # the shape on its destructive root calls (the `mv -Tf --` and
+            # `rm -f --` of bin/omarchy-hibernation-setup:43,46); extending it
+            # to `install` — which Omarchy leaves bare at :42 — is hyprconf's.
             if sudo install -Dm644 -- "$tmp" "$dst"; then
                 info "policy installed at $dst (Omarchy's prefs + hyprconf's)"
             else

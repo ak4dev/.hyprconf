@@ -41,10 +41,9 @@ publish flow and the website upload.
 ├── kitty/hyprconf.conf         # kitty include
 ├── hooks/post-update.d/10-hyprconf   # Re-applies the overlay after omarchy-update (installed with omarchy hook install)
 ├── hooks/theme-set.d/10-hyprconf     # Runs firefox_theme.py after every omarchy theme set
-├── infra/firefox/policies.json # System Firefox policy (extensions, search engine, privacy + UI settings), installed merged over Omarchy's default/firefox/policies.json
 │
 │
-├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, font, idle, keychron, themes, vscode
+├── modules/                    # The seventeen self-contained modules (one directory each: `install`, `README.md`, `test_<name>.py`, optional `packages`, its payload). Each replaces its legacy stage and payload above as it lands; the ones still carrying a `NOTES.md` are not wired into `install.sh` yet. Wired so far: fastfetch, firefox, font, idle, keychron, themes, vscode
 │
 ├── tests/                      # Unit + integration (see below)
 ├── VERSION                     # SemVer, bumped by hand; `scripts/publish` tags what it names
@@ -74,7 +73,6 @@ conftest.py                       # the `box` fixture every test builds on (repo
 modules/<name>/test_<name>.py     # one suite per module, beside its `install` — `testpaths` collects modules/ and tests/ in one pytest run
 tests/                            # lib/ is on sys.path through pyproject's `pythonpath`
 ├── unit/
-│   ├── test_firefox.py           #   infra/firefox/policies.json: every pref against Firefox's own allowlist and its `Type` rule, the force-installed shape, the seeded layout's crash conditions (the merge with Omarchy's own policy runs with the real jq in the install suite)
 │   ├── test_firefox_theme.py     #   lib/hyprconf/firefox_theme.py (profiles, copy, user.js merge, the missing-render error, --status) + the hook + bin/hyprconf-firefox-theme + the template's render
 │   ├── test_gaps.py              #   bin/hyprconf-gaps (fake hyprctl, real jq)
 │   ├── test_hypr_overrides.py    #   hypr/*.lua parse (luac), bind only commands bin/ ships, state deltas over the theme (the shadow, Steam tiled), restate none of Omarchy's binds, leave the OSD keys alone, describe every bind, use its launcher idiom, keep the desk presets desc:-keyed and serial-free
@@ -141,8 +139,9 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   suite) or behind an env seam — in `install.sh`, `OMARCHY_PATH` (Omarchy's own
   variable, not `_HYPRCONF_*`) for the Omarchy tree and `_HYPRCONF_*` for
   binaries and the other non-`$HOME` paths (`PKG_ADD`, `ZSH_BIN`, `ZSH`,
-  `FIREFOX_POLICIES`, `ASSUME_TTY`, `PLUGIN_WAIT`); `_HYPRCONF_UDEV_RULES` and
-  `_HYPRCONF_ASSUME_TTY` in `modules/keychron/install`; `_HYPRCONF_*` in
+  `PLUGIN_WAIT`); `_HYPRCONF_FIREFOX_POLICIES` and `_HYPRCONF_UDEV_RULES` —
+  the two root-owned destinations a module writes — with `_HYPRCONF_ASSUME_TTY`
+  in `modules/firefox/install` and `modules/keychron/install`; `_HYPRCONF_*` in
   `bin/hyprconf-yubikey` for the boot files it reads and writes (`MKINITCPIO_D`,
   `LIMINE_DEFAULT`, `LIMINE_CONF_D`, `LIMINE_ENTRY_CONF`, `LIMINE_USR_D`,
   `FIDO2_DROPIN`, `INITCPIO_INSTALL`, `MODULES_DIR`, `VCONSOLE`, `MACHINE_ID`,
@@ -183,10 +182,10 @@ skip in CI, and the recipe for reproducing a container-only failure, are in
   (reads a manifest, changes nothing), the installed clock plugin's files
   (`test_plugins.py` reads them for parity).
   A test that reads a file of the installed Omarchy falls back to a
-  fixture instead of skipping (`test_omarchy_install.py`'s
-  `OMARCHY_FIREFOX_POLICY` stands in for Omarchy's policy, and is checked
-  against the real file where there is one). Never invoke `pacman` (it
-  exists in the container).
+  fixture instead of skipping (`conftest.OMARCHY_TREE`'s
+  `default/firefox/policies.json` stands in for Omarchy's policy everywhere,
+  and `modules/firefox/test_firefox.py` checks it against the real file where
+  there is one). Never invoke `pacman` (it exists in the container).
 
 ### CI
 
@@ -204,7 +203,7 @@ publish; the recipe for reproducing a container-only failure is in
 
 The overlay is published: strangers clone `stable` and run `install.sh` with their own sudo. Three trust boundaries, each held by mechanical pins (AGENTS.md hard rule 8):
 
-1. **Unprivileged → root, on the local box.** `install.sh`'s two sudo stages (`packages`, `firefox`), the modules that declare sudo of their own (`modules/keychron`'s udev rule, the package installs in `modules/font` and `modules/vscode`) and `hyprconf-yubikey`'s `run_root` surface (rule 6 names all three) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned in `test_yubikey.py`'s restraint scan and in `modules/keychron/test_keychron.py`'s); installed tools are rendered beside the target and `mv`'d, never truncated in place; the `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo stage names itself in README (rule 6) and lands with a pin.
+1. **Unprivileged → root, on the local box.** `install.sh`'s one sudo stage (`packages`), the modules that declare sudo of their own (`modules/firefox`'s system policy, `modules/keychron`'s udev rule, the package installs in `modules/font` and `modules/vscode`) and `hyprconf-yubikey`'s `run_root` surface (rule 6 names all three) are the only privileged paths. Root coreutils calls keep the `--` end-of-options shape (pinned per file, in `test_yubikey.py`'s restraint scan and in `modules/{firefox,keychron}/test_*.py`; the tree-wide scan over `modules/*/install` lands with `tests/test_scans.py`); installed tools are rendered beside the target and `mv`'d, never truncated in place; the `packages` file holds plain package names only (`test_packages_file_lines_are_plain_package_names`). A new root write or sudo stage names itself in README (rule 6) and lands with a pin.
 2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`textFormat: Text.PlainText`, stock parity); nothing shipped fetches-and-executes — `test_overlay_never_fetches_and_executes` forbids curl/wget/pipe-to-shell/`base64 -d`/`eval` in shipped bash, with the allowed exceptions written down in full inside the test. A new exception is added there verbatim, with its why, or the change does not land.
 3. **Publish pipeline → strangers' boxes.** The bootstrap is https-only (`--proto '=https'`; `test_published_one_liners_are_https_only`, `test_bootstrap_defaults_are_pinned_https_and_stable` — schemeless, curl's first request is plaintext port 80 and an on-path attacker answers it before the redirect exists). Oh My Zsh and powerlevel10k are pinned to reviewed commits in `stage_shell` — bumping a pin is a deliberate commit through the publish gates, never an auto-pull (`test_shell_third_party_repos_are_pinned_and_never_pulled`) — and `zsh/zshrc.block` disables the updater that ships inside Oh My Zsh itself (`zstyle ':omz:update' mode disabled`, pinned in `test_supply_chain.py`), which would otherwise re-open the channel with one keypress. CI actions are sha-pinned under a read-only token (`test_ci_workflow_is_least_privilege`); `web/` stays self-contained (`test_web_page_is_self_contained`); secret-shaped material anywhere in the tree fails `test_no_secret_material_anywhere`; `install.sh` refuses to run as root (the curl|bash sudo-prefix habit half-installs into /root).
 
