@@ -9,7 +9,7 @@ __pycache__/
 
 # Claude Code local session state — never committed. settings.local.json is
 # written by "don't ask again" and carries absolute /home/<user> paths, so
-# tests/unit/test_no_pii.py (an on-disk walk that gitignore does not shield)
+# tests/unit/test_no_pii.py — an on-disk walk that gitignore does not shield —
 # exempts exactly these two paths in its SKIP_FILES.
 .claude/settings.local.json
 .claude/RESUME.md

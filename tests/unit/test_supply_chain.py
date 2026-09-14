@@ -1,17 +1,7 @@
 """Supply-chain pins: the artifacts strangers trust before and while running
-the overlay, frozen as text so a regression cannot ship green.
-
-Verifies:
-- web/ stays self-contained: no script element, no external resource — the
-  page's whole job is to be trusted enough to pipe into bash
-- every published install one-liner speaks https (and only https): schemeless,
-  curl's first request is plaintext port 80 and an on-path attacker answers it
-  before the redirect exists
-- the CI workflow keeps its least-privilege shape: read-only token, no
-  pull_request_target, no secrets, actions pinned by commit sha
-- the .claude/settings.json guardrails AGENTS.md cites keep their entries
-- the Oh My Zsh updater stays disabled beside stage_shell's commit pin — the
-  channel inside the pinned code, not just the one install.sh drives
+the overlay, frozen as text so a regression cannot ship green. The model they
+enforce, and what to do when one of them has to move, is CONTRIBUTING ›
+Security.
 
 HERMETIC: reads only the checkout; no network, no HOME.
 """
@@ -34,6 +24,8 @@ WEB_ALLOWED_URLS = (
 
 
 def test_web_page_is_self_contained() -> None:
+    """The page's whole job is to be trusted enough to pipe into bash: no
+    script element, no external resource."""
     for path in sorted((REPO_ROOT / "web").iterdir()):
         text = path.read_text(encoding="utf-8")
         assert "<script" not in text.lower(), f"{path.name}: script element"
@@ -48,6 +40,8 @@ def test_web_page_is_self_contained() -> None:
 
 
 def test_published_one_liners_are_https_only() -> None:
+    """Schemeless, curl's first request is plaintext port 80 and an on-path
+    attacker answers it before the redirect exists."""
     published = ("README.md", "install.sh", "docs/CONTRIBUTING.md")
     for rel in published:
         text = (REPO_ROOT / rel).read_text(encoding="utf-8")

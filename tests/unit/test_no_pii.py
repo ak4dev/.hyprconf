@@ -11,9 +11,7 @@ Scope is deliberately the WHOLE repository — a bare username in a test
 fixture is as published as one in a config, and a guard that covers part of
 the tree teaches you to trust it everywhere.
 
-The identities being searched for are derived from the environment at runtime
-and never written down here: hard-coding the name would commit the very thing
-the test exists to keep out.
+The identities searched for are derived at runtime (_identities below).
 """
 
 from __future__ import annotations
@@ -79,24 +77,12 @@ GENERIC_ACCOUNTS = frozenset(
     }
 )
 
-# Binary payloads: scanning them proves nothing and decoding them is noise.
-# .svg is deliberately NOT here — the repo's SVGs are authored UTF-8 text,
-# and tool-exported SVG is exactly where an editor embeds absolute
-# /home/<user> paths (Inkscape's sodipodi:docname, export-filename).
-SKIP_SUFFIXES = frozenset(
-    {".png", ".jpg", ".jpeg", ".gif", ".ico", ".ttf", ".otf", ".woff", ".woff2", ".pyc"}
-)
-
-
 # Directories that are never part of what gets published: git's own store and
-# tool caches. Everything else in the tree is scanned — including a stray
-# scratch file, which is the moment to catch it, before it is ever added.
+# tool caches.
 SKIP_DIRS = frozenset({".git", "__pycache__", ".pytest_cache", ".ruff_cache", ".vscode"})
 
-# The two gitignored Claude Code local-state files (see .gitignore): tool-
-# managed, never committed, and settings.local.json carries absolute
-# /home/<user> paths by design — one "don't ask again" click must not turn a
-# hard gate red. The tracked .claude/settings.json stays scanned.
+# Tool-managed local state, never committed (why: .gitignore). The tracked
+# .claude/settings.json stays scanned.
 SKIP_FILES = frozenset({".claude/settings.local.json", ".claude/RESUME.md"})
 
 # Credential formats rule 4 names but no identity string would catch: fixed,
@@ -117,12 +103,10 @@ SECRET_RES = tuple(
 
 
 def _repo_files() -> list[Path]:
-    """Every regular file in the checkout, skipping SKIP_DIRS.
-
-    A directory walk rather than `git ls-files`: the scan then needs no git
-    and no ownership trust — in CI the workspace belongs to another uid and a
-    root-run git refuses it.
-    """
+    """Every regular file in the checkout, skipping SKIP_DIRS. A directory
+    walk rather than `git ls-files`, so the scan needs neither git nor a
+    checkout git is willing to trust — and a stray scratch file is caught
+    before it is ever added."""
     out: list[Path] = []
     for path in sorted(REPO_ROOT.rglob("*")):
         rel = path.relative_to(REPO_ROOT)
@@ -136,8 +120,11 @@ def _repo_files() -> list[Path]:
 
 
 def _text_lines(path: Path) -> list[str]:
-    if path.suffix.lower() in SKIP_SUFFIXES or path.is_symlink() or not path.is_file():
-        return []
+    """Every line of `path`, or nothing if it is not UTF-8 text. No suffix
+    list: the only files that fail this are the repo's two images, and
+    skipping by suffix is how a tool-exported .svg — exactly where an editor
+    embeds an absolute /home/<user> path (Inkscape's sodipodi:docname) —
+    stops being scanned."""
     try:
         return path.read_text(encoding="utf-8").splitlines()
     except (UnicodeDecodeError, OSError):
@@ -179,37 +166,36 @@ def _identities() -> set[str]:
     return identities
 
 
+def _offenders(patterns: list[re.Pattern[str]], *, echo: bool = False) -> list[str]:
+    """`<file>:<line>` for every line matching any pattern, over every file in
+    the tree — this one included, which is the check that its own promise to
+    write no identity down holds. `echo` appends the offending line: safe for
+    a /home path, never for an identity or a secret, which a CI log or a
+    pasted terminal would then republish."""
+    out: list[str] = []
+    for path in _repo_files():
+        for lineno, line in enumerate(_text_lines(path), 1):
+            if any(p.search(line) for p in patterns):
+                rel = path.relative_to(REPO_ROOT)
+                out.append(f"{rel}:{lineno}: {line.strip()}" if echo else f"{rel}:{lineno}")
+    return out
+
+
 def test_no_hardcoded_home_paths_anywhere() -> None:
-    offenders: list[str] = []
-    for f in _repo_files():
-        for lineno, line in enumerate(_text_lines(f), 1):
-            if HOME_PATH_RE.search(line):
-                offenders.append(f"{f.relative_to(REPO_ROOT)}:{lineno}: {line.strip()}")
+    offenders = _offenders([HOME_PATH_RE], echo=True)
     assert not offenders, "Hardcoded /home/<user>/ paths found (use ~ or $HOME):\n" + "\n".join(
         offenders
     )
 
 
 def test_no_personal_identities_anywhere() -> None:
-    """No file in the tree may name the person running the suite.
-
-    Reported without echoing the identity itself, so a failure in CI logs (or
-    in a pasted terminal) does not republish what it just caught.
-    """
+    """No file in the tree may name the person running the suite."""
     identities = _identities()
     if not identities:
         pytest.skip("no non-generic identity to search for (shared or CI account)")
-
-    patterns = [
-        re.compile(rf"(?<![A-Za-z0-9]){re.escape(i)}(?![A-Za-z0-9])", re.I) for i in identities
-    ]
-    offenders: list[str] = []
-    for f in _repo_files():
-        if f == Path(__file__):
-            continue  # this file names none of them, but keep the scan honest
-        for lineno, line in enumerate(_text_lines(f), 1):
-            if any(p.search(line) for p in patterns):
-                offenders.append(f"{f.relative_to(REPO_ROOT)}:{lineno}")
+    offenders = _offenders(
+        [re.compile(rf"(?<![A-Za-z0-9]){re.escape(i)}(?![A-Za-z0-9])", re.I) for i in identities]
+    )
     assert not offenders, (
         "Personal identity (username or git email) found in the tree.\n"
         "Replace it with a placeholder such as 'testuser', ~ or $HOME:\n" + "\n".join(offenders)
@@ -220,9 +206,5 @@ def test_no_secret_material_anywhere() -> None:
     """Rule 4 bans keys and AWS ids; the identity scan cannot see them. A
     pasted credential would otherwise ride the publish pipeline onto the
     public stable branch."""
-    offenders: list[str] = []
-    for path in _repo_files():
-        for i, line in enumerate(_text_lines(path), start=1):
-            if any(r.search(line) for r in SECRET_RES):
-                offenders.append(f"{path.relative_to(REPO_ROOT)}:{i}")
+    offenders = _offenders(list(SECRET_RES))
     assert not offenders, "Secret-shaped material in tracked files: " + ", ".join(offenders)
