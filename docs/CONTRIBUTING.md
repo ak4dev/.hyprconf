@@ -123,18 +123,20 @@ on <https://omarchyplugins.com>.
 
 `hyprconf.sh` is the `hyprconf-sh` S3 bucket behind a CloudFront distribution that routes on the User-Agent —
 `curl` and `wget` get the `install.sh` object, browsers `index.html` — managed by hand outside this repo (`aws` from
-`omarchy-pkg-add aws-cli-v2`, an official `extra` package). The `install.sh` object must be **`stable`'s**: upload
-after `scripts/publish`, only when the user asks for a deploy. The page stays self-contained — no JS, no external
-requests (`test_web_page_is_self_contained`).
+`omarchy-pkg-add aws-cli-v2`, an official `extra` package). The `install.sh` object must be **`origin/stable`'s**: upload
+after `scripts/publish`, only when the user asks for a deploy. Always `origin/stable`, never the local `stable`
+branch — `scripts/publish` deliberately never moves that one (its comment says why), so on a working checkout it
+sits at whatever release last touched it and `git show stable:install.sh` would put a months-old installer in the
+bucket. The page stays self-contained — no JS, no external requests (`test_web_page_is_self_contained`).
 
 | Key | Source | Content-Type |
 |---|---|---|
-| `install.sh` | `git show stable:install.sh` | `text/plain; charset=utf-8`, `Cache-Control: no-cache, no-store` |
+| `install.sh` | `git show origin/stable:install.sh` | `text/plain; charset=utf-8`, `Cache-Control: no-cache, no-store` |
 | `index.html` | `web/index.html` | `text/html; charset=utf-8`, `Cache-Control: public, max-age=300` — without a max-age browsers keep the previous page for days |
 | `favicon.svg` | `web/favicon.svg` | `image/svg+xml`, `Cache-Control: public, max-age=31536000, immutable` |
 
 ```bash
-git show stable:install.sh | aws s3 cp - s3://hyprconf-sh/install.sh \
+git show origin/stable:install.sh | aws s3 cp - s3://hyprconf-sh/install.sh \
   --content-type 'text/plain; charset=utf-8' --cache-control 'no-cache, no-store'
 aws s3 cp web/index.html        s3://hyprconf-sh/index.html     --content-type 'text/html; charset=utf-8' --cache-control 'public, max-age=300'
 aws s3 cp web/favicon.svg       s3://hyprconf-sh/favicon.svg    --content-type image/svg+xml --cache-control 'public, max-age=31536000, immutable'
@@ -144,10 +146,10 @@ DIST=$(aws cloudfront list-distributions \
 aws cloudfront create-invalidation --distribution-id "$DIST" --paths "/*"
 ```
 
-Verify both routes once the invalidation has completed — the curl UA must get `stable`'s installer, a browser UA
-the page:
+Verify both routes once the invalidation has completed — the curl UA must get `origin/stable`'s installer, a browser
+UA the page:
 
 ```bash
-curl -fsSL https://hyprconf.sh | cmp - <(git show stable:install.sh) && echo installer-ok
+curl -fsSL https://hyprconf.sh | cmp - <(git show origin/stable:install.sh) && echo installer-ok
 curl -fsSL -A 'Mozilla/5.0' https://hyprconf.sh | cmp - web/index.html && echo page-ok
 ```
