@@ -91,19 +91,23 @@ issues one `dpms` wake; `-h` lists the presets it finds, and the tool's header c
 A preset belongs to the machine: an edit survives re-selecting it.
 
 ## Settings
-No set-once marker — nothing here is a one-time choice. A seeded preset is yours to edit and is never overwritten;
-delete it to re-seed. A new preset is one more `*Monitors*.lua` file in this folder: the seed and the tool's `-h` line
-both derive from the glob. The two `pcMonitors.*` presets are the author's desks: on another machine delete both,
-here and the seeded copies in `~/.config/hypr/` — pressed against unknown displays, `SUPER+SHIFT+B`/`K` would bring
-every output up at its preferred mode for the session and point workspaces 1–6 at panels that are not there.
+Nothing here is a one-time choice. A seeded preset is yours to edit and is never overwritten; delete it to re-seed —
+so a preset improved in this folder would otherwise stop at the checkout in silence. The one marker,
+`${HYPRCONF_STATE:-~/.local/state/hyprconf}/<preset>.shipped`, is the preset as this checkout last shipped it: when a
+run finds yours differs *and* the shipped one has moved since, it says so in one line and leaves your file alone —
+once per shipped version, so an edit of your own never nags. A new preset is one more `*Monitors*.lua` file in this
+folder: the seed and the tool's `-h` line both derive from the glob. The two `pcMonitors.*` presets are the author's
+desks: on another machine delete both, here and the seeded copies in `~/.config/hypr/` — pressed against unknown
+displays, `SUPER+SHIFT+B`/`K` would bring every output up at its preferred mode for the session and point
+workspaces 1–6 at panels that are not there.
 
 ## Undo
 `bash modules/hypr/install undo` — `hyprconf-monitor-preset stock`, then each override goes back: a
 `<file>.lua.stock` is moved into place — the file of your own the first run set aside, or the one a hyprconf 7.x
 install left, which was Omarchy's template of that day (delete it first for the current one) — and where there is
 none, `omarchy-refresh-config` puts Omarchy's own template back (the copy is removed first, so no `.bak` is left).
-The seeded presets and the two `~/.local/bin` links go, `hyprctl reload`. Safe on a machine that never installed:
-exit 0, and what lands is Omarchy's own template at each of the three paths.
+The seeded presets, their `.shipped` markers and the two `~/.local/bin` links go, `hyprctl reload`. Safe on a machine
+that never installed: exit 0, and what lands is Omarchy's own template at each of the three paths.
 
 ## Verified against
 Omarchy 4.0.3-1 (Hyprland 0.56.2). Every `file:line` above was read from `/usr/share/omarchy` at that version.

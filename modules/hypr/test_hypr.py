@@ -273,6 +273,34 @@ def test_a_seeded_preset_is_never_overwritten(box) -> None:
     assert (hypr / kitchen.name).read_bytes() == kitchen.read_bytes()
 
 
+def test_a_shipped_preset_that_moves_is_reported_once_and_still_never_applied(box) -> None:
+    """A seeded preset is the machine's, so an improvement made here would otherwise
+    stop at the checkout in silence — the bedroom TV lost its hl.monitor line that way.
+    Only a change made HERE speaks, once per shipped version: an edit of your own never nags."""
+    folder = box.tmp / "hypr-shipped"
+    shutil.copytree(MODULE, folder, ignore=shutil.ignore_patterns("__pycache__"))
+    shipped = folder / "pcMonitors.bedroom.lua"
+    assert box.run(folder / "install").returncode == 0
+    seeded = box.home / ".config" / "hypr" / shipped.name
+
+    # An edit of your own: nothing here moved, so nothing is said about it.
+    mine = seeded.read_text() + 'hl.monitor({ output = "desc:My Panel", mode = "preferred" })\n'
+    seeded.write_text(mine)
+    res = box.run(folder / "install")
+    assert res.returncode == 0, res.stderr
+    assert shipped.name not in res.stdout, f"an edit of your own nagged: {res.stdout}"
+
+    # The shipped one moves: said once, and yours is left byte for byte.
+    shipped.write_text(shipped.read_text() + "-- a better preset\n")
+    res = box.run(folder / "install")
+    assert res.returncode == 0, res.stderr
+    assert f"{shipped.name} here has changed" in res.stdout, res.stdout
+    assert seeded.read_text() == mine, "a seeded preset was overwritten"
+    res = box.run(folder / "install")
+    assert shipped.name not in res.stdout, f"said twice for one shipped version: {res.stdout}"
+    assert seeded.read_text() == mine
+
+
 def test_undo_puts_back_what_was_there_stock_files_first(box) -> None:
     """The .stock kept on the way in wins; otherwise the copy goes first, so omarchy-refresh-config takes its no-backup branch (:41-43) and leaves no .bak."""
     box.stub("omarchy-refresh-config", REFRESH)
@@ -295,6 +323,8 @@ def test_undo_puts_back_what_was_there_stock_files_first(box) -> None:
     assert not sorted(hypr.glob("*.stock")), "a .stock survived the restore"
     assert not sorted(hypr.glob("*.bak.*")), "Omarchy backed up a file the overlay wrote"
     assert not sorted(hypr.glob("*Monitors*.lua")), "a seeded preset survived undo"
+    marks = box.home / ".local" / "state" / "hyprconf"
+    assert not sorted(marks.glob("*.shipped")), "a .shipped marker survived undo"
     for tool in TOOLS:
         assert not (box.home / ".local" / "bin" / tool).is_symlink()
     assert ["omarchy-hyprland-toggle", "hyprconf-monitor-preset", "off"] in box.calls_of(

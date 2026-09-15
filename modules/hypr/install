@@ -7,6 +7,7 @@ dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 : "${OMARCHY_PATH:=/usr/share/omarchy}"
 hypr=$HOME/.config/hypr
 bin=$HOME/.local/bin
+state=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}
 overrides=(bindings input looknfeel)
 tools=(hyprconf-gaps hyprconf-monitor-preset)
 if [[ ${1:-} == undo ]]; then
@@ -20,7 +21,7 @@ if [[ ${1:-} == undo ]]; then
             omarchy-refresh-config "hypr/$f.lua" >/dev/null
         fi
     done
-    for f in "$dir"/*Monitors*.lua; do rm -f "$hypr/${f##*/}"; done
+    for f in "$dir"/*Monitors*.lua; do rm -f "$hypr/${f##*/}" "$state/${f##*/}.shipped"; done
     for t in "${tools[@]}"; do rm -f "$bin/$t"; done
     hyprctl reload >/dev/null 2>&1 || true
     exit 0
@@ -48,9 +49,20 @@ for f in "${overrides[@]}"; do
     install -m 644 "$dir/$f.lua" "$dst"
     changed=1
 done
+# A seeded preset is the machine's and is never overwritten (README › Settings),
+# so one improved here otherwise stops at the checkout in silence — which is how
+# a bedroom TV lost its hl.monitor line for a day. $state/<name>.shipped holds
+# the bytes last shipped, so an edit of your own stays quiet and only a change
+# made *here* speaks, once per shipped version.
 for f in "$dir"/*Monitors*.lua; do
     [[ -f $f ]] || continue
-    [[ -e $hypr/${f##*/} ]] || install -m 644 "$f" "$hypr/${f##*/}"
+    n=${f##*/} dst=$hypr/${f##*/} seeded=$state/${f##*/}.shipped
+    if [[ ! -e $dst ]]; then
+        install -m 644 "$f" "$dst"
+    elif ! cmp -s "$f" "$dst" && ! cmp -s "$f" "$seeded"; then
+        echo "  $n here has changed since yours was seeded — yours stands: diff it against $f, or delete it to re-seed"
+    fi
+    cmp -s "$f" "$seeded" || { mkdir -p "$state"; cp -- "$f" "$seeded"; }
 done
 # ln -sfn recreates an already-correct link with a fresh inode: the readlink test is what keeps a re-run write-free.
 for t in "${tools[@]}"; do
