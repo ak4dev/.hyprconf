@@ -10,6 +10,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ONE_LINER = "bash <(curl -fsSL --proto '=https' https://hyprconf.sh)"
+# The landing page shows the short form instead, by the author's decision: it reads as one
+# line on the page and rides hyprconf.sh's 301 from http. That first hop IS plaintext, so
+# the page's command is frozen here rather than left unpinned — a widening (a second host,
+# a pipe straight into bash) still has to come through this file. Every copy-paste command
+# in the docs keeps its explicit https. Why: CONTRIBUTING › Security.
+WEB_ONE_LINER = "bash &lt;(curl -fsSL hyprconf.sh)"
 # The only remote URLs the page may carry: the repository, its own origin, the SVG namespace.
 WEB_ALLOWED_URLS = (
     "https://github.com/ak4dev/.hyprconf",
@@ -32,13 +38,16 @@ def test_web_page_is_self_contained() -> None:
 
 
 def test_published_one_liners_are_https_only() -> None:
-    """Schemeless, curl's first request is plaintext port 80, answered by an on-path attacker."""
+    """Schemeless, curl's first request is plaintext port 80, answered by an on-path attacker —
+    so every command a reader copies out of the docs names https. The landing page is the one
+    deliberate exception and is pinned as text instead, WEB_ONE_LINER above."""
     for rel in ("README.md", "install.sh", "docs/CONTRIBUTING.md"):
         text = (REPO_ROOT / rel).read_text(encoding="utf-8")
         for m in re.finditer(r"curl [^\n]*hyprconf\.sh", text):
             assert "https://hyprconf.sh" in m.group(0), f"{rel}: schemeless: {m.group(0)!r}"
     web = (REPO_ROOT / "web" / "index.html").read_text(encoding="utf-8")
-    assert "curl -fsSL --proto '=https' https://hyprconf.sh" in web
+    assert WEB_ONE_LINER in web, "the landing page's one-liner moved"
+    assert web.count("curl") == 1, "a second curl command appeared on the page"
     assert ONE_LINER in (REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
 
