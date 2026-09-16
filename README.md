@@ -72,7 +72,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | [`themes`](modules/themes/README.md) | The `dracula` user theme in Omarchy's theme menu, never activated, plus extra wallpapers filed per theme | `bash modules/themes/install` | `bash modules/themes/install undo` |
 | [`vscode`](modules/vscode/README.md) | VS Code through Omarchy's installer, `code` as the default editor once — *sudo* | `bash modules/vscode/install` | `bash modules/vscode/install undo` |
 | [`vulkan-gpu`](modules/vulkan-gpu/README.md) | `hyprconf-vulkan-gpu` on PATH: pins Vulkan (Steam/Proton) to the display GPU on a two-GPU box, run by hand | `bash modules/vulkan-gpu/install` | `bash modules/vulkan-gpu/install undo` |
-| [`yubikey`](modules/yubikey/README.md) | `hyprconf-yubikey` on PATH: FIDO2 unlock of the LUKS root at boot; `enroll`, run by hand, writes the two `/etc` drop-ins | `bash modules/yubikey/install` | `bash modules/yubikey/install undo` |
+| [`yubikey`](modules/yubikey/README.md) | `hyprconf-yubikey` on PATH: FIDO2 unlock of the LUKS root at boot; `enroll`, run by hand, writes the two `/etc` drop-ins and wipes the passphrase, behind a typed-back recovery key | `bash modules/yubikey/install` | `bash modules/yubikey/install undo` |
 
 What it deliberately leaves alone: the login shell (no `chsh` — why, in [`shell-zsh`](modules/shell-zsh/README.md)); the body of `~/.config/kitty/kitty.conf`, `~/.bashrc`, `/usr/share/omarchy`, and everything under `/etc` except the Firefox policy, the Keychron rule and — only when you run it — `hyprconf-yubikey enroll`'s two drop-ins; installed packages (nothing is removed, ever); the active theme, Omarchy's `monitors.lua`, and every set-once choice (font, default apps, idle, clock, widget enables) after the first run — change them with Omarchy's own commands and hyprconf will not take them back; Omarchy's keyboard-layout logic and its volume / brightness / media keys.
 
@@ -91,7 +91,7 @@ After `omarchy-update` the post-update hook re-applies the overlay by itself —
 ## Reverting to stock
 
 ```bash
-hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool is still on PATH; both drop-ins go with it
+hyprconf-yubikey remove   # only if you enrolled a key — first, while the tool is still on PATH; sets a passphrase again, both drop-ins go
 hyprconf --undo           # every module's `install undo` in reverse order, then the hook and the ~/.local/bin/hyprconf link (the Firefox policy and the udev rule need sudo)
 hyprconf --undo <name>    # one module — the same as `bash ~/.hyprconf/modules/<name>/install undo`
 rm -rf ~/.local/state/hyprconf ~/.config/omarchy/plugins/.hyprconf.*.bak.* ~/.oh-my-zsh   # leftovers: the emptied state dir, folders a bar module moved aside, and the Oh My Zsh a hyprconf 7.x install left behind

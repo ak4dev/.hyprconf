@@ -15,6 +15,9 @@ import pytest
 
 from conftest import SUDO_RUNS, Box
 
+# The tool reads the LUKS header as JSON with jq (Omarchy's base ships it).
+pytestmark = pytest.mark.skipif(shutil.which("jq") is None, reason="jq is not installed")
+
 MODULE = Path(__file__).parent
 INSTALL = MODULE / "install"
 TOOL = MODULE / "bin" / "hyprconf-yubikey"
@@ -33,7 +36,9 @@ CMDLINE = (
     "root=/dev/mapper/root zswap.enabled=0 rootflags=subvol=@ rw rootfstype=btrfs"
 )
 LIMINE_LINE = f'KERNEL_CMDLINE[default]+="{CMDLINE}"'
-RD_OPTS = f"rd.luks.options={UUID}=fido2-device=auto"
+RD_OPTS = f"rd.luks.options={UUID}=fido2-device=auto,token-timeout=0"
+# what 8.1.2 and earlier wrote: the passphrase after 30 s
+RD_OPTS_OLD = f"rd.luks.options={UUID}=fido2-device=auto"
 DROPIN_NAME = "zz-hyprconf-fido2.conf"
 TOKEN_LINE = "/dev/hidraw3: vendor=0x1050, product=0x0407 (Yubico YubiKey OTP+FIDO+CCID)"
 KERNEL_VERSION = "7.1.8-arch1-3"
@@ -70,13 +75,31 @@ STUBS = {
         "esac\nexit 0\n"
     ),
     "findmnt": "printf '%s\\n' \"$FAKE_ROOT_SOURCE\"\nexit 0\n",
+    # the header as --dump-json-metadata prints it, built from the box's slot files:
+    # keyslot 0 the passphrase, 1 the FIDO2 key, 2 the recovery key; `open
+    # --test-passphrase` answers per FAKE_TOKEN_OPEN_RC (--token-only) and
+    # FAKE_RECOVERY_OPEN_RC (--key-slot=, the recovery key typed back)
     "cryptsetup": (
-        'if [[ $1 == luksDump ]]; then\n  echo "Version:        2"\n'
-        "  [[ -e $FAKE_STATE/fido2-slot ]] && printf 'Tokens:\\n  0: systemd-fido2\\n'\n"
-        "fi\nexit 0\n"
+        "if [[ $1 == luksDump ]]; then\n"
+        "  [[ $2 == --dump-json-metadata ]] || exit 2\n"
+        "  ks=() tok=()\n"
+        "  [[ -e $FAKE_STATE/password-slot ]] && ks+=('\"0\":{}')\n"
+        '  [[ -e $FAKE_STATE/fido2-slot ]] && ks+=(\'"1":{}\') tok+=(\'"0":{"type":"systemd-fido2","keyslots":["1"]}\')\n'
+        '  [[ -e $FAKE_STATE/recovery-slot ]] && ks+=(\'"2":{}\') tok+=(\'"1":{"type":"systemd-recovery","keyslots":["2"]}\')\n'
+        '  (IFS=,; printf \'{"keyslots":{%s},"tokens":{%s}}\\n\' "${ks[*]}" "${tok[*]}")\n'
+        "  exit 0\n"
+        "fi\n"
+        'case " $* " in\n'
+        '  *" --token-only "*) exit "${FAKE_TOKEN_OPEN_RC:-0}" ;;\n'
+        '  *" --key-slot=2 "*) [[ -e $FAKE_STATE/recovery-slot ]] || exit 1; exit "${FAKE_RECOVERY_OPEN_RC:-0}" ;;\n'
+        '  *" --key-slot="*) exit 1 ;;\n'
+        "esac\nexit 0\n"
     ),
     "systemd-cryptenroll": (
         'case " $* " in\n  *" --wipe-slot=fido2 "*) rm -f "$FAKE_STATE/fido2-slot" ;;\n'
+        '  *" --wipe-slot=password "*) rm -f "$FAKE_STATE/password-slot" ;;\n'
+        '  *" --recovery-key "*) touch "$FAKE_STATE/recovery-slot" ;;\n'
+        '  *" --password "*) touch "$FAKE_STATE/password-slot" ;;\n'
         '  *" --fido2-device=auto "*) touch "$FAKE_STATE/fido2-slot" ;;\nesac\nexit 0\n'
     ),
     "mkinitcpio": "exit 0\n",
@@ -134,6 +157,7 @@ def box(box: Box) -> Box:
     """A throwaway Omarchy in its stock 4.0.0 shape (unchanged in 4.0.3-1), every path behind the tool's own _HYPRCONF_* seam."""
     box.state = box.tmp / "state"
     box.state.mkdir()
+    (box.state / "password-slot").touch()  # a stock Omarchy install: the passphrase alone
     box.limine = box.etc / "default" / "limine"
     box.limine.parent.mkdir(parents=True)
     box.limine_file = f'ESP_PATH="/boot"\n\n{LIMINE_LINE}\n'
@@ -164,6 +188,7 @@ def box(box: Box) -> Box:
     # base: the /etc/default/limine layer (empty = assembled from the box's own files);
     # frozen/silent: limine's whole answer, which nothing written can then move
     box.base_cmdline = box.frozen_cmdline = box.cmdline_silent = ""
+    box.token_open_rc = box.recovery_open_rc = 0
     box.env.update(
         {
             "_HYPRCONF_LIMINE_DEFAULT": str(box.limine),
@@ -193,6 +218,8 @@ def run(
         FAKE_BASE_CMDLINE=box.base_cmdline,
         FAKE_CMDLINE_FROZEN=box.frozen_cmdline,
         FAKE_CMDLINE_SILENT=box.cmdline_silent,
+        FAKE_TOKEN_OPEN_RC=str(box.token_open_rc),
+        FAKE_RECOVERY_OPEN_RC=str(box.recovery_open_rc),
     )
     return box.run(TOOL, *args, tty=assume_tty, stdin=stdin_text)
 
@@ -204,6 +231,11 @@ def set_limine_line(box: Box, line: str) -> None:
 
 def has_fido2_slot(box: Box) -> bool:
     return (box.state / "fido2-slot").exists()
+
+
+def slots(box: Box) -> set[str]:
+    """The fake header's keyslots by kind: password, fido2, recovery."""
+    return {p.name.removesuffix("-slot") for p in box.state.glob("*-slot")}
 
 
 def unpadded(text: str) -> str:
@@ -242,7 +274,7 @@ def _assert_untouched(box: Box, *, allow: tuple[str, ...] = ()) -> None:
             assert not any(c.startswith(name) for c in box.calls), f"{name} ran: {box.calls}"
     assert not box.dropin.exists() and not box.limine_dropin.exists()
     assert box.limine.read_text() == box.limine_file
-    assert not has_fido2_slot(box)
+    assert slots(box) == {"password"}
 
 
 def _assert_configured(box: Box, mapper: str = "root") -> None:
@@ -293,9 +325,10 @@ def test_every_external_the_tool_calls_has_a_fake(box: Box) -> None:
 
 
 def test_restraint_scan() -> None:
-    """Never the passphrase slot, never sbctl, never errexit, never a backup copy."""
+    """Never sbctl, never errexit, never a backup copy; the passphrase wipe has one call site, behind its proofs."""
     text = TOOL.read_text()
-    for forbidden in ("wipe-slot=password", "sbctl", "set -e", ".bak"):
+    assert text.count("run_root systemd-cryptenroll --wipe-slot=password") == 1
+    for forbidden in ("wipe-slot=all", "sbctl", "set -e", ".bak"):
         assert forbidden not in text, f"{forbidden!r} must not appear in hyprconf-yubikey"
     # a value starting with '-' must never become an option to a root coreutils command
     loose = re.findall(r"run_root(?:_quiet)? (?:tee|rm -f|mkdir -p)(?! --)", text)
@@ -320,12 +353,19 @@ def test_enroll_happy_path(box: Box) -> None:
         "fido2-token -L",
         "omarchy-snapshot create",
         f"systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes {DEV}",
+        # the proofs the wipe stands on: the key opens the volume, a recovery key made
+        # with the key, and typed back against its own slot
+        f"cryptsetup open --test-passphrase --token-only {DEV}",
+        f"systemd-cryptenroll --unlock-fido2-device=auto --recovery-key {DEV}",
+        f"cryptsetup open --test-passphrase --key-slot=2 {DEV}",
         f"tee -- {box.limine_dropin}",
         f"tee -- {box.dropin}",
         "limine-mkinitcpio",
+        # the passphrase goes last, once the boot images are built
+        f"systemd-cryptenroll --wipe-slot=password {DEV}",
     )
-    assert has_fido2_slot(box)
-    assert not any(c.startswith("mkinitcpio") or "wipe-slot" in c for c in calls)
+    assert slots(box) == {"fido2", "recovery"}, "the key and the recovery key, no passphrase"
+    assert not any(c.startswith("mkinitcpio") or "wipe-slot=fido2" in c for c in calls)
     # the hooks drop-in, sorted after Omarchy's own, with the revert path in its header
     assert "hyprconf-yubikey disable" in box.dropin.read_text()
     assert sorted(p.name for p in box.mkinitcpio_d.iterdir())[-1] == box.dropin.name
@@ -337,7 +377,8 @@ def test_enroll_happy_path(box: Box) -> None:
     assert not any(str(box.limine) in c for c in calls), "no root command ever names the file"
     # and the drop-in is read back before the hooks drop-in is written
     assert "the drop-in reaches it" in res.stdout and "Boot images rebuilt" in res.stdout
-    assert "Done." in res.stdout and "passphrase" in res.stdout.lower()
+    assert "Done." in res.stdout and "no passphrase any more" in res.stdout
+    assert "WRITE IT DOWN" in res.stdout and "passphrase slots wiped" in res.stdout
     assert res.stdout.index("reaches it") < res.stdout.index("Done.")
 
 
@@ -347,10 +388,62 @@ def test_enroll_rerun_is_idempotent(box: Box) -> None:
     box.reset()
     res = run(box, "enroll", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stderr
-    assert not any(c.startswith("systemd-cryptenroll") for c in box.calls), "slot already present"
+    assert not any(c.startswith("systemd-cryptenroll") for c in box.calls), (
+        "every slot already right"
+    )
+    # the proofs run again: a re-run never trusts the last one
+    assert f"cryptsetup open --test-passphrase --token-only {DEV}" in box.calls
+    assert f"cryptsetup open --test-passphrase --key-slot=2 {DEV}" in box.calls
     assert f"{box.limine_dropin}: already in place" in res.stdout
+    assert "no passphrase slot left" in res.stdout
     assert box.dropin.read_text() == dropin_first
+    assert slots(box) == {"fido2", "recovery"}
     _assert_configured(box)
+
+
+def test_enroll_on_a_box_enrolled_before_token_timeout(box: Box) -> None:
+    """8.1.2's drop-in (passphrase after 30 s) is on the cmdline: it is forgiven, rewritten, and the passphrase goes."""
+    (box.state / "fido2-slot").touch()
+    box.limine_dropin.write_text(
+        f'KERNEL_CMDLINE[default]+=" rd.luks.name={UUID}=root {RD_OPTS_OLD}"\n'
+    )
+    res = run(box, "enroll", "--yes", "--device", DEV)
+    assert res.returncode == 0, res.stderr
+    assert f"{box.limine_dropin}: written" in res.stdout
+    _assert_configured(box)
+    assert slots(box) == {"fido2", "recovery"}
+
+
+# A proof that fails stops enroll with the passphrase and the boot config as they were.
+PROOFS = {
+    "key-does-not-unlock": ("token_open_rc", "did not unlock", set()),
+    "recovery-key-not-typed-back": ("recovery_open_rc", "wipe-slot=recovery", {"recovery"}),
+}  # fmt: skip
+
+
+@pytest.mark.parametrize(("knob", "said", "made"), PROOFS.values(), ids=PROOFS)
+def test_a_failed_proof_keeps_the_passphrase(box: Box, knob: str, said: str, made: set) -> None:
+    setattr(box, knob, 1)
+    res = run(box, "enroll", "--yes", "--device", DEV)
+    assert res.returncode != 0 and said in res.stderr, res.stderr
+    assert "no passphrase was wiped" in res.stderr
+    assert slots(box) == {"password", "fido2", *made}
+    assert not box.dropin.exists() and not box.limine_dropin.exists()
+    assert not any("wipe-slot" in c or c.startswith("limine-mkinitcpio") for c in box.calls)
+
+
+def test_the_recovery_proof_is_its_own_slot_not_any_passphrase(box: Box) -> None:
+    """A recovery key already there is kept and typed back against its keyslot, never a bare --test-passphrase the old passphrase would pass."""
+    (box.state / "recovery-slot").touch()
+    res = run(box, "enroll", "--yes", "--device", DEV)
+    assert res.returncode == 0, res.stderr
+    assert "recovery key is already enrolled (keyslot 2)" in res.stdout
+    assert not any("--recovery-key" in c for c in box.calls)
+    opens = [c for c in box.calls if c.startswith("cryptsetup open")]
+    assert opens == [
+        f"cryptsetup open --test-passphrase --token-only {DEV}",
+        f"cryptsetup open --test-passphrase --key-slot=2 {DEV}",
+    ]
 
 
 # lsblk leaves FSVER empty when blkid cannot tell: the empty field must survive the
@@ -542,6 +635,7 @@ def test_rebuild_failure_dies_with_the_config_left_in_place(box: Box, mode: str,
     assert "sudo limine-mkinitcpio" in res.stderr, "the retry is named"
     assert "Done." not in res.stdout and "Boot images rebuilt" not in res.stdout
     assert box.dropin.exists() and box.limine_dropin.read_text() == LIMINE_DROPIN
+    assert "password" in slots(box) and not any("wipe-slot" in c for c in box.calls)
 
 
 def test_the_non_latin_layout_list_is_the_tools_own() -> None:
@@ -561,7 +655,7 @@ def test_enroll_allow_non_latin_layout_flag_warns_and_proceeds(box: Box) -> None
     box.vconsole.write_text("KEYMAP=ru\nXKBLAYOUT=ru\n")
     res = run(box, "enroll", "--yes", "--device", DEV, "--allow-non-latin-layout")
     assert res.returncode == 0, res.stderr
-    assert "warning" in res.stderr and "ru" in res.stderr and "passphrase" in res.stderr
+    assert "warning" in res.stderr and "ru" in res.stderr and "recovery key" in res.stderr
     assert has_fido2_slot(box) and box.dropin.exists()
 
 
@@ -660,18 +754,32 @@ def test_disable_when_not_configured_changes_nothing(box: Box) -> None:
     assert box.limine.read_text() == box.limine_file
 
 
-def test_remove_wipes_fido2_slot_then_disables(box: Box) -> None:
+def test_remove_sets_a_passphrase_then_wipes_fido2_slot_then_disables(box: Box) -> None:
     assert run(box, "enroll", "--yes", "--device", DEV).returncode == 0
     box.reset()
     res = run(box, "remove", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stderr
     calls = box.calls
-    assert_order(calls, f"systemd-cryptenroll --wipe-slot=fido2 {DEV}", "limine-mkinitcpio")
-    assert not any("password" in c for c in calls), "passphrase slots are never touched"
+    assert_order(
+        calls,
+        f"systemd-cryptenroll --password {DEV}",
+        f"systemd-cryptenroll --wipe-slot=fido2 {DEV}",
+        "limine-mkinitcpio",
+    )
+    assert not any("wipe-slot=password" in c or "wipe-slot=recovery" in c for c in calls)
     assert "limine-entry-tool" not in box.commands, "only enroll needs the cmdline"
-    assert not has_fido2_slot(box)
+    assert slots(box) == {"password", "recovery"}
     assert not box.dropin.exists() and not box.limine_dropin.exists()
     assert box.limine.read_text() == box.limine_file
+
+
+def test_remove_keeps_an_existing_passphrase(box: Box) -> None:
+    """A box whose passphrase is still there (enrolled before this release) is not asked for a new one."""
+    (box.state / "fido2-slot").touch()
+    res = run(box, "remove", "--yes", "--device", DEV)
+    assert res.returncode == 0, res.stderr
+    assert not any("--password" in c for c in box.calls)
+    assert slots(box) == {"password"}
 
 
 def test_status_prints_facts(box: Box) -> None:
@@ -679,7 +787,10 @@ def test_status_prints_facts(box: Box) -> None:
     res = run(box, "status")
     assert res.returncode == 0, res.stderr
     out = unpadded(res.stdout)
-    assert f"{DEV}  LUKS2  UUID {UUID}  systemd-fido2 slot: no" in res.stdout
+    assert (
+        f"{DEV}  LUKS2  UUID {UUID}  systemd-fido2 slot: no  recovery key: no  passphrase slots: 0"
+        in res.stdout
+    )
     assert "/dev/sdd  LUKS1" in res.stdout and "not eligible" in out
     assert f"initramfs drop-in: absent ({box.dropin})" in out
     assert f"cmdline drop-in: absent ({box.limine_dropin})" in out
@@ -691,7 +802,10 @@ def test_status_prints_facts(box: Box) -> None:
     box.tokens = ""
     res = run(box)  # status is the default subcommand
     out = unpadded(res.stdout)
-    assert res.returncode == 0 and "systemd-fido2 slot: yes" in out
+    assert (
+        res.returncode == 0
+        and "systemd-fido2 slot: yes recovery key: yes passphrase slots: none" in out
+    )
     assert f"initramfs drop-in: present ({box.dropin})" in out
     assert f"cmdline drop-in: present ({box.limine_dropin})" in out
     assert f"kernel cmdline: rd.luks.name={UUID}=root {RD_OPTS}" in out
