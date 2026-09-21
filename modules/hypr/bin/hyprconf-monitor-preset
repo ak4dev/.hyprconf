@@ -78,7 +78,7 @@ if [[ "$1" == stock ]]; then
     exit 0
 fi
 
-SOURCE="$(preset_path "$1")" || die "Preset not found: $1 (see $(basename "$0") --help)"
+SOURCE="$(preset_path "$1")" || die "Preset not found: $1 (see ${0##*/} --help)"
 
 # A copy via a temp file + mv, so the toggle is never momentarily truncated
 # under a reload — and never a link: the preset stays the user's own file under

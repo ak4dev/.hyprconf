@@ -5,23 +5,24 @@ set -euo pipefail
 #
 # From a clean `dev` that matches origin/dev: run the three CI gates, cut the
 # annotated tag named by VERSION, and move dev, stable and the tag in ONE
-# atomic push. Nothing is packaged — users `git clone -b stable`, so the
-# promoted branch IS the release, and stable carries the exact sha the gates
-# went green on.
+# atomic push — so stable carries the exact sha the gates went green on.
 #
 # VERSION is bumped by hand, in the commit that earns it (SemVer). There is no
 # bump commit here and no --skip/--dry-run flag: the only half-published state
 # an atomic push can leave is none, so a run that dies is simply rerun.
 
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
-
 die() { printf 'publish: %s\n' "$*" >&2; exit 1; }
 
 (($# == 0)) || die "takes no arguments"
+# Named here, before anything else runs, or an absent one reaches the caller as
+# its gate's message: "ruff failed (run: make fmt)" is what a missing ruff printed.
+for tool in ruff shellcheck pytest; do
+    command -v "$tool" >/dev/null || die "$tool is not on PATH — the gates need it"
+done
+
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
 [[ "$(git rev-parse --abbrev-ref HEAD)" == dev ]] || die "not on dev"
 [[ -z "$(git status --porcelain)" ]] || die "uncommitted changes — commit or stash first"
-# Fetch every branch, not just dev: --force-with-lease below needs a
-# remote-tracking origin/stable or git refuses the push as "stale info".
 git fetch -q origin
 [[ "$(git rev-parse HEAD)" == "$(git rev-parse origin/dev)" ]] ||
     die "dev is not in sync with origin/dev — push, pull or rebase first"
@@ -39,11 +40,11 @@ else
 fi
 
 # One push or none: --atomic makes the three refs move together, so a network
-# failure leaves origin exactly as it was and the rerun is just a rerun.
-# --force-with-lease keeps the invariant mechanical — stable moves only from
-# where this script last left it. The local `stable` branch is deliberately
+# failure leaves origin exactly as it was and the rerun is just a rerun. Never
+# forced, since every user clone pulls stable --ff-only: a stable that moved
+# elsewhere is a stop, not a rewind. The local `stable` branch is deliberately
 # NOT moved: `git branch -f stable` exits 128 when stable is checked out in
-# another worktree (git 2.55), which is the normal layout here, and nothing
-# reads it — origin/stable is what users clone.
-git push --atomic --force-with-lease origin HEAD:dev HEAD:stable "refs/tags/$tag"
+# another worktree (git 2.55), and nothing reads it — origin/stable is what
+# users clone.
+git push --atomic origin HEAD:dev HEAD:stable "refs/tags/$tag"
 printf 'publish: %s — dev, stable and the tag are at %s\n' "$tag" "$(git rev-parse --short HEAD)"

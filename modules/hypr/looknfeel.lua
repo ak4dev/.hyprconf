@@ -54,13 +54,9 @@ hl.config({
     force_split = 0,
     precise_mouse_move = true,
 
-    -- Cursor position decides the split DIRECTION, not just which side the new
-    -- window takes. Without this, Hyprland picks the orientation automatically
-    -- from the container's aspect — it splits along the longer axis — so the
-    -- same gesture tiles side-by-side on a wide container and stacked on a tall
-    -- one, which is why the layout felt inconsistent between machines even
-    -- though every dwindle setting matched. Neither hyprconf nor Omarchy set
-    -- this; it is a deliberate divergence, chosen for predictability.
+    -- The cursor's quadrant also picks the split DIRECTION; without it Hyprland
+    -- splits along the container's longer axis, so one gesture tiles side by side
+    -- on a wide container and stacked on a tall one. Omarchy leaves it off.
     smart_split = true,
   },
 })

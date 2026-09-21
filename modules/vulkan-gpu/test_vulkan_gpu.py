@@ -5,7 +5,6 @@ _HYPRCONF_SYS_PCI / _HYPRCONF_SYS_DRM, vulkaninfo a fake behind its own seam."""
 from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 from pathlib import Path
 
@@ -29,6 +28,8 @@ INTEL_IGPU = {"addr": "0000:00:02.0", "vendor": "0x8086", "device": "0xa780", "c
 # Two cards with one vendor:device: the loader filters by id, so it cannot
 # separate them and every id-keyed promise must refuse instead of lying.
 TWINS = (NV_3070, {**NV_3070, "addr": "0000:0b:00.0", "connected": 2})
+# The failing case: the displays on the second GPU in PCI order.
+DUAL = (NV_3070, NV_5090)
 
 FILTER = "VK_LOADER_DEVICE_ID_FILTER"
 SELECT = "VK_LOADER_DEVICE_SELECT"
@@ -38,10 +39,8 @@ LOADER_3070 = [f"export {FILTER}=0x2484", f"export {SELECT}=10de:2484"]
 LOADER_AMD = [f"export {FILTER}=0x744c", f"export {SELECT}=1002:744c"]
 NV_PAIR = ["export __NV_PRIME_RENDER_OFFLOAD=1", "export __VK_LAYER_NV_optimus=NVIDIA_only"]
 FIX_LINES = LOADER_5090 + NV_PAIR
-ALT_LINES = [f"export {WAYLAND}=1"]
 # The display-GPU pick, said in full whenever more than one GPU has an output.
 MULTI = " — several GPUs have outputs; most connected wins, tie -> lowest PCI address"
-SH_ENV = {"PATH": os.environ["PATH"]}  # no live VK_LOADER_* of the developer's
 
 
 def w(path: Path, text: str) -> Path:
@@ -85,7 +84,6 @@ def gpus(box: Box, *cards: dict) -> Box:
         # An absolute name: found only while this box's fake exists, never the
         # real vulkaninfo (nor the shared fake behind it on PATH).
         _HYPRCONF_VULKANINFO=str(box.bins / "vulkaninfo"),
-        FAKE_VULKANINFO=str(box.tmp / "vulkaninfo-summary"),
     )
     return box
 
@@ -96,11 +94,10 @@ def run(box: Box, *args: str, **kwargs) -> subprocess.CompletedProcess:
 
 def vulkaninfo(box: Box, summary: str | None) -> None:
     """A recording vulkaninfo printing `summary`; None: one that fails (no ICD)."""
-    if summary is None:
-        box.stub("vulkaninfo", "echo 'ERROR: [Loader Message] no ICD' >&2\nexit 1\n")
-        return
-    w(box.tmp / "vulkaninfo-summary", summary)
-    box.stub("vulkaninfo", '[[ $1 == --summary ]] && cat "$FAKE_VULKANINFO"\n')
+    body = "echo 'ERROR: [Loader Message] no ICD' >&2\nexit 1\n"
+    if summary is not None:
+        body = f"[[ $1 == --summary ]] && cat <<'SUMMARY'\n{summary}SUMMARY\n"
+    box.stub("vulkaninfo", body)
 
 
 def env_file(box: Box) -> Path:
@@ -111,34 +108,14 @@ def linked_tool(box: Box) -> Path:
     return box.home / ".local" / "bin" / "hyprconf-vulkan-gpu"
 
 
-def snapshot(root: Path) -> dict[str, tuple]:
-    """Every path as (mode, inode, target-or-content, mtime_ns); a symlink is read,
-    never followed — `ln -sfn` over a correct link would give it a new inode."""
-    out = {}
-    for p in sorted(root.rglob("*")):
-        st = p.lstat()
-        body = os.readlink(p) if p.is_symlink() else (p.read_bytes() if p.is_file() else b"")
-        out[str(p.relative_to(root))] = (st.st_mode, st.st_ino, body, st.st_mtime_ns)
-    return out
-
-
 def exports(path: Path) -> list[str]:
     return [ln for ln in path.read_text().splitlines() if ln.startswith("export ")]
-
-
-def sourced(path: Path, *names: str) -> list[str]:
-    """What `sh` sees after sourcing the file: the `export VAR=value` lines uwsm reads."""
-    sh = shutil.which("sh") or pytest.skip("sh not installed")
-    probe = " ".join(f'"${n}"' for n in names)
-    cmd = [sh, "-c", f". \"$1\"; printf '%s\\n' {probe}", "sh", str(path)]
-    r = subprocess.run(cmd, capture_output=True, text=True, check=True, env=SH_ENV)
-    return r.stdout.splitlines()
 
 
 @pytest.fixture
 def dual(box: Box) -> Box:
     """Two NVIDIA GPUs, the displays on the second by PCI order: the failing case."""
-    return gpus(box, NV_3070, NV_5090)
+    return gpus(box, *DUAL)
 
 
 def test_install_links_the_tool_onto_path(box: Box) -> None:
@@ -152,11 +129,11 @@ def test_install_links_the_tool_onto_path(box: Box) -> None:
 
 def test_a_second_run_writes_nothing(box: Box) -> None:
     assert box.run(INSTALL).returncode == 0
-    before = snapshot(box.home)
+    before = box.snapshot()
     box.reset()
     again = box.run(INSTALL)
     assert again.returncode == 0, again.stdout + again.stderr
-    assert snapshot(box.home) == before  # the inode too: no `ln -sfn` over a good link
+    assert box.snapshot() == before  # the inode too: no `ln -sfn` over a good link
     assert again.stdout == "" and box.commands == []
 
 
@@ -181,8 +158,8 @@ def test_undo_touches_nothing_it_did_not_link(box: Box) -> None:
     assert box.undo("vulkan-gpu").returncode == 0  # never installed
     assert box.files() == set() and box.commands == []
     w(linked_tool(box), "#!/usr/bin/env bash\n# mine\n")
-    before = snapshot(box.home)
-    assert box.undo("vulkan-gpu").returncode == 0 and snapshot(box.home) == before
+    before = box.snapshot()
+    assert box.undo("vulkan-gpu").returncode == 0 and box.snapshot() == before
 
 
 def test_status_prints_the_picture(dual: Box) -> None:
@@ -250,12 +227,16 @@ def test_unreadable_sysfs_is_an_error(dual: Box) -> None:
         (".config/environment.d/50-mine.conf", f"# hand-written\n{FILTER}=0x2b85\n", FILTER),
         (".config/uwsm/env.d/10-mine", f"export FOO=1\n  export {WAYLAND}=1\n", WAYLAND),
         (".config/uwsm/env", f"export {FILTER}=0x2b85\n", FILTER),
+        (".config/uwsm/env-hyprland", f"export {FILTER}=0x2b85\n", FILTER),
+        (".config/uwsm/env-hyprland.d/10-mine", f"export {WAYLAND}=1\n", WAYLAND),
+        (".config/uwsm/default", f"export {FILTER}=0x2b85\n", FILTER),
         (None, "", FILTER),
     ],
-    ids=["environment.d", "uwsm/env.d", "uwsm/env", "live"],
+    ids=["environment.d", "env.d", "env", "env-hyprland", "env-hyprland.d", "default", "live"],
 )
 def test_already_configured_is_reported(dual: Box, rel: str | None, text: str, var: str) -> None:
-    """The four places a session takes these from."""
+    """Every place a session takes these from (uwsm's `-D Hyprland` names the
+    env-hyprland pair, and both of those load after this module's file)."""
     extra: dict[str, str] = {}
     if rel is None:
         where, extra = "the live environment", {var: "0x2b85"}
@@ -295,7 +276,16 @@ def test_fix_writes_the_four_lines_for_the_display_gpu(dual: Box) -> None:
     assert "0000:0a:00.0 (NVIDIA 10de:2b85)" in head[0]  # pinned
     assert "0000:04:00.0 (NVIDIA 10de:2484)" in head[1]  # hidden
     assert f"wrote {env_file(dual)}" in r.stdout and "re-login to apply" in r.stdout
-    assert sourced(env_file(dual), FILTER, SELECT) == ["0x2b85", "10de:2b85"]
+    # What uwsm's `sh` takes out of it, in an environment with no live
+    # VK_LOADER_* of the developer's.
+    sh = subprocess.run(
+        ["sh", "-c", f'. "$1"; printf "%s\\n" "${FILTER}" "${SELECT}"', "sh", str(env_file(dual))],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={"PATH": os.environ["PATH"]},
+    )
+    assert sh.stdout.splitlines() == ["0x2b85", "10de:2b85"]
     assert dual.files() == {env_file(dual)}
 
 
@@ -331,23 +321,29 @@ def test_fix_is_idempotent(dual: Box) -> None:
     assert env_file(dual).stat().st_mtime == old
 
 
-@pytest.mark.parametrize(
-    ("cards", "args", "message"),
-    [
-        ((NV_5090,), ("fix",), "nothing to pin on a single-GPU box"),
-        ((NV_5090,), ("use", "display"), "nothing to pin on a single-GPU box"),
-        ((NV_3070, NV_5090_DARK), ("fix",), "cannot tell which one to pin"),
-        (TWINS, ("fix",), "cannot separate identical cards"),
-        (TWINS, ("use", "display"), "cannot separate identical cards"),
-        (TWINS, ("run", "display", "--", "true"), "cannot separate identical cards"),
-        ((NV_3070, NV_5090), ("use", "10de:2484"), "no GPU matches '10de:2484'"),
-        ((NV_3070, NV_5090), ("run", "x", "--", "touch", "{home}/ran"), "no GPU matches 'x'"),
-    ],
-    ids=["fix1", "use1", "dark", "tw-fix", "tw-use", "tw-run", "id-sel", "bad-sel"],
-)
+# Every refusal: a selector that cannot be honoured, and a usage error.
+REFUSED = {
+    "fix1": ((NV_5090,), ("fix",), "nothing to pin on a single-GPU box"),
+    "use1": ((NV_5090,), ("use", "display"), "nothing to pin on a single-GPU box"),
+    "dark": ((NV_3070, NV_5090_DARK), ("fix",), "cannot tell which one to pin"),
+    "tw-fix": (TWINS, ("fix",), "cannot separate identical cards"),
+    "tw-use": (TWINS, ("use", "display"), "cannot separate identical cards"),
+    "tw-run": (TWINS, ("run", "display", "--", "true"), "cannot separate identical cards"),
+    "id-sel": (DUAL, ("use", "10de:2484"), "no GPU matches '10de:2484'"),
+    "bad-sel": (DUAL, ("run", "x", "--", "touch", "{home}/ran"), "no GPU matches 'x'"),
+    "use": (DUAL, ("use",), "usage: hyprconf-vulkan-gpu use"),
+    "run": (DUAL, ("run",), "usage: hyprconf-vulkan-gpu run"),
+    "run-command": (DUAL, ("run", "display"), "no command given"),
+    "no-arg-sub": (DUAL, ("fix", "stray"), "fix takes no arguments (did you mean: use stray?)"),
+    "unknown": (DUAL, ("bogus",), "unknown subcommand: bogus"),
+}
+
+
+@pytest.mark.parametrize(("cards", "args", "message"), REFUSED.values(), ids=REFUSED)
 def test_it_refuses_rather_than_pin_the_wrong_thing(box: Box, cards, args, message) -> None:
     """An id is no selector (two cards can share one, and then the loader's filter
-    cannot separate them at all); nothing is written and no `run` command starts."""
+    cannot separate them at all), and a usage error refuses the same way: exit 1,
+    the reason on stderr, nothing written and no `run` command started."""
     gpus(box, *cards)
     r = run(box, *(a.format(home=box.home) for a in args))
     assert r.returncode == 1, r.stdout + r.stderr
@@ -364,14 +360,14 @@ def test_use_pins_the_gpu_named(dual: Box, selector: str, lines: list[str]) -> N
     assert exports(env_file(dual)) == lines
 
 
-@pytest.mark.parametrize("args", [("use", "other"), ("run", "other", "--", "true")])
-def test_use_and_run_never_probe_vulkaninfo(dual: Box, args: tuple) -> None:
+@pytest.mark.parametrize("args", [("fix",), ("use", "other"), ("run", "other", "--", "true")])
+def test_fix_use_and_run_never_probe_vulkaninfo(dual: Box, args: tuple) -> None:
     """A probe creates an instance on every ICD, waking a suspended GPU."""
     vulkaninfo(dual, vulkaninfo_summary(NV_3070, NV_5090))
     assert run(dual, *args).returncode == 0
     assert dual.calls_of("vulkaninfo") == []
     dual.reset()
-    # 0 after `use` wrote the pin, 3 after `run` left the box as it found it.
+    # 0 after `fix`/`use` wrote the pin, 3 after `run` left the box as it found it.
     assert run(dual, "status").returncode in (0, 3)
     assert len(dual.calls_of("vulkaninfo")) == 1
 
@@ -405,7 +401,7 @@ def test_alt_writes_proton_wayland_only(dual: Box) -> None:
     """The answer when two cards share a vendor:device, which the filter cannot separate."""
     r = run(dual, "alt")
     assert r.returncode == 0, r.stdout + r.stderr
-    assert exports(env_file(dual)) == ALT_LINES
+    assert exports(env_file(dual)) == [f"export {WAYLAND}=1"]
     assert env_file(dual).read_text().startswith("# hyprconf-vulkan-gpu:")
     assert FILTER not in env_file(dual).read_text()
     assert "re-login to apply" in r.stdout
@@ -418,23 +414,6 @@ def test_remove_deletes_the_env_file(dual: Box) -> None:
     assert f"removed {env_file(dual)}" in r.stdout and dual.files() == set()
     again = run(dual, "remove")
     assert again.returncode == 0 and "nothing to remove" in again.stdout
-
-
-@pytest.mark.parametrize(
-    ("args", "message"),
-    [
-        (("use",), "usage: hyprconf-vulkan-gpu use"),
-        (("run",), "usage: hyprconf-vulkan-gpu run"),
-        (("run", "display"), "no command given"),
-        (("fix", "stray"), "fix takes no arguments (did you mean: use stray?)"),
-        (("bogus",), "unknown subcommand: bogus"),
-    ],
-    ids=["use", "run", "run-command", "no-arg-sub", "unknown"],
-)
-def test_a_usage_error_exits_1_and_writes_nothing(dual: Box, args: tuple, message: str) -> None:
-    r = run(dual, *args)
-    assert r.returncode == 1, r.stdout + r.stderr
-    assert message in r.stderr and dual.files() == set()
 
 
 def test_help_is_one_text_under_three_names(dual: Box) -> None:

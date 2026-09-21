@@ -6,25 +6,22 @@ set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 
 : "${_HYPRCONF_UDEV_RULES:=/etc/udev/rules.d}"
-: "${_HYPRCONF_ASSUME_TTY:=}"
 src=$dir/70-keychron.rules
 dst=$_HYPRCONF_UDEV_RULES/70-keychron.rules
 
 can_sudo() {
-    if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
-        echo "  skipped (--no-packages) — run \`bash $dir/install\` from a terminal for the udev rule"
-        return 1
+    local why
+    if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then why="skipped (--no-packages)"
+    elif [[ ! -t 0 && -z ${_HYPRCONF_ASSUME_TTY:-} ]]; then why="no terminal for sudo"
+    else return 0
     fi
-    if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
-        echo "  no terminal for sudo — run \`bash $dir/install\` from a terminal for the udev rule"
-        return 1
-    fi
-    return 0
+    echo "  $why — run \`bash $dir/install${1:+ $1}\` from a terminal for the udev rule"
+    return 1
 }
 
 if [[ ${1:-} == undo ]]; then
     [[ -f $dst ]] || exit 0
-    can_sudo || exit 0
+    can_sudo undo || exit 0
     sudo rm -f -- "$dst" || { echo "  could not remove $dst"; exit 0; }
     # No trigger: 73-seat-late.rules only ever adds an ACL, so one granted stands until re-plug.
     sudo udevadm control --reload-rules || true
@@ -32,7 +29,7 @@ if [[ ${1:-} == undo ]]; then
     exit 0
 fi
 
-[[ -f $dst ]] && cmp -s "$src" "$dst" && exit 0
+cmp -s "$src" "$dst" && exit 0
 can_sudo || exit 0
 sudo install -Dm644 -- "$src" "$dst" || { echo "  could not install $dst — skipping"; exit 0; }
 echo "  $dst installed (Keychron 0x3434, Lemokey 0x362d) — undo: bash $dir/install undo"
@@ -42,4 +39,3 @@ if sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match
 else
     echo "  installed but not applied — re-plug the board or reboot"
 fi
-exit 0

@@ -14,8 +14,10 @@ real folder there is moved aside once as `.hyprconf.clock.bak.<ts>`.
 
 ## Requires
 
-Omarchy's shell and `jq`; no packages, no sudo. With nothing answering it links the folder and enables on the
-next run. The checkout has to stay put — the plugin is a link into it, and the validator wants a trailing slash.
+Omarchy's shell, `jq`, and [`../bar-plugin.sh`](../bar-plugin.sh) — the link, rescan, enable and undo the four bar
+modules share, which a sparse checkout of this directory brings along; no packages, no sudo. With nothing answering it links
+the folder and enables on the next run. The checkout has to stay put — the plugin is a link into it, and the validator wants
+a trailing slash.
 
 ## Install alone
 
@@ -33,8 +35,11 @@ anchor left naming nothing is repaired on any run, one you chose is not.
 
 ## Undo
 
-`bash modules/bar-clock/install undo` — disable, `omarchy.clock`'s format back
-to `dddd HH:mm`, the anchor back, link and marker gone. A folder an install
-moved aside is left where it is: delete `.hyprconf.clock.bak.<ts>` yourself.
+`bash modules/bar-clock/install undo` — while `hyprconf.clock` is still on the
+bar: disable, and `omarchy.clock`'s format back to `dddd HH:mm`; a stock clock
+you had already gone back to keeps the format you set. Then the anchor back, link
+and marker gone. A folder an install moved aside is left where it is: delete
+`.hyprconf.clock.bak.<ts>` yourself. With no shell answering, the entry goes back
+to `omarchy.clock` with its format in `~/.config/omarchy/shell.json` itself.
 
-## Verified against Omarchy 4.0.3-1
+## Verified against Omarchy 4.0.4-1

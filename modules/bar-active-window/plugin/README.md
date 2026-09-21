@@ -25,7 +25,7 @@ Once this folder is published as a repository of its own, `omarchy plugin add
 <url> --enable --yes` is the one-step form. `--yes` is not optional for this
 widget: without it `omarchy-plugin-add` asks which bar section to put it in
 (`select_bar_widget_placement`, `/usr/bin/omarchy-plugin-add:162`, Omarchy
-4.0.3-1) and the answer becomes a placement, which moves the widget out of the
+4.0.4-1) and the answer becomes a placement, which moves the widget out of the
 stock slot its `clonedFrom` manifest just claimed. `--yes` also skips Omarchy's
 review-the-code prompt, so read the repository first.
 
@@ -53,7 +53,7 @@ text on one line (280 by default), laid out here on two lines:
 omarchy bar set hyprconf.active-window maxWidth 400
 ```
 
-## Host contract (Omarchy 4.0.3-1)
+## Host contract (Omarchy 4.0.4-1)
 
 An installed third-party widget never gets the host Bar: its `bar` is a
 `Ui/PluginBarApi.qml` facade (`shell/plugins/bar/Bar.qml:1999-2003`) and

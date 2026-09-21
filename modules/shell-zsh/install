@@ -22,7 +22,7 @@ mark='/modules/shell-zsh/zshrc"'
 
 # rewrite_zshrc keep|drop; the <= 7.x block is cut only with both markers in order — with one gone, a begin-to-EOF cut eats the rest.
 rewrite_zshrc() {
-    local mode="$1" keep tmp b e
+    local mode="$1" tmp b e want=
     if [[ ! -f $zshrc ]]; then
         [[ $mode == keep ]] || return 0
         : > "$zshrc"
@@ -30,56 +30,25 @@ rewrite_zshrc() {
     b=$(grep -nxF -e '# >>> hyprconf >>>' "$zshrc" | head -1 | cut -d: -f1 || true)
     e=$(grep -nxF -e '# <<< hyprconf <<<' "$zshrc" | head -1 | cut -d: -f1 || true)
     if [[ -z $b || -z $e || $b -ge $e ]]; then b=0; e=0; fi
-    keep=$(mktemp)
+    if [[ $mode == keep ]]; then want=$line; fi
     tmp=$(mktemp)
-    # The kept line reaches awk as a FILE: -v is escape-processed, so a backslash in $dir would stop the line in place from matching.
-    if [[ $mode == keep ]]; then printf '%s\n' "$line" > "$keep"; fi
-    awk -v b="$b" -v e="$e" -v mark="$mark" '
-        FILENAME == ARGV[1] { want = $0; next }
+    # The kept line reaches awk through the environment: -v is escape-processed, so a backslash in $dir would stop the line in place from matching.
+    want=$want awk -v b="$b" -v e="$e" -v mark="$mark" '
+        BEGIN { want = ENVIRON["want"] }
         b && FNR >= b && FNR <= e { next }
         $0 != want && index($0, mark) { next }
         want != "" && $0 == want { if (seen) next; seen = 1 }
         { print }
-    ' "$keep" "$zshrc" > "$tmp"
-    if [[ $mode == keep ]] && ! grep -qxF -- "$line" "$tmp"; then
-        printf '%s\n' "$line" >> "$tmp"
-    fi
+        END { if (want != "" && !seen) print want }
+    ' "$zshrc" > "$tmp"
     if ! cmp -s "$tmp" "$zshrc"; then
         # Over the file, never through a rename: a ~/.zshrc that is a dotfiles symlink keeps its link.
         cat "$tmp" > "$zshrc"
         changed=1
     fi
-    rm -f "$tmp" "$keep"
+    rm -f "$tmp"
 }
 
-# Timeout-bounded and never fatal: a dead network must not stall the omarchy-update this runs under.
-clone_p10k() {
-    if [[ ! -d $p10k ]]; then
-        if timeout 300 git clone -q --depth=1 --revision="$p10k_pin" -- "$p10k_url" "$p10k"; then
-            mkdir -p "$HYPRCONF_STATE"
-            : > "$p10k_marker"
-            changed=1
-        else
-            rm -rf "$p10k"
-            echo "  could not clone powerlevel10k — the prompt stays stock; retried on the next run"
-        fi
-        return 0
-    fi
-    # omarchy-plugin-update:111's test: `git rev-parse` on a plain directory answers for the repository enclosing it.
-    if [[ ! -d $p10k/.git ]]; then
-        echo "  $p10k is not a git checkout — left as it is (move it aside to let the pin re-clone)"
-        return 0
-    fi
-    if [[ $(git -C "$p10k" rev-parse HEAD 2>/dev/null || true) == "$p10k_pin" ]]; then
-        return 0
-    fi
-    if timeout 300 git -C "$p10k" fetch -q --depth=1 -- "$p10k_url" "$p10k_pin" &&
-        timeout 300 git -C "$p10k" checkout -q --detach FETCH_HEAD; then
-        changed=1
-    else
-        echo "  could not move powerlevel10k to its pin — the checkout in place stays in use"
-    fi
-}
 if [[ ${1:-} == undo ]]; then
     rewrite_zshrc drop
     # Stock Omarchy ships no ~/.zshrc (/etc/skel has .bashrc, .bash_profile, .bash_logout), so one left empty goes too.
@@ -99,7 +68,7 @@ if [[ ${1:-} == undo ]]; then
         2>/dev/null || true
     exit 0
 fi
-# Asked first — omarchy-pkg-add (/usr/bin/omarchy-pkg-add:8-14) is pacman -S --needed, but asking costs a sudo prompt.
+# Asked first so the two gates below stay silent on a box that already has them; omarchy-pkg-add (bin/omarchy-pkg-add:8) asks the same before its sudo.
 mapfile -t pkgs < <(sed 's/#.*//; s/[[:space:]]//g; /^$/d' "$dir/packages")
 if ! omarchy-pkg-present "${pkgs[@]}"; then
     if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
@@ -118,11 +87,30 @@ if ! omarchy-pkg-present zsh; then
     echo "  zsh is not installed — nothing to configure (run from a terminal, without --no-packages)"
     exit 0
 fi
-clone_p10k
+# Timeout-bounded and never fatal: a dead network must not stall the omarchy-update this runs under.
+if [[ ! -d $p10k ]]; then
+    if timeout 300 git clone -q --depth=1 --revision="$p10k_pin" -- "$p10k_url" "$p10k"; then
+        mkdir -p "$HYPRCONF_STATE"
+        : > "$p10k_marker"
+        changed=1
+    else
+        rm -rf "$p10k"
+        echo "  could not clone powerlevel10k — the prompt stays stock; retried on the next run"
+    fi
+# omarchy-plugin-update:111's test: `git rev-parse` on a plain directory answers for the repository enclosing it.
+elif [[ ! -d $p10k/.git ]]; then
+    echo "  $p10k is not a git checkout — left as it is (move it aside to let the pin re-clone)"
+elif [[ $(git -C "$p10k" rev-parse HEAD 2>/dev/null || true) != "$p10k_pin" ]]; then
+    if timeout 300 git -C "$p10k" fetch -q --depth=1 -- "$p10k_url" "$p10k_pin" &&
+        timeout 300 git -C "$p10k" checkout -q --detach FETCH_HEAD; then
+        changed=1
+    else
+        echo "  could not move powerlevel10k to its pin — the checkout in place stays in use"
+    fi
+fi
 # A .p10k.zsh of theirs is kept once as .stock; a link into the checkout is <= 7.x's own — a .stock of it would dangle.
-root=${dir%/modules/shell-zsh}
 target=$(readlink "$p10krc" 2>/dev/null || true)
-if [[ (-e $p10krc || -L $p10krc) && $target != "$dir/.p10k.zsh" && $target != "$root"/* ]] &&
+if [[ (-e $p10krc || -L $p10krc) && $target != "${dir%/modules/shell-zsh}"/* ]] &&
     [[ ! -e $p10krc.stock && ! -L $p10krc.stock ]]; then
     cp -P "$p10krc" "$p10krc.stock"
     echo "  backed up .p10k.zsh -> .p10k.zsh.stock"
@@ -157,4 +145,3 @@ fi
 if (( changed )); then
     echo "  zsh + powerlevel10k in kitty — undo: bash $dir/install undo"
 fi
-exit 0

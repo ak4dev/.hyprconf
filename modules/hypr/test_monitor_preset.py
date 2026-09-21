@@ -88,7 +88,8 @@ def test_usage_lists_the_presets_that_are_there(box, flag: str, code: int) -> No
 def test_an_unknown_preset_exits_nonzero_notifies_and_writes_no_toggle(box, name: str) -> None:
     """No terminal on the hotkey path, so the failure is a notification; a label is never pasted into a path."""
     _cfg(box, **{"pcMonitors.bedroom.lua": PRESET})
-    (box.home / "evilMonitors.lua").write_text('hl.monitor({ output = "" })\n')
+    # ~/.config/evilMonitors.lua is where "$CONFIG_DIR/${1}Monitors.lua" with ../evil would land.
+    (box.home / ".config" / "evilMonitors.lua").write_text('hl.monitor({ output = "" })\n')
     res = _run(box, name)
     assert res.returncode != 0
     assert f"Preset not found: {name}" in res.stderr

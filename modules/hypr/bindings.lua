@@ -35,14 +35,11 @@ rebind(mainMod .. " + E", "File manager", { omarchy = "nautilus" })
 rebind(mainMod .. " + V", "Toggle window floating", hl.dsp.window.float({ action = "toggle" }))
 rebind(mainMod .. " + F", "Browser", { omarchy = "browser" })
 rebind(mainMod .. " + C", "Editor", { omarchy = "editor" })
--- Monitor presets (bin/hyprconf-monitor-preset, beside this file).
 rebind(mainMod .. " + SHIFT + B", "Monitor preset: bedroom", "hyprconf-monitor-preset bedroom")
 rebind(mainMod .. " + SHIFT + K", "Monitor preset: kitchen", "hyprconf-monitor-preset kitchen")
 
 -- SUPER+D: Omarchy's own menu (its menu key is SUPER+SPACE; it binds nothing here).
 rebind(mainMod .. " + D", "Omarchy menu", "omarchy-menu toggle")
-
--- Left to Omarchy on purpose: SUPER+arrows, SUPER+P, SUPER+scroll, SUPER+LMB/RMB drag.
 
 -- Resize active window. `relative = true` is load-bearing: without it x/y are
 -- an EXACT target size and a negative one is `error: Invalid size` — every
@@ -78,7 +75,6 @@ rebind(mainMod .. " + SHIFT + D", "Move window right", hl.dsp.window.move({ dire
 rebind(mainMod .. " + SHIFT + W", "Move window up", hl.dsp.window.move({ direction = "up" }))
 rebind(mainMod .. " + SHIFT + S", "Move window down", hl.dsp.window.move({ direction = "down" }))
 
--- Special workspace (scratchpad)
 rebind(mainMod .. " + M",         "Toggle magic scratchpad", hl.dsp.workspace.toggle_special("magic"))
 rebind(mainMod .. " + SHIFT + M", "Move window to magic scratchpad", hl.dsp.window.move({ workspace = "special:magic" }))
 

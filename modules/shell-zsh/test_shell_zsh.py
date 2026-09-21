@@ -1,7 +1,5 @@
 """modules/shell-zsh: zsh + powerlevel10k in the terminal, on the `box` fixture."""
 
-from __future__ import annotations
-
 import re
 import shutil
 import subprocess
@@ -28,15 +26,6 @@ STALE = '[ -r "/old/modules/shell-zsh/zshrc" ] && source "/old/modules/shell-zsh
 def apply(box, **kwargs) -> subprocess.CompletedProcess:
     box.stub("git", GIT_FAKE)
     return box.run(INSTALL, **kwargs)
-
-
-def snapshot(home: Path) -> dict:
-    """Bytes or link target, and mtime, for every path under HOME."""
-    paths = (p for p in sorted(home.rglob("*")) if p.is_symlink() or p.is_file())
-    return {
-        str(p): (p.lstat().st_mtime_ns, p.readlink() if p.is_symlink() else p.read_bytes())
-        for p in paths
-    }
 
 
 def zshrc_lines(box) -> list[str]:
@@ -72,11 +61,11 @@ def test_a_first_run_lands_the_prompt_the_rc_line_and_the_kitty_shell(box, kitty
 
 def test_a_second_run_writes_nothing_and_calls_no_mutating_command(box) -> None:
     apply(box)
-    before = snapshot(box.home)
+    before = box.snapshot()
     box.reset()
     proc = apply(box)
-    assert proc.returncode == 0, proc.stderr
-    assert snapshot(box.home) == before
+    assert (proc.returncode, proc.stdout) == (0, ""), proc.stderr
+    assert box.snapshot() == before
     assert "omarchy-pkg-add" not in box.commands
     assert not [c for c in box.calls_of("git") if {"clone", "fetch", "checkout", "pull"} & set(c)]
 
@@ -144,6 +133,20 @@ def test_a_p10k_zsh_of_the_users_is_backed_up_once_and_replaced(box, tmp_path, k
         assert not backup.exists(follow_symlinks=False)
 
 
+def test_a_dotfiles_symlink_keeps_its_link_through_install_and_undo(box, tmp_path) -> None:
+    """install's `cat >`, its `! -L` empty-file guard and undo's `sed --follow-symlinks`."""
+    links = {".zshrc": "", ".config/kitty/kitty.conf": THEIRS}
+    for rel, body in links.items():
+        (tmp_path / Path(rel).name).write_text(body)
+        (box.home / rel).parent.mkdir(parents=True, exist_ok=True)
+        (box.home / rel).symlink_to(tmp_path / Path(rel).name)
+    assert apply(box).returncode == 0
+    assert SOURCE_LINE in (tmp_path / ".zshrc").read_text()
+    assert box.undo("shell-zsh").returncode == 0
+    for rel, body in links.items():
+        assert (box.home / rel).is_symlink() and (box.home / rel).read_text() == body
+
+
 GATES = [  # a terminal, then each gate's pointer line (box.run closes stdin: no terminal)
     ({}, True, None),
     ({"HYPRCONF_NO_SUDO": "1"}, False, "packages left to a run without --no-packages"),
@@ -191,21 +194,34 @@ def test_a_powerlevel10k_already_there_is_adopted_or_left_never_deleted(box, che
     assert mark.exists()
 
 
-def test_the_third_party_pin_is_a_reviewed_sha_fetched_over_https(box) -> None:
-    """The only third-party code this module installs, run by every zsh (AGENTS rule 8)."""
+def test_the_prompt_clone_is_shallow_and_never_oh_my_zsh() -> None:
+    """The only third-party code this module installs, run by every zsh (AGENTS rule 8);
+    the https/sha/no-pull pins are tests/test_supply_chain.py's."""
     text = INSTALL.read_text()
-    assert re.search(r"^p10k_url=https://", text, re.M)
-    assert re.search(r"^p10k_pin=[0-9a-f]{40}$", text, re.M)
-    assert "git pull" not in text
-    assert "--revision=" in text and "--depth=1" in text
+    assert "--depth=1" in text
     assert "oh-my-zsh" not in text.lower()
 
 
-def test_the_shipped_zsh_files_parse(box) -> None:
+def test_the_shipped_zsh_files_parse() -> None:
     if shutil.which("zsh") is None:
         pytest.skip("no zsh on this box")
     for name in ("zshrc", ".p10k.zsh"):
         assert subprocess.run(["zsh", "-n", MODULE / name], capture_output=True).returncode == 0
+
+
+def test_home_end_and_the_arrows_are_bound_in_both_cursor_key_forms(tmp_path) -> None:
+    """Nothing sends smkx, so kitty and foot stay in CSI mode while terminfo names only SS3."""
+    if (zsh := shutil.which("zsh")) is None:
+        pytest.skip("no zsh on this box")
+    keys = [ln for ln in (MODULE / "zshrc").read_text().splitlines() if ln.startswith("bindkey")]
+    env = {"HOME": str(tmp_path), "TERM": "xterm-kitty"}
+    cmd = [zsh, "-f", "-c", "\n".join([*keys, "bindkey"])]
+    out = subprocess.run(cmd, capture_output=True, text=True, env=env, timeout=30).stdout
+    widgets = {"H": "beginning-of-line", "F": "end-of-line"} | {
+        k: f"{d}-line-or-beginning-search" for k, d in (("A", "up"), ("B", "down"))
+    }
+    for key, widget in widgets.items():
+        assert f'"^[[{key}" {widget}' in out and f'"^[O{key}" {widget}' in out, key
 
 
 def test_the_zshrc_keeps_the_four_things_omarchy_expects_of_it() -> None:
@@ -215,5 +231,5 @@ def test_the_zshrc_keeps_the_four_things_omarchy_expects_of_it() -> None:
     rc = (MODULE / "zshrc").read_text()
     assert re.search(r"^for \w+ in env-bootstrap envs aliases; do$", rc, re.M)
     assert "{OMARCHY_PATH:-/usr/share/omarchy}/default/bash" in rc
-    assert "zoxide init zsh" in rc  # Omarchy aliases cd to a zoxide wrapper
+    assert rc.index("compinit") < rc.index("zoxide init zsh")  # its compdef needs compinit
     assert ".config/hyprconf/fastfetch.jsonc" in rc and ".config/fastfetch" not in rc

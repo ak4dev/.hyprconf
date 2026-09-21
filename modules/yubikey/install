@@ -18,4 +18,3 @@ mkdir -p "$bin"
 # readlink first: ln -sfn would give an already-correct link a new inode.
 [[ $(readlink "$bin/$tool" 2>/dev/null) == "$dir/bin/$tool" ]] ||
     ln -sfn "$dir/bin/$tool" "$bin/$tool"
-exit 0

@@ -66,7 +66,6 @@ gib() {
 temp_input="" _rank=99
 for _lbl in "$HYPRCONF_STATS_HWMON_ROOT"/hwmon*/temp*_label; do
     [[ -r $_lbl ]] || continue
-    _name=""
     read -r _name < "$_lbl" || continue
     case $_name in
         Tctl)           _r=1 ;;
@@ -109,25 +108,18 @@ while :; do
 
     # ---- network: the counters of the DEFAULT-ROUTE interface — by definition
     # the one carrying the traffic, so a docked NIC that is up but unrouted does
-    # not hijack the reading. Taken from the kernel's own listing of the main
-    # table (the table `ip route show default` prints) with no fork: a Wi-Fi or
-    # VPN box sits on this path every tick, and the `ip | awk` it replaced was
-    # three forks a second, every second. One line per route, "Iface Destination
-    # Gateway Flags …" in hex (net/ipv4/fib_trie.c, fib_route_seq_show): the
-    # default route is the one whose Destination is 00000000 — a gateway-less
-    # tunnel (WireGuard: Gateway 00000000, no RTF_GATEWAY) is found the same way,
-    # which the old parse once missed — and of several (Wi-Fi plus a tether) the
-    # first is the lowest metric, the kernel keeping a prefix's routes sorted by
-    # priority (fib_insert_alias), the order `ip` prints too. An `unreachable
-    # default` has no device and lists as "*", where `ip` prints no `dev`:
-    # skipped alike.
+    # not hijack the reading. Read from the kernel's own listing of the main table
+    # with no fork: one line per route, "Iface Destination Gateway Flags …" in hex
+    # (net/ipv4/fib_trie.c, fib_route_seq_show). The default route is the one whose
+    # Destination is 00000000 — a gateway-less tunnel (WireGuard: Gateway 00000000,
+    # no RTF_GATEWAY) included — and of several (Wi-Fi plus a tether) the first is
+    # the lowest metric, the kernel keeping a prefix's routes sorted by priority
+    # (fib_insert_alias). An `unreachable default` has no device, lists as "*", and
+    # is skipped.
     iface=""
     if [[ -r $HYPRCONF_STATS_PROC_ROUTE ]]; then
         while read -r _rif _rdst _; do
-            if [[ $_rdst == 00000000 && $_rif != '*' ]]; then
-                iface=$_rif
-                break
-            fi
+            [[ $_rdst == 00000000 && $_rif != '*' ]] && { iface=$_rif; break; }
         done < "$HYPRCONF_STATS_PROC_ROUTE"
     fi
     rx=0 tx=0
@@ -149,12 +141,11 @@ while :; do
     prev_rx=$rx prev_tx=$tx
 
     # ---- cpu temp: read the pre-resolved hwmon file (millidegrees → °C)
-    temp=null
-    if [[ -n $temp_input && -r $temp_input ]]; then
-        _mdeg=""
-        read -r _mdeg < "$temp_input" || _mdeg=""
-        [[ $_mdeg =~ ^-?[0-9]+$ ]] && temp=$(( (_mdeg + 500) / 1000 ))
-    fi
+    # Quiet, and the brace form so a refused open is quiet too: a sensor that
+    # answers -EPERM would otherwise print a `read error` every tick.
+    temp=null _mdeg=""
+    [[ -r $temp_input ]] && { read -r _mdeg < "$temp_input" || _mdeg=""; } 2>/dev/null
+    [[ $_mdeg =~ ^-?[0-9]+$ ]] && temp=$(( (_mdeg + 500) / 1000 ))
 
     # First sample has no baseline for the deltas — skip it.
     if (( first )); then
@@ -164,9 +155,7 @@ while :; do
         human "$dtx" up
         printf '{"cpu":%d,"mem":"%s","down":"%s","up":"%s","temp":%s}\n' \
             "$cpu" "$mem" "$down" "$up" "$temp"
-        if (( HYPRCONF_STATS_ITERATIONS > 0 && ++iter >= HYPRCONF_STATS_ITERATIONS )); then
-            exit 0
-        fi
+        (( HYPRCONF_STATS_ITERATIONS > 0 && ++iter >= HYPRCONF_STATS_ITERATIONS )) && exit 0
     fi
 
     sleep "$HYPRCONF_STATS_INTERVAL"

@@ -11,7 +11,7 @@ render=$current/theme/userChrome.css
 
 if [[ ${1:-} == undo ]]; then
   rc=0
-  bash "$dir/hook" --undo ||
+  bash "$dir/${hook##*/}" --undo ||
     { rc=$?; echo "  theme-set hook --undo failed — some profile files remain" >&2; }
   rm -f "$hook" "$themed" "$render"
   exit "$rc"
@@ -23,30 +23,22 @@ cmp -s "$dir/userChrome.css.tpl" "$themed" || {
   changed=1
   echo "  installed userChrome.css.tpl"
 }
-if ! cmp -s "$dir/hook" "$hook"; then
-  tmp=$(mktemp -d)
-  trap 'rm -rf "$tmp"' EXIT
-  cp "$dir/hook" "$tmp/${hook##*/}"
-  omarchy-hook-install theme-set "$tmp/${hook##*/}" >/dev/null ||
+if ! cmp -s "$dir/${hook##*/}" "$hook"; then
+  omarchy-hook-install theme-set "$dir/${hook##*/}" >/dev/null ||
     { echo "  omarchy-hook-install theme-set failed" >&2; exit 1; }
   echo "  installed the theme-set hook"
 fi
 
-refreshed=0
 if (( changed )) || [[ ! -f $render ]]; then
-  if [[ -r $current/theme.name ]]; then
-    if omarchy-theme-refresh >/dev/null 2>&1; then
-      refreshed=1
-    else
-      echo "  omarchy-theme-refresh failed — rendered on the next omarchy theme set" >&2
-    fi
-  else
+  if [[ ! -r $current/theme.name ]]; then
     echo "  no active theme yet — rendered on the next omarchy theme set"
+  elif omarchy-theme-refresh >/dev/null 2>&1; then
+    echo "  rendered through omarchy-theme-refresh, which re-ran the hook"
+    exit 0
+  else
+    echo "  omarchy-theme-refresh failed — rendered on the next omarchy theme set" >&2
   fi
 fi
-if (( refreshed )); then
-  echo "  rendered through omarchy-theme-refresh, which re-ran the hook"
-elif [[ -f $render ]]; then
+if [[ -f $render ]]; then
   bash "$hook" || echo "  theme-set hook failed — see the messages above" >&2
 fi
-exit 0

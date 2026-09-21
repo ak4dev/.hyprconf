@@ -1,8 +1,6 @@
 """modules/idle: the screensaver timeout, set once through Omarchy's own shell.json helper
 (conftest's SHELL_CONFIG stands in for the sourced bin/omarchy-shell-config)."""
 
-from __future__ import annotations
-
 import json
 import shutil
 from pathlib import Path
@@ -51,23 +49,17 @@ def test_an_existing_shell_json_is_edited_not_replaced(box):
     assert config(box)["bar"] == {"position": "bottom"}
 
 
-def test_a_second_run_writes_nothing_and_calls_nothing(box):
+@pytest.mark.parametrize("edit", [None, {"idle": {"screensaver": 60}}])
+def test_a_second_run_writes_nothing_so_a_hand_edit_is_never_re_asserted(box, edit):
     box.run(INSTALL)
-    before = {p: p.read_bytes() for p in box.files()}
+    if edit:
+        write(box, json.dumps(edit))
+    before = box.snapshot()
     box.reset()
     result = box.run(INSTALL)
     assert result.returncode == 0, result.stderr
     assert box.commands == []
-    assert {p: p.read_bytes() for p in box.files()} == before
-
-
-def test_the_marker_is_honoured_so_a_later_hand_edit_is_never_re_asserted(box):
-    box.run(INSTALL)
-    write(box, json.dumps({"idle": {"screensaver": 60}}))
-    box.reset()
-    box.run(INSTALL)
-    assert config(box)["idle"]["screensaver"] == 60
-    assert box.commands == []
+    assert box.snapshot() == before
 
 
 @pytest.mark.parametrize("case", ["no-helper", "commit-fails"])
@@ -97,7 +89,7 @@ def test_undo_drops_the_key_and_the_marker(box):
     assert not (box.home / MARKER).exists()
 
 
-@pytest.mark.parametrize("text", [None, '{"version": 1, "idle": {"lock": 300}}', "{ not json"])
+@pytest.mark.parametrize("text", [None, "", '{"version": 1, "idle": {"lock": 300}}', "{ not json"])
 def test_undo_leaves_a_shell_json_that_never_carried_the_key_alone(box, text):
     if text is not None:
         write(box, text)

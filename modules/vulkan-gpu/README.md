@@ -29,11 +29,11 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 
 ## Settings
 
-`hyprconf-vulkan-gpu fix` once per box (`use <gpu>` pins another), then re-login; re-run it after changing cards. Measured on the two-NVIDIA box this was written for: after a `use`, a Proton game ran 99% on the pinned card and 0% on the other, so `use display` / `use other` really is the whole switch. Anything setting the same variables elsewhere — `~/.config/environment.d/*.conf`, `~/.config/uwsm/env` — is named on every write, since whichever the session sources last wins.
+`hyprconf-vulkan-gpu fix` once per box (`use <gpu>` pins another), then re-login; re-run it after changing cards. Measured on the two-NVIDIA box this was written for: after a `use`, a Proton game ran 99% on the pinned card and 0% on the other, so `use display` / `use other` really is the whole switch. Anything setting the same variables elsewhere — `~/.config/environment.d/*.conf`, `~/.config/uwsm/env`, `~/.config/uwsm/env-hyprland` — is named by every `fix` and `use`, since whichever the session sources last wins.
 
 ## Undo
 
 `bash modules/vulkan-gpu/install undo` removes the `~/.local/bin` link and nothing else; the pin is yours, and `hyprconf-vulkan-gpu remove` deletes it.
 
-## Verified against Omarchy 4.0.3-1
-`vulkan-icd-loader` 1.4.357 for the two loader variables, uwsm 0.26.7 for the `env.d` sourcing order; the survey that found no Omarchy command for any of this is the tool's own header, with its citations.
+## Verified against Omarchy 4.0.4-1
+`vulkan-icd-loader` 1.4.357 for the two loader variables, uwsm 0.26.7 for the `env.d` sourcing order.

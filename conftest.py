@@ -1,35 +1,53 @@
-"""The `box` fixture: one throwaway machine per test.
+"""The `box` fixture — one throwaway machine per test — and the skip budget.
 
-A box is a tmp `$HOME`, a tmp `/etc`, a tmp `$OMARCHY_PATH` tree and a fakes
-directory FIRST on PATH carrying a recording stub for every command the tree
-can run: every `omarchy-*` name the shipped scripts and payload carry
-(derived from them, so a call the fakes do not cover cannot slip past), plus
-the handful that are just as able to touch the real machine — `omarchy`
-itself, `sudo`, `hyprctl`, `udevadm`, `fc-list`, `git`, `nvidia-smi`,
-`vulkaninfo`. PATH is those fakes, then only `/usr/bin` and `/bin` — never
-the host's, where `/usr/share/omarchy/bin` would answer — and the whole
-environment is built from scratch, so nothing of the developer's session
-(HOME, a live `VK_LOADER_*`, `OMARCHY_UPDATE_LOGGED`) reaches a run.
-
-A test that needs a fake to DO something — a `sudo` that execs its arguments,
-a `vulkaninfo` that answers — overrides it with `box.stub(name, body)`, which lands
-in the box's own dir ahead of the shared one. Everything a script reads
-outside `$HOME` reaches the box through that script's own `_HYPRCONF_*` seam,
-which the suite adds to `box.env` (AGENTS.md › Scripts, CONTRIBUTING ›
-Writing hermetic tests).
+Its shape, its API and what is faked: CONTRIBUTING › Writing hermetic tests.
+Only here: the reason each name is faked, the Omarchy bodies transcribed below,
+and the PATH a run gets — the fakes, then only `/usr/bin` and `/bin`, never the
+developer's, where `/usr/share/omarchy/bin` would answer.
 """
 
 from __future__ import annotations
 
-import functools
+import json
 import os
 import re
+import shutil
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).parent
+REPO_ROOT = Path(__file__).resolve().parent
+MODULE_NAMES = sorted(p.parent.name for p in (REPO_ROOT / "modules").glob("*/install"))
+
+# The installed tree, through the one seam every probe keys on, and the word a
+# suite skips with when it is absent. Pure tools are the only other skip the
+# budget below allows, and only where the tool really is missing.
+OMARCHY = Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy"))
+NEEDS_OMARCHY = "needs the installed Omarchy"
+PURE_TOOLS = ("jq", "luac", "qmllint", "shellcheck", "zsh")
+
+
+def _budgeted(reason: str) -> bool:
+    if "omarchy" in reason.lower():
+        return not (OMARCHY / "default").is_dir()  # install.sh's own probe
+    return any(t in reason and shutil.which(t) is None for t in PURE_TOOLS)
+
+
+def pytest_sessionfinish(session: pytest.Session) -> None:
+    """AGENTS.md › Gates and CI, mechanised: any other skip is a regression, so the run
+    goes red on one. Matched on the reason — no test id is listed here — and the
+    terminal reporter is the xdist controller's, which collects every worker's reports."""
+    reporter = session.config.pluginmanager.get_plugin("terminalreporter")
+    if reporter is None:
+        return
+    seen = {str(r.longrepr[2]).removeprefix("Skipped: ") for r in reporter.stats.get("skipped", ())}
+    outside = sorted(r for r in seen if not _budgeted(r))
+    if outside:
+        reporter.write_sep("=", f"skips outside the budget: {outside}", red=True)
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
 
 # A git identity for the whole session: the archlinux:latest container CI runs
 # in has no ~/.gitconfig, and there a bare `git commit` in a throwaway tree
@@ -46,10 +64,8 @@ for _name, _value in GIT_IDENTITY.items():
 
 
 def git(cwd: Path, *args: str) -> str:
-    """Run git in a THROWAWAY tree and return its stdout, asserting success.
-    The one git helper the suites share — the identity above is already in the
-    environment, so nothing per-call is needed. Never pointed at this
-    checkout: every caller builds its own repository under tmp_path."""
+    """Run git in a THROWAWAY tree and return its stdout, asserting success: never
+    pointed at this checkout, and the identity above spares every caller a `-c user.*`."""
     result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, f"git {' '.join(args)} failed: {result.stderr}"
     return result.stdout.strip()
@@ -78,19 +94,13 @@ EXTRA_FAKES = (
 # has (Omarchy 4.0.3-1) and cut to what a test needs to see. A script that
 # reads another file adds it here, or writes its own with box.omarchy_write().
 OMARCHY_TREE = {
-    # default/bash/env-bootstrap:10-16,37-41 — OMARCHY_PATH exported, and
-    # ~/.local/bin appended to PATH; envs and aliases are the other two
-    # files modules/shell-zsh/zshrc sources.
-    "default/bash/env-bootstrap": ': "${OMARCHY_PATH:=/usr/share/omarchy}"\nexport OMARCHY_PATH\n',
-    "default/bash/envs": 'export EDITOR="${EDITOR:-omarchy-launch-editor --inline}"\n',
-    "default/bash/aliases": "alias ff=fastfetch\n",
     # default/firefox/policies.json — what install.sh merges ours UNDER.
     "default/firefox/policies.json": (
         '{\n  "policies": {\n    "Preferences": {\n'
         '      "media.ffmpeg.vaapi.enabled": { "Value": true, "Status": "default" }\n'
         "    }\n  }\n}\n"
     ),
-    # config/kitty/kitty.conf — the 4.0.3 stub: two live lines, the rest
+    # config/kitty/kitty.conf — the 4.0.3 stub: one live line, the rest
     # commented, with Omarchy's own defaults in /etc/xdg/kitty/kitty.conf.
     "config/kitty/kitty.conf": (
         "# Remove the include below to disconnect Kitty from Omarchy's theming system.\n"
@@ -131,25 +141,53 @@ commit() {
   mv "$tmp" "$CONFIG_FILE"; omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
 }
 """
-# The live shell's two shell.json writes: an enable swaps a clonedFrom copy into the
-# stock widget's slot (shell/services/PluginRegistry.qml:529-534); `omarchy bar set`
-# writes one key onto a layout entry, a bare id or an object with one (bin/omarchy-bar:178).
-_ENTRY_ID = 'if type == "object" then .id else . end'
-PLUGIN_ENABLE = f"""\
+# The running shell's three shell.json writes, one template: every layout entry is a
+# bare id or an object with one (bin/omarchy-bar:178); an enable swaps a clonedFrom copy
+# into the slot of the id it was cloned from (shell/services/PluginRegistry.qml:529-534)
+# and a disable hands the whole entry back, format included (:555 -> restoreCloneSource:441).
+_EDIT = """
 json="$HOME/.config/omarchy/shell.json"
-src=$(jq -r '.omarchy.clonedFrom // empty' "$HOME/.config/omarchy/plugins/$1/manifest.json" 2>/dev/null) || exit 0
-[[ -n $src && -f $json ]] || exit 0
-jq --arg from "$src" --arg to "$1" '.bar.layout |= with_entries(.value |= map(
-  if ({_ENTRY_ID}) == $from then (if type == "object" then .id = $to else {{id: $to}} end) else . end))' \\
-  "$json" > "$json.n" && mv "$json.n" "$json"
+[[ -f $json ]] || exit 1
+%s
+jq %s '
+    .bar.layout |= with_entries(.value |= map(
+        if (if type == "object" then .id else . end) == $a then %s
+        else . end))' "$json" > "$json.t" && mv "$json.t" "$json"
 """
-BAR_SET = f"""\
-[[ ${{1:-}} == set ]] || exit 0
-json="$HOME/.config/omarchy/shell.json"; [[ -f $json ]] || exit 1
-jq --arg id "$2" --arg k "$3" --arg v "$4" '.bar.layout |= with_entries(.value |= map(
-  if ({_ENTRY_ID}) == $id then (if type == "object" then . else {{id: .}} end) + {{($k): $v}} else . end))' \\
-  "$json" > "$json.n" && mv "$json.n" "$json"
+_CLONED_FROM = """src=$(jq -r '.omarchy.clonedFrom // empty' \
+    "$HOME/.config/omarchy/plugins/$1/manifest.json" 2>/dev/null) || exit 1"""
+_RENAME = '(if type == "object" then .id = $b else { id: $b } end)'
+PLUGIN_ENABLE = _EDIT % (_CLONED_FROM, '--arg a "$src" --arg b "$1"', _RENAME)
+PLUGIN_DISABLE = _EDIT % (_CLONED_FROM, '--arg a "$1" --arg b "$src"', _RENAME)
+BAR_SET = _EDIT % (
+    "[[ ${1:-} == set ]] || exit 1",
+    '--arg a "$2" --arg k "$3" --arg v "$4"',
+    '(if type == "object" then . else { id: . } end) + { ($k): $v }',
+)
+# bin/omarchy-plugin-list --json, cut to the id: with no shell it exits 1 (through
+# bin/omarchy-shell:14-17), which is not the same answer as an empty list.
+PLUGIN_LIST = """
+cd "$HOME/.config/omarchy/plugins" 2>/dev/null || exit 1
+jq -n --args '[$ARGS.positional[] | { id: rtrimstr("/") }]' -- */
 """
+
+
+def bar_shell(box: Box, anchor: str = "omarchy.clock", layout: list | None = None) -> Path:
+    """The box's ~/.config/omarchy/shell.json — Omarchy's own default bar, `layout` in
+    place of its centre — plus the four fakes that model the running shell."""
+    path = box.home / ".config/omarchy/shell.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    center = [{"id": "omarchy.clock", "format": "dddd HH:mm"}] if layout is None else layout
+    left = [{"id": "omarchy.menu"}, {"id": "omarchy.workspaces"}]
+    layouts = {"left": left, "center": center, "right": []}
+    path.write_text(json.dumps({"bar": {"centerAnchor": anchor, "layout": layouts}}))
+    box.stub("omarchy-plugin-list", PLUGIN_LIST)
+    box.stub("omarchy-plugin-enable", PLUGIN_ENABLE)
+    box.stub("omarchy-plugin-disable", PLUGIN_DISABLE)
+    box.stub("omarchy-bar", BAR_SET)
+    return path
+
+
 # A sudo that runs its arguments as the box's user, past its own `--` / `-n`, so a
 # root write lands in the box's /etc.
 SUDO_RUNS = 'while (($#)); do case $1 in -- | -n) shift ;; *) break ;; esac; done\nexec "$@"\n'
@@ -186,36 +224,41 @@ def default_app(state: Path, unset: str) -> str:
 
 
 _OMARCHY_COMMAND = re.compile(r"\bomarchy(?:-[a-z0-9]+)+\b")
+_NOT_SHIPPED = {".git", "tests", "docs", "__pycache__", ".pytest_cache", ".ruff_cache"}
+_PAYLOAD = {".lua", ".qml", ".js"}  # what a command name can hide in besides a script
 
 
-def _shipped_text_files() -> list[Path]:
-    """Every shipped file a command name can hide in: the bash scripts (a
-    bash shebang on line 1 — what the Makefile's shellcheck target selects
-    by) plus the Lua, QML and JS payload. Walked on disk, not `git
-    ls-files`, so the scan needs no git and no ownership trust."""
+def shipped_bash() -> list[Path]:
+    """Every bash script the tree ships, selected by SHEBANG — the rule `make
+    shellcheck` uses. Walked on disk, not `git ls-files`, so the scans need no
+    git and no ownership trust; relative parts, so an ancestor named tests or
+    docs does not empty the walk."""
     out: list[Path] = []
     for path in sorted(REPO_ROOT.rglob("*")):
-        parts = set(path.parts)
-        if not path.is_file() or ".git" in parts or "tests" in parts or "docs" in parts:
-            continue
-        if path.suffix in {".lua", ".qml", ".js"}:
-            out.append(path)
-            continue
-        with path.open("rb") as fh:
-            first = fh.read(80).split(b"\n", 1)[0]
-        if first.startswith(b"#!") and b"bash" in first:
-            out.append(path)
+        if path.is_file() and not _NOT_SHIPPED & set(path.relative_to(REPO_ROOT).parts):
+            with path.open("rb") as fh:
+                first = fh.readline()
+            if first.startswith(b"#!") and b"bash" in first:
+                out.append(path)
+    assert out, "no bash scripts found: the scan is broken"
     return out
 
 
-@functools.cache
-def omarchy_fakes() -> tuple[str, ...]:
-    """Every `omarchy-*` name the tree carries. Comments are scanned too: a
-    stub too many costs a file in a tmp dir, a stub too few lets a test reach
-    the developer's real desktop."""
+def code(text: str) -> str:
+    """Comments off: a rule about what a script does is never met, or tripped, by a comment."""
+    lines = (ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
+    return "\n".join(ln.split(" #", 1)[0] for ln in lines)
+
+
+def omarchy_names(bash: Callable[[str], str] = str) -> tuple[str, ...]:
+    """Every `omarchy-*` name the tree carries — the bash scripts plus the Lua,
+    QML and JS payload. Comments are scanned too: a stub too many costs a file in
+    a tmp dir, a stub too few lets a test reach the developer's real desktop.
+    `bash=code` drops them, leaving the names that are commands and must resolve."""
+    payload = (p for p in sorted((REPO_ROOT / "modules").rglob("*")) if p.suffix in _PAYLOAD)
     names: set[str] = set()
-    for path in _shipped_text_files():
-        names |= set(_OMARCHY_COMMAND.findall(path.read_text(errors="ignore")))
+    for path in (*shipped_bash(), *payload):
+        names |= set(_OMARCHY_COMMAND.findall(bash(path.read_text(errors="ignore"))))
     assert names, "no omarchy-* names found — the scan is broken"
     return tuple(sorted(names))
 
@@ -240,7 +283,7 @@ def _fakes(tmp_path_factory: pytest.TempPathFactory) -> Path:
     stub here is stateless — it records into whichever box's $FAKE_CALLS the
     environment names."""
     shared = tmp_path_factory.mktemp("fakes")
-    for name in (*omarchy_fakes(), *EXTRA_FAKES):
+    for name in (*omarchy_names(), *EXTRA_FAKES):
         _write_stub(shared / name, "exit 0\n")
     return shared
 
@@ -304,7 +347,6 @@ class Box:
         tty: bool = False,
         env: dict[str, str] | None = None,
         stdin: str | None = None,
-        timeout: int = 60,
     ) -> subprocess.CompletedProcess:
         """Run a shipped script against the box. `tty` reaches the prompts
         through the _HYPRCONF_ASSUME_TTY seam; `stdin` feeds their reads —
@@ -319,7 +361,7 @@ class Box:
             capture_output=True,
             text=True,
             env=child,
-            timeout=timeout,
+            timeout=60,
             **feed,
         )
 
@@ -328,7 +370,7 @@ class Box:
         return self.run(REPO_ROOT / "install.sh", *args, **kwargs)
 
     def undo(self, module: str, **kwargs) -> subprocess.CompletedProcess:
-        """`modules/<name>/install undo`: the stage-restoring branch."""
+        """`modules/<name>/install undo`: the stock-restoring branch."""
         return self.run(REPO_ROOT / "modules" / module / "install", "undo", **kwargs)
 
     # -- what happened ------------------------------------------------------
@@ -366,11 +408,12 @@ class Box:
         """Every file under the box's HOME — `== set()` is "wrote nothing"."""
         return {p for p in self.home.rglob("*") if p.is_file()}
 
-    def snapshot(self) -> dict[str, tuple]:
-        """Every path under the box's HOME and /etc: mode, inode, mtime, and the bytes or
-        link target. `before == after` is "a second run wrote nothing"."""
+    def snapshot(self, *roots: Path) -> dict[str, tuple]:
+        """Every path under the given roots, HOME and /etc by default: mode, inode, mtime
+        and the bytes or link target — the inode because `ln -sfn` over a correct link
+        recreates it. `before == after` is "a second run wrote nothing"."""
         out: dict[str, tuple] = {}
-        for root in (self.home, self.etc):
+        for root in roots or (self.home, self.etc):
             for p in sorted(root.rglob("*")):
                 st = p.lstat()
                 body = os.readlink(p) if p.is_symlink() else p.read_bytes() if p.is_file() else None

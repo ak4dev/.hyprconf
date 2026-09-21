@@ -7,12 +7,8 @@ dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 target=$HOME/.config/hyprconf/fastfetch.jsonc
 legacy=$HOME/.config/fastfetch/config.jsonc
 
-# Releases before the module split linked the layout into that slot. The link text is compared raw, never resolved: the checkout it names may be gone, and a dangling link there is still ours to clear.
-drop_legacy_link() {
-    [[ -L $legacy ]] || return 0
-    local seen
-    seen=$(readlink "$legacy" 2>/dev/null || true)
-    [[ $seen == "$dir/config.jsonc" || $seen == "${dir%/modules/fastfetch}/fastfetch/config.jsonc" ]] || return 0
+# Releases <= 7.x linked the layout into that slot. The link text is compared raw, never resolved: the checkout it names may be gone, and a dangling link there is still ours to clear.
+if [[ $(readlink "$legacy" 2>/dev/null || true) == "${dir%/modules/fastfetch}/fastfetch/config.jsonc" ]]; then
     rm -f "$legacy"
     if [[ -e $legacy.stock || -L $legacy.stock ]]; then
         mv "$legacy.stock" "$legacy"
@@ -20,16 +16,14 @@ drop_legacy_link() {
     else
         echo "  unlinked $legacy — Omarchy's About screen is stock again"
     fi
-}
+fi
 
 if [[ ${1:-} == undo ]]; then
-    drop_legacy_link
     rm -f "$target"
     rmdir "$HOME/.config/hyprconf" 2>/dev/null || true   # ours only while it is empty
     exit 0
 fi
 
-drop_legacy_link
 mkdir -p "${target%/*}"
 cmp -s "$dir/config.jsonc" "$target" && exit 0
 install -m 644 "$dir/config.jsonc" "$target"

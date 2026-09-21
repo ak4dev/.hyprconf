@@ -5,49 +5,42 @@ on disk. Scanned rather than run, so every branch is covered."""
 from __future__ import annotations
 
 import re
+import shutil
 import stat
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SKIP = {".git", "tests", "docs", "__pycache__", ".pytest_cache", ".ruff_cache"}
+import pytest
+
+from conftest import NEEDS_OMARCHY, OMARCHY, REPO_ROOT, code, omarchy_names, shipped_bash
+
 HEREDOC = re.compile(r"(?ms)<<-?\s*(['\"]?)(\w+)\1\n.*?^\s*\2$")
 STRING = re.compile(r'"(?:\\.|[^"\\])*"|\'[^\']*\'')
 USAGE_HEREDOC = re.compile(r"(?ms)^\s*cat <<'USAGE'\n.*?^USAGE$")
 FROZEN_SEAM = re.compile(r"^\s*readonly\s+(_HYPRCONF_\w+|HYPRCONF_(?:STATS|GPU)_\w+)", re.M)
 
 
-def shipped_bash() -> list[Path]:
-    out = []
-    for p in sorted(REPO_ROOT.rglob("*")):
-        if p.is_file() and not SKIP & set(p.relative_to(REPO_ROOT).parts):
-            with p.open("rb") as fh:
-                first = fh.readline()
-            if first.startswith(b"#!") and b"bash" in first:
-                out.append(p)
-    assert out, "no bash scripts found: the scan is broken"
-    return out
-
-
 def rel(p: Path) -> str:
     return str(p.relative_to(REPO_ROOT))
 
 
-def code(text: str) -> str:
-    """Comments off: a rule about what a script does is never met, or tripped, by a comment."""
-    lines = (ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
-    return "\n".join(ln.split(" #", 1)[0] for ln in lines)
-
-
 def bare(text: str) -> str:
-    """Comments, heredocs and quoted strings off: what runs. A message naming sudo is prose."""
-    return STRING.sub('""', HEREDOC.sub("", code(text)))
+    """Comments, heredocs and quoted strings off: what runs. A message naming sudo is prose;
+    a `$(…)` inside one is code, so every substitution's body is scanned as lines of its own."""
+    text = HEREDOC.sub("", code(text))
+    parts = [text]
+    for m in re.finditer(r"\$\((?!\()", text):  # not $(( arithmetic ))
+        depth, i = 1, m.end()
+        while depth and i < len(text):
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            i += 1
+        parts.append(text[m.end() : i - 1])
+    return "\n".join(STRING.sub('""', part) for part in parts)
 
 
 # AGENTS.md › Scripts: `set -euo pipefail`, with the deviations named there.
 SET_LINE = {
     "hyprconf-yubikey": "set -uo pipefail",
     "10-hyprconf": "set -uo pipefail",
-    "hook": "set -uo pipefail",
     "hyprconf-stats": "set -u",
 }
 
@@ -75,6 +68,23 @@ def test_no_pacman_aur_wrapper_removal_or_chsh_on_any_path() -> None:
     for script in shipped_bash():
         hit = FORBIDDEN.search(bare(script.read_text(errors="ignore")))
         assert not hit, f"{rel(script)}: {hit.group(0)}"
+
+
+def test_nothing_shipped_switches_the_active_theme() -> None:
+    """Rule 6, over code() rather than bare(): a theme name in a string handed to the
+    setter is the switch itself, and the two theme modules cite it only in comments."""
+    for script in shipped_bash():
+        text = code(script.read_text(errors="ignore"))
+        assert "omarchy-theme-set" not in text, f"{rel(script)}: switches the active theme"
+
+
+@pytest.mark.skipif(not (OMARCHY / "bin").is_dir(), reason=NEEDS_OMARCHY)
+def test_every_omarchy_command_the_tree_runs_is_one_omarchy_ships() -> None:
+    """The box's fakes are derived from these same names, so a command Omarchy renamed
+    keeps a passing stub for ever: only a box that has Omarchy can catch it. Comments
+    are dropped — they cite `omarchy-base` and `omarchy-settings`, which are not commands."""
+    gone = [n for n in omarchy_names(code) if shutil.which(n, path=str(OMARCHY / "bin")) is None]
+    assert not gone, f"no longer in {OMARCHY / 'bin'}: {gone}"
 
 
 def test_every_packages_file_holds_plain_package_names() -> None:
@@ -118,23 +128,42 @@ def test_nothing_shipped_fetches_and_executes() -> None:
             assert not re.search(pattern, text), f"{rel(script)}: fetch-and-execute {pattern!r}"
 
 
+# Rule 8: the whole of the tree's root surface, listed because the list IS the invariant —
+# a `sudo` anywhere else moves it deliberately, through this file, or does not land. Each
+# one's gate and undo: that module's README. The Makefile's SC2086 pass runs on the same three.
+SUDO_CALLERS = {
+    "modules/firefox/install",
+    "modules/keychron/install",
+    "modules/yubikey/bin/hyprconf-yubikey",
+}
+
+
 def test_every_root_write_carries_the_end_of_options_marker() -> None:
     """Nothing an unprivileged process can name may read as an option to a root command:
     every `sudo` carries ` -- ` (bin/omarchy-hibernation-setup:43,46's shape); `sudo
     udevadm …` takes no path and is the one exemption."""
-    seen = 0
+    callers = set()
     for script in shipped_bash():
         for ln in bare(script.read_text(errors="ignore")).splitlines():
             if re.search(r"\bsudo\s", ln):
-                seen += 1
+                callers.add(rel(script))
                 ok = " -- " in ln or re.search(r"\bsudo\s+udevadm\s", ln)
                 assert ok, f"{rel(script)}: {ln.strip()}"
-    assert seen, "no sudo call found: the scan is broken"
+    assert callers == SUDO_CALLERS
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    assert all(f in makefile for f in SUDO_CALLERS), "the SC2086 pass and SUDO_CALLERS differ"
+
+
+def test_the_scans_see_inside_a_quoted_substitution() -> None:
+    """The FORBIDDEN and sudo scans read bare(): a substitution inside a message is code."""
+    assert FORBIDDEN.search(bare('ver="$(pacman -Q firefox)"'))
+    assert "sudo tee" in bare('x="$(echo a | sudo tee "$f")"')
+    assert not FORBIDDEN.search(bare('echo "install it with pacman -S foo"'))
 
 
 def test_nothing_shipped_uses_the_dead_hyprctl_forms() -> None:
     """`hyprctl keyword` is a no-op and a two-token `dispatch dpms on` an error under the
-    Lua parser (AGENTS.md › Known quirks)."""
+    Lua parser (AGENTS.md › Scripts)."""
     dead = re.compile(
         r"hyprctl\s+(--batch\s+)?[\"']?keyword\b|hyprctl\s+dispatch\s+[a-z_]+\s+[a-z_]+"
     )

@@ -10,14 +10,10 @@
 # No `set -e`: bin/omarchy-hook:26 already turns a non-zero hook into a message
 # omarchy-theme-set:341 swallows, so every profile is attempted and a failure
 # is reported through the exit status instead.
-# Usage: hook [<theme name>] | hook --undo
+# Usage: 10-hyprconf [<theme name>] | 10-hyprconf --undo
 set -uo pipefail
 
 render=$HOME/.local/state/omarchy/current/theme/userChrome.css
-# Both profiles.ini layouts Firefox keeps: the legacy one and the XDG one
-# Arch's firefox 155.0.1-1 writes — profile directories sit beside the ini in
-# both, so a relative Path= resolves against the ini's own directory.
-inis=("$HOME/.mozilla/firefox/profiles.ini" "$HOME/.config/mozilla/firefox/profiles.ini")
 q="[\"']"
 managed="^[[:space:]]*user_pref\([[:space:]]*$q(toolkit\.legacyUserProfileCustomizations\.stylesheets|extensions\.activeThemeID|ui\.systemUsesDarkTheme)${q}[[:space:]]*,"
 rc=0 changed=0 undo=0
@@ -30,7 +26,10 @@ rc=0 changed=0 undo=0
 # a different one carries Default=1, and [Install<hash>] is the one it starts.
 profiles() {
   local ini
-  for ini in "${inis[@]}"; do
+  # Both profiles.ini layouts Firefox keeps: the legacy one and the XDG one Arch's
+  # firefox 155.0.1-1 writes — profile directories sit beside the ini in both, so a
+  # relative Path= resolves against the ini's own directory.
+  for ini in "$HOME/.mozilla/firefox/profiles.ini" "$HOME/.config/mozilla/firefox/profiles.ini"; do
     [[ -f $ini ]] || continue
     awk -v dir="${ini%/*}" '
       function under(p) { return (p ~ /^\//) ? p : dir "/" p }
@@ -56,20 +55,11 @@ profiles() {
 # nothing but our own lines was ever in it.
 merge_user_js() {
   local js=$1 tmp=$1.$$.tmp
-  # $tmp is created by a simple command, not left to the group's own
-  # redirection: bash 5.3.15 gives a failed redirection status 1 and `!` does
-  # NOT invert that, so `if ! { ...; } > "$tmp"` walks straight past an
-  # unwritable profile directory and then reads the missing $tmp as "user.js
-  # held nothing but ours" — taking the user's file away. `||` after a simple
-  # command does see it. The 2>/dev/null comes FIRST: redirections are applied
-  # left to right, so with it second bash has already printed the failure to
-  # the real stderr — the per-profile message below is the one to keep.
-  : 2>/dev/null > "$tmp" || { rc=1; return 1; }
-  if ! { [[ -f $js ]] && LC_ALL=C grep -a -Ev "$managed" -- "$js"; cat; } > "$tmp"; then
-    rm -f "$tmp"
-    rc=1
-    return 1
-  fi
+  # `||`, never `if !`: bash 5.3.15 gives a group's failed redirection status 1
+  # that `!` does NOT invert, and the missing $tmp would then read as "user.js
+  # held nothing but ours" — taking the user's file away.
+  { [[ -f $js ]] && LC_ALL=C grep -a -Ev "$managed" -- "$js"; cat; } > "$tmp" ||
+    { rm -f "$tmp"; rc=1; return 1; }
   if [[ -s $tmp ]]; then
     cmp -s "$tmp" "$js" || { cat "$tmp" > "$js" && changed=1 || rc=1; }
   elif [[ -f $js ]]; then
@@ -78,11 +68,8 @@ merge_user_js() {
   rm -f "$tmp"
 }
 
-# The mode the template declared (omarchy-theme-color:120-133 resolved it).
-# The built-in ids only force the light/dark colour scheme: both are inApp
-# (BuiltInThemeConfig.sys.mjs:29,38), so :root[lwtheme] never turns on
-# (LightweightThemeConsumer.sys.mjs:424,537) and the stylesheet's own direct
-# rules paint the chrome. Firefox 155.0.1-1.
+# The mode the template declared (omarchy-theme-color:120-133 resolved it); the
+# built-in ids only force the colour scheme — README > Settings.
 id=firefox-compact-dark@mozilla.org dark=1
 if [[ -f $render ]] &&
   LC_ALL=C grep -qa -- '--hyprconf-theme-mode:[[:space:]]*light[[:space:]]*;' "$render"; then
@@ -92,9 +79,8 @@ fi
 while read -r p; do
   [[ -d $p ]] || continue
   if (( undo )); then
-    # Folded into rc like every other write: a chrome/ this user cannot write
-    # must not let `install undo` report success with our stylesheet still on
-    # disk and no warning printed.
+    # Folded into rc like every other write: a chrome/ this user cannot write must
+    # not let `install undo` report success with our stylesheet still on disk.
     rm -f "$p/chrome/userChrome.css" || rc=1
     rmdir "$p/chrome" 2>/dev/null
     merge_user_js "$p/user.js" </dev/null

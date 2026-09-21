@@ -4,13 +4,13 @@
 // its code must). Deltas from the stock widget, and all of them
 // (shell/plugins/bar/widgets/ActiveWindow.qml, Omarchy 4.0.3-1):
 //   1. the stock character budget laid out on two caption-size lines
-//      (lineWidth, wrapMode, maximumLineCount, lineHeight 1.0 — two caption
-//      lines fit a 26 px bar only with the line box at the glyph box);
+//      (lineWidth, wrapMode, maximumLineCount);
 //   2. implicitWidth off contentWidth, the widest painted line, so a short
 //      title takes only the room it needs (stock: Math.min of maxLabelWidth
 //      and implicitWidth, one line);
-//   3. the stock widget's two identical close branches (:53-57) merged into
-//      one `||` — source only, same behaviour; re-apply it deliberately.
+//   3. source only, same behaviour: the stock widget's two identical close
+//      branches (:53-57) merged into one `||` and its unused `import
+//      Quickshell` dropped; re-apply both deliberately.
 // moduleName stays "omarchy.active-window": built-in ids inside plugin code
 // are stable IPC targets, and the manifest's clonedFrom is what maps this
 // copy onto them — the rule omarchy-plugin-clone follows.
@@ -36,11 +36,8 @@ BarWidget {
   readonly property int maxLabelWidth: Number(setting("maxWidth", 280))
   readonly property real lineWidth: Math.max(
     24, Math.round(maxLabelWidth * Style.font.caption / Style.font.body / 2))
-  readonly property real lineHeightScale: 1.0
 
   visible: title !== "" && !vertical
-  // contentWidth is the widest painted line, so a short title takes only the
-  // room it needs while a long one stops at lineWidth (and elides).
   implicitWidth: visible ? Math.ceil(labelText.contentWidth) + Style.spacing.controlPaddingX * 2 : 0
   implicitHeight: barSize
 
@@ -56,19 +53,17 @@ BarWidget {
 
     Text {
       id: labelText
+      textFormat: Text.PlainText
       anchors.verticalCenter: parent.verticalCenter
       anchors.left: parent.left
       width: root.lineWidth
       text: root.title
-      textFormat: Text.PlainText
       color: root.bar ? root.bar.barForeground : Color.foreground
       font.family: root.bar ? root.bar.fontFamily : Style.font.family
       font.pixelSize: Style.font.caption
       wrapMode: Text.Wrap
       maximumLineCount: 2
       elide: Text.ElideRight
-      lineHeight: root.lineHeightScale
-      lineHeightMode: Text.ProportionalHeight
       opacity: 0.85
     }
   }

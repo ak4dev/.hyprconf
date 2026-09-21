@@ -17,7 +17,8 @@ ACL for whoever holds the active seat. Three things are load-bearing, and all th
 
 ## Requires
 `sudo` and a terminal to answer its prompt; no packages, no running session, no board plugged in. Reload the
-launcher tab after a run. (What the run does, and when it does nothing, is in `install`'s own header beside it.)
+launcher tab after a run. A re-run with the rule already in place asks for nothing; under `--no-packages`
+or without a terminal it prints one pointer line and skips.
 
 ## Install alone
 ```bash
@@ -32,5 +33,5 @@ Another vendor is one more `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="<id>", TAG+="
 `bash ~/.hyprconf/modules/keychron/install undo` — `sudo rm` plus a rules reload. Every new `hidraw` node is
 root-only again; an ACL already granted lasts until you re-plug the board or log out.
 
-## Verified against Omarchy 4.0.3-1
+## Verified against Omarchy 4.0.4-1
 Paths above read from the installed tree; systemd 261.2-1, udev's own rules as Arch ships them.

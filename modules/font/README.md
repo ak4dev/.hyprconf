@@ -40,4 +40,4 @@ time (`omarchy font list` names them). Deleting the marker
 back — it restarts the shell, so it stays yours: `omarchy font set 'JetBrainsMono Nerd Font'`. A
 `kitty.conf` the first run seeded stays: it is Omarchy's own stub, the file a stock box has.
 
-## Verified against Omarchy 4.0.3-1
+## Verified against Omarchy 4.0.4-1

@@ -54,21 +54,15 @@ def test_a_first_run_installs_kitty_sets_the_terminal_and_lands_the_include(kitt
     assert (kitty.home / MARKER).exists()
 
 
-def test_a_second_run_writes_nothing_and_asserts_nothing(kitty) -> None:
+def test_a_second_run_writes_nothing_and_never_takes_the_terminal_back(kitty) -> None:
     assert kitty.run(INSTALL).returncode == 0
-    before = {p: p.read_text() for p in kitty.files()}
+    kitty.terminal.write_text("ghostty")  # the user moved on; the marker is set once
+    before = kitty.snapshot()
     kitty.reset()
-    assert kitty.run(INSTALL).returncode == 0
-    assert {p: p.read_text() for p in kitty.files()} == before
+    proc = kitty.run(INSTALL)
+    assert (proc.returncode, proc.stdout, proc.stderr) == (0, "", "")
+    assert kitty.snapshot() == before
     assert set(kitty.commands) == {"omarchy-pkg-present"}, kitty.calls
-
-
-def test_the_marker_is_set_once_and_the_user_may_change_the_terminal_back(kitty) -> None:
-    assert kitty.run(INSTALL).returncode == 0
-    kitty.terminal.write_text("ghostty")  # the user moved on
-    kitty.reset()
-    assert kitty.run(INSTALL).returncode == 0
-    assert "omarchy-default-terminal" not in kitty.commands
 
 
 def test_a_setter_that_reports_failure_is_retried_then_recorded(kitty) -> None:
@@ -117,11 +111,27 @@ def test_the_package_step_bows_out_of_sudo_and_kitty_stays_absent(kitty, kwargs,
     assert kitty.terminal.read_text() == "foot" and kitty.files() == set()
 
 
-@pytest.mark.parametrize(("since", "back"), [("kitty", "foot"), ("ghostty", "ghostty")])
-def test_undo_restores_stock(kitty, since, back) -> None:
+def test_a_symlinked_kitty_conf_keeps_its_link_through_install_and_undo(kitty, tmp_path) -> None:
+    """undo's `sed --follow-symlinks`: a dotfiles kitty.conf comes back a link, not a copy."""
+    conf = kitty.home / CONF
+    conf.parent.mkdir(parents=True)
+    (tmp_path / "theirs.conf").write_text(UPGRADED)
+    conf.symlink_to(tmp_path / "theirs.conf")
+    assert kitty.run(INSTALL).returncode == 0 and conf.read_text() == UPGRADED + INCLUDE
+    assert kitty.undo("terminal-kitty").returncode == 0
+    assert conf.is_symlink() and conf.read_text() == UPGRADED
+
+
+# The last row: foot removed — the setter checks nothing, so undo never points it there (AGENTS rule 6).
+UNDO = [("kitty", "", "foot"), ("ghostty", "", "ghostty"), ("kitty", "foot", "kitty")]
+
+
+@pytest.mark.parametrize(("since", "absent", "back"), UNDO)
+def test_undo_restores_stock(kitty, since, absent, back) -> None:
     """foot: /usr/share/xdg-terminal-exec/hyprland-xdg-terminals.list (omarchy-settings 4.0.3-1), and only while kitty is still what we set."""
     assert kitty.run(INSTALL).returncode == 0
     kitty.terminal.write_text(since)
+    kitty.stub("omarchy-pkg-present", f'[[ "$*" != "{absent}" ]]\n')
     assert kitty.undo("terminal-kitty").returncode == 0
     stock = (kitty.omarchy / "config/kitty/kitty.conf").read_text()  # every added line gone
     assert (kitty.home / CONF).read_text() == stock

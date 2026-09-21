@@ -10,9 +10,10 @@ config fastfetch reads (`fastfetch --list-config-paths`, first hit wins, no merg
 Omarchy's About screen renders bare `fastfetch` there (`bin/omarchy-launch-about:161`),
 skipping its window-fit measurement whenever that file exists (`custom_fastfetch_config`
 `:16-18`, used at `:61` and `:95`). Omarchy 4 retired its own user copy to
-`/etc/fastfetch/config.jsonc` (`bin/omarchy-upgrade-to-quattro:1553-1569`). Both are left
-alone, so About stays stock; a link an earlier hyprconf release left at that path is
-cleared on the first run, and any real file it displaced (`config.jsonc.stock`) put back.
+`/etc/fastfetch/config.jsonc` (`bin/omarchy-upgrade-to-quattro:1562-1569`). Both are left
+alone, so About stays stock; a link hyprconf 7.x or older left at that path is cleared
+by either run — install or undo — and any real file it displaced (`config.jsonc.stock`)
+put back.
 
 ## Requires
 `fastfetch`, which is Omarchy base (`install/omarchy-base.packages:34`) — so no packages,
@@ -33,8 +34,7 @@ a run that changes nothing writes nothing. Format variables are named
 (`fastfetch --help <module>-format`), never positional.
 
 ## Undo
-`bash ~/.hyprconf/modules/fastfetch/install undo` — removes the copy, and clears a link an
-earlier release left at `~/.config/fastfetch/config.jsonc`, putting back the
-`config.jsonc.stock` it displaced. Omarchy's `/etc/fastfetch/config.jsonc` is what is left.
+`bash ~/.hyprconf/modules/fastfetch/install undo` — removes the copy (the 7.x link above
+goes either way). Omarchy's `/etc/fastfetch/config.jsonc` is what is left.
 
-## Verified against Omarchy 4.0.3-1 — paths above read from the installed tree; fastfetch 2.68.1
+## Verified against Omarchy 4.0.4-1 — paths above read from the installed tree; fastfetch 2.68.1

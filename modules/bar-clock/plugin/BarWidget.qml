@@ -1,7 +1,7 @@
 // hyprconf.clock — Omarchy's own clock widget, ticking seconds.
 //
 // A copy of Omarchy 4.0.3-1's shell/plugins/panels/clock/BarWidget.qml (the
-// file is byte-identical in 4.0.2-1) with exactly three deltas and nothing
+// file is byte-identical in 4.0.2-1) with exactly two deltas and nothing
 // else, so it behaves as the stock widget does (the calendar on click,
 // right-click cycles the format, middle-click the timezone picker, the same
 // shell.json settings):
@@ -15,25 +15,13 @@
 //      `import "Model.js"` against its own directory, so that panel reads
 //      Omarchy's Model.js and the copy beside THIS file (the static import
 //      below) carries only the label-format functions this widget calls.
-//   3. injectPanel() forwards this widget's moduleName to that panel, whose
-//      own is the literal "omarchy.clock" (its line 19) — the id its
-//      persistSettings() hands to updateEntryInline(). Omarchy 4.0.3-1
-//      routes that call itself: the panel's `bar.shell` is a
-//      PluginShellApi whose _updateSettings resolves the requested id
-//      through resolveEnabledId (shell.qml:648-649,
-//      PluginRegistry.qml:171-182), so "omarchy.clock" lands on the enabled
-//      clone. The forward is kept as a back-compat shim for pre-4.0.3
-//      installs, where the literal id matched no live entry and a week
-//      start or birth year set from the calendar redrew but was never
-//      written; onModuleNameChanged makes the ordering explicit for a
-//      moduleName that arrives after the panel loads.
 // manifest.json names it clonedFrom omarchy.clock, so the shell swaps it
 // into the stock widget's slot and routes the stock IPC target here
 // (shell/services/PluginRegistry.qml, setEnabled / resolveEnabledId).
 //
 // Refresh, when an Omarchy release changes the clock (the parity test in
 // ../test_bar_clock.py turns red on a box with that release): copy the stock
-// BarWidget.qml over this one and re-apply the three deltas above, and take
+// BarWidget.qml over this one and re-apply the two deltas above, and take
 // Model.js's kept functions from the stock file again (its header names the
 // subset). NOTICE carries Omarchy's MIT notice, which every copy of its code
 // must.
@@ -137,7 +125,6 @@ BarWidget {
     var target = panelLoader.item
     if (!target) return
     if ("bar" in target) target.bar = root.bar
-    if ("moduleName" in target) target.moduleName = root.moduleName
     if ("settings" in target) target.settings = root.settings
     if ("anchorItem" in target) target.anchorItem = button
     if ("hostWidget" in target) target.hostWidget = root
@@ -147,7 +134,6 @@ BarWidget {
   implicitHeight: button.implicitHeight
 
   onBarChanged: injectPanel()
-  onModuleNameChanged: injectPanel()
   onSettingsChanged: injectPanel()
 
   SystemClock {

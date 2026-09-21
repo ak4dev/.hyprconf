@@ -5,16 +5,16 @@ recording `make` on PATH. Nothing in this checkout is read through git, pushed o
 from __future__ import annotations
 
 import os
-import stat
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from conftest import git
+from conftest import REPO_ROOT, git
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 PUBLISH = "scripts/publish"
+BASH = shutil.which("bash")
 
 
 @pytest.fixture
@@ -31,15 +31,23 @@ def clone(tmp_path: Path) -> Path:
     return tmp_path / "clone"
 
 
-def publish(clone: Path, *args: str) -> subprocess.CompletedProcess[str]:
+TOOLS = ("make", "ruff", "shellcheck", "pytest")
+
+
+def publish(clone: Path, *args: str, missing: str = "") -> subprocess.CompletedProcess[str]:
+    """The gate tools as recording stand-ins. With one left out they are the whole PATH,
+    since a real ruff sits in /usr/bin — the preflight runs before the script needs git."""
     bins = clone.parent / "bins"
     bins.mkdir(exist_ok=True)
-    make = bins / "make"
-    make.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$1" >> "$FAKE_CALLS"\n')
-    make.chmod(make.stat().st_mode | stat.S_IEXEC)
+    for name in TOOLS:
+        tool = bins / name
+        tool.write_text('#!/usr/bin/env bash\nprintf \'%s\\n\' "$1" >> "$FAKE_CALLS"\n')
+        tool.chmod(0o755)
+    if missing:
+        (bins / missing).unlink()
     env = {**os.environ, "FAKE_CALLS": str(clone.parent / "make-calls")}
-    env["PATH"] = f"{bins}:{env['PATH']}"
-    cmd = ["bash", PUBLISH, *args]
+    env["PATH"] = str(bins) if missing else f"{bins}:{env['PATH']}"
+    cmd = [BASH, PUBLISH, *args]
     return subprocess.run(cmd, cwd=clone, capture_output=True, text=True, timeout=120, env=env)
 
 
@@ -84,11 +92,36 @@ def test_a_rejected_push_moves_no_ref_at_all(clone: Path) -> None:
         "done\n"
         "exit 0\n"
     )
-    hook.chmod(hook.stat().st_mode | stat.S_IEXEC)
+    hook.chmod(0o755)
     before = git(origin, "rev-parse", "refs/heads/dev")
     assert publish(clone).returncode != 0
     assert git(origin, "rev-parse", "refs/heads/dev") == before
     assert git(origin, "branch", "--list", "stable") == "" and git(origin, "tag", "--list") == ""
+
+
+def test_a_stable_that_moved_outside_the_script_is_never_forced(clone: Path) -> None:
+    """Every user clone pulls stable with --ff-only, so a stable carrying a commit dev
+    lacks is git's own refusal — and the atomic push leaves it, and the tag, alone."""
+    origin = clone.parent / "origin.git"
+    git(clone.parent, "clone", "-q", "--branch", "dev", "origin.git", "hotfix")
+    hotfix = clone.parent / "hotfix"
+    (hotfix / "f").write_text("straight onto stable\n")
+    git(hotfix, "add", "f")
+    git(hotfix, "commit", "-q", "-m", "fix: out of band")
+    git(hotfix, "push", "-q", "origin", "HEAD:refs/heads/stable")
+    out_of_band = git(hotfix, "rev-parse", "HEAD")
+    assert publish(clone).returncode != 0
+    assert git(origin, "rev-parse", "refs/heads/stable") == out_of_band
+    assert git(origin, "tag", "--list") == ""
+
+
+@pytest.mark.parametrize("tool", ["ruff", "shellcheck", "pytest"])
+def test_a_missing_gate_tool_is_named_before_anything_runs(clone: Path, tool: str) -> None:
+    """Without the preflight an absent ruff reads as `ruff failed (run: make fmt)`, which
+    is the fix the reader cannot run either."""
+    result = publish(clone, missing=tool)
+    assert result.returncode != 0 and f"{tool} is not on PATH" in result.stderr
+    assert gates(clone) == [] and git(clone, "tag", "--list") == ""
 
 
 def test_a_tag_on_another_commit_is_refused(clone: Path) -> None:
@@ -105,6 +138,10 @@ def test_a_tag_on_another_commit_is_refused(clone: Path) -> None:
 def test_publish_refuses_off_dev_with_a_dirty_tree_or_with_arguments(clone: Path) -> None:
     result = publish(clone, "--dry-run")
     assert result.returncode != 0 and "takes no arguments" in result.stderr
+    git(clone, "commit", "-q", "--allow-empty", "-m", "unpushed")
+    result = publish(clone)
+    assert result.returncode != 0 and "not in sync with origin/dev" in result.stderr
+    git(clone, "reset", "-q", "--hard", "origin/dev")
     (clone / "scratch").write_text("uncommitted\n")
     result = publish(clone)
     assert result.returncode != 0 and "uncommitted changes" in result.stderr

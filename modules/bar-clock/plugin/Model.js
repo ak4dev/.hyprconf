@@ -1,10 +1,8 @@
 // Pure format math for the clock's bar label — the subset of Omarchy's own
 // shell/plugins/panels/clock/Model.js (4.0.3-1) that BarWidget.qml calls,
-// verbatim, and nothing else. The calendar half (dateKey … stepMonth) is not
-// here: the panel is loaded from Omarchy's tree by absolute URL, and a QML
-// document resolves `import "Model.js"` against its own directory, so the
-// panel reads Omarchy's file, never this one (verified: a panel loaded that
-// way from a second directory gets that directory's Model.js).
+// verbatim, and nothing else. The calendar half (dateKey … stepMonth) stays in
+// Omarchy's tree, which the panel reads (why: BarWidget.qml's header, delta 2;
+// verified: a panel loaded from a second directory gets that directory's Model.js).
 // Locale- and Qt-free, as upstream's is; the QML owns weekday naming.
 
 var MS_PER_DAY = 86400000

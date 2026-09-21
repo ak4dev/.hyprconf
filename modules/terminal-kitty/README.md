@@ -17,7 +17,7 @@
 
 ## Requires
 
-Omarchy 4.0.3-1 and `kitty` (official `extra`), from this module's `packages` via `omarchy-pkg-add` —
+Omarchy 4.0.4-1 and `kitty` (official `extra`), from this module's `packages` via `omarchy-pkg-add` —
 skipped with a pointer line, never a failure, under `HYPRCONF_NO_SUDO` (`--no-packages`) or with no
 terminal for sudo; an install that fails fails the module (the core names it; re-run after pacman's
 error). A box without kitty is left untouched.
@@ -35,6 +35,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 
 `bash modules/terminal-kitty/install undo` — strips the include, removes `hyprconf.conf` and the
 marker, and hands the default back to Omarchy's stock `foot` only while kitty is still current
-(`/usr/share/xdg-terminal-exec/hyprland-xdg-terminals.list`, omarchy-settings 4.0.3-1).
+and foot is still installed (`/usr/share/xdg-terminal-exec/hyprland-xdg-terminals.list`,
+omarchy-settings 4.0.4-1).
 
-## Verified against Omarchy 4.0.3-1 — kitty 0.48.2-1, omarchy-settings 4.0.3-1.
+## Verified against Omarchy 4.0.4-1 — kitty 0.48.2-1, omarchy-settings 4.0.4-1.

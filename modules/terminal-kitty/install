@@ -22,19 +22,13 @@ if [[ ${1:-} == undo ]]; then
     [[ -f $conf ]] &&
         sed --follow-symlinks -i -e '/^# hyprconf overlay$/d' -e '/^include hyprconf\.conf$/d' "$conf"
     rm -f "$mine" "$marker"
-    [[ $(omarchy-default-terminal 2>/dev/null || true) == kitty ]] &&
+    [[ $(omarchy-default-terminal 2>/dev/null || true) == kitty ]] && omarchy-pkg-present "$stock_terminal" &&
         { omarchy-default-terminal "$stock_terminal" >/dev/null 2>&1 || true; }
     exit 0
 fi
 
-pkgs=()
-while IFS= read -r line || [[ -n $line ]]; do
-    line=${line%%#*}
-    line=${line//[[:space:]]/}
-    [[ -n $line ]] && pkgs+=("$line")
-done < "$dir/packages"
-
-if (( ${#pkgs[@]} )) && ! omarchy-pkg-present "${pkgs[@]}"; then
+mapfile -t pkgs < <(sed 's/#.*//; s/[[:space:]]//g; /^$/d' "$dir/packages")
+if ! omarchy-pkg-present "${pkgs[@]}"; then
     if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
         echo "  --no-packages: ${pkgs[*]} not installed — run \`bash $dir/install\` from a terminal"
     elif [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
@@ -56,8 +50,7 @@ omarchy-pkg-present kitty || {
 
 if [[ ! -e $marker ]]; then
     mkdir -p "$HYPRCONF_STATE"
-    current=$(omarchy-default-terminal 2>/dev/null || true)
-    if [[ $current == kitty ]]; then
+    if [[ $(omarchy-default-terminal 2>/dev/null || true) == kitty ]]; then
         : > "$marker"
     elif omarchy-default-terminal kitty >/dev/null 2>&1; then
         : > "$marker"
@@ -82,4 +75,3 @@ if ! grep -qxF 'include hyprconf.conf' "$conf" 2>/dev/null; then
     [[ ! -s $conf || -z $(tail -c1 "$conf") ]] || printf '\n' >> "$conf"
     printf '# hyprconf overlay\ninclude hyprconf.conf\n' >> "$conf"
 fi
-exit 0

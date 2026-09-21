@@ -16,15 +16,6 @@ SEED = MODULE / "backgrounds/gruvbox/gruvbox.jpg"
 THEME_REMOVE = '\np="$HOME/.config/omarchy/themes/$1"\n[ -d "$p" ] || exit 1\nrm -rf "$p"\n'
 
 
-def snapshot(root: Path) -> dict[str, tuple]:
-    """Every path under root as (mode, bytes or link target, mtime) — a symlink is read."""
-    out = {}
-    for p in sorted(root.rglob("*")):
-        body = os.readlink(p) if p.is_symlink() else (p.read_bytes() if p.is_file() else b"")
-        out[str(p.relative_to(root))] = (p.lstat().st_mode, body, p.lstat().st_mtime_ns)
-    return out
-
-
 def test_install_links_the_theme_and_seeds_the_wallpapers(box) -> None:
     """The link is the theme update (`git pull`); the wallpaper lands where the picker looks."""
     proc = box.run(INSTALL)
@@ -41,12 +32,23 @@ def test_install_links_the_theme_and_seeds_the_wallpapers(box) -> None:
 def test_a_second_run_writes_nothing_and_calls_nothing(box) -> None:
     """The post-update hook re-runs every module: byte-stable, mtimes included."""
     box.run(INSTALL)
-    before = snapshot(box.home)
+    before = box.snapshot()
     box.reset()
     proc = box.run(INSTALL)
     assert proc.returncode == 0, proc.stderr
-    assert snapshot(box.home) == before
+    assert box.snapshot() == before
     assert box.commands == []
+
+
+def test_a_link_hyprconf_7_left_behind_is_ours_and_is_re_pointed(box) -> None:
+    """v7.0.0 install.sh:769 linked <checkout>/themes/dracula; 8.0 moved the payload here."""
+    link = box.home / THEME
+    link.parent.mkdir(parents=True)
+    link.symlink_to(MODULE.parent.parent / "themes/dracula")
+    proc = box.run(INSTALL)
+    assert proc.returncode == 0, proc.stderr
+    assert "left alone" not in proc.stderr
+    assert Path(os.readlink(link)) == MODULE / "dracula"
 
 
 @pytest.mark.parametrize("shape", ("dir", "link"))
@@ -58,15 +60,15 @@ def test_a_theme_of_your_own_at_that_name_is_left_alone(box, shape) -> None:
         theirs.mkdir()
     else:
         theirs.symlink_to(box.home)
-    before = snapshot(theirs.parent)
+    before = box.snapshot(theirs.parent)
     proc = box.run(INSTALL)
     assert proc.returncode == 0, proc.stderr
-    assert snapshot(theirs.parent) == before
+    assert box.snapshot(theirs.parent) == before
     assert "left alone" in proc.stderr
     assert (box.home / WALL).is_file(), "the wallpapers are a separate seam"
 
 
-def test_colors_toml_omits_what_omarchy_derives_to_the_same_value(box) -> None:
+def test_colors_toml_omits_what_omarchy_derives_to_the_same_value() -> None:
     """light_foreground is `${color7:-foreground}` and no colorN key is set; dark_background is not derivable — Omarchy would mix 25% black (omarchy-theme-color:223,236)."""
     colors = tomllib.loads((MODULE / "dracula" / "colors.toml").read_text())
     assert colors["mode"] == "dark"
@@ -97,10 +99,10 @@ def test_undo_leaves_what_is_not_ours_alone(box) -> None:
     (theirs / "colors.toml").write_text("theirs\n")
     (box.home / WALL).parent.mkdir(parents=True)
     (box.home / WALL).write_bytes(b"my own wallpaper")
-    before = snapshot(box.home)
+    before = box.snapshot()
     proc = box.undo("themes")
     assert proc.returncode == 0, proc.stderr
-    assert snapshot(box.home) == before
+    assert box.snapshot() == before
     assert box.commands == [], "not ours: Omarchy is not asked either"
 
 

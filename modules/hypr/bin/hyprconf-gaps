@@ -15,12 +15,8 @@ set -euo pipefail
 
 readonly STEP=2
 
-direction="${1:-}"
-
-if [[ "$direction" != "+" && "$direction" != "-" ]]; then
-    printf 'Usage: %s <+|->\n' "$(basename "$0")" >&2
-    exit 1
-fi
+direction=${1:-}
+[[ $direction == [+-] ]] || { printf 'Usage: %s <+|->\n' "${0##*/}" >&2; exit 1; }
 
 _get_gap() {
     # gaps_in / gaps_out are a four-sided value, and Hyprland 0.56.2 reports it
@@ -36,15 +32,9 @@ _get_gap() {
 gaps_in=$(_get_gap general:gaps_in)
 gaps_out=$(_get_gap general:gaps_out)
 
-if [[ "$direction" == "+" ]]; then
-    new_in=$((gaps_in + STEP))
-    new_out=$((gaps_out + STEP))
-else
-    new_in=$((gaps_in - STEP))
-    new_out=$((gaps_out - STEP))
-    new_in=$((new_in < 0 ? 0 : new_in))
-    new_out=$((new_out < 0 ? 0 : new_out))
-fi
+step=$direction$STEP  # "+2" / "-2": arithmetic evaluates a variable's value
+new_in=$((gaps_in + step)) new_out=$((gaps_out + step))
+new_in=$((new_in < 0 ? 0 : new_in)) new_out=$((new_out < 0 ? 0 : new_out))
 
 # eval, never keyword: keyword is a silent no-op under the Lua parser (exits 0), eval reports (exit 7).
 if ! out="$(hyprctl eval "hl.config({ general = { gaps_in = $new_in, gaps_out = $new_out } })" 2>&1)" ||

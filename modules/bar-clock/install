@@ -1,22 +1,20 @@
 #!/usr/bin/env bash
 # hyprconf/bar-clock — plugin/, Omarchy's own clock widget sampling seconds, linked in as hyprconf.clock.
-# Seam: ~/.config/omarchy/plugins/<id> + a clonedFrom manifest the registry swaps into the stock slot and back (shell/services/PluginRegistry.qml:555, :441); omarchy-plugin-enable; omarchy-bar set; bar.centerAnchor, a plain id with no clone resolution (shell/Commons/Util.qml:70-72, shell/plugins/bar/Bar.qml:1538).
+# Seam: a clonedFrom copy the registry swaps into the stock clock's slot and back (shell/services/PluginRegistry.qml:555, :441), plus omarchy-bar set and bar.centerAnchor, a plain id with no clone resolution (shell/Commons/Util.qml:70-72, shell/plugins/bar/Bar.qml:1538); the link, the rescan, the enable and the undo are ../bar-plugin.sh's.
 # Usage: install | install undo
+# shellcheck disable=SC2154  # $json and $ids below are ../bar-plugin.sh's
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 id=hyprconf.clock stock=omarchy.clock format='hh:mm:ss AP'
 # The stock clock's own format, what `undo` puts back (shell/plugins/panels/clock/BarWidget.qml:21, config/omarchy/shell.json:26, shell/shell.qml:49 — 4.0.3-1; the parity test turns red if it moves).
 stock_format='dddd HH:mm'
-plugins=$HOME/.config/omarchy/plugins link=$plugins/$id
-json=$HOME/.config/omarchy/shell.json
 marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/clock-applied
+source "$dir/../bar-plugin.sh"
 
-# Layout entries are bare strings or objects with an id (bin/omarchy-bar:178).
-ids='[.bar.layout // {} | .[]? | .[]? | if type == "string" then . else (.id // "") end]'
 entry='[.bar.layout // {} | .[]? | .[]?] | any(type == "object" and .id == $id and .format == $f)'
 
 anchor() { [[ -f $json ]] && jq -r '.bar.centerAnchor // ""' "$json" 2>/dev/null || true; }
-on_bar() { jq -e --arg id "$1" "$ids | any(. == \$id)" "$json" >/dev/null 2>&1; }
+set_anchor() { edit "bar.centerAnchor to $1" --arg id "$1" '.bar.centerAnchor = $id'; }
 
 # A list that exits non-zero is no shell answering, not an empty one: the id is then left alone.
 gone() {
@@ -35,57 +33,29 @@ settled() {
     done
     return 0
 }
-set_anchor() {
-    # A failing left operand of an && list is exempt from set -e: `jq … > tmp && mv` would report success whichever way jq went and leave the stale tmp behind.
-    if jq --arg id "$1" '.bar.centerAnchor = $id' "$json" > "$json.tmp"; then
-        mv "$json.tmp" "$json"
-    else
-        rm -f "$json.tmp" || true
-        echo "  could not set bar.centerAnchor to $1 in $json" >&2
-    fi
-}
 
 if [[ ${1:-} == undo ]]; then
-    # The disable hands our whole bar entry back to the stock id, format included
-    # (PluginRegistry.qml:555 → restoreCloneSource :441), so the format comes off by hand.
-    if omarchy-plugin-disable "$id" >/dev/null 2>&1; then
-        omarchy-bar set "$stock" format "$stock_format" >/dev/null 2>&1 || true
-        settled "$entry" --arg id "$stock" --arg f "$stock_format"
+    # Only while our clock still holds the slot: a disable answers "ok" for an id on no
+    # section (shell.qml:1620-1621), so a stock clock the user went back to keeps the
+    # format they set.
+    if on_bar "$id"; then
+        # The disable hands our whole bar entry back to the stock id, format included
+        # (PluginRegistry.qml:555 → restoreCloneSource :441), so the format comes off by hand.
+        if omarchy-plugin-disable "$id" >/dev/null 2>&1; then
+            omarchy-bar set "$stock" format "$stock_format" >/dev/null 2>&1 || true
+            settled "$entry" --arg id "$stock" --arg f "$stock_format"
+        else
+            hand_back "$stock" "$stock_format"
+        fi
     fi
     if [[ $(anchor) == "$id" ]]; then set_anchor "$stock"; fi
-    [[ -L $link ]] && rm -f "$link"
-    rm -f "$marker"
-    omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+    plugin_unlink
     exit 0
 fi
 
-# `omarchy plugin update` fast-forwards a same-id checkout and refuses a non-git one
-# (bin/omarchy-plugin-update:111-112).
-if [[ -d $link/.git ]]; then
-    echo "  $id is an \`omarchy plugin add\` checkout — left to omarchy plugin update"
-    exit 0
-fi
-mkdir -p "$plugins" "${marker%/*}"
-# A real directory here is the pre-module synced copy, moved aside in omarchy-plugin-remove's shape (:106).
-if [[ -d $link && ! -L $link ]]; then
-    mv "$link" "$plugins/.$id.bak.$(date -u +%Y%m%d%H%M%S)"
-fi
-[[ $(readlink "$link" 2>/dev/null) == "$dir/plugin" ]] || ln -sfn "$dir/plugin" "$link"
-# The scan follows a linked folder, the inotify watch does not (PluginRegistry.qml:712-713, :663-674).
-omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
-
+plugin_link
 if [[ ! -e $marker ]]; then
-    # omarchy-plugin-add's own discovery wait (bin/omarchy-plugin-add:164-170): an enable issued
-    # before the shell has seen the folder fails "unknown" (bin/omarchy-plugin-enable:86-87).
-    for (( i = 0; i < 40; i++ )); do        # no shell answering → the list exits 1 → no wait
-        list=$(omarchy-plugin-list --json 2>/dev/null) || break
-        jq -e --arg id "$id" 'any(.[]?; .id == $id)' <<<"$list" >/dev/null 2>&1 && break
-        sleep 0.05
-    done
-    omarchy-plugin-enable "$id" >/dev/null 2>&1 || {
-        echo "  no shell answering — enabled on the next run"
-        exit 0
-    }
+    plugin_enable
     if omarchy-bar set "$id" format "$format" >/dev/null 2>&1; then
         settled "$entry" --arg id "$id" --arg f "$format"
     else

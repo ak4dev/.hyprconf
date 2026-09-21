@@ -81,9 +81,7 @@ Item {
         } catch (e) {}
       }
     }
-    onExited: function() {
-      if (root.statsProduced) statsRestartTimer.died()
-    }
+    onExited: if (root.statsProduced) statsRestartTimer.died()
   }
 
   Restarter {
@@ -109,9 +107,7 @@ Item {
         } catch (e) {}
       }
     }
-    onExited: function() {
-      if (root.gpuProduced) gpuRestartTimer.died()
-    }
+    onExited: if (root.gpuProduced) gpuRestartTimer.died()
   }
 
   Restarter {

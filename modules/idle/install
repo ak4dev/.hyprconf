@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# hyprconf/idle — the screensaver starts after 15 minutes instead of Omarchy's 150 s, once.
+# hyprconf/idle — idle.screensaver 150 s -> 900 s, once: past idle.lock (300 s), so the lock fires
+# first and the screensaver never starts (shell/plugins/services/idle/Service.qml:23-25,72-75,94-97;
+# :69 refuses a launch while locked).
 # Seam: bin/omarchy-shell-config, sourced; omarchy commands --json has no writer for the key (bin/omarchy-toggle-idle:8-9 is a stay-awake flag).
 # Usage: install | install undo
 set -euo pipefail
@@ -20,7 +22,7 @@ if [[ ${1:-} == undo ]]; then
   # Dropping the key restores the stock 150 s: a user shell.json replaces the defaults whole
   # (shell/shell.qml:73-88), then plugins/services/idle/Service.qml:17,21 applies 150. Guarded,
   # or commit()'s defaults fallback (omarchy-shell-config:20-26) writes a file the user never had.
-  if [[ -s $json ]] && jq -e '.idle.screensaver != null' "$json" >/dev/null 2>&1; then
+  if jq -e '.idle.screensaver != null' "$json" >/dev/null 2>&1; then
     edit 'del(.idle.screensaver)' ||
       echo "  could not restore idle.screensaver — remove it from $json by hand"
   fi
@@ -35,4 +37,3 @@ if edit ".idle = ((.idle // {}) + { screensaver: $seconds })"; then
 else
   echo "  could not set idle.screensaver — will retry on the next run"
 fi
-exit 0

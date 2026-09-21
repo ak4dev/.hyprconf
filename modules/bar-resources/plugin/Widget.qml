@@ -17,13 +17,7 @@
 // widget uses on itself (shell/plugins/services/media/BarWidget.qml:10). It
 // is null until the service is up, and under a replacement bar, whose
 // widgets get a service-less entry facade (Bar.qml:238-242); every cell
-// then shows the blank/zero it shows before the first line arrives, which
-// is the same reading the widget gives during the second between startup
-// and the first sample.
-//
-// Every column has a FIXED width, measured once with TextMetrics from the
-// widest value it can show, so the line never shifts as a speed goes from
-// "0B/s" to "999.9MB/s" or a percentage from "3%" to "100%".
+// then shows the blank/zero it shows before the first line arrives.
 //
 // Glyphs are the widget's own (the feeders emit numbers only): microchip
 // (nf-fa-microchip U+F2DB), expansion card (nf-md-expansion_card U+F08AE),
@@ -73,11 +67,9 @@ BarWidget {
   readonly property color textColor: root.bar ? root.bar.barForeground : Color.foreground
 
   implicitWidth: grid.implicitWidth
-  // NEVER size this off `parent`. The bar's ModuleSlot takes its own height
-  // from the widget's implicit size, so `parent.height` here closes a binding
-  // loop — and QML breaks a loop by dropping the binding, leaving the widget
-  // zero-height. It still loads, logs nothing at any verbosity, and paints
-  // nothing: the bar simply has an invisible gap where the readout should be.
+  // NEVER size this off `parent`: the bar's ModuleSlot takes its height from
+  // the widget's implicit size, so `parent.height` closes a binding loop that
+  // QML resolves by dropping the binding — a zero-height, invisible widget.
   implicitHeight: grid.implicitHeight
 
   // The feeders emit a temperature as °C or null; the unit and the glyph are

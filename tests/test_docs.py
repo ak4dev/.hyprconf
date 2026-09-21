@@ -3,19 +3,16 @@ review norm): the README branding block never changes; the root README's
 module index names exactly the modules that exist — one row each, so a module
 added or removed without its row turns red here rather than in a reader's
 hands; and every module README carries the six sections of the module
-contract with its solo-install and undo lines.
-
-HERMETIC: reads of the checkout only.
-"""
+contract with its solo-install and undo lines."""
 
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from conftest import MODULE_NAMES, REPO_ROOT
+
 README = REPO_ROOT / "README.md"
 
 # Rule 7: never alter the README branding block (banner + badges). Pinned as
@@ -35,27 +32,23 @@ BRANDING = """<p align="center">
 """
 
 
-def modules() -> list[str]:
-    """Every module directory: the ones install.sh's loop runs."""
-    return sorted(p.parent.name for p in (REPO_ROOT / "modules").glob("*/install"))
-
-
 def test_readme_branding_block_is_byte_identical() -> None:
     assert README.read_text(encoding="utf-8").startswith(BRANDING)
 
 
 def test_root_readme_indexes_every_module_once() -> None:
-    """One row per module in the Modules table, linking its README, with the
-    solo install and the undo command; no row for a module that is gone."""
+    """One row per module in the Modules table, linking its README, with the solo
+    install and an undo command linking that README's Undo; no row for a module
+    that is gone."""
     text = README.read_text(encoding="utf-8")
     rows = re.findall(r"^\| \[`([a-z-]+)`\]\(modules/([a-z-]+)/README\.md\) \|(.*)$", text, re.M)
-    assert [name for name, _, _ in rows] == modules(), "the Modules table and modules/ differ"
+    assert [name for name, _, _ in rows] == MODULE_NAMES, "the Modules table and modules/ differ"
     for name, target, rest in rows:
         assert name == target, f"{name}: row links {target}"
         assert f"`bash modules/{name}/install` |" in rest, f"{name}: no solo install cell"
-        assert f"`bash modules/{name}/install undo`" in rest, f"{name}: no undo cell"
-    for name in modules():
-        assert f"(modules/{name}/README.md#undo)" in text, f"{name}: no Reverting-to-stock line"
+        assert f"[`bash modules/{name}/install undo`](modules/{name}/README.md#undo)" in rest, (
+            f"{name}: no undo cell linking its README's Undo"
+        )
 
 
 # The module README contract (the module layout's parity target, AGENTS rule 7):
@@ -72,7 +65,7 @@ SECTIONS = (
 SOLO = "git -C ~/.hyprconf sparse-checkout set modules/{name} && bash ~/.hyprconf/modules/{name}/install"
 
 
-@pytest.mark.parametrize("name", modules())
+@pytest.mark.parametrize("name", MODULE_NAMES)
 def test_module_readme_carries_the_contract(name: str) -> None:
     text = (REPO_ROOT / "modules" / name / "README.md").read_text(encoding="utf-8")
     headings = [ln for ln in text.splitlines() if ln.startswith("## ")]

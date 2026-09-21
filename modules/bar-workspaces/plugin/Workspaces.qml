@@ -65,7 +65,6 @@ BarWidget {
     // of text, the way hyprconf.resources does. A side rail (vertical bar)
     // stacks everything in one column instead, like the stock widget.
     columns: root.vertical ? 1 : Math.max(1, Math.ceil(root.ids.length / 2))
-    rowSpacing: 0
     columnSpacing: Style.spacing.sm
     horizontalItemAlignment: Grid.AlignHCenter
 
@@ -85,12 +84,6 @@ BarWidget {
         color: root.bar ? root.bar.barForeground : Color.foreground
         font.family: root.bar ? root.bar.fontFamily : Style.fontFamily
         font.pixelSize: Style.font.caption
-        // Line box = glyph box: Qt's default proportional line height adds
-        // ~20% leading per line, and two caption lines then overflow the 26px
-        // bar and clip the second.
-        lineHeight: 1.0
-        lineHeightMode: Text.ProportionalHeight
-        horizontalAlignment: Text.AlignHCenter
         renderType: Text.NativeRendering
 
         MouseArea {

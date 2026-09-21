@@ -5,7 +5,7 @@
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 
-# default/bash/env-bootstrap:16; the two _HYPRCONF_* seams are the suite's reach.
+# default/bash/env-bootstrap:12,16; the two _HYPRCONF_* seams are the suite's reach.
 : "${OMARCHY_PATH:=/usr/share/omarchy}"
 : "${_HYPRCONF_FIREFOX_POLICIES:=/etc/firefox/policies}"
 : "${_HYPRCONF_ASSUME_TTY:=}"
@@ -13,49 +13,60 @@ dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 state=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}
 dst=$_HYPRCONF_FIREFOX_POLICIES/policies.json
 marker=$state/browser-applied
+# The record that the policy at $dst is this module's: what undo removes it on, and what
+# keeps a policy someone else wrote from being replaced without a copy left beside it.
+ours=$state/firefox-policy
 # v7's one marker for browser and editor: honoured, or an upgraded box re-asserts a default chosen since.
 legacy=$state/defaults-applied
 
 info() { printf '    %s\n' "$*"; }
 warn() { printf '    WARNING: %s\n' "$*" >&2; }
 
-# bin/omarchy-plugin-add:22, narrowed to stdin: `[[ -t 0 && -t 1 ]]` would skip sudo under `| tee log`.
-interactive() { [[ -t 0 || -n $_HYPRCONF_ASSUME_TTY ]]; }
-
 sudo_ok() {
     if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
         info "--no-packages: $1 left alone"
         return 1
     fi
-    if ! interactive; then
+    # bin/omarchy-plugin-add:22, narrowed to stdin: `[[ -t 0 && -t 1 ]]` would skip sudo under `| tee log`.
+    if [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
         info "no terminal for sudo — re-run from a terminal for $1"
         return 1
     fi
 }
 
-tmp=
-cleanup() { if [[ -n $tmp ]]; then rm -f -- "$tmp"; fi; }
-trap cleanup EXIT
-
 if [[ ${1:-} == undo ]]; then
     rm -f "$marker"
-    if [[ -e $dst ]] && sudo_ok "the Firefox policy"; then
-        sudo rm -f -- "$dst" || warn "could not remove $dst"
+    # Only a policy this module recorded as its own: anyone else's is left where it is.
+    if [[ -e $ours && -e $dst ]] && sudo_ok "the Firefox policy"; then
+        if [[ -e $dst.bak ]]; then
+            sudo mv -f -- "$dst.bak" "$dst" || warn "could not put $dst.bak back"
+        else
+            sudo rm -f -- "$dst" || warn "could not remove $dst"
+        fi
+        rm -f "$ours"
     fi
     info "firefox stays installed; choose a browser with: omarchy default browser <name>"
     exit 0
 fi
+mkdir -p "$state"
 
 # Nothing in Omarchy writes /etc/firefox (grep -RIn over the installed 4.0.3-1
 # tree) and it outranks the distribution/ copy — so jq `*` merges theirs under ours.
 tmp=$(mktemp)
-if ! jq -s 'reduce .[] as $layer ({}; . * $layer)' \
+trap 'rm -f -- "$tmp"' EXIT
+if ! jq -s '.[0] * .[1]' \
     "$OMARCHY_PATH/default/firefox/policies.json" "$dir/policies.json" > "$tmp"; then
     warn "jq could not merge the Firefox policies — will retry on the next run"
 else
     need_firefox=0 need_policy=0
     omarchy-pkg-present firefox || need_firefox=1
     cmp -s "$tmp" "$dst" || need_policy=1
+    # Ours already — the bytes match, or only Omarchy's half moved since: merging ours
+    # over it changes nothing. Recorded outside the sudo gate, like the marker below.
+    if [[ ! -e $ours && -e $dst ]] &&
+        jq -e -s '.[0] * .[1] == .[0]' "$dst" "$dir/policies.json" > /dev/null 2>&1; then
+        : > "$ours"
+    fi
     if (( need_firefox || need_policy )) && sudo_ok "Firefox and its policy"; then
         if (( need_firefox )); then
             if omarchy-install-browser firefox; then
@@ -65,10 +76,20 @@ else
                 need_policy=0   # no policy for a browser that is not there to read it
             fi
         fi
+        # Someone else's policy: one copy before it goes
+        # (bin/omarchy-refresh-pacman:6-7's shape), and the undo puts it back. The
+        # record is what makes it once; `cp -f` refreshes a copy orphaned from it by
+        # a relocated $HYPRCONF_STATE, rather than keeping one for a policy long gone.
+        if (( need_policy )) && [[ ! -e $ours && -e $dst ]] &&
+            ! sudo cp -f -- "$dst" "$dst.bak"; then
+            warn "could not copy $dst aside — leaving the policy that is there"
+            need_policy=0
+        fi
         if (( need_policy )); then
             # `--` on every root write (rule 8); Omarchy carries the shape at
             # bin/omarchy-hibernation-setup:43,46 and leaves `install` bare at :42.
             if sudo install -Dm644 -- "$tmp" "$dst"; then
+                : > "$ours"
                 info "policy installed at $dst (Omarchy's prefs + hyprconf's)"
             else
                 warn "could not install the Firefox policy — will retry on the next run"
@@ -78,17 +99,16 @@ else
 fi
 
 # Outside the sudo gates: the hook's --no-packages run is the only run most boxes get.
-[[ -e $marker || -e $legacy ]] && exit 0
+[[ -e $marker ]] && exit 0
+if [[ -e $legacy ]]; then : > "$marker"; exit 0; fi
 # Without Firefox, xdg-settings has no firefox.desktop to record and the setter warns on every hook run.
 omarchy-pkg-present firefox || exit 0
 omarchy-default-browser firefox || true
 # The setter's status is its closing notification's (bin/omarchy-default-browser:35-37,
 # no `set -e`), which fails with no shell to notify: the VALUE is read back (:7-19).
 if [[ $(omarchy-default-browser 2>/dev/null || true) == firefox ]]; then
-    mkdir -p "$state"
     : > "$marker"
     info "default browser = firefox (change it with: omarchy default browser <name>)"
 else
     warn "firefox is not the default browser yet — will retry on the next run"
 fi
-exit 0

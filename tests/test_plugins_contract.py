@@ -1,6 +1,9 @@
 """The contract every shipped plugin folder keeps, the same for all four bar modules: the
-omarchy-plugin-validate port (CI has no Omarchy), the shape a folder needs as a repository of
-its own, the Text and implicit-size rules, a qmllint parse, and the facade-member pin."""
+omarchy-plugin-validate port (CI has no Omarchy) and one run of the real thing, the shape a
+folder needs as a repository of its own, the Text and implicit-size rules, a qmllint parse,
+the facade-member pin — and, since the four installs are one mechanism (modules/bar-plugin.sh),
+the install and undo cases each module used to repeat: link, rescan, the one enable, the
+checkout it leaves alone, the folder it moves aside, no shell answering, and the way back."""
 
 from __future__ import annotations
 
@@ -9,11 +12,21 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from conftest import (
+    NEEDS_OMARCHY,
+    OMARCHY,
+    PLUGIN_ENABLE,
+    PLUGIN_LIST,
+    REPO_ROOT,
+    Box,
+    bar_shell,
+)
+
 FOLDERS = sorted(REPO_ROOT.glob("modules/*/plugin"))
 assert FOLDERS, "no plugin folders found"
 per_folder = pytest.mark.parametrize("folder", FOLDERS, ids=lambda f: f.parent.name)
@@ -42,8 +55,8 @@ def walk(folder: Path):
 
 
 def validator_problems(folder: Path) -> list[str]:
-    """What omarchy-plugin-validate refuses, check for check, plus the one thing its own
-    `find` follows past: a symlink inside the folder. jq's `==` is type-aware: `true` is not 1."""
+    """What omarchy-plugin-validate refuses, check for check, symlinks included (its own
+    refusal, :115-116). jq's `==` is type-aware: `true` is not 1."""
     path = folder / "manifest.json"
     if not path.is_file():
         return ["missing manifest.json"]
@@ -181,7 +194,7 @@ PLUGIN_SHELL_API = (
     "toggle",
     "updateEntryInline",
 )
-OMARCHY_SHELL = Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy")) / "shell"
+OMARCHY_SHELL = OMARCHY / "shell"
 DECLARES_RE = re.compile(
     r"^\s*(?:readonly\s+)?(?:required\s+)?(?:property\s+\S+|function)\s+(\w+)", re.M
 )
@@ -193,10 +206,10 @@ MEMBER_RE = re.compile(r"(?<![\w.])bar\s*\??\.\s*(?:shell\s*\??\.\s*)?([A-Za-z_]
 @per_folder
 def test_plugin_folder_is_valid_and_publishable_alone(folder: Path) -> None:
     """The contract `omarchy plugin add` gates a repository on, pinned where publishing is
-    gated: CI. Each module also runs the real validator on its installed folder."""
+    gated: CI. The real validator runs below, where Omarchy is installed."""
     assert validator_problems(folder) + publishable_problems(folder) == []
     # Frozen: the validator checks presence only (bin/omarchy-plugin-validate:44-47),
-    # `plugin update` is a fast-forward that never opens it, Omarchy's own 13 sit at 1.0.0.
+    # `plugin update` is a fast-forward that never opens it, and every first-party one is 1.0.0.
     assert json.loads((folder / "manifest.json").read_text())["version"] == "1.0.0"
 
 
@@ -242,8 +255,209 @@ def test_widgets_read_only_what_the_plugin_facades_expose() -> None:
         assert declared(bar_api) == set(PLUGIN_BAR_API)
         assert declared(shell_api) == set(PLUGIN_SHELL_API)
     seen = set()
-    for qml in sorted(p for folder in FOLDERS for p in folder.glob("*.qml")):
+    for qml in sorted(p for folder in FOLDERS for p in folder.rglob("*.qml")):
         for member in MEMBER_RE.findall(OWNER_RE.sub("", qml_code(qml))):
             assert member in allowed, f"{qml}: bar.{member} is not on the facades"
             seen.add(member)
     assert {"serviceFor", "updateEntryInline"} <= seen, "the scan matched nothing it should"
+
+
+@per_folder
+@pytest.mark.skipif(not (OMARCHY / "bin/omarchy-plugin-validate").is_file(), reason=NEEDS_OMARCHY)
+def test_the_real_validator_accepts_the_folder_through_a_symlink(
+    folder: Path, tmp_path: Path
+) -> None:
+    """What every install puts in ~/.config/omarchy/plugins/ is a symlink, and the validator
+    refuses one INSIDE a plugin folder — hence the trailing slash, which makes its own `find`
+    descend the link instead of printing it (bin/omarchy-plugin-validate:115)."""
+    validate = OMARCHY / "bin/omarchy-plugin-validate"
+    (link := tmp_path / "p").symlink_to(folder)
+
+    def run(path: str) -> subprocess.CompletedProcess:
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}
+        return subprocess.run(
+            ["bash", str(validate), path], capture_output=True, text=True, timeout=30, env=env
+        )
+
+    passed, bare = run(f"{link}/"), run(str(link))
+    assert passed.returncode == 0, passed.stderr
+    assert bare.returncode != 0 and "symlink" in bare.stderr
+
+
+# -- the shared install mechanism, once per plugin folder -------------------
+# modules/bar-plugin.sh, which the four modules/bar-*/install source: what each of them
+# used to assert for itself, here with the strongest of the four assertion sets.
+
+
+@dataclass(frozen=True)
+class Plugin:
+    """One bar module read off its own files — the id its manifest claims, the id it was
+    cloned from (a widget of its own: none), and the two paths its install may create."""
+
+    box: Box
+    module: str
+    folder: Path
+    install: Path
+    id: str
+    stock: str
+    link: Path
+    marker: Path
+    sets_a_bar_key: bool
+
+    def run(self, *args: str) -> subprocess.CompletedProcess:
+        proc = self.box.run(self.install, *args)
+        assert proc.returncode == 0, proc.stderr
+        return proc
+
+
+@pytest.fixture(params=FOLDERS, ids=lambda f: f.parent.name)
+def plugin(request: pytest.FixtureRequest, box: Box) -> Plugin:
+    install = request.param.parent / "install"
+    text = install.read_text()
+    manifest = json.loads((request.param / "manifest.json").read_text())
+    marker = re.search(r"^marker=\S*/([a-z-]+-applied)$", text, re.M)
+    assert marker, f"{install}: no marker= line to derive the set-once marker from"
+    return Plugin(
+        box=box,
+        module=request.param.parent.name,
+        folder=request.param,
+        install=install,
+        id=manifest["id"],
+        stock=manifest.get("omarchy", {}).get("clonedFrom", ""),
+        link=box.home / ".config/omarchy/plugins" / manifest["id"],
+        marker=box.home / ".local/state/hyprconf" / marker.group(1),
+        sets_a_bar_key="omarchy-bar set" in text,
+    )
+
+
+def test_install_links_the_folder_rescans_it_and_enables_it_once(plugin: Plugin) -> None:
+    """One rescan, one enable, and no placement on it: a --section would splice a clonedFrom
+    copy straight back out of the stock widget's slot (PluginRegistry.qml:545-546)."""
+    box = plugin.box
+    bar_shell(box)
+    plugin.run()
+    assert plugin.link.readlink() == plugin.folder
+    assert box.calls_of("omarchy-shell") == [["omarchy-shell", "shell", "rescanPlugins"]]
+    assert box.calls_of("omarchy-plugin-enable") == [["omarchy-plugin-enable", plugin.id]]
+    assert plugin.marker.is_file() and "sudo" not in box.commands
+    # A bar key is a user choice: only a module whose install sets one may call for it.
+    keyed = [c[2] for c in box.calls_of("omarchy-bar")]
+    assert keyed == ([plugin.id] if plugin.sets_a_bar_key else [])
+
+
+def test_a_second_run_writes_nothing_and_enables_nothing(plugin: Plugin) -> None:
+    """The post-update hook re-runs every module after every omarchy-update, and a widget
+    never goes back on a bar the user took it off (rule 5)."""
+    box = plugin.box
+    bar_shell(box)
+    plugin.run()
+    before = box.snapshot()
+    box.reset()
+    plugin.run()
+    assert box.snapshot() == before
+    assert box.commands == ["omarchy-shell"]  # the rescan, and no mutating command at all
+
+
+def test_an_omarchy_plugin_add_checkout_of_the_same_id_is_left_to_omarchy(plugin: Plugin) -> None:
+    """`omarchy plugin update` fast-forwards it (bin/omarchy-plugin-update:111-112): it is
+    the user's checkout, not ours to link over."""
+    (plugin.link / ".git").mkdir(parents=True)
+    proc = plugin.run()
+    assert "omarchy plugin update" in proc.stdout
+    assert not plugin.link.is_symlink() and not plugin.marker.exists()
+    assert plugin.box.commands == []
+
+
+def test_undo_beside_that_checkout_drops_only_this_modules_marker(plugin: Plugin) -> None:
+    """`hyprconf --undo` runs every module's undo, so a same-id checkout is reached without
+    being named: nothing of it is disabled, reformatted or unlinked."""
+    box = plugin.box
+    (plugin.link / ".git").mkdir(parents=True)
+    plugin.marker.parent.mkdir(parents=True)
+    plugin.marker.touch()
+    assert box.undo(plugin.module).returncode == 0
+    assert box.commands == [] and not plugin.marker.exists()
+    assert (plugin.link / ".git").is_dir() and not plugin.link.is_symlink()
+
+
+def test_a_real_folder_is_moved_aside_once_and_a_stale_link_repaired(plugin: Plugin) -> None:
+    """Moved to `.<id>.bak.<timestamp>`, what omarchy-plugin-remove does with a folder it
+    did not clone (bin/omarchy-plugin-remove:106) — never deleted, and never twice."""
+    box = plugin.box
+    bar_shell(box)
+    plugin.link.mkdir(parents=True)
+    (plugin.link / "manifest.json").write_text('{"id": "the copy from before"}\n')
+    plugin.run()
+    (backup,) = plugin.link.parent.glob(f".{plugin.id}.bak.*")
+    assert re.fullmatch(rf"\.{re.escape(plugin.id)}\.bak\.\d{{14}}", backup.name)
+    assert (backup / "manifest.json").read_text() == '{"id": "the copy from before"}\n'
+    assert plugin.link.readlink() == plugin.folder
+    plugin.link.unlink()
+    plugin.link.symlink_to(box.tmp / "somewhere-else")
+    plugin.run()
+    assert plugin.link.readlink() == plugin.folder
+    assert list(plugin.link.parent.glob(f".{plugin.id}.bak.*")) == [backup]
+
+
+def test_no_shell_answering_leaves_the_enable_for_the_next_run(plugin: Plugin) -> None:
+    """The link still lands and the run still succeeds — it must not fail the module loop —
+    and nothing of the user's bar is touched. `omarchy-plugin-list` exits 1 with no shell
+    (bin/omarchy-shell:14-17), which is what ends the discovery wait after one poll."""
+    box = plugin.box
+    path = bar_shell(box)
+    before = path.read_bytes()
+    box.stub("omarchy-plugin-list", "exit 1\n")
+    box.stub("omarchy-plugin-enable", "exit 1\n")
+    proc = plugin.run()
+    assert "next run" in proc.stdout
+    assert plugin.link.is_symlink() and not plugin.marker.exists()
+    assert box.commands.count("omarchy-plugin-list") == 1
+    assert "omarchy-bar" not in box.commands and path.read_bytes() == before
+    box.stub("omarchy-plugin-list", PLUGIN_LIST)
+    box.stub("omarchy-plugin-enable", PLUGIN_ENABLE)
+    plugin.run()
+    assert box.calls_of("omarchy-plugin-enable")[-1] == ["omarchy-plugin-enable", plugin.id]
+    assert plugin.marker.is_file()
+
+
+def test_undo_disables_it_first_then_takes_the_link_and_the_marker_away(plugin: Plugin) -> None:
+    """Disabled while still installed: the clonedFrom entry is what hands the slot back to
+    the stock widget (PluginRegistry.qml:555 -> restoreCloneSource:441)."""
+    box = plugin.box
+    bar_shell(box)
+    plugin.run()
+    box.reset()
+    assert box.undo(plugin.module).returncode == 0
+    assert box.calls[0] == f"omarchy-plugin-disable {plugin.id}"
+    assert box.calls.count(f"omarchy-plugin-disable {plugin.id}") == 1
+    assert not plugin.link.exists(follow_symlinks=False) and not plugin.marker.exists()
+    assert (plugin.folder / "manifest.json").is_file()  # the payload it pointed at is untouched
+    assert box.calls_of("omarchy-shell") == [["omarchy-shell", "shell", "rescanPlugins"]]
+
+
+def test_undo_with_no_shell_answering_hands_the_slot_back_in_the_file(plugin: Plugin) -> None:
+    """With nothing answering there is no in-memory copy to take an edit back, so the swap
+    the disable would do is done in shell.json itself — a layout entry naming a plugin that
+    is gone is a 0-width slot next session (Bar.qml:1795, :1814)."""
+    box = plugin.box
+    path = bar_shell(box, layout=[{"id": plugin.id}])
+    box.stub("omarchy-plugin-disable", "exit 1\n")
+    assert box.undo(plugin.module).returncode == 0
+    # A centre entry is a bare id or an object with one (bin/omarchy-bar:178).
+    centre = json.loads(path.read_text())["bar"]["layout"]["center"]
+    assert [e["id"] if isinstance(e, dict) else e for e in centre] == (
+        [plugin.stock] if plugin.stock else []
+    )
+
+
+def test_undo_on_a_box_that_never_installed_writes_nothing(plugin: Plugin) -> None:
+    assert plugin.box.undo(plugin.module).returncode == 0
+    assert plugin.box.files() == set()
+
+
+def test_undo_leaves_a_folder_that_is_not_its_own_link_whole(plugin: Plugin) -> None:
+    """`rm -f` on a directory fails, which would take the whole undo down with it."""
+    plugin.link.mkdir(parents=True)
+    (plugin.link / "manifest.json").write_text("{}\n")
+    assert plugin.box.undo(plugin.module).returncode == 0
+    assert (plugin.link / "manifest.json").read_text() == "{}\n"

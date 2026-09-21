@@ -6,17 +6,16 @@ Puts `plugin/` — `hyprconf.active-window`, the focused window's title on **two
 caption-size lines instead of Omarchy's one — on the bar, and nothing else; its
 behaviour, setting and deltas: [`plugin/README.md`](plugin/README.md). The folder
 is **symlinked** into `~/.config/omarchy/plugins/` (a `git pull` then updates the
-widget, and every run asks for a rescan: the shell's `inotifywait -r` never
-descends a symlink, `PluginRegistry.qml:663-674`) and **enabled once**, with no
-placement of its own — Omarchy's default bar carries no `omarchy.active-window`,
-so `defaultSection: left` puts it after `omarchy.workspaces` (`:270-275`); a bar
-that has the stock widget gets this copy swapped into that slot (`:529-534`).
-Disabling it then sticks.
+widget, and every run asks for a rescan — why:
+[`../bar-plugin.sh`](../bar-plugin.sh)'s header) and **enabled once**, with no
+placement of its own — where it lands, and what it displaces:
+[`plugin/README.md`](plugin/README.md#install). Disabling it then sticks.
 
 ## Requires
 
-Omarchy 4.0.3-1 with its shell running, `jq`, coreutils; no packages, no `sudo`. With no shell answering the
-link is made and the enable retried next run; the checkout stays put (the installed plugin is a symlink to it).
+Omarchy 4.0.4-1 with its shell running, `jq`, coreutils, and [`../bar-plugin.sh`](../bar-plugin.sh) — the link, rescan,
+enable and undo the four bar modules share, which a sparse checkout of this directory brings along; no packages, no `sudo`.
+With no shell answering the link is made and the enable retried next run; the checkout stays put (the installed plugin is a symlink to it).
 
 ## Install alone
 
@@ -32,9 +31,14 @@ text on one line, 280 default), here over two. Marker: `${HYPRCONF_STATE:-~/.loc
 
 ## Undo
 
-`bash modules/bar-active-window/install undo` — disables it (stock back, `:555`),
-removes the module's own symlink and the marker, rescans. A real directory or a
-git checkout there is left alone; a folder an install moved aside stays as
-`.hyprconf.active-window.bak.<ts>` to delete.
+`bash modules/bar-active-window/install undo` — disables it, which hands the slot
+back to Omarchy's stock title widget (`PluginRegistry.qml:555`); where the enable
+had ADDED the slot instead, that comes off too while this copy still holds it, so
+a default bar returns to stock and a stock title placed since is left. Then the
+module's own symlink and the marker go, and it rescans. A real directory or a git
+checkout there is left alone; a folder an install moved aside stays as
+`.hyprconf.active-window.bak.<ts>` to delete. With no shell answering, the same
+swap is done in `~/.config/omarchy/shell.json` itself: the entry back to
+`omarchy.active-window`, or off where the enable had added the slot.
 
-## Verified against Omarchy 4.0.3-1 — every `PluginRegistry.qml` line above re-read in `/usr/share/omarchy`
+## Verified against Omarchy 4.0.4-1

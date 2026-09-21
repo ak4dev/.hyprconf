@@ -40,6 +40,9 @@ RD_OPTS = f"rd.luks.options={UUID}=fido2-device=auto,token-timeout=0"
 # what 8.1.2 and earlier wrote: the passphrase after 30 s
 RD_OPTS_OLD = f"rd.luks.options={UUID}=fido2-device=auto"
 DROPIN_NAME = "zz-hyprconf-fido2.conf"
+# The proof the passphrase wipe stands on: the FIDO2 token alone (--token-only on its own
+# would accept any PIN-less token in the header).
+TOKEN_PROOF = f"cryptsetup open --test-passphrase --token-only --token-type systemd-fido2 {DEV}"
 TOKEN_LINE = "/dev/hidraw3: vendor=0x1050, product=0x0407 (Yubico YubiKey OTP+FIDO+CCID)"
 KERNEL_VERSION = "7.1.8-arch1-3"
 # /etc/vconsole.conf as systemd-localed writes it on a stock Omarchy
@@ -47,8 +50,10 @@ VCONSOLE = "KEYMAP=us\nXKBLAYOUT=us\nXKBMODEL=pc105+inet\nXKBOPTIONS=terminate:c
 # The first-layout list Omarchy's guard withholds vconsole.conf for, copied verbatim
 # (/etc/mkinitcpio.conf.d/omarchy_hooks.conf; its second copy is default/hypr/input.lua:24-27).
 NON_LATIN = "af am ara bd bg by et ge gr il in iq ir kg kh kz la lk mk mm mn mv np rs ru sy th tj ua".split()
-# What limine-mkinitcpio-install prints (error_msg) when a build fails, verbatim.
+# What limine-mkinitcpio-install prints (error_msg) when a build fails, verbatim, and the
+# silent skip at :104 — no build message, and the image on the ESP stays the old one.
 BUILD_FAILED = f"ERROR: mkinitcpio failed for kernel {KERNEL_VERSION}, skipping."
+KERNEL_SKIPPED = f"ERROR: kernel name of '/usr/lib/modules/{KERNEL_VERSION}' is empty, skipping."
 # Hardcoded in the shipped drop-in (root sources it at every rebuild, so it carries no
 # test seam); _source_dropin swaps it out.
 INITCPIO_INSTALL = "/usr/lib/initcpio/install"
@@ -82,6 +87,7 @@ STUBS = {
     "cryptsetup": (
         "if [[ $1 == luksDump ]]; then\n"
         "  [[ $2 == --dump-json-metadata ]] || exit 2\n"
+        "  [[ -n ${FAKE_LUKSDUMP_FAILS:-} ]] && exit 1\n"
         "  ks=() tok=()\n"
         "  [[ -e $FAKE_STATE/password-slot ]] && ks+=('\"0\":{}')\n"
         '  [[ -e $FAKE_STATE/fido2-slot ]] && ks+=(\'"1":{}\') tok+=(\'"0":{"type":"systemd-fido2","keyslots":["1"]}\')\n'
@@ -109,6 +115,7 @@ STUBS = {
         "case ${FAKE_LIMINE_MKINITCPIO:-ok} in\n"
         f'  ok) echo "Building UKI for linux ({KERNEL_VERSION})" ;;\n'
         f'  fail) echo "Building UKI for linux ({KERNEL_VERSION})"; echo "{BUILD_FAILED}" >&2 ;;\n'
+        f'  skipped) echo "{KERNEL_SKIPPED}" >&2 ;;\n'
         '  exit1) echo "ERROR: FAT32 boot partition not found." >&2; exit 1 ;;\n'
         "esac\nexit 0\n"
     ),
@@ -160,8 +167,7 @@ def box(box: Box) -> Box:
     (box.state / "password-slot").touch()  # a stock Omarchy install: the passphrase alone
     box.limine = box.etc / "default" / "limine"
     box.limine.parent.mkdir(parents=True)
-    box.limine_file = f'ESP_PATH="/boot"\n\n{LIMINE_LINE}\n'
-    box.limine.write_text(box.limine_file)
+    set_limine_line(box, LIMINE_LINE)
     box.conf_d = box.etc / "limine-entry-tool.d"
     box.conf_d.mkdir()
     (box.conf_d / "omarchy-defaults.conf").write_text(
@@ -229,10 +235,6 @@ def set_limine_line(box: Box, line: str) -> None:
     box.limine.write_text(box.limine_file)
 
 
-def has_fido2_slot(box: Box) -> bool:
-    return (box.state / "fido2-slot").exists()
-
-
 def slots(box: Box) -> set[str]:
     """The fake header's keyslots by kind: password, fido2, recovery."""
     return {p.name.removesuffix("-slot") for p in box.state.glob("*-slot")}
@@ -243,18 +245,8 @@ def unpadded(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", text)
 
 
-def home_state(box: Box) -> dict:
-    """Every path under $HOME with what a rewrite would change; equal == wrote nothing."""
-    out = {}
-    for p in sorted(box.home.rglob("*")):
-        st = p.lstat()
-        target = os.readlink(p) if p.is_symlink() else None
-        out[str(p.relative_to(box.home))] = (st.st_mode, st.st_ino, st.st_mtime_ns, target)
-    return out
-
-
-MUTATORS = ("omarchy-pkg-add", "systemd-cryptenroll", "limine-mkinitcpio",
-            "mkinitcpio", "omarchy-snapshot")  # fmt: skip
+MUTATORS = {"omarchy-pkg-add", "systemd-cryptenroll", "limine-mkinitcpio",
+            "mkinitcpio", "omarchy-snapshot"}  # fmt: skip
 
 
 def assert_order(calls: list[str], *steps: str) -> None:
@@ -269,9 +261,7 @@ def assert_order(calls: list[str], *steps: str) -> None:
 
 def _assert_untouched(box: Box, *, allow: tuple[str, ...] = ()) -> None:
     """No system change of any kind — the package install included."""
-    for name in MUTATORS:
-        if name not in allow:
-            assert not any(c.startswith(name) for c in box.calls), f"{name} ran: {box.calls}"
+    assert not (MUTATORS - set(allow)) & set(box.commands), box.calls
     assert not box.dropin.exists() and not box.limine_dropin.exists()
     assert box.limine.read_text() == box.limine_file
     assert slots(box) == {"password"}
@@ -294,9 +284,9 @@ def test_install_links_the_tool_and_a_second_run_writes_nothing(box: Box) -> Non
     assert link.is_symlink() and os.readlink(link) == str(TOOL)
     assert (bin_dir / "something-else").read_text() == "#!/bin/sh\n"
     assert box.calls == [], "installing runs no command at all"
-    before = home_state(box)
+    before = box.snapshot()
     assert box.run(INSTALL).returncode == 0
-    assert home_state(box) == before and box.calls == []
+    assert box.snapshot() == before and box.calls == []
 
 
 def test_undo_removes_the_link_only_and_is_idempotent(box: Box) -> None:
@@ -355,7 +345,7 @@ def test_enroll_happy_path(box: Box) -> None:
         f"systemd-cryptenroll --fido2-device=auto --fido2-with-client-pin=yes {DEV}",
         # the proofs the wipe stands on: the key opens the volume, a recovery key made
         # with the key, and typed back against its own slot
-        f"cryptsetup open --test-passphrase --token-only {DEV}",
+        TOKEN_PROOF,
         f"systemd-cryptenroll --unlock-fido2-device=auto --recovery-key {DEV}",
         f"cryptsetup open --test-passphrase --key-slot=2 {DEV}",
         f"tee -- {box.limine_dropin}",
@@ -379,7 +369,7 @@ def test_enroll_happy_path(box: Box) -> None:
     assert "the drop-in reaches it" in res.stdout and "Boot images rebuilt" in res.stdout
     assert "Done." in res.stdout and "no passphrase any more" in res.stdout
     assert "WRITE IT DOWN" in res.stdout and "passphrase slots wiped" in res.stdout
-    assert res.stdout.index("reaches it") < res.stdout.index("Done.")
+    assert res.stdout.index("reaches it") < res.stdout.index(f"{box.dropin}: written")
 
 
 def test_enroll_rerun_is_idempotent(box: Box) -> None:
@@ -392,7 +382,7 @@ def test_enroll_rerun_is_idempotent(box: Box) -> None:
         "every slot already right"
     )
     # the proofs run again: a re-run never trusts the last one
-    assert f"cryptsetup open --test-passphrase --token-only {DEV}" in box.calls
+    assert TOKEN_PROOF in box.calls
     assert f"cryptsetup open --test-passphrase --key-slot=2 {DEV}" in box.calls
     assert f"{box.limine_dropin}: already in place" in res.stdout
     assert "no passphrase slot left" in res.stdout
@@ -432,6 +422,15 @@ def test_a_failed_proof_keeps_the_passphrase(box: Box, knob: str, said: str, mad
     assert not any("wipe-slot" in c or c.startswith("limine-mkinitcpio") for c in box.calls)
 
 
+def test_an_unreadable_header_is_never_read_as_an_empty_one(box: Box) -> None:
+    """A luksDump that fails (a cancelled sudo prompt) must stop the run: read as "no such slot" it would enrol a second key, or call the passphrase wiped while it still unlocks."""
+    box.env["FAKE_LUKSDUMP_FAILS"] = "1"
+    res = run(box, "enroll", "--yes", "--device", DEV)
+    assert res.returncode != 0 and "could not read" in res.stderr, res.stderr
+    assert "Done." not in res.stdout
+    _assert_untouched(box, allow=("omarchy-pkg-add", "omarchy-snapshot"))
+
+
 def test_the_recovery_proof_is_its_own_slot_not_any_passphrase(box: Box) -> None:
     """A recovery key already there is kept and typed back against its keyslot, never a bare --test-passphrase the old passphrase would pass."""
     (box.state / "recovery-slot").touch()
@@ -441,7 +440,7 @@ def test_the_recovery_proof_is_its_own_slot_not_any_passphrase(box: Box) -> None
     assert not any("--recovery-key" in c for c in box.calls)
     opens = [c for c in box.calls if c.startswith("cryptsetup open")]
     assert opens == [
-        f"cryptsetup open --test-passphrase --token-only {DEV}",
+        TOKEN_PROOF,
         f"cryptsetup open --test-passphrase --key-slot=2 {DEV}",
     ]
 
@@ -482,9 +481,8 @@ def test_refuses_without_tty_or_yes(box: Box, sub: str, enrolled: bool) -> None:
         box.reset()
     res = run(box, sub, "--device", DEV)
     assert res.returncode != 0 and "--yes" in res.stderr
-    for name in MUTATORS:
-        assert not any(c.startswith(name) for c in box.calls), box.calls
-    assert has_fido2_slot(box) is enrolled
+    assert not MUTATORS & set(box.commands), box.calls
+    assert ("fido2" in slots(box)) is enrolled
     assert box.dropin.exists() is enrolled and box.limine_dropin.exists() is enrolled
     assert box.limine.read_text() == box.limine_file
 
@@ -515,7 +513,7 @@ def test_enroll_aborts_when_snapshot_fails(box: Box) -> None:
     box.snapshot_rc = 127  # omarchy-snapshot: snapper not installed
     res = run(box, "enroll", "--yes", "--device", DEV)
     assert res.returncode == 0, res.stderr
-    assert "snapper" in res.stderr and has_fido2_slot(box)
+    assert "snapper" in res.stderr and "fido2" in slots(box)
 
 
 CRYPT = "cryptdevice=UUID=x:root root=/dev/mapper/root rw"
@@ -592,12 +590,12 @@ def test_enroll_refuses_a_competing_rd_luks_options_in_another_dropin(box: Box) 
     _assert_untouched(box)
 
 
-def test_enroll_names_the_inline_residue_when_it_is_on_etc_default_limine(box: Box) -> None:
-    """The v4.0.0-4.2.0 layout (rd.luks.* inline on /etc/default/limine) is refused with what put it there and what to do."""
+def test_enroll_names_the_inline_rd_luks_on_etc_default_limine(box: Box) -> None:
+    """rd.luks.* inline on /etc/default/limine is refused, naming the file and what to do."""
     set_limine_line(box, f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID}=root {RD_OPTS}"')
     res = run(box, "enroll", "--yes", "--device", DEV)
     assert res.returncode != 0 and str(box.limine) in res.stderr
-    assert "4.0.0-4.2.0" in res.stderr and "keep cryptdevice=" in res.stderr
+    assert "inline rd.luks.*" in res.stderr and "keep cryptdevice=" in res.stderr
     _assert_untouched(box)
 
 
@@ -623,10 +621,12 @@ def test_enroll_stops_at_the_cmdline_proof_when_the_dropin_does_not_reach_the_ke
     assert not any(c.startswith("limine-mkinitcpio") for c in box.calls)
 
 
-# limine-mkinitcpio exits 0 whatever mkinitcpio did, so one failure is its own error_msg
-# (limine-mkinitcpio-install:202) on stderr and the other a non-zero exit.
+# limine-mkinitcpio exits 0 whatever mkinitcpio did, so a failure is its own error_msg on
+# stderr — any "ERROR:" line, the build's (:202) and the skip that builds nothing at all
+# (:104) alike — and the other a non-zero exit.
 @pytest.mark.parametrize(
-    ("mode", "said"), [("fail", BUILD_FAILED), ("exit1", "limine-mkinitcpio exited 1")]
+    ("mode", "said"),
+    [("fail", BUILD_FAILED), ("skipped", KERNEL_SKIPPED), ("exit1", "limine-mkinitcpio exited 1")],
 )
 def test_rebuild_failure_dies_with_the_config_left_in_place(box: Box, mode: str, said: str) -> None:
     box.limine_mkinitcpio = mode
@@ -656,7 +656,7 @@ def test_enroll_allow_non_latin_layout_flag_warns_and_proceeds(box: Box) -> None
     res = run(box, "enroll", "--yes", "--device", DEV, "--allow-non-latin-layout")
     assert res.returncode == 0, res.stderr
     assert "warning" in res.stderr and "ru" in res.stderr and "recovery key" in res.stderr
-    assert has_fido2_slot(box) and box.dropin.exists()
+    assert "fido2" in slots(box) and box.dropin.exists()
 
 
 # the last assignment wins and one pair of quotes goes; no XKBLAYOUT and no file at all
@@ -702,8 +702,6 @@ def test_dropin_rewrites_omarchy_hooks(box: Box) -> None:
         "base", "systemd", "plymouth", "keyboard", "autodetect", "microcode", "modconf", "kms",
         "sd-vconsole", "block", "sd-encrypt", "filesystems", "fsck", "sd-btrfs-overlayfs",
     ]  # fmt: skip
-    for gone in ("udev", "encrypt", "keymap", "consolefont", "resume", ""):
-        assert gone not in hooks
     # empty elements go too, and an already-systemd HOOKS passes through untouched
     assert _source_dropin(box, 'base "" udev encrypt') == ["base", "systemd", "sd-encrypt"]
     assert _source_dropin(box, " ".join(hooks)) == hooks
@@ -741,7 +739,7 @@ def test_disable_removes_both_dropins(box: Box) -> None:
     assert "omarchy-snapshot create" in calls and "limine-mkinitcpio" in calls
     assert "Boot images rebuilt" in res.stdout
     assert not any(c.startswith("systemd-cryptenroll") for c in calls)
-    assert has_fido2_slot(box), "disable keeps the LUKS slot"
+    assert "fido2" in slots(box), "disable keeps the LUKS slot"
     assert (box.mkinitcpio_d / "omarchy_hooks.conf").exists(), "Omarchy's own drop-ins stay"
     assert sorted(p.name for p in box.conf_d.iterdir()) == box.omarchy_conf_d
 
@@ -796,8 +794,7 @@ def test_status_prints_facts(box: Box) -> None:
     assert f"cmdline drop-in: absent ({box.limine_dropin})" in out
     assert "kernel cmdline: no rd.luks.* parameters" in out
     assert f"plugged in — {TOKEN_LINE}" in out and "sd-btrfs-overlayfs installed" in out
-    for name in MUTATORS[1:]:
-        assert not any(c.startswith(name) for c in box.calls)
+    assert not MUTATORS & set(box.commands), box.calls
     assert run(box, "enroll", "--yes", "--device", DEV).returncode == 0
     box.tokens = ""
     res = run(box)  # status is the default subcommand
@@ -813,14 +810,14 @@ def test_status_prints_facts(box: Box) -> None:
 
 
 def test_status_reports_rd_luks_set_outside_the_dropin(box: Box) -> None:
-    """4.0.0-4.2.0 wrote the parameters inline on /etc/default/limine, which `disable` never touches (README › Undo)."""
+    """rd.luks.* inline on /etc/default/limine is named as set outside the drop-in; `disable` never touches that file (README › Undo)."""
     set_limine_line(box, f'KERNEL_CMDLINE[default]+="{CRYPT} rd.luks.name={UUID}=root {RD_OPTS}"')
     res = run(box, "status")
     assert res.returncode == 0, res.stderr
     out = unpadded(res.stdout)
     assert f"kernel cmdline: rd.luks.name={UUID}=root {RD_OPTS}" in out
     assert "set outside" in out and str(box.limine) in out
-    assert "4.0.0-4.2.0" in out and "keep cryptdevice=" in out
+    assert "inline rd.luks.*" in out and "keep cryptdevice=" in out
 
 
 def test_status_says_unknown_instead_of_asking_sudo_per_device(box: Box) -> None:

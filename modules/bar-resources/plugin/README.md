@@ -10,33 +10,28 @@ Top line: CPU temperature and utilisation, RAM used/total, upload rate.
 Bottom line: the active GPU's temperature and utilisation, VRAM used/total,
 download rate. Fed by two long-lived JSON streams bundled in `bin/`
 (`hyprconf-gpu-info`, one line every two seconds; `hyprconf-stats`, one a
-second, whose tick reads `/proc` and `/sys` and forks nothing — it paces
-itself on bash's loadable `sleep` builtin, where the GPU feeder's sysfs
-loops exec `/usr/bin/sleep`). Both emit numbers only; every glyph, unit and
-column width is the widget's. The network rates are the default-route
-interface's, read from `/proc/net/route` — by definition the one carrying the
-traffic, so with a full-tunnel VPN up the rates follow the tunnel. Columns are
-fixed-width, sized from their widest value, so nothing shifts as the numbers
-change. On a multi-GPU box the **active** card is shown — the one with the most
-VRAM in use (ties: utilisation, then index), re-evaluated every sample; NVIDIA
-(`nvidia-smi --loop`), AMD (`gpu_busy_percent`) and Intel (the `xe` driver's GT
-idle residency) in that order. An Intel iGPU has no VRAM of its own, so it reads
-`shared`, and its tooltip carries the GT clock where NVIDIA's carries power
-draw. A feeder that exits without ever emitting a line means the hardware is not
-there and is left alone (the GPU cells stay blank but sized); one that emitted a
-line and then died is restarted on a capped backoff, 1 s → 32 s, then parked
-(`Service.qml`'s header has the rule). An Intel card in runtime suspend is never
-touched: residency, hwmon and clock each resume an `xe` device on read, so a
-tick that finds `power/runtime_status` saying `suspended` or `suspending` reads
-nothing off that card and ranks it idle. Every other value is measured, a
-missing file included. Click the CPU cell for `btop`
-(`omarchy-launch-or-focus-tui btop`).
+second, whose tick reads `/proc` and `/sys` and forks nothing). Both emit
+numbers only; every glyph, unit and column width is the widget's. The network
+rates are the default-route interface's, read from `/proc/net/route` — by
+definition the one carrying the traffic, so with a full-tunnel VPN up the
+rates follow the tunnel. Columns are fixed-width, sized from their widest
+value, so nothing shifts as the numbers change. On a multi-GPU box the
+**active** card is shown — the one with the most VRAM in use (ties:
+utilisation, then index), re-evaluated every sample; NVIDIA
+(`nvidia-smi --loop`), AMD (`gpu_busy_percent`) and Intel (the `xe` driver's
+GT idle residency) in that order. An Intel iGPU has no VRAM of its own, so it
+reads `shared`, and its tooltip carries the GT clock where NVIDIA's carries
+power draw. A feeder that exits without ever emitting a line means the
+hardware is not there and is left alone (the GPU cells stay blank but sized);
+one that emitted a line and then died is restarted on a capped backoff, 1 s →
+32 s, then parked (`Service.qml`'s header has the rule). An Intel card in
+runtime suspend is never touched: residency, hwmon and clock each resume an
+`xe` device on read, so a tick that finds `power/runtime_status` saying
+`suspended` or `suspending` reads nothing off that card and ranks it idle.
+Every other value is measured, a missing file included. Click the CPU cell for
+`btop` (`omarchy-launch-or-focus-tui btop`).
 
-Omarchy's own stats were the first stop and neither fits (4.0.3-1):
-`omarchy-system-stats --bar-widget` is cpu/memory/load through three awk forks
-per call, with no network, temperature or GPU, and the bar's `command` module
-runs `bash -lc` off a Timer inside the per-screen `Variants` — a login shell per
-monitor per interval, for one line of output where this draws two.
+Why neither of Omarchy's own stats fits: the header of `bin/hyprconf-stats`.
 
 ## Install
 
@@ -52,7 +47,7 @@ omarchy plugin enable hyprconf.resources
 
 Once this folder is published as a repository of its own, `omarchy plugin add
 <url> --enable --yes` is the one-step form. `--yes` is the scripted path —
-Omarchy 4.0.3 confirms in a terminal even when given arguments
+Omarchy 4.0.4-1 confirms in a terminal even when given arguments
 (`/usr/share/omarchy/shell/README.md`) — and it skips the review-the-code
 prompt, so read the repository first.
 
@@ -86,17 +81,18 @@ plugin load failed for <id>`) while the widget draws its null-service
 defaults — nothing on disk is wrong; `omarchy restart shell` clears it, so
 restart before changing the plugin.
 
-## Host contract (Omarchy 4.0.3-1)
+## Host contract (Omarchy 4.0.4-1)
 
 An installed third-party widget never gets the host Bar: its `bar` is a
 `Ui/PluginBarApi.qml` facade and `bar.shell` a `services/PluginShellApi.qml`,
 both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2002-2003`,
-`shell/shell.qml:221`). Those two files are the whole contract — a member that
-exists only on the Bar reads back `undefined`, with nothing logged anywhere.
-This widget uses `bar.barForeground`, `bar.fontFamily`,
-`bar.run(command)`, `bar.showTooltip(target, text)` / `bar.hideTooltip(target)`
-and `bar.shell.serviceFor("hyprconf.resources")`, plus the `bar`, `moduleName`
-and `settings` the bar's `ModuleSlot.injectProps` sets on it.
+`Bar.qml:229-248` → `shell/shell.qml:684`). Those two files are the whole
+contract — a member that exists only on the Bar reads back `undefined`, with
+nothing logged anywhere. This widget uses `bar.barForeground`,
+`bar.fontFamily`, `bar.run(command)`, `bar.showTooltip(target, text)` /
+`bar.hideTooltip(target)` and `bar.shell.serviceFor("hyprconf.resources")`,
+plus the `bar`, `moduleName` and `settings` the bar's
+`ModuleSlot.injectProps` sets on it.
 
 The two feeders in `bin/` are run by absolute path, resolved from the service
 file's own URL rather than from `PATH`: the shell loads an entry point as a

@@ -80,10 +80,10 @@ def test_the_marker_waits_for_the_value_to_land(box) -> None:
 def test_a_second_run_writes_nothing_and_calls_nothing_that_mutates(box) -> None:
     machine(box, present=True)
     assert box.run(MODULE, tty=True).returncode == 0
-    before = {p: p.read_bytes() for p in box.files()}
+    before = box.snapshot()
     box.reset()
     assert (proc := box.run(MODULE, tty=True)).returncode == 0, proc.stderr
-    assert {p: p.read_bytes() for p in box.files()} == before
+    assert box.snapshot() == before
     assert box.commands == ["omarchy-pkg-present"] and proc.stdout == ""
 
 
@@ -93,8 +93,21 @@ def test_undo_restores_the_stock_editor_and_keeps_a_later_pick(box) -> None:
     box.run(MODULE, tty=True)
     (box.home / LEGACY).touch()
     box.reset()
-    assert box.undo("vscode").returncode == 0
+    assert box.undo("vscode", env={"EDITOR_SET_STATUS": "1"}).returncode == 0
     assert seeded(box) == (False, "nvim", True) and (box.home / LEGACY).exists()
     (box.home / STATE).write_text("helix\n")  # a pick made after the install
     box.reset()
     assert box.undo("vscode").returncode == 0 and seeded(box) == (False, "helix", False)
+
+
+@pytest.mark.parametrize("v7", [False, True])
+def test_undo_flips_code_back_only_where_hyprconf_seeded_it(box, v7: bool) -> None:
+    """CONTRIBUTING: an undo on a box that never installed is a no-op — the marker is the record."""
+    machine(box, present=True)
+    (state := box.home / STATE).parent.mkdir(parents=True)
+    state.write_text("code\n")  # a pick of the user's; this module never ran
+    if v7:
+        (legacy := box.home / LEGACY).parent.mkdir(parents=True)
+        legacy.touch()
+    assert box.undo("vscode").returncode == 0
+    assert seeded(box) == ((False, "nvim", True) if v7 else (False, "code", False))

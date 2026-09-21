@@ -1,21 +1,18 @@
 """modules/firefox — the /etc policy, Omarchy's installer, the default browser."""
 
 import json
-import os
 import re
 from pathlib import Path
 
 import pytest
 
-from conftest import OMARCHY_TREE, REPO_ROOT, SUDO_RUNS, Box
+from conftest import NEEDS_OMARCHY, OMARCHY, OMARCHY_TREE, REPO_ROOT, SUDO_RUNS, Box
 
 MODULE = REPO_ROOT / "modules" / "firefox"
 INSTALL = MODULE / "install"
 POLICIES = json.loads((MODULE / "policies.json").read_text(encoding="utf-8"))["policies"]
 # The merge's left-hand layer, absent in CI; keyed on OMARCHY_PATH, so an empty one reproduces CI.
-OMARCHY_POLICY = (
-    Path(os.environ.get("OMARCHY_PATH", "/usr/share/omarchy")) / "default/firefox/policies.json"
-)
+OMARCHY_POLICY = OMARCHY / "default/firefox/policies.json"
 
 # Firefox's own allowlist for the Preferences policy, verbatim from
 # `Preferences.onBeforeAddons` (Policies.sys.mjs:2632-2674, Firefox 155.0.1) — a
@@ -54,24 +51,25 @@ def test_every_extension_is_force_installed_and_pinned_to_the_nav_bar() -> None:
         # private_browsing at ANY value takes the about:addons toggle away (XPIDatabase.sys.mjs).
         assert "private_browsing" not in entry, addon_id
         # makeWidgetId (ExtensionCommon.sys.mjs:201-205) + "-browser-action" (ext-browserAction.js:45);
-        # saved placements beat default_area (CustomizableUI.sys.mjs:4028-4062).
+        # saved placements beat default_area (CustomizableUI.sys.mjs:4074-4111, Firefox 155.0.1).
         widget = re.sub(r"[^a-z0-9_-]", "_", addon_id.lower()) + "-browser-action"
         assert widget in nav_bar, addon_id
 
 
 def test_the_toolbar_seed_is_one_firefox_will_adopt() -> None:
-    """A fresh profile's first window is built from this default-branch string (CustomizableUI:3495)."""
+    """A fresh profile's first window is built from this default-branch string (CustomizableUI:3543-3544)."""
     entry = POLICIES["Preferences"]["browser.uiCustomization.state"]
     assert isinstance(entry["Value"], str)  # Preferences takes bool/number/string only (:2744-2778)
     state = json.loads(entry["Value"])
     assert set(state) == {"placements", "currentVersion"}  # no seen/dirtyAreaCache/newElementCount
     # At 0 the migration ladder rewrites the seed and its v<21 step throws on a missing nav-bar.
+    # kVersion is 26 (:71); its <26 step (:902-926) is a no-op on an empty TabsToolbar.
     assert state["currentVersion"] == 25
     assert state["placements"]["nav-bar"]
     everywhere = [wid for area in state["placements"].values() for wid in area]
     assert len(everywhere) == len(set(everywhere)), "a duplicate placement is a corrupt capture"
-    # updateForNewProtonVersion (CustomizableUI.sys.mjs:886-938) strips sidebar-button from a
-    # nav-bar unless browser.engagement.sidebar-button.has-used says it was used.
+    # updateForNewProtonVersion (CustomizableUI.sys.mjs:935-987, the step at :977-984) strips
+    # sidebar-button from a nav-bar unless browser.engagement.sidebar-button.has-used says so.
     assert "sidebar-button" in state["placements"]["nav-bar"]
     assert POLICIES["Preferences"]["browser.engagement.sidebar-button.has-used"]["Value"] is True
 
@@ -93,7 +91,7 @@ def test_every_pref_is_one_firefox_will_accept() -> None:
 
 
 def test_the_stylesheet_pref_belongs_to_the_theme_module_not_the_policy() -> None:
-    """One home: firefox-theme's per-profile user.js — no sudo, and it covers LibreWolf."""
+    """One home: firefox-theme's per-profile user.js — no sudo."""
     assert "toolkit.legacyUserProfileCustomizations.stylesheets" not in POLICIES["Preferences"]
 
 
@@ -105,21 +103,32 @@ BROWSER_DEAF = "if (($#)); then exit 0; fi\necho chromium\n"
 BROWSER_NOISY = BROWSER.replace("exit 0", "exit 1")
 
 
+FOREIGN = '{\n  "policies": { "BlockAboutConfig": true }\n}\n'  # nothing in this repo writes it
+# Omarchy's own layer after an omarchy-update: the merge moves, hyprconf's half does not.
+OMARCHY_MOVED = '{"policies": {"Preferences": {"apz.overscroll.enabled": {"Value": false}}}}'
+
+
 def _policy(box: Box) -> Path:
     return box.etc / "firefox" / "policies" / "policies.json"
+
+
+def _bak(box: Box) -> Path:
+    """The copy the install leaves of a policy it did not write."""
+    return _policy(box).with_name("policies.json.bak")
 
 
 def _marker(box: Box) -> Path:
     return box.home / ".local" / "state" / "hyprconf" / "browser-applied"
 
 
-def _files(box: Box) -> dict[Path, bytes]:
-    return {p: p.read_bytes() for d in (box.home, box.etc) for p in d.rglob("*") if p.is_file()}
+def _ours(box: Box) -> Path:
+    """The record that the policy in /etc is this module's — what undo removes it on."""
+    return _marker(box).with_name("firefox-policy")
 
 
-def _run(box: Box, *args: str, setter: str = BROWSER, **kw):
+def _run(box: Box, *args: str, setter: str = BROWSER, sudo: str = SUDO_RUNS, **kw):
     """The module against the box, with the seam that keeps the root write inside it."""
-    box.stub("sudo", SUDO_RUNS)
+    box.stub("sudo", sudo)
     box.stub("omarchy-default-browser", setter)
     kw.setdefault("tty", True)
     return box.run(INSTALL, *args, **kw)
@@ -143,16 +152,17 @@ def test_the_policy_is_omarchys_merged_under_ours_through_sudo(box: Box) -> None
     _policy(box).write_text("{}\n")
     _run(box)
     assert json.loads(_policy(box).read_text())["policies"]["DisableTelemetry"] is True
+    assert not _bak(box).exists(), "hyprconf's own policy is never copied aside"
 
 
 def test_a_second_run_writes_nothing_and_calls_no_mutating_command(box: Box) -> None:
     """Byte-stable, and a settled box never reaches sudo — what makes the hook's run silent."""
     assert _run(box).returncode == 0
-    before = _files(box)
+    before = box.snapshot()
     box.reset()
     proc = _run(box)
     assert proc.returncode == 0, proc.stderr
-    assert _files(box) == before
+    assert box.snapshot() == before
     for command in ("sudo", "omarchy-install-browser", "omarchy-default-browser"):
         assert command not in box.commands, command
 
@@ -183,7 +193,8 @@ def test_firefox_when_absent_goes_through_omarchys_installer(box: Box, installs:
 def test_the_sudo_gates_skip_the_root_write_but_still_seed_the_default(
     box: Box, env: dict[str, str], pointer: str
 ) -> None:
-    """The hook runs non-interactively inside omarchy-update, where a prompt stalls the update."""
+    """The hook passes --no-packages: under omarchy-update every child has a pty
+    (bin/omarchy-update:10-12), so a prompt would stall the update."""
     proc = _run(box, tty=False, env=env)  # no tty: stdin is closed
     assert proc.returncode == 0, proc.stderr
     assert pointer in proc.stdout
@@ -205,7 +216,7 @@ def test_the_marker_follows_the_value_not_the_setters_exit_status(
     assert ("not the default browser" in proc.stderr) is not seeded
 
 
-def test_the_default_browser_is_seeded_once_and_the_v7_marker_is_honoured(box: Box) -> None:
+def test_the_default_browser_is_seeded_once_and_the_v7_marker_is_migrated(box: Box) -> None:
     """Seeded on the run that takes, then the user's; v7's defaults-applied covered browser+editor."""
     _run(box)
     assert "omarchy-default-browser firefox" in box.calls
@@ -220,6 +231,7 @@ def test_the_default_browser_is_seeded_once_and_the_v7_marker_is_honoured(box: B
     box.reset()
     _run(box)
     assert "omarchy-default-browser" not in box.commands
+    assert _marker(box).is_file()
 
 
 def test_undo_removes_the_policy_and_the_marker(box: Box) -> None:
@@ -230,7 +242,7 @@ def test_undo_removes_the_policy_and_the_marker(box: Box) -> None:
     proc = _run(box, "undo")
     assert proc.returncode == 0, proc.stderr
     assert not _policy(box).exists()
-    assert not _marker(box).exists()
+    assert not list(_marker(box).parent.iterdir()), "marker and record both"
     assert "omarchy default browser <name>" in proc.stdout
     assert "omarchy-pkg-drop" not in box.commands
     box.reset()
@@ -238,19 +250,91 @@ def test_undo_removes_the_policy_and_the_marker(box: Box) -> None:
     assert "sudo" not in box.commands
 
 
-def test_every_root_call_carries_the_end_of_options_marker() -> None:
-    """AGENTS.md rule 8: a path handed to a root call is never readable as an option."""
-    root_calls = [
-        ln.strip()
-        for ln in INSTALL.read_text().splitlines()
-        if re.search(r"(?:^|;|&&|\|\||\bif )\s*sudo\s", ln) and not ln.lstrip().startswith("#")
-    ]
-    assert root_calls
-    for call in root_calls:
-        assert " -- " in call, call
+def test_a_policy_hyprconf_did_not_write_is_copied_aside_once_and_put_back(box: Box) -> None:
+    """The root write replaces a file the user may own: one copy beside it, made once."""
+    _policy(box).parent.mkdir(parents=True)
+    _policy(box).write_text(FOREIGN)
+    assert _run(box).returncode == 0
+    assert box.calls_of("sudo")[0] == ["sudo", "cp", "-f", "--", str(_policy(box)), str(_bak(box))]
+    assert _bak(box).read_text() == FOREIGN
+    assert json.loads(_policy(box).read_text())["policies"]["DisableTelemetry"] is True
+    # Omarchy's half moves: ours is rewritten, and the copy beside it stays the user's.
+    box.omarchy_write("default/firefox/policies.json", OMARCHY_MOVED)
+    box.reset()
+    assert _run(box).returncode == 0
+    assert _bak(box).read_text() == FOREIGN
+    box.reset()
+    assert _run(box, "undo").returncode == 0
+    assert _policy(box).read_text() == FOREIGN and not _bak(box).exists()
+    assert not list(_marker(box).parent.iterdir()), "marker and record both"
 
 
-@pytest.mark.skipif(not OMARCHY_POLICY.is_file(), reason="needs the installed Omarchy")
+def test_a_copy_orphaned_from_its_record_is_refreshed_not_kept(box: Box) -> None:
+    """`HYPRCONF_STATE` is relocatable, so /etc can outlive the record: the next
+    foreign policy is still the one copied aside, not the one before it."""
+    _policy(box).parent.mkdir(parents=True)
+    _policy(box).write_text(FOREIGN)
+    assert _run(box).returncode == 0
+    _ours(box).unlink()  # the record moved with $HYPRCONF_STATE; /etc did not
+    later = FOREIGN.replace("BlockAboutConfig", "BlockAboutProfiles")
+    _policy(box).write_text(later)
+    box.reset()
+    assert _run(box).returncode == 0
+    assert _bak(box).read_text() == later
+    box.reset()
+    assert _run(box, "undo").returncode == 0
+    assert _policy(box).read_text() == later
+
+
+def test_a_policy_that_cannot_be_copied_aside_is_left_where_it_is(box: Box) -> None:
+    """A file the module cannot keep a copy of is never the one it overwrites."""
+    _policy(box).parent.mkdir(parents=True)
+    _policy(box).write_text(FOREIGN)
+    proc = _run(box, sudo="case $1 in cp) exit 1 ;; esac\n" + SUDO_RUNS)
+    assert proc.returncode == 0 and "could not copy" in proc.stderr
+    assert _policy(box).read_text() == FOREIGN and not _bak(box).exists()
+
+
+def test_undo_leaves_a_policy_hyprconf_never_wrote(box: Box) -> None:
+    """No record, not ours — and no sudo to remove it with."""
+    _policy(box).parent.mkdir(parents=True)
+    _policy(box).write_text(FOREIGN)
+    assert _run(box, "undo").returncode == 0
+    assert _policy(box).read_text() == FOREIGN
+    assert "sudo" not in box.commands
+
+
+@pytest.mark.parametrize("omarchy_moved", [False, True])
+def test_a_policy_from_before_the_record_is_adopted_without_sudo(
+    box: Box, omarchy_moved: bool
+) -> None:
+    """Every box up to 8.2 has the policy and no record: adopting it is what keeps undo
+    restoring stock, and `omarchy-update` moving Omarchy's half must not read as foreign."""
+    assert _run(box).returncode == 0
+    _ours(box).unlink()
+    if omarchy_moved:
+        box.omarchy_write("default/firefox/policies.json", OMARCHY_MOVED)
+    box.reset()
+    assert _run(box, tty=False, env={"HYPRCONF_NO_SUDO": "1"}).returncode == 0
+    assert "sudo" not in box.commands and _ours(box).is_file()
+    box.reset()
+    assert _run(box).returncode == 0
+    assert ("sudo" in box.commands) is omarchy_moved, "the rewrite, and nothing else"
+    assert not _bak(box).exists()
+    box.reset()
+    assert _run(box, "undo").returncode == 0
+    assert not _policy(box).exists()
+
+
+def test_an_empty_omarchy_policy_warns_and_writes_nothing(box: Box) -> None:
+    """`.[0] * .[1]` errors where `reduce` silently dropped Omarchy's whole layer."""
+    box.omarchy_write("default/firefox/policies.json", "")
+    proc = _run(box)
+    assert proc.returncode == 0 and "could not merge" in proc.stderr
+    assert not _policy(box).exists() and "sudo" not in box.commands
+
+
+@pytest.mark.skipif(not OMARCHY_POLICY.is_file(), reason=NEEDS_OMARCHY)
 def test_omarchy_still_ships_the_policy_this_module_merges_under() -> None:
     """With the file gone the jq call fails and the module warns instead of writing."""
     theirs = json.loads(OMARCHY_POLICY.read_text())["policies"]["Preferences"]

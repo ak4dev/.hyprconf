@@ -7,16 +7,17 @@
   link — a linked theme takes the plain `cp -r` branch (`omarchy-theme-set:204-208,275`) and `omarchy theme update`
   skips it (`omarchy-theme-extras:12`, read by `omarchy-theme-update:5`) — so a `git pull` here is the theme update.
   Anything already at that name — a directory, or a link to a working copy of yours — is left alone with a message,
-  and no backup is dropped beside it: `omarchy-theme-list:7` lists every directory and link there as a theme.
+  and no backup is dropped beside it: `omarchy-theme-list:7` lists every directory and link there as a theme. The one
+  exception is the link hyprconf 7.x left at `<checkout>/themes/dracula`, which is ours and is re-pointed here.
 - **`backgrounds/<theme>/<file>`** — extra wallpapers (`gruvbox/gruvbox.jpg`), copied into
   `~/.config/omarchy/backgrounds/<theme>/` when absent. The picker scans two directories, both keyed to the *active*
   theme: that theme's own `backgrounds/` and this one (`omarchy-theme-bg-next:7-14`, `omarchy-theme-bg-switcher:11-14`)
   — filed anywhere else a wallpaper is invisible, and `omarchy theme bg install` only opens nautilus on the folder
-  (`:5-9`). dracula's own wallpaper ships inside the theme, where Omarchy already looks.
+  (`omarchy-theme-bg-install:5-9`). dracula's own wallpaper ships inside the theme, where Omarchy already looks.
 
 ## Requires
 
-Coreutils, and `omarchy-theme-remove` for the undo — nothing else: no package, no `sudo`, no prompt, no marker. The link target and "copy when absent" are their own gates, so a re-run writes nothing.
+Coreutils, `cmp` (diffutils, in every Omarchy box) and `omarchy-theme-remove` for the undo — no package, no `sudo`, no prompt, no marker. The link target and "copy when absent" are their own gates, so a re-run writes nothing.
 
 ## Install alone
 
@@ -37,4 +38,4 @@ names the values kept where Omarchy would otherwise derive one (`omarchy-theme-c
 `bash modules/themes/install undo`: `omarchy theme remove dracula` on our own link (`rm -rf` on a symlink unlinks it,
 `omarchy-theme-remove:31-37` — a theme of yours there stays), and each seeded wallpaper where the bytes are still ours.
 
-## Verified against Omarchy 4.0.3-1
+## Verified against Omarchy 4.0.4-1

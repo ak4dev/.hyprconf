@@ -13,7 +13,7 @@ import pytest
 from conftest import HOOK_INSTALL, Box
 
 MODULE = Path(__file__).parent
-INSTALL, HOOK, TPL = MODULE / "install", MODULE / "hook", MODULE / "userChrome.css.tpl"
+INSTALL, HOOK, TPL = MODULE / "install", MODULE / "10-hyprconf", MODULE / "userChrome.css.tpl"
 THEMED = ".config/omarchy/themed/userChrome.css.tpl"
 INSTALLED_HOOK = ".config/omarchy/hooks/theme-set.d/10-hyprconf"
 RENDER = ".local/state/omarchy/current/theme/userChrome.css"
@@ -225,8 +225,8 @@ def test_the_hook_is_a_no_op_without_a_render(box: Box) -> None:
 
 
 # omarchy-theme-set-templates:195-207 substitutes one `s|{{ <key> }}|<value>|g`
-# per palette key; dark_background (:236) and lighter_background (:226) are
-# derived when the theme's colors.toml omits them.
+# per palette key; dark_background (omarchy-theme-color:236) and
+# lighter_background (:226) are derived when the theme's colors.toml omits them.
 PALETTE = ("mode", "background", "foreground", "accent", "dark_background", "lighter_background")
 
 

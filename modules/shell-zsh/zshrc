@@ -14,13 +14,7 @@ for _hyprconf_f in env-bootstrap envs aliases; do
 done
 unset _hyprconf_bash _hyprconf_f
 
-# Omarchy aliases `cd` to its `zd` wrapper, which calls zoxide's `z`
-# (default/bash/aliases:17-31); without a zsh init that alias breaks `cd` for
-# anything that is not an existing directory.
-command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
-
-# History, completion and emacs keys, written out: Oh My Zsh used to supply
-# them from its lib/, and the overlay no longer installs it.
+# History, completion and emacs keys.
 HISTFILE="$HOME/.zsh_history"
 HISTSIZE=50000
 SAVEHIST=50000
@@ -30,22 +24,25 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
 zstyle ':completion:*' menu select
 autoload -Uz compinit && compinit
 bindkey -e
-zmodload zsh/terminfo 2>/dev/null
 autoload -Uz up-line-or-beginning-search down-line-or-beginning-search
 zle -N up-line-or-beginning-search
 zle -N down-line-or-beginning-search
-bindkey "${terminfo[khome]:-^[[H}" beginning-of-line
-bindkey "${terminfo[kend]:-^[[F}" end-of-line
-bindkey "${terminfo[kdch1]:-^[[3~}" delete-char
-bindkey "${terminfo[kcuu1]:-^[[A}" up-line-or-beginning-search
-bindkey "${terminfo[kcud1]:-^[[B}" down-line-or-beginning-search
+# Both forms, never terminfo: nothing here sends smkx, so the terminal stays in
+# CSI mode while terminfo names only the SS3 one (kitty khome=\EOH).
+bindkey '^[[H' beginning-of-line '^[OH' beginning-of-line
+bindkey '^[[F' end-of-line '^[OF' end-of-line
+bindkey '^[[3~' delete-char
+bindkey '^[[A' up-line-or-beginning-search '^[OA' up-line-or-beginning-search
+bindkey '^[[B' down-line-or-beginning-search '^[OB' down-line-or-beginning-search
 
-# powerlevel10k, the pinned clone `install` makes — the theme file is the whole
-# of it, no framework in between. ~/.p10k.zsh is a link to this module's
-# .p10k.zsh (the pinned template plus this overlay's overrides).
-_hyprconf_p10k="$HOME/.local/share/powerlevel10k/powerlevel10k.zsh-theme"
-[ -r "$_hyprconf_p10k" ] && source "$_hyprconf_p10k"
-unset _hyprconf_p10k
+# Omarchy aliases `cd` to its `zd` wrapper, which calls zoxide's `z`
+# (default/bash/aliases:17-31); without a zsh init that alias breaks `cd` for
+# anything that is not an existing directory.
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+
+# powerlevel10k: the pinned clone `install` makes, then its ~/.p10k.zsh link.
+[ -r "$HOME/.local/share/powerlevel10k/powerlevel10k.zsh-theme" ] &&
+  source "$HOME/.local/share/powerlevel10k/powerlevel10k.zsh-theme"
 [ -r "$HOME/.p10k.zsh" ] && source "$HOME/.p10k.zsh"
 
 [ -r /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh ] &&

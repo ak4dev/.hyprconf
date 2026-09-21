@@ -1,8 +1,7 @@
 -- hyprconf input overlay for Omarchy: ~/.config/hypr/input.lua, require'd
 -- after Omarchy's defaults (config/hypr/hyprland.lua:20), so only the deltas
 -- are stated. The keyboard layout logic (kb_* from /etc/vconsole.conf, compose
--- on CapsLock, a Latin fallback layout) is Omarchy's on purpose; follow_mouse
--- and sensitivity already match.
+-- on CapsLock, a Latin fallback layout) is Omarchy's on purpose.
 
 hl.config({
   input = {

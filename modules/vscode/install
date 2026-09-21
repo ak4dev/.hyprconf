@@ -6,11 +6,11 @@ set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 pkg=visual-studio-code-bin editor=code
 marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/editor-applied
-legacy=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/defaults-applied
+legacy=${marker%/*}/defaults-applied
 
 if [[ ${1:-} == undo ]]; then
-  # Stock is Omarchy's own fallback, nvim (bin/omarchy-default-editor:14, with no state file).
-  if [[ $(omarchy-default-editor 2>/dev/null || true) == "$editor" ]]; then
+  # Stock is Omarchy's own fallback, nvim (bin/omarchy-default-editor:14, with no state file); only a default this module seeded — the marker, or v7's — goes back.
+  if [[ ( -e $marker || -e $legacy ) && $(omarchy-default-editor 2>/dev/null || true) == "$editor" ]]; then
     omarchy-default-editor nvim >/dev/null 2>&1 || true
   fi
   rm -f "$marker"        # never $legacy: the browser module honours the same file
@@ -44,4 +44,3 @@ if [[ $(omarchy-default-editor 2>/dev/null || true) == "$editor" ]]; then
 else
   echo "  could not set $editor as the default editor — set it with: omarchy default editor $editor"
 fi
-exit 0

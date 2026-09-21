@@ -22,20 +22,14 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     steps:
-      # jq: modules/hypr/bin/hyprconf-gaps parses `hyprctl getoption -j` with it.
-      # shellcheck: modules/yubikey/test_yubikey.py lints the generated mkinitcpio
-      # drop-in and would otherwise skip silently.
-      # diffutils: the modules cmp-gate their copies (`cmp -s` in nine
-      # modules/*/install and the firefox-theme hook); Omarchy has it through
-      # mkinitcpio, the bare container does not.
-      # lua: luac parses the modules/hypr/*.lua overrides, which would otherwise skip.
-      # qt6-declarative: qmllint parses the plugin QML
-      # (test_plugin_qml_parses), which would otherwise skip — Arch keeps it
-      # in /usr/lib/qt6/bin, where the test looks.
-      # zsh: modules/shell-zsh/test_shell_zsh.py parses the two shipped zsh
-      # files with `zsh -n`, and would otherwise skip — the only skips CI may
-      # show are the ones that need the installed Omarchy, budgeted in
-      # AGENTS › Gates and CI.
+      # Each one is a tool a suite would otherwise skip for, and a skip outside
+      # the budget now fails the run (conftest.py::pytest_sessionfinish): jq for
+      # the installs and bin/ tools that read or write JSON, shellcheck for the
+      # generated mkinitcpio drop-in, diffutils for the cmp-gated copies (Omarchy
+      # has it through mkinitcpio, the bare container does not), lua for luac over
+      # modules/hypr/*.lua, qt6-declarative for qmllint over the plugin QML (Arch
+      # keeps it in /usr/lib/qt6/bin, where the tests look), zsh for `zsh -n` over
+      # the two shipped zsh files.
       - name: Install toolchain
         run: |
           pacman -Syu --noconfirm --needed git make ruff python \

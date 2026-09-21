@@ -1,11 +1,8 @@
 # Tool config only: nothing packages or pip-installs the repo (AGENTS.md ›
 # What hyprconf is), and CI takes pytest from pacman.
 [tool.pytest.ini_options]
-# Each module carries its own test_<name>.py beside its `install`, collected
-# through the repo-root conftest.py (a tests/conftest.py would never reach
-# modules/) together with tests/ — one flat directory, no package markers.
-# Default (prepend) import mode, so every test file's basename is unique
-# across both trees: a module's is test_<module>.py, tests/ has its own names.
+# modules/<name>/test_<name>.py and tests/, one run through the repo-root
+# conftest.py; prepend import mode, so every test basename is unique.
 testpaths = ["modules", "tests"]
 
 [tool.ruff]

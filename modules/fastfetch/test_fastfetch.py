@@ -32,11 +32,11 @@ def test_install_copies_the_layout_and_writes_nothing_else(box: Box) -> None:
 
 def test_a_second_run_writes_nothing_and_a_stale_copy_is_refreshed(box: Box) -> None:
     assert box.run(INSTALL).returncode == 0
-    before = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in box.files()}
+    before = box.snapshot()
     box.reset()
     r = box.run(INSTALL)
     assert r.returncode == 0 and r.stdout == ""
-    assert {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in box.files()} == before
+    assert box.snapshot() == before
     assert box.commands == []
     # README > Settings, the other half: the gate is cmp, not existence, so
     # "edit config.jsonc here and re-run" writes a copy that has drifted again.
@@ -57,9 +57,8 @@ def test_undo_removes_the_copy_and_its_directory_only_while_empty(box: Box, shar
 
 
 @pytest.mark.parametrize("args", [(), ("undo",)], ids=["install", "undo"])
-@pytest.mark.parametrize("points_at", [PRE_SPLIT, SRC], ids=["pre-split", "module"])
-def test_a_link_of_ours_in_the_about_slot_is_cleared(box: Box, points_at: Path, args) -> None:
-    link = old_link(box, points_at)
+def test_a_link_of_ours_in_the_about_slot_is_cleared(box: Box, args) -> None:
+    link = old_link(box, PRE_SPLIT)
     assert box.run(INSTALL, *args).returncode == 0
     assert not link.is_symlink() and not link.exists()
 
@@ -74,14 +73,15 @@ def test_the_file_that_link_displaced_is_put_back(box: Box) -> None:
 
 @pytest.mark.parametrize("theirs", [True, False], ids=["a link of theirs", "a real file"])
 def test_anything_else_in_the_about_slot_is_left_alone(box: Box, theirs: bool) -> None:
-    (own := box.home / "theirs.jsonc").write_text('{"theirs": true}\n')
-    slot = old_link(box, own)
+    """A link to THIS checkout's config.jsonc is theirs too: no release ever wrote one."""
+    slot = old_link(box, SRC)
     if not theirs:
         slot.unlink()
         slot.write_text('{"theirs": true}\n')
+    before = box.snapshot(slot.parent)
     assert box.run(INSTALL).returncode == 0
     assert box.undo("fastfetch").returncode == 0
-    assert slot.read_text() == '{"theirs": true}\n' and slot.is_symlink() is theirs
+    assert box.snapshot(slot.parent) == before
 
 
 def test_the_layout_is_a_self_contained_fastfetch_config() -> None:

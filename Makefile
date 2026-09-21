@@ -9,20 +9,15 @@ test:
 check: lint shellcheck test
 
 shellcheck:
-	@# Every bash script in the tree, selected by SHEBANG — the rule
-	@# tests/test_scans.py::shipped_bash states. Anchored:
-	@# a plain `/bash/` also matched prose — any first-line comment that
-	@# merely mentions bash, as a config header naming a shell does.
+	@# Every bash script in the tree, by SHEBANG (the rule conftest.py::shipped_bash states);
+	@# anchored, since a bare `/bash/` also matches a first-line comment naming the shell.
 	@files=$$(find . -path ./.git -prune -o -type f \
 	    -exec awk 'FNR==1{if(/^#!.*bash/)print FILENAME; nextfile}' {} +); \
 	[ -n "$$files" ] || { echo "shellcheck: no bash scripts found" >&2; exit 1; }; \
 	printf '%s\n' "$$files" | xargs -d '\n' shellcheck --severity=warning
-	@# The root-writing files also gate SC2086 (info-level, below the main
-	@# pass's --severity=warning): an unquoted word there splits into an extra
-	@# argument to a root command. SC2068 is error-level and already caught
-	@# everywhere by the main pass. modules/{firefox,keychron}/install are the
-	@# two module installs that call sudo; modules/yubikey's tool writes root
-	@# files through its own run_root. install.sh asks for no sudo at all.
+	@# The root writers also gate SC2086 (info-level, so below the main pass's
+	@# --severity=warning): an unquoted word there splits into an extra argument
+	@# to a root command. The same three tests/test_scans.py::SUDO_CALLERS pins.
 	shellcheck --include=SC2086 \
 	    modules/firefox/install modules/keychron/install \
 	    modules/yubikey/bin/hyprconf-yubikey

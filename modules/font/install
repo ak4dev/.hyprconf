@@ -15,14 +15,9 @@ if [[ ${1:-} == undo ]]; then
   exit 0
 fi
 
-pkgs=() words=() line=
-while IFS= read -r line || [[ -n $line ]]; do
-  read -ra words <<< "${line%%#*}"
-  (( ${#words[@]} )) && pkgs+=("${words[@]}")
-done < "$dir/packages"
-
-if (( ${#pkgs[@]} )) && ! omarchy-pkg-present "${pkgs[@]}"; then
-  if [[ -n ${HYPRCONF_NO_SUDO:-} ]] || { [[ ! -t 0 ]] && [[ -z ${_HYPRCONF_ASSUME_TTY:-} ]]; }; then
+mapfile -t pkgs < <(sed 's/#.*//; s/[[:space:]]//g; /^$/d' "$dir/packages")
+if ! omarchy-pkg-present "${pkgs[@]}"; then
+  if [[ -n ${HYPRCONF_NO_SUDO:-} || ( ! -t 0 && -z ${_HYPRCONF_ASSUME_TTY:-} ) ]]; then
     echo "  ${pkgs[*]} not installed — run \`bash $dir/install\` from a terminal"
     exit 0
   fi

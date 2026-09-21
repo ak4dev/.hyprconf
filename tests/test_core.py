@@ -17,15 +17,18 @@ from conftest import (
     BAR_SET,
     GIT_FAKE,
     HOOK_INSTALL,
+    MODULE_NAMES,
+    PLUGIN_DISABLE,
     PLUGIN_ENABLE,
+    REPO_ROOT,
     SHELL_CONFIG,
     SUDO_RUNS,
     Box,
+    code,
     default_app,
     git,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SH = REPO_ROOT / "install.sh"
 MODULES = REPO_ROOT / "modules"
 HOOK = REPO_ROOT / "hooks" / "10-hyprconf"
@@ -46,13 +49,9 @@ SUDO_WORK = {
 }
 
 
-def modules() -> list[str]:
-    return sorted(p.parent.name for p in MODULES.glob("*/install"))
-
-
 def ran(proc: subprocess.CompletedProcess) -> list[str]:
     """The module names the core announced (`==> <name>`), in order."""
-    return [m for m in re.findall(r"^==> (\S+)$", proc.stdout, re.M) if m in modules()]
+    return [m for m in re.findall(r"^==> (\S+)$", proc.stdout, re.M) if m in MODULE_NAMES]
 
 
 def undone(proc: subprocess.CompletedProcess) -> list[str]:
@@ -69,12 +68,9 @@ def checkout(tmp: Path) -> Path:
     """A throwaway git checkout of the payload on `stable`, for the curl path to clone."""
     repo = tmp / "checkout"
     repo.mkdir()
-    for name in ("install.sh", "modules", "hooks"):
-        src = REPO_ROOT / name
-        if src.is_dir():
-            shutil.copytree(src, repo / name, ignore=shutil.ignore_patterns("__pycache__"))
-        else:
-            shutil.copy2(src, repo / name)
+    for name in ("modules", "hooks"):
+        shutil.copytree(REPO_ROOT / name, repo / name, ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copy2(INSTALL_SH, repo / "install.sh")
     git(repo, "init", "-q", "-b", "stable")
     git(repo, "add", "-A")
     git(repo, "commit", "-qm", "payload")
@@ -86,19 +82,16 @@ def hook(box: Box) -> subprocess.CompletedProcess:
     return box.run(box.home / INSTALLED_HOOK, tty=True)
 
 
-def code_only(text: str) -> str:
-    lines = (ln for ln in text.splitlines() if not ln.lstrip().startswith("#"))
-    return "\n".join(ln.split(" #", 1)[0] for ln in lines)
-
-
 @pytest.fixture
 def live(box: Box) -> Box:
-    """A box every module takes its real path on: the shell's writes, a sourceable
+    """A box every module takes its real path on: the shell's writes — the disable
+    included, or bar-clock's undo waits out its whole `settled` timeout — a sourceable
     shell-config, a git that settles the pin, default-app setters that read back, and a
     shell.json with the stock clock in the centre for bar-clock to swap."""
     box.stub("omarchy-hook-install", HOOK_INSTALL)
     box.stub("omarchy-shell-config", SHELL_CONFIG)
     box.stub("omarchy-plugin-enable", PLUGIN_ENABLE)
+    box.stub("omarchy-plugin-disable", PLUGIN_DISABLE)
     box.stub("omarchy-bar", BAR_SET)
     box.stub("omarchy-plugin-list", "exit 1\n")  # no running shell: the discovery wait is skipped
     box.stub("omarchy-default-browser", default_app(box.tmp / "browser", "chromium"))
@@ -125,25 +118,28 @@ def test_refuses_a_box_without_omarchy_before_anything_lands(box: Box, tmp_path:
 def test_refuses_to_run_as_root() -> None:
     """Pinned as text: the suite is unprivileged everywhere, and a seam past the guard
     would itself be a way past it."""
-    assert re.search(r"^\(\(EUID\)\) \|\| die", code_only(INSTALL_SH.read_text()), re.M)
+    assert re.search(r"^\(\(EUID\)\) \|\| die", code(INSTALL_SH.read_text()), re.M)
 
 
 def test_a_full_run_reaches_every_module_and_a_second_run_is_byte_stable(live: Box) -> None:
     live.stub("sudo", SUDO_RUNS)
     first = live.core("--no-update", tty=True)
     assert first.returncode == 0, first.stderr
-    assert sorted(ran(first)) == modules()
+    assert sorted(ran(first)) == MODULE_NAMES
     assert not {"omarchy-theme-set", "omarchy-pkg-drop"} & set(live.commands)
     home = live.home
     assert (live.etc / POLICY).is_file() and (live.etc / RULE).is_file()
     assert not (home / BINDINGS).is_symlink()
     assert (home / BINDINGS).read_bytes() == (MODULES / "hypr/bindings.lua").read_bytes()
     assert "source" in (home / ".zshrc").read_text()
-    for name in ("clock", "active-window", "resources", "workspaces"):
-        link = home / ".config/omarchy/plugins" / f"hyprconf.{name}"
-        assert link.is_symlink() and Path(os.readlink(link)) == MODULES / f"bar-{name}/plugin"
-    for marker in ("clock", "idle", "font", "editor", "browser", "terminal"):
-        assert (home / ".local/state/hyprconf" / f"{marker}-applied").exists(), marker
+    for folder in sorted(MODULES.glob("*/plugin")):
+        pid = json.loads((folder / "manifest.json").read_text())["id"]
+        link = home / ".config/omarchy/plugins" / pid
+        assert link.is_symlink() and Path(os.readlink(link)) == folder
+    installs = "\n".join(i.read_text() for i in MODULES.glob("*/install"))
+    markers = re.findall(r"^marker=\S*/([a-z-]+-applied)$", installs, re.M)
+    state = home / ".local/state/hyprconf"
+    assert sorted(p.name for p in state.glob("*-applied")) == sorted(markers)
     shell = json.loads((home / ".config/omarchy/shell.json").read_text())
     assert shell["bar"]["centerAnchor"] == "hyprconf.clock" and shell["idle"]["screensaver"] == 900
     assert Path(os.readlink(home / LINK)) == INSTALL_SH
@@ -164,14 +160,7 @@ def test_a_full_run_reaches_every_module_and_a_second_run_is_byte_stable(live: B
 # bin/omarchy-font-set:33-40, the kitty half: with kitty on PATH it CREATES an absent
 # user file, holding nothing but font_family.
 FONT_SET = (
-    "if [[ -f ~/.config/kitty/kitty.conf ]] || omarchy-cmd-present kitty; then\n"
-    "  mkdir -p ~/.config/kitty\n"
-    "  if grep -qE '^[[:space:]]*font_family[[:space:]]+' ~/.config/kitty/kitty.conf 2>/dev/null; then\n"
-    '    sed --follow-symlinks -i -E "s/^[[:space:]]*font_family[[:space:]]+.*/font_family $1/" ~/.config/kitty/kitty.conf\n'
-    "  else\n"
-    "    printf '\\nfont_family %s\\n' \"$1\" >>~/.config/kitty/kitty.conf\n"
-    "  fi\n"
-    "fi\n"
+    "mkdir -p ~/.config/kitty\nprintf '\\nfont_family %s\\n' \"$1\" >>~/.config/kitty/kitty.conf\n"
 )
 KITTY_WRITERS = ("font", "shell-zsh", "terminal-kitty")
 
@@ -229,7 +218,8 @@ def test_help_names_every_flag_and_touches_nothing(box: Box, tmp_path: Path) -> 
     box.env["HYPRCONF_DIR"] = str(tmp_path / "hyprconf-dir")
     proc = box.run(served(tmp_path), "--help")
     assert proc.returncode == 0 and proc.stdout.startswith("Usage:")
-    assert all(f in proc.stdout for f in ("--sync", "--no-update", "--no-packages", "--undo"))
+    flags = re.findall(r"^\s+(?:-h\|)?(--[a-z-]+)\)", INSTALL_SH.read_text(), re.M)
+    assert len(flags) >= 5 and all(f in proc.stdout for f in flags), flags
     assert not (tmp_path / "hyprconf-dir").exists() and box.calls == [] and box.files() == set()
 
 
@@ -250,6 +240,10 @@ def test_named_modules_run_alone_and_an_unknown_name_dies_first(box: Box) -> Non
     assert (box.home / BINDINGS).read_bytes() == (MODULES / "hypr/bindings.lua").read_bytes()
     assert set(box.commands) == {"hyprctl", "omarchy-hook-install"}, box.commands
     assert not (box.home / ".zshrc").exists()
+    # A failing omarchy-hook-install warns: nothing re-applies after an update, but the run stands.
+    box.stub("omarchy-hook-install", "exit 1\n")
+    proc = box.core("--no-update", "hypr")
+    assert proc.returncode == 0 and "WARNING" in proc.stderr
 
 
 def test_a_failing_module_is_named_and_stops_the_update(box: Box) -> None:
@@ -277,7 +271,7 @@ def test_the_hook_is_installed_unrendered_and_reapplies_through_the_link(live: B
     live.reset()
     proc = hook(live)
     assert proc.returncode == 0, proc.stderr
-    assert sorted(ran(proc)) == modules()
+    assert sorted(ran(proc)) == MODULE_NAMES
     assert bindings.read_bytes() == (MODULES / "hypr/bindings.lua").read_bytes()
     assert not (SUDO_WORK | {"omarchy-update"}) & set(live.commands), live.commands
 
@@ -337,11 +331,11 @@ def test_a_failing_undo_does_not_stop_the_others(live: Box) -> None:
 def test_the_curl_path_clones_the_checkout_and_hands_over_to_it(live: Box, tmp_path: Path) -> None:
     repo, target = checkout(tmp_path), tmp_path / "hyprconf-dir"
     live.env.update({"HYPRCONF_REPO": str(repo), "HYPRCONF_DIR": str(target)})
-    proc = live.run(served(tmp_path), "--no-update")
+    proc = live.run(served(tmp_path), "--no-update", "hypr")
     assert proc.returncode == 0, proc.stderr
-    clone = ["git", "clone", "--branch", "stable", "--single-branch", "--", str(repo), str(target)]
+    clone = ["git", "clone", "--depth", "1", "--branch", "stable", "--", str(repo), str(target)]
     assert live.calls_of("git")[0] == clone
-    assert (target / ".git").is_dir() and sorted(ran(proc)) == modules()
+    assert (target / ".git").is_dir() and ran(proc) == ["hypr"], "the arguments reach the copy"
     home = live.home
     assert Path(os.readlink(home / LINK)) == target / "install.sh"
     assert (home / INSTALLED_HOOK).read_bytes() == (target / "hooks/10-hyprconf").read_bytes()
@@ -362,14 +356,21 @@ def test_the_curl_path_reuses_a_checkout_without_pulling(live: Box, tmp_path: Pa
     assert not (tmp_path / "never-cloned").exists()
     assert git(repo, "rev-parse", "HEAD") == head and git(repo, "status", "--porcelain") == ""
     assert Path(os.readlink(live.home / LINK)) == repo / "install.sh"
+    assert sorted(ran(proc)) == MODULE_NAMES
 
 
-def test_install_sh_itself_names_no_sudo_and_never_switches_the_theme() -> None:
-    """Scanned, so every branch is covered: every root write is a module's, behind its own
-    gate (test_scans.py holds the pacman / AUR / chsh rule over every script)."""
-    code = re.sub(r"(?ms)^\s*cat <<'USAGE'\n.*?^USAGE$", "", code_only(INSTALL_SH.read_text()))
-    assert "omarchy-theme-set" not in code
-    assert not re.search(r"\bsudo\b", re.sub(r'"(?:\\.|[^"\\])*"', '""', code))
+def test_the_curl_path_refuses_a_checkout_without_modules(box: Box, tmp_path: Path) -> None:
+    """A HYPRCONF_DIR with a .git but no modules/ is not a checkout to hand over to: the
+    handover would exec this same branch again, forever. The .git is a file, a linked
+    worktree's form, so nothing is cloned over it either."""
+    target = tmp_path / "hyprconf-dir"
+    target.mkdir()
+    (target / ".git").write_text("gitdir: /elsewhere\n")
+    shutil.copy2(INSTALL_SH, target / "install.sh")
+    box.env["HYPRCONF_DIR"] = str(target)
+    proc = box.run(served(tmp_path), "--no-update")
+    assert proc.returncode != 0 and "checkout" in proc.stderr
+    assert box.calls == [] and box.files() == set()
 
 
 @pytest.mark.parametrize("gate", ["no-terminal", "no-packages"])
@@ -381,6 +382,6 @@ def test_every_sudo_gate_holds_across_a_whole_run(live: Box, gate: str) -> None:
     args = ("--no-update",) if gate == "no-terminal" else ("--no-update", "--no-packages")
     proc = live.core(*args, tty=gate == "no-packages")
     assert proc.returncode == 0, proc.stderr
-    assert sorted(ran(proc)) == modules()
+    assert sorted(ran(proc)) == MODULE_NAMES
     assert not SUDO_WORK & set(live.commands), SUDO_WORK & set(live.commands)
     assert not (live.etc / POLICY).exists()

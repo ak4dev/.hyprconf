@@ -13,21 +13,21 @@ if [[ ${1:-} == undo ]]; then
     # `rm -rf "$THEME_PATH"` (:31-37); the rm after it is for the Omarchy that refused.
     if [[ $(readlink "$link" 2>/dev/null) == "$dir/dracula" ]]; then
         omarchy-theme-remove dracula >/dev/null 2>&1 || true
-        if [[ -L $link ]]; then rm -f "$link"; fi
+        rm -f "$link"
     fi
     for f in "$dir"/backgrounds/*/*; do
-        [[ -f $f ]] || continue
-        theme=${f%/*}
-        theme=${theme##*/}
-        if cmp -s "$f" "$backgrounds/$theme/${f##*/}"; then
-            rm -f "$backgrounds/$theme/${f##*/}"
-            rmdir "$backgrounds/$theme" 2>/dev/null || true
+        rel=${f#"$dir"/backgrounds/}   # <theme>/<file>; an unmatched glob fails the cmp
+        if cmp -s "$f" "$backgrounds/$rel"; then
+            rm -f "$backgrounds/$rel"
+            rmdir "$backgrounds/${rel%/*}" 2>/dev/null || true
         fi
     done
     exit 0
 fi
 
 mkdir -p "$themes"
+# hyprconf 7.x linked <checkout>/themes/dracula (v7.0.0 install.sh:769); 8.0 moved it here, so that link dangles — and is ours.
+[[ $(readlink "$link" 2>/dev/null) == "${dir%/modules/themes}/themes/dracula" ]] && rm -f "$link"
 # `ln -sfn` over a directory only drops a stray link inside it (-n guards a link, not a
 # directory); and no `.stock` beside it either — omarchy-theme-list:7 lists every dir and
 # link under ~/.config/omarchy/themes as a theme, so a backup would show up in the menu.
@@ -40,12 +40,9 @@ fi
 
 for f in "$dir"/backgrounds/*/*; do
     [[ -f $f ]] || continue # no nullglob: an empty backgrounds/ iterates the pattern itself
-    theme=${f%/*}
-    theme=${theme##*/}
-    dest=$backgrounds/$theme/${f##*/}
-    [[ -e $dest ]] || {
-        install -Dm644 "$f" "$dest"
-        echo "  ${f##*/} -> $theme backgrounds (SUPER+CTRL+SPACE to pick it)"
+    rel=${f#"$dir"/backgrounds/}
+    [[ -e $backgrounds/$rel ]] || {
+        install -Dm644 "$f" "$backgrounds/$rel"
+        echo "  ${rel#*/} -> ${rel%/*} backgrounds (SUPER+CTRL+SPACE to pick it)"
     }
 done
-exit 0

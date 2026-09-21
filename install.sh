@@ -3,22 +3,14 @@
 #
 #   bash <(curl -fsSL --proto '=https' https://hyprconf.sh)
 #
-# hyprconf.sh serves this very file to curl and wget. Run with no payload
-# beside it, it clones github.com/ak4dev/.hyprconf (branch stable) into
-# ~/.hyprconf — or uses the checkout already there — and hands over to that
-# checkout's own copy. The same by hand:
-#
-#   git clone -b stable https://github.com/ak4dev/.hyprconf ~/.hyprconf
-#   bash ~/.hyprconf/install.sh
-#
-# From then on it is `hyprconf` (~/.local/bin, on Omarchy's session PATH), and
-# -h is the whole of its contract. What it does: every modules/*/install in
-# turn — alphabetically, each order-free, idempotent and its own `install
-# undo` — the ~/.local/bin/hyprconf link, and the post-update hook
-# (hooks/10-hyprconf) that re-applies after every omarchy-update. Nothing else
-# lands in $HOME from here, and no sudo is asked for here: every package and
-# root write is a module's, behind HYPRCONF_NO_SUDO, which --no-packages
-# exports (the hook passes it). Verified against Omarchy 4.0.3-1.
+# hyprconf.sh serves this very file; -h below is the whole of its contract, the
+# curl path included. A run: every modules/*/install in turn — alphabetically,
+# each order-free, idempotent and its own `install undo` — the
+# ~/.local/bin/hyprconf link, and the post-update hook (hooks/10-hyprconf) that
+# re-applies after every omarchy-update. Nothing else lands in $HOME from here,
+# and no sudo is asked for here: every package and root write is a module's,
+# behind HYPRCONF_NO_SUDO, which --no-packages exports (the hook passes it).
+# Verified against Omarchy 4.0.3-1.
 set -euo pipefail
 : "${OMARCHY_PATH:=/usr/share/omarchy}"   # Omarchy's own, default/bash/env-bootstrap:12,16
 # The curl path's clone — for users too (a fork, a branch under test, another
@@ -57,7 +49,8 @@ Options:
                   HYPRCONF_NO_SUDO, which each one honours itself. The hook
                   passes this too.
   --undo          Run every module's `install undo` in reverse order, then
-                  remove the hook and the link. With MODULE names, only those.
+                  remove the hook and the link. With MODULE names, only those:
+                  the hook stays, and its next run (or yours) re-applies them.
   -h, --help      Show this help.
 
 With no options: apply every module once, without pulling or updating —
@@ -90,26 +83,29 @@ done
 
 # The curl path. The checkout is cloned — or the one already there used as it
 # is, never pulled: that is --sync's job — and its own copy takes over with the
-# arguments as given; git is Omarchy's (install/omarchy-base.packages:43).
+# arguments as given; git is Omarchy's (install/omarchy-base.packages:43). `-e`:
+# a linked worktree's .git is a file. modules/ too, or the handover execs this
+# same branch again, forever. `--depth 1`: a stranger gets the tip of the branch,
+# not the history — single-branch by implication, and --sync's `pull --ff-only`
+# fast-forwards a shallow clone unchanged (checked with git 2.55).
 if [[ ! -d $HERE/modules ]]; then
-    if [[ ! -d $HYPRCONF_DIR/.git ]]; then
+    if [[ ! -e $HYPRCONF_DIR/.git ]]; then
         log "Cloning $HYPRCONF_REPO ($HYPRCONF_BRANCH) into $HYPRCONF_DIR"
-        git clone --branch "$HYPRCONF_BRANCH" --single-branch -- "$HYPRCONF_REPO" "$HYPRCONF_DIR" ||
+        git clone --depth 1 --branch "$HYPRCONF_BRANCH" -- "$HYPRCONF_REPO" "$HYPRCONF_DIR" ||
             die "git clone failed — see the message above"
     fi
-    [[ -f $HYPRCONF_DIR/install.sh ]] || die "$HYPRCONF_DIR/install.sh not found — is $HYPRCONF_DIR a hyprconf checkout?"
+    [[ -f $HYPRCONF_DIR/install.sh && -d $HYPRCONF_DIR/modules ]] ||
+        die "$HYPRCONF_DIR/install.sh or its modules/ not found — is $HYPRCONF_DIR a hyprconf checkout?"
     exec bash "$HYPRCONF_DIR/install.sh" "$@"
 fi
 
 # The modules named, checked before anything runs, or every one of them.
-mods=()
-if (( ${#only[@]} )); then
-    for m in "${only[@]}"; do
-        [[ -x $HERE/modules/$m/install ]] || die "no module named $m (the directories under modules/)"
-        mods+=("$HERE/modules/$m/install")
-    done
-else
-    mods=("$HERE"/modules/*/install)
+mods=("${only[@]}")
+for m in "${mods[@]}"; do
+    [[ -x $HERE/modules/$m/install ]] || die "no module named $m (the directories under modules/)"
+done
+if (( ! ${#mods[@]} )); then
+    mods=("$HERE"/modules/*/install); mods=("${mods[@]%/install}"); mods=("${mods[@]##*/}")
 fi
 link=$HOME/.local/bin/hyprconf
 hook=$HERE/hooks/10-hyprconf
@@ -121,9 +117,8 @@ installed_hook=$HOME/.config/omarchy/hooks/post-update.d/${hook##*/}
 
 if (( undo )); then
     for (( i = ${#mods[@]} - 1; i >= 0; i-- )); do   # reverse order, every one even if one fails
-        m=${mods[i]%/install}; m=${m##*/}
-        log "undo $m"
-        bash "${mods[i]}" undo || failed+=("$m")
+        log "undo ${mods[i]}"
+        bash "$HERE/modules/${mods[i]}/install" undo || failed+=("${mods[i]}")
     done
     (( ${#only[@]} )) || rm -f "$installed_hook" "$link"
     (( ${#failed[@]} == 0 )) || die "undo failed: ${failed[*]} — see above"
@@ -147,9 +142,8 @@ mkdir -p "${link%/*}"
 [[ $(readlink "$link" 2>/dev/null) == "$HERE/install.sh" ]] || ln -sfn "$HERE/install.sh" "$link"
 
 for m in "${mods[@]}"; do
-    n=${m%/install}; n=${n##*/}
-    log "$n"
-    bash "$m" || failed+=("$n")   # one module's failure is its own; the rest still run
+    log "$m"
+    bash "$HERE/modules/$m/install" || failed+=("$m")   # one module's failure is its own; the rest still run
 done
 
 # The hook, through Omarchy's own installer — mkdir -p, cp under the file's

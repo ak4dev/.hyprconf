@@ -11,9 +11,8 @@ import socket
 import subprocess
 from pathlib import Path
 
-import pytest
+from conftest import REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
 # /home/<name>/ at a path boundary; the generic placeholders are allowed.
 HOME_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9._/-])/home/(?!\$|user\b|username\b|<|USER\b)[A-Za-z0-9._-]+/"
@@ -107,11 +106,10 @@ def test_no_hardcoded_home_paths_anywhere() -> None:
 
 
 def test_no_personal_identities_anywhere() -> None:
-    ids = identities()
-    if not ids:
-        pytest.skip("no non-generic identity to search for (shared or CI account)")
+    """A shared or CI account whose every name is generic leaves nothing to search for,
+    and the assertion passes on an empty pattern list rather than skipping."""
     found = offenders(
-        [re.compile(rf"(?<![A-Za-z0-9]){re.escape(i)}(?![A-Za-z0-9])", re.I) for i in ids]
+        [re.compile(rf"(?<![A-Za-z0-9]){re.escape(i)}(?![A-Za-z0-9])", re.I) for i in identities()]
     )
     assert not found, "Personal identity in the tree (use 'testuser', ~ or $HOME):\n" + "\n".join(
         found

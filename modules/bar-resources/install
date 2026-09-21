@@ -1,45 +1,21 @@
 #!/usr/bin/env bash
 # hyprconf/bar-resources — installs plugin/, the hyprconf.resources bar widget, as a symlink.
-# Seams: ~/.config/omarchy/plugins/ (the third-party scan follows a link, shell/services/PluginRegistry.qml:712-713; `omarchy plugin add` refuses the id while it exists, bin/omarchy-plugin-add:141-143), omarchy-shell shell rescanPlugins, omarchy-plugin-{list,enable,disable}.
+# Seam: its own widget, not a clone, so it lands in the manifest's barWidget.defaultSection; the link, the rescan, the enable and the undo are ../bar-plugin.sh's.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 id=hyprconf.resources
-plugins=$HOME/.config/omarchy/plugins link=$plugins/$id
 marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/resources-applied
+source "$dir/../bar-plugin.sh"
 
 if [[ ${1:-} == undo ]]; then
-    omarchy-plugin-disable "$id" >/dev/null 2>&1 || true
-    [[ -L $link ]] && rm -f "$link"   # a real folder there is someone else's
-    rm -f "$marker"
-    omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+    plugin_disable   # nothing to hand the slot back to: the entry comes off
+    plugin_unlink
     exit 0
 fi
 
-if [[ -d $link/.git ]]; then
-    echo "  $id is an \`omarchy plugin add\` checkout — left to: omarchy plugin update $id"
-    exit 0
-fi
-mkdir -p "$plugins"
-# Moved aside under omarchy-plugin-remove's own backup name
-# (bin/omarchy-plugin-remove:106), never deleted.
-[[ -d $link && ! -L $link ]] && mv "$link" "$plugins/.$id.bak.$(date -u +%Y%m%d%H%M%S)"
-[[ $(readlink "$link" 2>/dev/null) == "$dir/plugin" ]] || ln -sfn "$dir/plugin" "$link"
-# The shell's `inotifywait -r` never descends a link (PluginRegistry.qml:663-667),
-# so this is what carries a `git pull` into the running shell; it writes nothing.
-omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
-
-[[ -e $marker ]] && exit 0
-for (( i = 0; i < 40; i++ )); do   # no shell answering → omarchy-plugin-list exits 1 → no wait
-    list=$(omarchy-plugin-list --json 2>/dev/null) || break
-    jq -e --arg id "$id" 'any(.[]; .id == $id)' <<<"$list" >/dev/null 2>&1 && break
-    sleep 0.05
-done
-# The wait is omarchy-plugin-add:164-171's own: the rescan is asynchronous and an
-# enable issued before it lands fails "not known" (bin/omarchy-plugin-enable:85-87).
-# No --section: placement is the manifest's barWidget.defaultSection
-# (shell/services/PluginRegistry.qml:194-196).
-omarchy-plugin-enable "$id" >/dev/null 2>&1 || { echo "  no shell answering — enabled on the next run"; exit 0; }
-mkdir -p "${marker%/*}"
+plugin_link
+[[ -e $marker ]] && exit 0   # enabled once (rule 5): a bar the user took it off stays that way
+plugin_enable
 : > "$marker"
 echo "  $id enabled — undo: bash $dir/install undo"

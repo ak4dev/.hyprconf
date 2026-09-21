@@ -16,7 +16,9 @@
       "Bash(git -C * push:*)",
       "Bash(*scripts/publish*)",
       "Bash(aws:*)",
-      "Bash(*/aws *)"
+      "Bash(*/aws *)",
+      "Bash(sudo:*)",
+      "Bash(*hyprconf-yubikey*)"
     ]
   }
 }

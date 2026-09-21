@@ -6,9 +6,9 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+from conftest import REPO_ROOT, code, shipped_bash
+
 ONE_LINER = "bash <(curl -fsSL --proto '=https' https://hyprconf.sh)"
 # The landing page shows the short form instead, by the author's decision: it reads as one
 # line on the page and rides hyprconf.sh's 301 from http. That first hop IS plaintext, so
@@ -41,9 +41,10 @@ def test_published_one_liners_are_https_only() -> None:
     """Schemeless, curl's first request is plaintext port 80, answered by an on-path attacker —
     so every command a reader copies out of the docs names https. The landing page is the one
     deliberate exception and is pinned as text instead, WEB_ONE_LINER above."""
-    for rel in ("README.md", "install.sh", "docs/CONTRIBUTING.md"):
-        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
-        for m in re.finditer(r"curl [^\n]*hyprconf\.sh", text):
+    docs = (p for p in REPO_ROOT.rglob("*.md") if ".git" not in p.relative_to(REPO_ROOT).parts)
+    for path in sorted(docs) + shipped_bash():
+        rel = path.relative_to(REPO_ROOT)
+        for m in re.finditer(r"curl [^\n]*hyprconf\.sh", path.read_text(encoding="utf-8")):
             assert "https://hyprconf.sh" in m.group(0), f"{rel}: schemeless: {m.group(0)!r}"
     web = (REPO_ROOT / "web" / "index.html").read_text(encoding="utf-8")
     assert WEB_ONE_LINER in web, "the landing page's one-liner moved"
@@ -90,6 +91,10 @@ def test_claude_settings_guardrails_keep_their_entries() -> None:
         "Bash(*scripts/publish*)",
         "Bash(aws:*)",
         "Bash(*/aws *)",
+        # Rule 6's two: every root write (tests/test_scans.py::SUDO_CALLERS) and the
+        # one tool that asks for it by hand.
+        "Bash(sudo:*)",
+        "Bash(*hyprconf-yubikey*)",
     } <= set(settings["permissions"]["ask"])
 
 
@@ -98,8 +103,7 @@ def test_every_module_clone_is_pinned_to_a_reviewed_commit() -> None:
     somebody read: every `git clone` names a `--revision=$<name>pin`, no module pulls, and
     bumping a pin is a deliberate commit through the publish gates."""
     for install in sorted((REPO_ROOT / "modules").glob("*/install")):
-        name, lines = install.parent.name, install.read_text(encoding="utf-8").splitlines()
-        text = "\n".join(ln for ln in lines if not ln.lstrip().startswith("#"))
+        name, text = install.parent.name, code(install.read_text(encoding="utf-8"))
         for clone in re.findall(r"git clone[^\n]*", text):
             assert re.search(r'--revision="?\$[a-z0-9_]*pin', clone), f"{name}: {clone}"
         assert "git pull" not in text, name

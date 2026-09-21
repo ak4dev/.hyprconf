@@ -10,11 +10,7 @@
      :root[lwtheme] block: --toolbar-field-background-color
      (urlbar/urlbar.tokens.css:13, urlbar-searchbar.css:1145),
      --toolbar-field-focus-color (smartbar.css:43) and
-     --focus-outline-color (23 stylesheets). The --lwt-* names are read only
-     under :root[lwtheme], which the inApp built-in themes never turn on
-     (BuiltInThemeConfig.sys.mjs:29,38; LightweightThemeConsumer.sys.mjs:424,
-     537), and six more names the overlay used to set are gone from Firefox
-     entirely — the direct rules below are what paint the chrome. */
+     --focus-outline-color (23 stylesheets). No --lwt-*: README > Settings. */
   --toolbar-field-background-color: {{ dark_background }} !important;
   --toolbar-field-focus-color: {{ foreground }} !important;
   --focus-outline-color: {{ accent }} !important;

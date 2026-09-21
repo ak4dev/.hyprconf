@@ -6,7 +6,7 @@ sits frozen 59 seconds of every one; this is that widget with its precision
 raised to seconds — the calendar on click, right-click cycling the formats,
 middle-click the timezone picker, the same settings, and what the calendar
 saves (week start, birth year) written under this plugin's own id.
-`BarWidget.qml` is Omarchy's with three deltas (its header names them, and
+`BarWidget.qml` is Omarchy's with two deltas (its header names them, and
 the refresh recipe), `Model.js` is the subset of Omarchy's the bar label
 calls, and NOTICE carries Omarchy's MIT notice; the calendar panel is loaded
 from the running Omarchy's own `Panel.qml`, so it is never behind the
@@ -30,7 +30,7 @@ Once this folder is published as a repository of its own, `omarchy plugin add
 <url> --enable --yes` is the one-step form. `--yes` is not optional for this
 widget: without it `omarchy-plugin-add` asks which bar section to put it in
 (`select_bar_widget_placement`, `/usr/bin/omarchy-plugin-add:161-162`, Omarchy
-4.0.3-1) and the answer becomes a placement, which moves the widget out of the
+4.0.4-1) and the answer becomes a placement, which moves the widget out of the
 stock slot its `clonedFrom` manifest just claimed. `--yes` also skips Omarchy's
 review-the-code prompt, so read the repository first.
 
@@ -67,18 +67,19 @@ omarchy bar set hyprconf.clock weekStartDay monday        # the calendar's first
 `format` takes `Qt.formatDateTime` tokens (`ww` is the ISO week). The
 calendar's `birthYear` / `lifeExpectancy` are set from the panel itself.
 
-## Host contract (Omarchy 4.0.3-1)
+## Host contract (Omarchy 4.0.4-1)
 
 An installed third-party widget never gets the host Bar: its `bar` is a
 `Ui/PluginBarApi.qml` facade and `bar.shell` a `services/PluginShellApi.qml`,
 both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2002-2003`,
-`shell/shell.qml:221`). Those two files are the whole contract — a member that
-exists only on the Bar reads back `undefined`, with nothing logged anywhere.
-This widget uses `bar.run(command)` and
+`Bar.qml:229-248` → `shell/shell.qml:684`). Those two files are the whole
+contract — a member that exists only on the Bar reads back `undefined`, with
+nothing logged anywhere. This widget uses `bar.run(command)` and
 `bar.shell.updateEntryInline(id, settings)`, plus the `bar`, `moduleName` and
-`settings` the bar's `ModuleSlot.injectProps` sets on it — and hands all three
-down to the stock `Panel.qml` it loads (`injectPanel()`), which is what keeps
-the calendar's own settings writes landing under this plugin's id.
+`settings` the bar's `ModuleSlot.injectProps` sets on it — and hands `bar` and
+`settings` down to the stock `Panel.qml` it loads (`injectPanel()`); the panel's
+own settings writes name `omarchy.clock`, which the host resolves to this
+enabled clone (`shell/shell.qml:648-649`, `PluginRegistry.qml:171-182`).
 Re-verify both files, and the Quickshell API against
 `/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, after every Omarchy or Quickshell
 upgrade.

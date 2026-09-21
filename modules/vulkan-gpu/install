@@ -5,9 +5,8 @@
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 tool=hyprconf-vulkan-gpu
-bin=$HOME/.local/bin
 src=$dir/bin/$tool
-dst=$bin/$tool
+dst=$HOME/.local/bin/$tool
 
 if [[ ${1:-} == undo ]]; then
     if [[ $(readlink "$dst" 2>/dev/null) == "$src" ]]; then
@@ -17,7 +16,7 @@ if [[ ${1:-} == undo ]]; then
     exit 0
 fi
 
-mkdir -p "$bin"
+mkdir -p "${dst%/*}"
 # Guarded because `ln -sfn` re-creates the link, a new inode, on every run; -f
 # replaces a hyprconf 7.x rendered copy, -n keeps a link to a directory from
 # being followed.
@@ -25,4 +24,3 @@ if [[ $(readlink "$dst" 2>/dev/null) != "$src" ]]; then
     ln -sfn "$src" "$dst"
     echo "  $tool on PATH — on a dual-GPU box: $tool status, then $tool fix"
 fi
-exit 0

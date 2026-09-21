@@ -224,10 +224,13 @@ def test_the_cpu_sensor_is_the_highest_ranked_label(box: Box, sensors, temp: int
     assert _run_stats(box, iterations=1, hwmon=_fake_hwmon(box.tmp, sensors))[0]["temp"] == temp
 
 
-def test_a_sensor_vanishing_mid_stream_blanks_the_cell_and_survives(box: Box) -> None:
-    """The stated reason hyprconf-stats shuns `set -e`."""
+@pytest.mark.parametrize("then", ["", ' && mkdir "$f"'], ids=["vanishing", "refusing"])
+def test_a_sensor_vanishing_mid_stream_blanks_the_cell_and_survives(box: Box, then: str) -> None:
+    """The stated reason hyprconf-stats shuns `set -e` — and, for a sensor that is
+    still there but refuses the read(), the reason the read is quiet: _run_stats
+    pins empty stderr, and a complaint here repeats every tick."""
     hwmon = _fake_hwmon(box.tmp, [("Tctl", "54300")])
-    body = _tick_body(box, 2, f'rm -f "{hwmon}/hwmon0/temp1_input"')
+    body = _tick_body(box, 2, f'f="{hwmon}/hwmon0/temp1_input"; rm -f "$f"{then}')
     assert [ln["temp"] for ln in _run_stats(box, iterations=2, hwmon=hwmon, sleep_body=body)] == [
         54,
         None,
@@ -444,6 +447,15 @@ def test_amd_ignores_connector_nodes(box: Box) -> None:
     (conn / "gpu_busy_percent").write_text("99\n")
     line = _gpu(box, drm=drm)[0]
     assert (line["index"], line["util"]) == (1, 3)
+
+
+def test_amd_refusing_temperature_reads_null_quietly(box: Box) -> None:
+    """The hwmon read goes through amdgpu's own gate too: a card that refuses it blanks
+    the cell without a `read error` line per tick (_gpu pins stderr empty)."""
+    drm = box.tmp / "drm"
+    temp = _amd_card(drm, 0, busy="5", temp="50000") / "hwmon/hwmon3/temp1_input"
+    box.stub("sleep", f'rm -f "{temp}" && mkdir "{temp}"\n' + SLEEP_TAIL)
+    assert [ln["temp"] for ln in _gpu(box, drm=drm)] == [50, None]
 
 
 def test_amd_refusing_card_reads_idle_and_the_stream_lives(box: Box) -> None:

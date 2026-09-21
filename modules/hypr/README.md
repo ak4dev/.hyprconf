@@ -5,13 +5,10 @@ Copies `bindings.lua`, `input.lua` and `looknfeel.lua` into `~/.config/hypr/`, `
 (`config/hypr/hyprland.lua:20-22`) and stating only deltas over `$OMARCHY_PATH/default/hypr/`. Edit in the checkout,
 then `hyprconf hypr` (`bash ~/.hyprconf/install.sh hypr`): an `omarchy refresh` or a migration lands on the copy, and
 the next run — the post-update hook's included — puts it back. A file of your own at one of those paths, or a
-dotfiles link, is kept once as `<file>.lua.stock` (said in one line; Omarchy's own template is not — undo restores it
-anyway). Seeds the `*Monitors*.lua` presets and links `hyprconf-gaps` and `hyprconf-monitor-preset` into
-`~/.local/bin`, bound by name in `bindings.lua`.
-
-`hyprconf-monitor-preset <name>` copies a preset — one machine's desk — into `~/.local/state/omarchy/toggles/hypr/`,
-loaded after `monitors.lua` (`default/hypr/toggles.lua:4,11`), so its `hl.monitor` lines win and `monitors.lua` is
-never touched; `stock` hands the removal to `omarchy-hyprland-toggle`. Without the tool: copy one there and reload.
+dotfiles link, is kept once as `<file>.lua.stock` (said in one line; Omarchy's own template is not, nor hyprconf's own
+earlier copy — undo puts Omarchy's back anyway). Seeds the `*Monitors*.lua` presets and links `hyprconf-gaps` and
+`hyprconf-monitor-preset` into `~/.local/bin`, bound by name in `bindings.lua`. A shipped `.lua` that fails
+`luac -p` fails the run before anything is written; where `luac` is absent the copy proceeds.
 
 - `o.bind(keys, description, …)`, never `hl.bind`: only `o.bind` records the description the `SUPER+K` menu lists
   (`default/hypr/helpers.lua:92`); `{ omarchy = "terminal" }` becomes `omarchy-launch-terminal` (`:56,61-62`).
@@ -39,10 +36,9 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 ```
 
 ## Keybindings
-`mainMod` is `SUPER`. Every key below goes through `rebind()` over Omarchy's `o.bind`, so it shows in `SUPER+K`; a key
-taken over from Omarchy is unbound first, its keycode form included, so only one binding fires. `SUPER+K` lists what
-is live and `/usr/share/omarchy/default/hypr/bindings/` what was displaced; the displaced-by notes that matter are
-comments beside their binds in `bindings.lua`, which is the keymap — edit it here, then `hyprconf hypr`.
+`mainMod` is `SUPER`; every key below goes through `rebind()` (What, above). `SUPER+K` lists what is live and
+`/usr/share/omarchy/default/hypr/bindings/` what was displaced — the ones worth knowing are under the table and
+beside their binds in `bindings.lua`.
 
 | Key | Action |
 |---|---|
@@ -62,6 +58,11 @@ comments beside their binds in `bindings.lua`, which is the keymap — edit it h
 | `SUPER+SHIFT+V` | Clipboard history |
 | `SUPER+SHIFT+BACKSPACE` | Toggle laptop display |
 | `SUPER+SHIFT+B` / `SUPER+SHIFT+K` | Monitor preset bedroom / kitchen |
+
+**Displaced:** `SUPER+C` and `SUPER+V` were Omarchy's universal copy and paste (`bindings/clipboard.lua:45-47`, whose
+`SUPER+X` cut stays), and `SUPER+SHIFT+B` its second browser key (`bindings/applications.lua:3,6` — `SUPER+SHIFT+RETURN`
+stays, and the browser is `SUPER+F` here). `SUPER+SHIFT+K` displaces nothing: Omarchy binds `SUPER+K` alone
+(`bindings/utilities.lua:10`).
 
 **Left to Omarchy on purpose:** volume, brightness and media keys (Omarchy's drive its OSD and media service), `SUPER+K`,
 `SUPER+SPACE`, `SUPER+3`/`4`, `SUPER+SHIFT+3` — and its own `SUPER+P` (pseudo), `SUPER+← → ↑ ↓` (focus), `SUPER+scroll`
@@ -85,10 +86,12 @@ Omarchy's `input.lua` logic.
 | `laptop` | `~/.config/hypr/laptopMonitors.lua` | — |
 | `stock` | — (`omarchy-hyprland-toggle hyprconf-monitor-preset off` removes the toggle file; Omarchy's `monitors.lua` alone speaks) | — |
 
-`hyprconf-monitor-preset <preset>` copies the preset into the toggles directory (never links it), reloads, moves each
-existing workspace to the monitor Hyprland's own parsed rules name — a reload only places *future* workspaces — and
-issues one `dpms` wake; `-h` lists the presets it finds, and the tool's header carries the seam with its citations.
-A preset belongs to the machine: an edit survives re-selecting it.
+`hyprconf-monitor-preset <preset>` copies the preset — one machine's desk, never a link — into
+`~/.local/state/omarchy/toggles/hypr/`, loaded after `monitors.lua` (`default/hypr/toggles.lua:4,11`), so its
+`hl.monitor` lines win and `monitors.lua` is never touched. It then reloads, moves each existing workspace to the
+monitor Hyprland's own parsed rules name — a reload only places *future* workspaces — and issues one `dpms` wake;
+`-h` lists the presets it finds, and the tool's header carries the seam with its citations. Without the tool: copy one
+there and reload. A preset belongs to the machine: an edit survives re-selecting it.
 
 ## Settings
 Nothing here is a one-time choice. A seeded preset is yours to edit and is never overwritten; delete it to re-seed —
@@ -106,8 +109,9 @@ workspaces 1–6 at panels that are not there.
 `<file>.lua.stock` is moved into place — the file of your own the first run set aside, or the one a hyprconf 7.x
 install left, which was Omarchy's template of that day (delete it first for the current one) — and where there is
 none, `omarchy-refresh-config` puts Omarchy's own template back (the copy is removed first, so no `.bak` is left).
+A `.stock` that is hyprconf's own earlier copy, which 8.0–8.2 kept by mistake, is dropped rather than moved back.
 The seeded presets, their `.shipped` markers and the two `~/.local/bin` links go, `hyprctl reload`. Safe on a machine
-that never installed: exit 0, and what lands is Omarchy's own template at each of the three paths.
+that never installed: exit 0, and a file at those paths that is not hyprconf's is left as it is.
 
 ## Verified against
-Omarchy 4.0.3-1 (Hyprland 0.56.2). Every `file:line` above was read from `/usr/share/omarchy` at that version.
+Omarchy 4.0.4-1 (Hyprland 0.56.2). Every `file:line` above was read from `/usr/share/omarchy` at that version.
