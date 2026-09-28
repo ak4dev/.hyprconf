@@ -9,9 +9,11 @@ marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/editor-applied
 legacy=${marker%/*}/defaults-applied
 
 if [[ ${1:-} == undo ]]; then
-  # Stock is Omarchy's own fallback, nvim (bin/omarchy-default-editor:14, with no state file); only a default this module seeded — the marker, or v7's — goes back.
+  # Stock is Omarchy's own fallback for a box with no state file (bin/omarchy-default-editor:9-15, nvim in 4.0.4-1),
+  # asked of the getter itself with a HOME that holds none; only a default this module seeded — the marker, or v7's — goes back.
   if [[ ( -e $marker || -e $legacy ) && $(omarchy-default-editor 2>/dev/null || true) == "$editor" ]]; then
-    omarchy-default-editor nvim >/dev/null 2>&1 || true
+    stock=$(HOME=/dev/null omarchy-default-editor 2>/dev/null || true)
+    [[ -z $stock ]] || omarchy-default-editor "$stock" >/dev/null 2>&1 || true
   fi
   rm -f "$marker"        # never $legacy: the browser module honours the same file
   exit 0

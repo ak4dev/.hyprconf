@@ -6,9 +6,11 @@ Copies `bindings.lua`, `input.lua` and `looknfeel.lua` into `~/.config/hypr/`, `
 then `hyprconf hypr` (`bash ~/.hyprconf/install.sh hypr`): an `omarchy refresh` or a migration lands on the copy, and
 the next run — the post-update hook's included — puts it back. A file of your own at one of those paths, or a
 dotfiles link, is kept once as `<file>.lua.stock` (said in one line; Omarchy's own template is not, nor hyprconf's own
-earlier copy — undo puts Omarchy's back anyway). Seeds the `*Monitors*.lua` presets and links `hyprconf-gaps` and
-`hyprconf-monitor-preset` into `~/.local/bin`, bound by name in `bindings.lua`. A shipped `.lua` that fails
-`luac -p` fails the run before anything is written; where `luac` is absent the copy proceeds.
+earlier copy — undo puts Omarchy's back anyway); a different one of yours found there later is kept too, as
+`<file>.lua.bak.<epoch>` (`omarchy-refresh-config`'s name), and stays yours — undo restores `.stock`. Seeds the
+`*Monitors*.lua` presets and links `hyprconf-gaps` and `hyprconf-monitor-preset` into `~/.local/bin`, bound by name
+in `bindings.lua`. A shipped `.lua` that fails `luac -p` fails the run before anything is written; where `luac` is
+absent the copy proceeds.
 
 - `o.bind(keys, description, …)`, never `hl.bind`: only `o.bind` records the description the `SUPER+K` menu lists
   (`default/hypr/helpers.lua:92`); `{ omarchy = "terminal" }` becomes `omarchy-launch-terminal` (`:56,61-62`).
@@ -49,7 +51,7 @@ beside their binds in `bindings.lua`.
 | `SUPER+SHIFT+F` | Full screen |
 | `SUPER+SHIFT+← → ↑ ↓` | Shrink / expand window (repeating) |
 | `SUPER+SHIFT+A / D / W / S` | Move window left / right / up / down — onto the neighbouring monitor when no window is that way |
-| `SUPER+SHIFT+=` / `SUPER+SHIFT+-` | Increase / decrease window gaps (`hyprconf-gaps`, runtime only — a reload restores the configured values) |
+| `SUPER+SHIFT+=` / `SUPER+SHIFT+-` | Increase / decrease window gaps (`hyprconf-gaps`, runtime only — a reload restores the configured values; a gap it cannot read changes nothing) |
 | `SUPER+1, 2, 5–0` / `SUPER+SHIFT+1, 2, 5–0` | Switch to / move window to workspace 1, 2, 5–10 |
 | `SUPER+F1` / `SUPER+F2` (+ `SHIFT`) | Switch to / move window to workspace 3 / 4 |
 | `SUPER+M` / `SUPER+SHIFT+M` | Toggle magic scratchpad / move window to it |

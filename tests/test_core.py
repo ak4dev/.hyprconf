@@ -38,7 +38,13 @@ BINDINGS = ".config/hypr/bindings.lua"
 POLICY, RULE = "firefox/policies/policies.json", "udev/rules.d/70-keychron.rules"
 # What a settled box's second run may still call, idempotent by construction: a module
 # that re-asserted a choice or reached for sudo on a re-run is a name outside this set.
-SETTLED_RERUN_COMMANDS = {"omarchy-hook-install", "omarchy-pkg-present", "omarchy-shell", "git"}
+SETTLED_RERUN_COMMANDS = {
+    "omarchy-hook-install",
+    "omarchy-pkg-present",
+    "omarchy-shell",
+    "git",
+    "omarchy-version",
+}
 # What no run without a terminal or with --no-packages may call.
 SUDO_WORK = {
     "sudo",
@@ -238,12 +244,31 @@ def test_named_modules_run_alone_and_an_unknown_name_dies_first(box: Box) -> Non
     assert proc.returncode == 0, proc.stderr
     assert ran(proc) == ["hypr"]
     assert (box.home / BINDINGS).read_bytes() == (MODULES / "hypr/bindings.lua").read_bytes()
-    assert set(box.commands) == {"hyprctl", "omarchy-hook-install"}, box.commands
+    assert set(box.commands) == {"hyprctl", "omarchy-hook-install", "omarchy-version"}, box.commands
     assert not (box.home / ".zshrc").exists()
     # A failing omarchy-hook-install warns: nothing re-applies after an update, but the run stands.
     box.stub("omarchy-hook-install", "exit 1\n")
     proc = box.core("--no-update", "hypr")
     assert proc.returncode == 0 and "WARNING" in proc.stderr
+
+
+@pytest.mark.parametrize("answer", ["verified", "4.9.9-1", ""])
+def test_an_omarchy_other_than_the_verified_one_is_named_once(box: Box, answer: str) -> None:
+    """omarchy-version is Omarchy's own answer; a silent one (no pacman record) says nothing."""
+    verified = re.search(r"^verified=(\S+)$", INSTALL_SH.read_text(), re.M).group(1)
+    version = verified if answer == "verified" else answer
+    box.stub("omarchy-version", f"echo {version}\n" if version else "exit 1\n")
+    proc = box.core("--no-update", "fastfetch")
+    assert proc.returncode == 0, proc.stderr
+    notes = [ln for ln in proc.stderr.splitlines() if "NOTE:" in ln]
+    assert notes == (
+        [
+            f"    NOTE: this hyprconf was verified against Omarchy {verified}; this is {version}"
+            " — if a module misbehaves: hyprconf --undo <module>"
+        ]
+        if answer == "4.9.9-1"
+        else []
+    )
 
 
 def test_a_failing_module_is_named_and_stops_the_update(box: Box) -> None:

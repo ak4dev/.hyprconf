@@ -13,8 +13,6 @@ conf_dir=$HOME/.config/kitty
 conf=$conf_dir/kitty.conf
 mine=$conf_dir/hyprconf.conf
 marker=$HYPRCONF_STATE/terminal-applied
-# /usr/share/xdg-terminal-exec/hyprland-xdg-terminals.list names foot.desktop (omarchy-settings 4.0.3-1).
-stock_terminal=foot
 warn() { printf 'terminal-kitty: %s\n' "$*" >&2; }
 
 if [[ ${1:-} == undo ]]; then
@@ -22,8 +20,13 @@ if [[ ${1:-} == undo ]]; then
     [[ -f $conf ]] &&
         sed --follow-symlinks -i -e '/^# hyprconf overlay$/d' -e '/^include hyprconf\.conf$/d' "$conf"
     rm -f "$mine" "$marker"
-    [[ $(omarchy-default-terminal 2>/dev/null || true) == kitty ]] && omarchy-pkg-present "$stock_terminal" &&
-        { omarchy-default-terminal "$stock_terminal" >/dev/null 2>&1 || true; }
+    # Stock is the first entry of Omarchy's own list (default/xdg-terminal-exec/hyprland-xdg-terminals.list,
+    # foot.desktop in 4.0.4-1), read now so a later default is the one restored; the setter names
+    # foot/kitty/alacritty by the desktop id lower-cased (bin/omarchy-default-terminal:21-24).
+    list=$OMARCHY_PATH/default/xdg-terminal-exec/hyprland-xdg-terminals.list
+    stock=$( { [[ -r $list ]] && sed -n '/^[[:space:]]*[^#[:space:]]/{s/[[:space:]]//g; s/\.desktop$//; s/.*/\L&/p; q}' "$list"; } || true)
+    [[ -n $stock && $(omarchy-default-terminal 2>/dev/null || true) == kitty ]] && omarchy-pkg-present "$stock" &&
+        { omarchy-default-terminal "$stock" >/dev/null 2>&1 || true; }
     exit 0
 fi
 

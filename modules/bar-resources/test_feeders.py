@@ -76,11 +76,19 @@ def _route(iface: str, *, gateway: bool = True, metric: int = 600, dest: str = "
     return f"{iface}\t{dest}\t{gw}\t{flags}\t0\t0\t{metric}\t{mask}\t0\t0\t0".ljust(127)
 
 
+def _route6(iface: str, *, metric: int = 1024, reject: bool = False, plen: str = "00") -> str:
+    """An IPv6 route as net/ipv6/route.c's rt6_info_seq_show prints it: ::/0 by default."""
+    zero = "0" * 32
+    flags = "00200200" if reject else "00450003"
+    return f"{zero} {plen} {zero} 00 fe800000000000000000000000000001 {metric:08x} 00000001 00000000 {flags} {iface:>8}"
+
+
 def _run_stats(
     box: Box,
     *,
     net: Path | None = None,
     routes: list[str] | None = None,
+    routes6: list[str] | None = None,
     iterations: int = 2,
     hwmon: Path | None = None,
     sleep_body: str | None = None,
@@ -97,6 +105,8 @@ def _run_stats(
     route_f = box.tmp / "proc_net_route"
     lines = [_route("wlan0")] if routes is None else routes
     route_f.write_text("\n".join([ROUTE_HEADER.ljust(127), *lines]) + "\n")
+    route6_f = box.tmp / "proc_net_ipv6_route"
+    route6_f.write_text("".join(f"{r}\n" for r in routes6 or []))
     stat_f = box.tmp / "proc_stat"
     stat_f.write_text(PROC_STAT)
     mem_f = box.tmp / "meminfo"
@@ -115,6 +125,7 @@ def _run_stats(
             "HYPRCONF_STATS_PROC_STAT": str(stat_f),
             "HYPRCONF_STATS_PROC_MEMINFO": str(mem_f),
             "HYPRCONF_STATS_PROC_ROUTE": str(route_f),
+            "HYPRCONF_STATS_PROC_ROUTE6": str(route6_f),
             "HYPRCONF_STATS_HWMON_ROOT": str(hwmon or _fake_hwmon(box.tmp, [])),
             # A file that is not there: the PATH stub above is the sleep.
             "HYPRCONF_STATS_SLEEP_BUILTIN": str(box.tmp / "no-loadable-sleep"),
@@ -166,6 +177,33 @@ def test_emits_one_sample_per_tick(box: Box) -> None:
 def test_rates_come_from_the_default_route_interface(box: Box, routes, down: str) -> None:
     p = _run_stats(box, routes=routes, iterations=1)[0]
     assert (p["down"], p["up"]) == (down, "1.0kB/s" if down != "0B/s" else "0B/s")
+
+
+@pytest.mark.parametrize(
+    "routes6,down",
+    [
+        ([_route6("wlan0")], "5.0kB/s"),  # an IPv6-only network: ::/0 is the reading
+        # The lowest metric wins; a reject route (on lo) and a non-default prefix never do.
+        (
+            [
+                _route6("lo", metric=0, reject=True),
+                _route6("eth0", plen="40", metric=1),
+                _route6("eth0", metric=2048),
+                _route6("wlan0", metric=1024),
+            ],
+            "5.0kB/s",
+        ),
+        ([_route6("lo", reject=True)], "0B/s"),
+    ],
+)
+def test_with_no_ipv4_default_the_ipv6_one_is_the_reading(box: Box, routes6, down: str) -> None:
+    p = _run_stats(box, routes=[], routes6=routes6, iterations=1)[0]
+    assert p["down"] == down
+
+
+def test_an_ipv4_default_outranks_an_ipv6_one(box: Box) -> None:
+    p = _run_stats(box, routes=[_route("eth0")], routes6=[_route6("wlan0")], iterations=1)[0]
+    assert p["down"] == "0B/s"  # eth0's static counters, not wlan0's
 
 
 def test_a_missing_route_table_reads_zero_and_survives(box: Box) -> None:

@@ -73,3 +73,12 @@ def test_module_readme_carries_the_contract(name: str) -> None:
         assert any(h.startswith(section) for h in headings), f"{name}: no {section!r} section"
     assert SOLO.format(name=name) in text, f"{name}: no solo install line"
     assert f"modules/{name}/install undo" in text, f"{name}: the undo line does not name the module"
+
+
+def test_install_sh_carries_the_pinned_omarchy_version() -> None:
+    """AGENTS.md's pin line is the one home; install.sh's `verified=` is what the drift NOTE compares."""
+    pin = re.search(
+        r"^- Verified against Omarchy (\S+) ", (REPO_ROOT / "AGENTS.md").read_text(), re.M
+    )
+    verified = re.search(r"^verified=(\S+)$", (REPO_ROOT / "install.sh").read_text(), re.M)
+    assert pin and verified and verified.group(1) == pin.group(1)

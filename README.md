@@ -43,7 +43,7 @@ That first run makes `~/.local/bin/hyprconf`, the command from then on — `hypr
 | `--no-packages` | Skip everything that needs `sudo`: exported to the modules as `HYPRCONF_NO_SUDO`, which each honours in one line and carries on. The hook passes this too |
 | `--undo` | Every module's `install undo` in reverse order, then the hook and the `~/.local/bin/hyprconf` link. With module names, only those: the hook stays, so the next run re-applies them |
 
-Beyond running the modules, `install.sh` puts two things in `$HOME`: that link (a symlink into the checkout, re-pointed only when wrong) and Omarchy's own post-update hook — `omarchy hook install post-update hooks/10-hyprconf`, which runs `hyprconf --no-update --no-packages` after every `omarchy-update` and bows out when the link is gone. A module that fails does not stop the others: it is named at the end, and with `--sync` it stops `omarchy-update`.
+Beyond running the modules, `install.sh` puts two things in `$HOME`: that link (a symlink into the checkout, re-pointed only when wrong) and Omarchy's own post-update hook — `omarchy hook install post-update hooks/10-hyprconf`, which runs `hyprconf --no-update --no-packages` after every `omarchy-update` and bows out when the link is gone. A module that fails does not stop the others: it is named at the end, and with `--sync` it stops `omarchy-update`. Every run also compares `omarchy-version` with the Omarchy this release was verified against and names a difference in one `NOTE:` line.
 
 ## Modules
 

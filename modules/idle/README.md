@@ -15,7 +15,8 @@ launch / toggle screensaver; `omarchy toggle idle` is a stay-awake state file,
 shell.json writer uses — `bin/omarchy-bar:10` sources it the same way. `commit()` is
 `jq -S -e` over your shell.json (or, when you have none yet, over the shipped defaults, so
 the first run creates one), `mktemp`, `mv`, then `omarchy-shell shell reloadConfig` falling
-back to `omarchy-shell -q shell rescanPlugins` (`bin/omarchy-shell-config:14-26,53-62`).
+back to `omarchy-shell -q shell rescanPlugins` (`bin/omarchy-shell-config:14-26,53-62`). Its `mv` goes unchecked
+when `commit` runs inside a conditional, so the value is read back from the file before the marker is written.
 
 ## Requires
 

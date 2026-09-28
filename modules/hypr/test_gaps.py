@@ -50,15 +50,28 @@ def test_steps_both_gaps_together(box, direction, gaps_in, gaps_out, exp_in, exp
 
 @pytest.mark.parametrize(
     ("gaps_in", "gaps_out"),
-    # Plain-text getoption output fails jq and takes the `|| echo 0` fallback;
-    # no output at all (hyprctl cannot reach the compositor) reads as 0 too.
-    [("option: general:gaps_in = 10", "option: general:gaps_out = 10"), ("", "")],
-    ids=["non-json", "empty"],
+    # Plain text, no output at all (hyprctl cannot reach the compositor), and a css
+    # that is not a number: a step from a guessed 0 would jump the gaps, so none is taken.
+    [
+        ("option: general:gaps_in = 10", "option: general:gaps_out = 10"),
+        ("", ""),
+        (json.dumps({"css": ""}), json.dumps({"css": ""})),
+    ],
+    ids=["non-json", "empty", "blank-css"],
 )
-def test_an_unreadable_gap_reads_as_zero(box, gaps_in: str, gaps_out: str) -> None:
+def test_an_unreadable_gap_stops_the_run_and_applies_nothing(
+    box, gaps_in: str, gaps_out: str
+) -> None:
     proc, evals = _run(box, "+", gaps_in, gaps_out)
+    assert proc.returncode == 1
+    assert "cannot read general:gaps_in" in proc.stderr
+    assert evals == []
+
+
+def test_a_plain_int_answer_is_read_where_there_is_no_css(box) -> None:
+    proc, evals = _run(box, "+", json.dumps({"int": 5}), json.dumps({"int": 7}))
     assert proc.returncode == 0, proc.stderr
-    assert evals == [_expected(2, 2)]
+    assert evals == [_expected(7, 9)]
 
 
 def test_a_rejected_eval_is_reported(box) -> None:

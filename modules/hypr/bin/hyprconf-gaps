@@ -8,9 +8,9 @@
 # Both move together so their difference is preserved. Runtime only — a
 # `hyprctl reload` puts the configured values back; Omarchy's own `omarchy
 # hyprland window gaps toggle` is the all-or-nothing switch and is untouched.
-# It says nothing: the gap change is its own feedback, and its one failure (an
-# eval Hyprland refuses) is stderr + exit 1, invisible from the hotkey and
-# accepted.
+# It says nothing: the gap change is its own feedback, and its failures (a gap
+# it cannot read, an eval Hyprland refuses) are stderr + exit 1, invisible from
+# the hotkey and accepted — never a step from a guessed 0.
 set -euo pipefail
 
 readonly STEP=2
@@ -22,11 +22,13 @@ _get_gap() {
     # gaps_in / gaps_out are a four-sided value, and Hyprland 0.56.2 reports it
     # in "css" ("3 3 3 3") — verified live with `hyprctl getoption
     # general:gaps_in -j`, which carries no other populated field for these two
-    # options. jq is how Omarchy itself reads `hyprctl getoption -j`
-    # (bin/omarchy-capture-screenshot:42), so it is always installed; non-JSON
-    # or empty output makes jq fail and the gap reads as 0.
+    # options; a plain "int" is taken where there is no css. jq is how Omarchy
+    # itself reads `hyprctl getoption -j` (bin/omarchy-capture-screenshot:42), so
+    # it is always installed; anything else — no compositor, a reshaped answer —
+    # stops the run rather than stepping from 0.
     hyprctl getoption "$1" -j 2>/dev/null |
-        jq -r '.css // "0" | split(" ")[0] | tonumber' 2>/dev/null || echo "0"
+        jq -er '(.css // empty | split(" ")[0] | tonumber) // .int | numbers' 2>/dev/null ||
+        { printf 'hyprconf-gaps: cannot read %s from hyprctl getoption\n' "$1" >&2; exit 1; }
 }
 
 gaps_in=$(_get_gap general:gaps_in)

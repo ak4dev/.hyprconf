@@ -5,7 +5,7 @@ The one directive file (`CLAUDE.md` links to it; Claude Code reads that), loaded
 ## What hyprconf is
 
 - A lean overlay on a stock [Omarchy](https://omarchy.org): `install.sh` runs every `modules/*/install` — self-contained, idempotent, order-free, each with its own `install undo`, README, tests and payload (the four bar modules also source `modules/bar-plugin.sh`, which a cone-mode sparse checkout brings along) — through Omarchy's own seams (map below). It is the only entry point; with no payload beside it (the curl path) it clones `stable` and hands over. Nothing is packaged: the promoted branch is the release.
-- Verified against Omarchy 4.0.4-1 (Hyprland 0.56.2, quickshell 0.3.1, uwsm 0.26.7, Firefox 155.0.1-1, git 2.55, Bash 5.3). This line is the pin; a version in a code comment or a test is that fact's own provenance and stays as written.
+- Verified against Omarchy 4.0.4-1 (Hyprland 0.56.2, quickshell 0.3.1, uwsm 0.26.7, Firefox 155.0.1-1, git 2.55, Bash 5.3). This line is the pin — `install.sh`'s `verified=` carries its Omarchy version into the drift `NOTE:` every run prints, and `tests/test_docs.py` holds the two equal; a version in a code comment or a test is that fact's own provenance and stays as written.
 - A personal config shared as-is, not a product; no `LICENSE`, deliberately. `web/` is one static page: no build, no JS, no external requests.
 
 ## Hard rules
@@ -79,7 +79,7 @@ Every save of `modules/hypr/*.lua` must parse (`luac -p`), state only deltas fro
 
 ## Gates and CI
 
-Before every commit: `make check` = `make lint` (ruff check + format) + `make shellcheck` (by shebang; fails on finding nothing) + `make test`, the gates `scripts/publish` runs. `.github/workflows/test.yml` runs the same on every push, in `archlinux:latest`, as an unprivileged `ci` user it creates. Nine tests skip there today, each with the one reason the budget allows — `needs the installed Omarchy`; any other skip is a regression, which `conftest.py::pytest_sessionfinish` matches on that reason and turns red, and `-rs` names each. `OMARCHY_PATH=$(mktemp -d) make test` reproduces them here, since every such probe keys on that one seam. Read a red run from its `::error::` annotation, the one part the public API hands back (why: the comment at the workflow's tee step). Reproduce a container-only failure: CONTRIBUTING › Running tests.
+Before every commit: `make check` = `make lint` (ruff check + format) + `make shellcheck` (by shebang; fails on finding nothing) + `make test`, the gates `scripts/publish` runs. `.github/workflows/test.yml` runs the same on every push, in `archlinux:latest`, as an unprivileged `ci` user it creates. Ten tests skip there today, each with the one reason the budget allows — `needs the installed Omarchy`; any other skip is a regression, which `conftest.py::pytest_sessionfinish` matches on that reason and turns red, and `-rs` names each. `OMARCHY_PATH=$(mktemp -d) make test` reproduces them here, since every such probe keys on that one seam. Read a red run from its `::error::` annotation, the one part the public API hands back (why: the comment at the workflow's tee step). Reproduce a container-only failure: CONTRIBUTING › Running tests.
 
 ## Known quirks (cross-cutting; a module's own live beside its code)
 

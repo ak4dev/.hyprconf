@@ -15,9 +15,9 @@
 // are stable IPC targets, and the manifest's clonedFrom is what maps this
 // copy onto them — the rule omarchy-plugin-clone follows.
 //
-// Refresh, when an Omarchy release changes the widget (nothing here is
-// parity-tested — the clock's test is the clock's): diff the stock file
-// against this one and re-apply the three deltas above.
+// Refresh, when an Omarchy release changes the widget (the parity test in
+// ../test_bar_active_window.py turns red on a box with that release): diff the
+// stock file against this one and re-apply the three deltas above.
 import QtQuick
 import Quickshell.Wayland
 import qs.Commons

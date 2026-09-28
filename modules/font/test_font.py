@@ -45,6 +45,14 @@ def test_undo_drops_the_marker_and_names_omarchys_own_font(box) -> None:
     assert box.commands == []
 
 
+def test_undo_names_the_monospace_omarchys_fontconfig_assigns_at_undo_time(box) -> None:
+    conf = box.omarchy / "default/fontconfig/conf.avail/50-omarchy.conf"
+    conf.write_text(conf.read_text().replace("JetBrainsMono Nerd Font", "Some Later Mono"))
+    assert "omarchy font set 'Some Later Mono'" in box.undo("font").stdout
+    conf.unlink()
+    assert "omarchy font set" not in box.undo("font").stdout  # nothing to name, nothing invented
+
+
 @pytest.mark.parametrize("kw", [{"env": {"HYPRCONF_NO_SUDO": "1"}}, {"tty": False}])
 def test_a_missing_package_without_sudo_points_and_exits_zero(box, kw) -> None:
     box.stub("omarchy-pkg-present", "exit 1\n")

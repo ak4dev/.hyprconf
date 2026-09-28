@@ -41,6 +41,30 @@ OMARCHY_BINDS = (
 # hence matching all code, not just binds — moves the level with no indicator.
 OSD_KEYS = "XF86AudioRaiseVolume XF86AudioLowerVolume XF86AudioMute XF86AudioMicMute XF86MonBrightnessUp XF86MonBrightnessDown XF86AudioNext XF86AudioPrev XF86AudioPlay XF86AudioPause".split()
 
+# Every hl.* the shipped Lua, the two tools and the plugins call (Hyprland 0.56.2). luac -p
+# checks syntax only, so a renamed dispatcher would load as a runtime error per bind; the
+# pin is checked against Hyprland's own stubs where they are installed, and stands in where not.
+HL_API = (
+    "hl.animation",
+    "hl.bind",
+    "hl.config",
+    "hl.dsp.dpms",
+    "hl.dsp.focus",
+    "hl.dsp.window.close",
+    "hl.dsp.window.float",
+    "hl.dsp.window.fullscreen",
+    "hl.dsp.window.move",
+    "hl.dsp.window.resize",
+    "hl.dsp.workspace.move",
+    "hl.dsp.workspace.toggle_special",
+    "hl.gesture",
+    "hl.monitor",
+    "hl.unbind",
+    "hl.workspace_rule",
+)
+HL_STUBS = Path("/usr/share/hypr/stubs/hl.meta.lua")
+HL_CALL_RE = re.compile(r"\bhl(?:\.[a-z_]+)+")
+
 
 def _code(path: Path) -> str:
     return "\n".join(ln for ln in path.read_text().splitlines() if not ln.lstrip().startswith("--"))
@@ -250,9 +274,15 @@ def test_only_a_file_of_the_users_own_is_kept_once_as_stock(box, kind: str) -> N
         assert theirs.read_text() == "-- from my dotfiles\n"
     elif kind == "mine":
         assert stock.read_text() == "-- my own bindings\n"
-        dst.write_text("-- edited on the copy\n")  # once: an edit costs no backup
+        dst.write_text("-- my later bindings\n")  # .stock stands; the later file is kept beside it
         assert box.run(INSTALL).returncode == 0
         assert stock.read_text() == "-- my own bindings\n"
+        assert [p.read_text() for p in hypr.glob("bindings.lua.bak.*")] == [
+            "-- my later bindings\n"
+        ]
+        dst.write_text("-- my own bindings\n")  # the .stock bytes again: nothing new to keep
+        assert box.run(INSTALL).returncode == 0
+        assert len(list(hypr.glob("bindings.lua.bak.*"))) == 1
     else:
         assert not stock.exists() and not stock.is_symlink()
     assert not (hypr / "input.lua.stock").exists(), "nothing was there to keep"
@@ -385,3 +415,35 @@ def test_undo_hands_omarchy_path_to_omarchy_refresh_config(box) -> None:
     res = box.run(bare)
     assert res.returncode == 0, res.stderr
     assert (box.home / "seen").read_text() == "/usr/share/omarchy"
+
+
+def _stub_fields(text: str) -> dict[str, dict[str, str]]:
+    """`---@class` blocks and their `---@field name type` lines, as the stubs declare the API."""
+    classes: dict[str, dict[str, str]] = {}
+    current = ""
+    for line in text.splitlines():
+        if m := re.match(r"---@class (\S+)", line):
+            current = m.group(1)
+            classes[current] = {}
+        elif current and (m := re.match(r"---@field (\w+)\??\s+(\S+)", line)):
+            classes[current][m.group(1)] = m.group(2)
+    return classes
+
+
+def test_every_hl_call_is_pinned_and_hyprland_still_declares_it() -> None:
+    shipped = [
+        *MODULE.glob("*.lua"),
+        *(MODULE / "bin").iterdir(),
+        *MODULE.parent.glob("bar-*/plugin/*.qml"),
+    ]
+    used = {c for f in shipped for c in HL_CALL_RE.findall(f.read_text())}
+    assert used == set(HL_API)
+    if not HL_STUBS.is_file():
+        return
+    classes = _stub_fields(HL_STUBS.read_text())
+    for call in HL_API:
+        cls = "HL.API"
+        *path, leaf = call.split(".")[1:]
+        for seg in path:
+            cls = classes.get(cls, {}).get(seg, "")
+        assert leaf in classes.get(cls, {}), f"{call}: not in {HL_STUBS}"

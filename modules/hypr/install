@@ -13,10 +13,16 @@ tools=(hyprconf-gaps hyprconf-monitor-preset)
 # Ours, whichever release wrote it: every override opens "-- hyprconf " (test_hypr.py pins it). Without this a changed
 # override met its own previous copy, kept it as .stock, and undo put hyprconf's old file back instead of Omarchy's.
 ours() { local l; [[ -f $1 ]] && read -r l <"$1" && [[ $l == "-- hyprconf "* ]]; }
+# .stock is the one undo puts back; a later file of the user's goes beside it under omarchy-refresh-config's
+# own backup name (bin/omarchy-refresh-config:22) rather than under the copy with nothing kept.
 keep() {
-    [[ -e $1.stock || -L $1.stock ]] && return
-    cp -P -- "$1" "$1.stock"
-    echo "  backed up ${1##*/} -> ${1##*/}.stock"
+    local bak=$1.stock
+    if [[ -e $bak || -L $bak ]]; then
+        cmp -s -- "$1" "$bak" && return
+        bak=$1.bak.$(date +%s)
+    fi
+    cp -P -- "$1" "$bak"
+    echo "  backed up ${1##*/} -> ${bak##*/}"
 }
 if [[ ${1:-} == undo ]]; then
     # The copy goes first, so omarchy-refresh-config takes its no-backup branch (bin/omarchy-refresh-config:41-43) and leaves no .bak behind.

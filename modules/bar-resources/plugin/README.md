@@ -12,7 +12,8 @@ download rate. Fed by two long-lived JSON streams bundled in `bin/`
 (`hyprconf-gpu-info`, one line every two seconds; `hyprconf-stats`, one a
 second, whose tick reads `/proc` and `/sys` and forks nothing). Both emit
 numbers only; every glyph, unit and column width is the widget's. The network
-rates are the default-route interface's, read from `/proc/net/route` — by
+rates are the default-route interface's, read from `/proc/net/route` (on an
+IPv6-only network, the lowest-metric `::/0` in `/proc/net/ipv6_route`) — by
 definition the one carrying the traffic, so with a full-tunnel VPN up the
 rates follow the tunnel. Columns are fixed-width, sized from their widest
 value, so nothing shifts as the numbers change. On a multi-GPU box the
@@ -119,4 +120,4 @@ upgrade.
   laptop the `nvidia-smi --loop` stream holds the discrete GPU open for the
   whole session, which keeps it out of runtime D3 — disable the widget on
   battery if that matters.
-- No `iproute2`: the default route is read from `/proc/net/route`.
+- No `iproute2`: the default route is read from `/proc/net/route`, then `/proc/net/ipv6_route`.

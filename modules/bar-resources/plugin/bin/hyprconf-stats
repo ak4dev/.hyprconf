@@ -29,6 +29,7 @@ set -u
 : "${HYPRCONF_STATS_PROC_STAT:=/proc/stat}"
 : "${HYPRCONF_STATS_PROC_MEMINFO:=/proc/meminfo}"
 : "${HYPRCONF_STATS_PROC_ROUTE:=/proc/net/route}"
+: "${HYPRCONF_STATS_PROC_ROUTE6:=/proc/net/ipv6_route}"
 : "${HYPRCONF_STATS_HWMON_ROOT:=/sys/class/hwmon}"
 : "${HYPRCONF_STATS_SLEEP_BUILTIN:=/usr/lib/bash/sleep}"
 : "${HYPRCONF_STATS_INTERVAL:=1}"
@@ -115,12 +116,23 @@ while :; do
     # no RTF_GATEWAY) included — and of several (Wi-Fi plus a tether) the first is
     # the lowest metric, the kernel keeping a prefix's routes sorted by priority
     # (fib_insert_alias). An `unreachable default` has no device, lists as "*", and
-    # is skipped.
+    # is skipped. With no IPv4 default (an IPv6-only network), the IPv6 table's
+    # ::/0 of lowest metric (net/ipv6/route.c, rt6_info_seq_show: "dst plen src
+    # plen gateway metric refcnt use flags dev", hex); a reject route (RTF_REJECT
+    # 0x0200) sits on lo and is skipped with it.
     iface=""
     if [[ -r $HYPRCONF_STATS_PROC_ROUTE ]]; then
         while read -r _rif _rdst _; do
             [[ $_rdst == 00000000 && $_rif != '*' ]] && { iface=$_rif; break; }
         done < "$HYPRCONF_STATS_PROC_ROUTE"
+    fi
+    if [[ -z $iface && -r $HYPRCONF_STATS_PROC_ROUTE6 ]]; then
+        _best=-1
+        while read -r _rdst _rplen _ _ _ _rmetric _ _ _rflags _rif; do
+            [[ $_rdst == 00000000000000000000000000000000 && $_rplen == 00 && $_rif != lo ]] || continue
+            (( 16#$_rflags & 0x0200 )) && continue
+            if (( _best < 0 || 16#$_rmetric < _best )); then _best=$(( 16#$_rmetric )) iface=$_rif; fi
+        done < "$HYPRCONF_STATS_PROC_ROUTE6"
     fi
     rx=0 tx=0
     if [[ -n $iface && -r $HYPRCONF_STATS_NET_ROOT/$iface/statistics/rx_bytes ]]; then

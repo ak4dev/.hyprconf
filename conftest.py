@@ -107,6 +107,20 @@ OMARCHY_TREE = {
         "include ~/.local/state/omarchy/current/theme/kitty.conf\n"
         "\n# Settings below override Omarchy's defaults in /etc/xdg/kitty/kitty.conf.\n"
     ),
+    # default/xdg-terminal-exec/hyprland-xdg-terminals.list — the stock terminal
+    # terminal-kitty's undo hands the default back to.
+    "default/xdg-terminal-exec/hyprland-xdg-terminals.list": (
+        "# Terminal emulator preference order for xdg-terminal-exec\n"
+        "# The first found and valid terminal will be used\nfoot.desktop\n"
+    ),
+    # default/fontconfig/conf.avail/50-omarchy.conf, cut to the monospace match — the
+    # family font's undo names.
+    "default/fontconfig/conf.avail/50-omarchy.conf": (
+        '<fontconfig>\n  <match target="pattern">\n    <test name="family" qual="any">\n'
+        "      <string>monospace</string>\n    </test>\n"
+        '    <edit name="family" mode="assign" binding="strong">\n'
+        "      <string>JetBrainsMono Nerd Font</string>\n    </edit>\n  </match>\n</fontconfig>\n"
+    ),
     # config/omarchy/shell.json — the seed for ~/.config/omarchy/shell.json,
     # cut to the two keys the overlay reads: idle.screensaver and the bar's
     # centre anchor.

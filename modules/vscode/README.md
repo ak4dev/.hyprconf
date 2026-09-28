@@ -31,8 +31,8 @@ Marker `~/.local/state/hyprconf/editor-applied` (`$HYPRCONF_STATE` moves the dir
 both to seed again. The default itself lives in `~/.local/state/omarchy/defaults/editor`.
 
 ## Undo
-`bash modules/vscode/install undo` — the default editor returns to Omarchy's stock `nvim` if this
-module seeded it and it is still `code` (a pick made after the install stays); the marker goes;
+`bash modules/vscode/install undo` — the default editor returns to Omarchy's stock one (`nvim` on 4.0.4-1,
+asked of `omarchy-default-editor` at undo time with no state file in reach) if this module seeded it and it is still `code` (a pick made after the install stays); the marker goes;
 VS Code stays installed (`omarchy pkg drop visual-studio-code-bin` if you want it gone).
 
 ## Verified against Omarchy 4.0.4-1

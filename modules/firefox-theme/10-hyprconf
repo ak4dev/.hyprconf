@@ -16,7 +16,7 @@ set -uo pipefail
 render=$HOME/.local/state/omarchy/current/theme/userChrome.css
 q="[\"']"
 managed="^[[:space:]]*user_pref\([[:space:]]*$q(toolkit\.legacyUserProfileCustomizations\.stylesheets|extensions\.activeThemeID|ui\.systemUsesDarkTheme)${q}[[:space:]]*,"
-rc=0 changed=0 undo=0
+rc=0 changed=0 undo=0 found=0
 [[ ${1:-} == --undo ]] && undo=1
 
 # The profile Firefox will start, one per ini: the path an [Install<hash>]
@@ -78,6 +78,7 @@ fi
 
 while read -r p; do
   [[ -d $p ]] || continue
+  found=1
   if (( undo )); then
     # Folded into rc like every other write: a chrome/ this user cannot write must
     # not let `install undo` report success with our stylesheet still on disk.
@@ -100,6 +101,9 @@ done < <(profiles)
 (( undo )) && exit "$rc"
 [[ -f $render ]] ||
   printf 'hyprconf firefox-theme: no %s — `omarchy theme refresh` renders it\n' "$render" >&2
+# Firefox makes its profile on its first start, so a fresh install has none to theme yet.
+(( found )) || ! omarchy-cmd-present firefox ||
+  printf 'hyprconf firefox-theme: Firefox has no profile yet — start it once, then: hyprconf firefox-theme\n' >&2
 # Firefox reads userChrome.css and user.js at startup only.
 (( changed )) && omarchy-notification-send "Firefox theme" \
   "Restart Firefox to apply the new theme" >/dev/null 2>&1

@@ -9,10 +9,11 @@ MARKER = ".local/state/hyprconf/editor-applied"
 LEGACY = ".local/state/hyprconf/defaults-applied"
 STATE = ".local/state/omarchy/defaults/editor"
 
-# bin/omarchy-default-editor: no argument reads the state file, else "nvim" (:9-15); an argument writes it (:33-34), then returns the notification's status (:36).
+# bin/omarchy-default-editor: no argument reads the state file under $HOME, else the fallback (:7-15, nvim; EDITOR_STOCK here);
+# an argument writes it (:33-34), then returns the notification's status (:36).
 EDITOR = """\
-state=${EDITOR_STATE:?}
-(($#)) || { { [ -r "$state" ] && cat "$state"; } || echo nvim; exit 0; }
+state=$HOME/.local/state/omarchy/defaults/editor
+(($#)) || { { [ -r "$state" ] && cat "$state"; } || echo "${EDITOR_STOCK:-nvim}"; exit 0; }
 [[ -n ${EDITOR_DEAF:-} ]] || { mkdir -p "${state%/*}"; printf '%s\\n' "$1" > "$state"; }
 exit ${EDITOR_SET_STATUS:-0}
 """
@@ -20,7 +21,7 @@ exit ${EDITOR_SET_STATUS:-0}
 
 def machine(box, *, present: bool, delivers: bool = True) -> None:
     flag = box.tmp / "visual-studio-code-bin"
-    box.env |= {"VSCODE_FLAG": str(flag), "EDITOR_STATE": str(box.home / STATE)}
+    box.env |= {"VSCODE_FLAG": str(flag)}
     box.stub("omarchy-pkg-present", 'test -e "${VSCODE_FLAG:?}"\n')  # :6-8 is `pacman -Q`
     box.stub("omarchy-install-editor-vscode", f'touch "{flag}"\n' if delivers else "exit 0\n")
     box.stub("omarchy-default-editor", EDITOR)
@@ -98,6 +99,14 @@ def test_undo_restores_the_stock_editor_and_keeps_a_later_pick(box) -> None:
     (box.home / STATE).write_text("helix\n")  # a pick made after the install
     box.reset()
     assert box.undo("vscode").returncode == 0 and seeded(box) == (False, "helix", False)
+
+
+def test_undo_restores_the_fallback_omarchy_reports_at_undo_time(box) -> None:
+    """A later Omarchy whose getter falls back to another editor is the one restored."""
+    machine(box, present=True)
+    box.run(MODULE, tty=True)
+    assert box.undo("vscode", env={"EDITOR_STOCK": "helix"}).returncode == 0
+    assert seeded(box)[1] == "helix"
 
 
 @pytest.mark.parametrize("v7", [False, True])

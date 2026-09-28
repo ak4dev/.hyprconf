@@ -87,10 +87,16 @@ plugin_enable() {
         jq -e --arg id "$id" 'any(.[]?; .id == $id)' <<<"$list" >/dev/null 2>&1 && break
         sleep 0.05
     done
-    omarchy-plugin-enable "$id" >/dev/null 2>&1 || {
-        echo "  no shell answering — enabled on the next run"
+    local err
+    if ! err=$(omarchy-plugin-enable "$id" 2>&1 >/dev/null); then
+        # An empty $list is the only "no shell"; anything else is the shell's refusal, named as it gave it.
+        if [[ -z $list ]]; then
+            echo "  no shell answering — enabled on the next run"
+        else
+            echo "  $id not enabled: ${err:-omarchy-plugin-enable failed} — retried on the next run"
+        fi
         exit 0
-    }
+    fi
 }
 
 # `omarchy plugin update` fast-forwards a same-id checkout and refuses a non-git

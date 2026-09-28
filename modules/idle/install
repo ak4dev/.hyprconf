@@ -23,7 +23,7 @@ if [[ ${1:-} == undo ]]; then
   # (shell/shell.qml:73-88), then plugins/services/idle/Service.qml:17,21 applies 150. Guarded,
   # or commit()'s defaults fallback (omarchy-shell-config:20-26) writes a file the user never had.
   if jq -e '.idle.screensaver != null' "$json" >/dev/null 2>&1; then
-    edit 'del(.idle.screensaver)' ||
+    edit 'del(.idle.screensaver)' && jq -e '.idle.screensaver == null' "$json" >/dev/null 2>&1 ||
       echo "  could not restore idle.screensaver — remove it from $json by hand"
   fi
   rm -f "$marker"
@@ -31,7 +31,9 @@ if [[ ${1:-} == undo ]]; then
 fi
 
 [[ -e $marker ]] && exit 0
-if edit ".idle = ((.idle // {}) + { screensaver: $seconds })"; then
+# Read back: commit's bare `mv` goes unchecked in a conditional (:59), so its status alone would mark a write that never landed.
+if edit ".idle = ((.idle // {}) + { screensaver: $seconds })" &&
+  jq -e --argjson s "$seconds" '.idle.screensaver == $s' "$json" >/dev/null 2>&1; then
   mkdir -p "${marker%/*}"; : > "$marker"
   echo "  idle.screensaver = ${seconds}s — undo: bash $dir/install undo"
 else

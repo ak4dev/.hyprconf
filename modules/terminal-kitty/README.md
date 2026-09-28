@@ -34,8 +34,8 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 ## Undo
 
 `bash modules/terminal-kitty/install undo` — strips the include, removes `hyprconf.conf` and the
-marker, and hands the default back to Omarchy's stock `foot` only while kitty is still current
-and foot is still installed (`/usr/share/xdg-terminal-exec/hyprland-xdg-terminals.list`,
-omarchy-settings 4.0.4-1).
+marker, and hands the default back to Omarchy's stock terminal only while kitty is still current
+and that terminal is still installed. Stock is read at undo time, the first entry of
+`$OMARCHY_PATH/default/xdg-terminal-exec/hyprland-xdg-terminals.list` — `foot` in omarchy-settings 4.0.4-1.
 
 ## Verified against Omarchy 4.0.4-1 — kitty 0.48.2-1, omarchy-settings 4.0.4-1.

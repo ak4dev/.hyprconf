@@ -137,3 +137,17 @@ def test_undo_restores_stock(kitty, since, absent, back) -> None:
     assert (kitty.home / CONF).read_text() == stock
     assert not (kitty.home / MINE).exists() and not (kitty.home / MARKER).exists()
     assert kitty.terminal.read_text() == back
+
+
+def test_undo_reads_the_stock_terminal_from_omarchys_list_at_undo_time(kitty) -> None:
+    """A later Omarchy that ships another default is the one restored, lower-cased the way
+    bin/omarchy-default-terminal:21-24 names it; a list that is gone restores nothing."""
+    assert kitty.run(INSTALL).returncode == 0
+    lst = kitty.omarchy / "default/xdg-terminal-exec/hyprland-xdg-terminals.list"
+    lst.write_text("# preference order\n\n  Alacritty.desktop\nfoot.desktop\n")
+    assert kitty.undo("terminal-kitty").returncode == 0
+    assert kitty.terminal.read_text() == "alacritty"
+    assert kitty.run(INSTALL).returncode == 0
+    lst.unlink()
+    assert kitty.undo("terminal-kitty").returncode == 0
+    assert kitty.terminal.read_text() == "kitty"

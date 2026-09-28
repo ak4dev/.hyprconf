@@ -13,7 +13,9 @@ the three prefs below in `<profile>/user.js`, its other lines untouched. The pro
 
 ## Requires
 
-Nothing — no packages, no sudo, no path outside `$HOME`; a no-op until a Firefox profile exists.
+Nothing — no packages, no sudo, no path outside `$HOME`; a no-op until a Firefox profile exists. Firefox makes
+one on its first start, so on a fresh install the hook says so (while `firefox` is installed) until then; after
+that first start, `hyprconf firefox-theme` — or the next theme set or `omarchy-update` — themes it.
 
 ## Install alone
 

@@ -62,10 +62,14 @@ def test_a_second_run_writes_nothing_so_a_hand_edit_is_never_re_asserted(box, ed
     assert box.snapshot() == before
 
 
-@pytest.mark.parametrize("case", ["no-helper", "commit-fails"])
+@pytest.mark.parametrize("case", ["no-helper", "commit-fails", "mv-lost"])
 def test_a_failure_warns_leaves_no_marker_and_does_not_fail_the_run(box, case):
     env = {}
-    if case == "no-helper":  # a PATH with no omarchy-*: `command -v` fails
+    if (
+        case == "mv-lost"
+    ):  # commit's unchecked mv (bin/omarchy-shell-config:59): status 0, nothing written
+        box.stub("omarchy-shell-config", SHELL_CONFIG.replace('mv "$tmp" "$CONFIG_FILE"', "false"))
+    elif case == "no-helper":  # a PATH with no omarchy-*: `command -v` fails
         (box.tmp / "bare").mkdir()
         for tool in ("bash", "readlink", "dirname"):
             (box.tmp / "bare" / tool).symlink_to(shutil.which(tool))

@@ -6,12 +6,16 @@ set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 : "${OMARCHY_PATH:=/usr/share/omarchy}"
 family='GeistMono Nerd Font'
-stock='JetBrainsMono Nerd Font'   # Omarchy's own monospace: default/fontconfig/conf.avail/50-omarchy.conf:22-29
 marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/font-applied
 
 if [[ ${1:-} == undo ]]; then
   rm -f "$marker"
-  echo "  put Omarchy's font back with: omarchy font set '$stock'"
+  # Omarchy's own monospace, read now so a later default is the one named: the family its fontconfig
+  # assigns to `monospace` (default/fontconfig/conf.avail/50-omarchy.conf:22-29 — JetBrainsMono Nerd Font in 4.0.4-1).
+  stock=$(awk '/<string>monospace<\/string>/ { m = 1; next }
+    m && /<string>/ { gsub(/.*<string>|<\/string>.*/, ""); print; exit }' \
+    "$OMARCHY_PATH/default/fontconfig/conf.avail/50-omarchy.conf" 2>/dev/null || true)
+  [[ -z $stock ]] || echo "  put Omarchy's font back with: omarchy font set '$stock'"
   exit 0
 fi
 

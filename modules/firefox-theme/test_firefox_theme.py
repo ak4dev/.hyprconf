@@ -215,6 +215,20 @@ def test_a_write_the_hook_cannot_make_is_reported_and_takes_nothing_away(
     assert (js.read_text() if js.is_file() else None) == kept
 
 
+@pytest.mark.parametrize("installed", [True, False])
+def test_the_hook_says_firefox_has_no_profile_yet_only_while_firefox_is_there(
+    box: Box, installed: bool
+) -> None:
+    """Firefox makes its profile on its first start: a fresh install has a render and nothing to put it in."""
+    render = box.home / ".local/state/omarchy/current/theme/userChrome.css"
+    render.parent.mkdir(parents=True)
+    render.write_text("/* rendered */\n")
+    box.stub("omarchy-cmd-present", "exit 0\n" if installed else "exit 1\n")
+    result = box.run(HOOK, "dracula")
+    assert result.returncode == 0, result.stderr
+    assert ("Firefox has no profile yet" in result.stderr) is installed
+
+
 def test_the_hook_is_a_no_op_without_a_render(box: Box) -> None:
     firefox(box)
     before = snapshot(box)

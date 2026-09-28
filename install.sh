@@ -152,6 +152,14 @@ done
 omarchy-hook-install post-update "$hook" >/dev/null ||
     echo "    WARNING: omarchy-hook-install failed — nothing re-applies after omarchy-update until a run succeeds" >&2
 
+# The Omarchy this release was verified against — AGENTS.md's pin line, which tests/test_docs.py holds this to.
+# Any other is named on every run, the hook's included, so a drift shows on the update that brings it rather
+# than when a seam moves under a module; `omarchy-version` is Omarchy's own answer (its package version).
+verified=4.0.4-1
+omarchy=$(omarchy-version 2>/dev/null || true)
+[[ -z $omarchy || $omarchy == "$verified" ]] ||
+    echo "    NOTE: this hyprconf was verified against Omarchy $verified; this is $omarchy — if a module misbehaves: hyprconf --undo <module>" >&2
+
 (( ${#failed[@]} == 0 )) || die "failed: ${failed[*]} — each said why above; re-run, or \`hyprconf <module>\` for one"
 if (( sync && update )); then
     log "Updating Omarchy"

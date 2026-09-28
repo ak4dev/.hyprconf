@@ -5,18 +5,20 @@ tests/test_plugins_contract.py."""
 
 from __future__ import annotations
 
+import difflib
 import json
 import shlex
 from pathlib import Path
 
 import pytest
 
-from conftest import Box, bar_shell
+from conftest import NEEDS_OMARCHY, OMARCHY, Box, bar_shell
 
 INSTALL, PLUGIN = Path(__file__).parent / "install", Path(__file__).parent / "plugin"
 ID = "hyprconf.active-window"
 STOCK = "omarchy.active-window"
 MARKER = ".local/state/hyprconf/active-window-applied"
+STOCK_WIDGET = OMARCHY / "shell/plugins/bar/widgets/ActiveWindow.qml"
 
 
 def listing(rows: list[dict] | None) -> str:
@@ -78,3 +80,41 @@ def test_the_widget_keeps_the_stock_widget_s_behaviour() -> None:
     assert "root.toplevel.close()" in qml and "root.toplevel.activate()" in qml
     assert "bar.showTooltip(root, root.title)" in qml and "bar.hideTooltip(root)" in qml
     assert "maximumLineCount: 2" in qml
+
+
+@pytest.mark.skipif(not STOCK_WIDGET.is_file(), reason=NEEDS_OMARCHY)
+def test_the_widget_tracks_omarchys_stock_active_window() -> None:
+    """ActiveWindow.qml is the stock file plus its header and exactly the three deltas that
+    header names (Omarchy 4.0.4-1) — red on a release that changes the widget, which is the
+    signal to refresh the copy, as the clock's own parity test is for the clock."""
+    ours = (PLUGIN / "ActiveWindow.qml").read_text().splitlines()
+    body = ours[next(n for n, ln in enumerate(ours) if ln.startswith("import ")) :]
+    diff = difflib.unified_diff(STOCK_WIDGET.read_text().splitlines(), body, n=0, lineterm="")
+    changed = [ln for ln in diff if ln[:1] in "+-" and not ln.startswith(("---", "+++"))]
+    assert changed == [
+        "-import Quickshell",  # delta 3: unused
+        "-",
+        "+",
+        # delta 1: the stock character budget on two caption-size lines
+        "+  // The stock budget is `maxWidth` px of body-size text on one line (README ›",
+        "+  // Settings). The same number of characters at caption size over two lines",
+        "+  // needs maxWidth × caption/body ÷ 2 px per line.",
+        "+  readonly property real lineWidth: Math.max(",
+        "+    24, Math.round(maxLabelWidth * Style.font.caption / Style.font.body / 2))",
+        # delta 2: sized to the widest painted line
+        "-  implicitWidth: visible ? Math.min(maxLabelWidth, labelText.implicitWidth)"
+        " + Style.spacing.controlPaddingX * 2 : 0",
+        "+  implicitWidth: visible ? Math.ceil(labelText.contentWidth)"
+        " + Style.spacing.controlPaddingX * 2 : 0",
+        "-      width: parent.width",
+        "+      width: root.lineWidth",
+        "-      font.pixelSize: Style.font.body",
+        "+      font.pixelSize: Style.font.caption",
+        "+      wrapMode: Text.Wrap",
+        "+      maximumLineCount: 2",
+        # delta 3: the two identical close branches as one
+        "-      if (mouse.button === Qt.MiddleButton) {",
+        "-        root.toplevel.close()",
+        "-      } else if (mouse.button === Qt.RightButton) {",
+        "+      if (mouse.button === Qt.MiddleButton || mouse.button === Qt.RightButton) {",
+    ]

@@ -262,6 +262,74 @@ def test_widgets_read_only_what_the_plugin_facades_expose() -> None:
     assert {"serviceFor", "updateEntryInline"} <= seen, "the scan matched nothing it should"
 
 
+# What the widgets take from qs.Commons and qs.Ui beyond the facades above (Omarchy 4.0.4-1):
+# the singleton paths, and each Ui type with the members it is used through. Neither is a
+# published API (shell/README.md names the facades), and a rename there is no load error —
+# an undefined size is a zero-width widget and one journal warning — so both are pinned, and
+# checked against the installed shell where there is one.
+COMMONS_USED = (
+    "Color.foreground",
+    "Style.bar.iconSlot",
+    "Style.font.body",
+    "Style.font.caption",
+    "Style.font.family",
+    "Style.fontFamily",
+    "Style.space",
+    "Style.spaceReal",
+    "Style.spacing.controlPaddingX",
+    "Style.spacing.sm",
+    "Util.shellQuote",
+)
+UI_USED = {
+    "BarWidget": ("bar", "barSize", "broadcast", "moduleName", "setting", "settings", "vertical"),
+    "OpticalGlyph": ("color", "fontFamily", "fontSize", "text"),
+    "WidgetButton": (
+        "bar",
+        "fixedHeight",
+        "fontFamily",
+        "fontSize",
+        "foreground",
+        "hasVisualContent",
+        "horizontalMargin",
+        "labelVisible",
+        "labelWidth",
+        "pressed",
+        "text",
+        "verticalPadding",
+    ),
+}
+COMMONS_RE = re.compile(r"\b(?:Style|Color|Util)(?:\.[A-Za-z_]\w*)+")
+TYPE_RE = re.compile(r"^\s*([A-Z]\w*) \{", re.M)
+MEMBER_DECL_RE = re.compile(
+    r"^\s*(?:readonly\s+)?(?:required\s+)?(?:property\s+\S+|function|signal)\s+(\w+)", re.M
+)
+
+
+def test_widgets_use_only_the_pinned_commons_and_ui_members_and_omarchy_still_declares_them() -> (
+    None
+):
+    qmls = [p for folder in FOLDERS for p in folder.rglob("*.qml")]
+    assert {m for q in qmls for m in COMMONS_RE.findall(qml_code(q))} == set(COMMONS_USED)
+    qmldir = OMARCHY_SHELL / "Ui/qmldir"
+    if not qmldir.is_file():
+        return
+    registry = (OMARCHY_SHELL / "services/PluginRegistry.qml").read_text()
+    assert "manifest.schemaVersion !== 1" in registry, (
+        "PluginRegistry.qml:48 moved: every manifest here is 1"
+    )
+    ui_types = set(re.findall(r"^(\w+) \d", qmldir.read_text(), re.M))
+    assert {t for q in qmls for t in TYPE_RE.findall(qml_code(q))} & ui_types == set(UI_USED)
+    for path in COMMONS_USED:
+        single, *members = path.split(".")
+        declared = set(
+            MEMBER_DECL_RE.findall((OMARCHY_SHELL / f"Commons/{single}.qml").read_text())
+        )
+        assert set(members) <= declared, f"{path}: not declared in Commons/{single}.qml"
+    for name, members in UI_USED.items():
+        declared = set(MEMBER_DECL_RE.findall((OMARCHY_SHELL / f"Ui/{name}.qml").read_text()))
+        assert set(members) <= declared, f"{name}: {sorted(set(members) - declared)} not declared"
+
+
 @per_folder
 @pytest.mark.skipif(not (OMARCHY / "bin/omarchy-plugin-validate").is_file(), reason=NEEDS_OMARCHY)
 def test_the_real_validator_accepts_the_folder_through_a_symlink(
@@ -418,6 +486,23 @@ def test_no_shell_answering_leaves_the_enable_for_the_next_run(plugin: Plugin) -
     plugin.run()
     assert box.calls_of("omarchy-plugin-enable")[-1] == ["omarchy-plugin-enable", plugin.id]
     assert plugin.marker.is_file()
+
+
+def test_a_refusing_shell_is_named_as_it_refused_not_as_absent(plugin: Plugin) -> None:
+    """A shell that answers the list and refuses the enable (bin/omarchy-plugin-enable:86-89
+    prints why on stderr) is not "no shell answering": its own words reach the run."""
+    box = plugin.box
+    bar_shell(box)
+    box.stub(
+        "omarchy-plugin-enable",
+        "echo \"omarchy-plugin-enable: plugin '$1' is not known\" >&2; exit 1\n",
+    )
+    proc = plugin.run()
+    assert (
+        f"{plugin.id} not enabled: omarchy-plugin-enable: plugin '{plugin.id}' is not known"
+        in proc.stdout
+    )
+    assert "no shell" not in proc.stdout and not plugin.marker.exists()
 
 
 def test_undo_disables_it_first_then_takes_the_link_and_the_marker_away(plugin: Plugin) -> None:
