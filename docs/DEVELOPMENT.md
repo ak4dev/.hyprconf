@@ -1,4 +1,4 @@
-# Contributing to hyprconf
+# Developing hyprconf
 
 Read [`AGENTS.md`](../AGENTS.md) first — its rules bind every change.
 
@@ -16,7 +16,7 @@ Read [`AGENTS.md`](../AGENTS.md) first — its rules bind every change.
 │                          #   the publish pipeline, the docs contract
 ├── VERSION                # SemVer, bumped by hand; scripts/publish tags it
 ├── scripts/publish        # the three gates → tag → one atomic push of dev, stable and the tag
-├── docs/CONTRIBUTING.md   # this file
+├── docs/DEVELOPMENT.md    # this file
 ├── .github/workflows/     # CI: make check in archlinux:latest, unprivileged
 ├── web/, assets/          # the static landing page + favicon; the README banner
 ├── Makefile, pyproject.toml, .gitignore, .claude/settings.json

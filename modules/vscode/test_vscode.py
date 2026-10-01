@@ -111,7 +111,7 @@ def test_undo_restores_the_fallback_omarchy_reports_at_undo_time(box) -> None:
 
 @pytest.mark.parametrize("v7", [False, True])
 def test_undo_flips_code_back_only_where_hyprconf_seeded_it(box, v7: bool) -> None:
-    """CONTRIBUTING: an undo on a box that never installed is a no-op — the marker is the record."""
+    """DEVELOPMENT: an undo on a box that never installed is a no-op — the marker is the record."""
     machine(box, present=True)
     (state := box.home / STATE).parent.mkdir(parents=True)
     state.write_text("code\n")  # a pick of the user's; this module never ran

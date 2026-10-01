@@ -1,6 +1,6 @@
 """Supply-chain pins (AGENTS.md rule 8): the artifacts strangers trust before and while
 running the overlay, frozen as text so a regression cannot ship green. The model, and what
-to do when one has to move: CONTRIBUTING › Security."""
+to do when one has to move: DEVELOPMENT › Security."""
 
 from __future__ import annotations
 

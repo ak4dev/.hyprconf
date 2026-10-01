@@ -1,6 +1,6 @@
 """The `box` fixture — one throwaway machine per test — and the skip budget.
 
-Its shape, its API and what is faked: CONTRIBUTING › Writing hermetic tests.
+Its shape, its API and what is faked: DEVELOPMENT › Writing hermetic tests.
 Only here: the reason each name is faked, the Omarchy bodies transcribed below,
 and the PATH a run gets — the fakes, then only `/usr/bin` and `/bin`, never the
 developer's, where `/usr/share/omarchy/bin` would answer.

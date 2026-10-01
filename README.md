@@ -103,4 +103,4 @@ What each undo puts back is the Undo link in its row above. Then delete `~/.hypr
 
 ## Testing & development
 
-`make check` runs the three CI gates — `make lint`, `make shellcheck` and `make test`. The tree, the test harness, the publish flow and the website upload are in [`docs/CONTRIBUTING.md`](docs/CONTRIBUTING.md); the rules that bind every change are in [`AGENTS.md`](AGENTS.md).
+`make check` runs the three CI gates — `make lint`, `make shellcheck` and `make test`. The tree, the test harness, the publish flow and the website upload are in [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md); the rules that bind every change are in [`AGENTS.md`](AGENTS.md).
