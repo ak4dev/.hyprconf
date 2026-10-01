@@ -38,6 +38,12 @@ SECRET_RES = tuple(
         r"github_pat_[A-Za-z0-9_]{22,}",
         r"xox[baprs]-[A-Za-z0-9-]{10,}",
         r"aws_secret_access_key\s*=",
+        # AWS ids: an ARN's account, an account number named as one (the forms that once
+        # leaked: a README table, CDK's env), CloudFront distribution and Route53 zone ids.
+        r"arn:aws[a-z-]*:[a-z0-9-]*:[a-z0-9-]*:\d{12}:",
+        r"(?i:account)\W{0,12}\d{12}(?!\d)|(?<!\d)\d{12}\W{0,12}(?i:account)",
+        r"\bE(?=[A-Z]*\d)[A-Z0-9]{12,13}\b",
+        r"\bZ(?=[A-Z]*\d)[A-Z0-9]{9,31}\b",
     )
 )
 
@@ -119,3 +125,32 @@ def test_no_personal_identities_anywhere() -> None:
 def test_no_secret_material_anywhere() -> None:
     found = offenders(list(SECRET_RES))
     assert not found, "Secret-shaped material in tracked files: " + ", ".join(found)
+
+
+def test_no_pii_in_unpushed_commits() -> None:
+    """The tree is only the last word: a push publishes every commit, so a leak a later
+    commit deletes is public for good. Every added line and message not yet on the
+    upstream is held to the three scans above, reported by commit, never echoed. No
+    upstream (CI's detached checkout) means nothing unpushed, and it passes."""
+
+    def log(*args: str) -> list[str]:
+        r = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "log", *args, "@{u}..HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        return r.stdout.splitlines() if r.returncode == 0 else []
+
+    patterns = [HOME_PATH_RE, *SECRET_RES] + [
+        re.compile(rf"(?<![A-Za-z0-9]){re.escape(i)}(?![A-Za-z0-9])", re.I) for i in identities()
+    ]
+    found, commit = set(), ""
+    for line in log("-p", "--unified=0", "--format=commit %h%n%B"):
+        if line.startswith("commit "):
+            commit = line.split()[1]
+        elif not line.startswith(("-", "+++")) and any(p.search(line) for p in patterns):
+            found.add(commit)
+    assert not found, "PII or secret-shaped material in unpushed commits: " + ", ".join(
+        sorted(found)
+    )

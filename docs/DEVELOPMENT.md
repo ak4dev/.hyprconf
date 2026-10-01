@@ -83,13 +83,14 @@ docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
 
 ## Security
 
-The overlay is published: strangers clone `stable` and run `install.sh` with their own sudo. Three trust boundaries, each held by mechanical pins (`AGENTS.md` rule 8):
+The overlay is published: strangers clone `stable` and run `install.sh` with their own sudo. Four trust boundaries, each held by mechanical pins (`AGENTS.md` rule 8):
 
 1. **Unprivileged → root, on the local box.** `install.sh` asks for no sudo; the only privileged paths are the modules that declare them (rule 6). `tests/test_scans.py::test_every_root_write_carries_the_end_of_options_marker` over every shipped script, against the `SUDO_CALLERS` literal that names the whole root surface, `::test_every_packages_file_holds_plain_package_names`, `::test_nothing_shipped_switches_the_active_theme` and `::test_no_pacman_aur_wrapper_removal_or_chsh_on_any_path`; every tool on PATH is a symlink into the checkout.
 2. **Untrusted content → local execution.** Window titles and feeder strings render as plain text (`tests/test_plugins_contract.py::test_plugin_text_never_renders_runtime_strings_as_rich_text`); nothing shipped fetches-and-executes (`tests/test_scans.py::test_nothing_shipped_fetches_and_executes`, its allowed exceptions written inside it — a new one is added there verbatim, with its why, or the change does not land).
-3. **Publish pipeline → strangers' boxes.** `tests/test_supply_chain.py`: the https-only one-liners and the pinned bootstrap defaults, the pinned and never-pulled powerlevel10k clone (every `modules/*/install` clone, `test_every_module_clone_is_pinned_to_a_reviewed_commit`), sha-pinned least-privilege CI, a self-contained web page, the `.claude/settings.json` guardrail entries; `tests/test_no_pii.py::test_no_secret_material_anywhere`; `install.sh` refuses to run as root.
+3. **Publish pipeline → strangers' boxes.** `tests/test_supply_chain.py`: the https-only one-liners and the pinned bootstrap defaults, the pinned and never-pulled powerlevel10k clone (every `modules/*/install` clone, `test_every_module_clone_is_pinned_to_a_reviewed_commit`), sha-pinned least-privilege CI, a self-contained web page, the `.claude/settings.json` guardrail entries; `tests/test_no_pii.py`'s tree scans, and `::test_no_pii_in_unpushed_commits` over every commit before it is pushed — a push publishes history, and deleting a leak in a later commit unpublishes nothing; `install.sh` refuses to run as root.
+4. **Hosting → strangers' first bytes.** Outside the repo, so held by hand and re-verified on every deploy (Updating the website): `hyprconf.sh` serves from a private bucket that only its CloudFront distribution reads, over HTTPS through an origin access control; every response carries the `hyprconf-sh-security-headers` policy — HSTS, a `default-src 'none'` CSP (the page loads nothing but its favicon and its own `<style>`; a new resource widens it deliberately, never to a wildcard), `nosniff`, `DENY` framing, a referrer policy; `stable`, `dev` and the `v*` tags sit under GitHub rulesets that refuse force-pushes and deletion.
 
-The checklist for any change: does it add a network touch, execute anything it did not ship with, widen a root path or a udev match, or move bytes from an untrusted source toward a shell, QML or root sink? Then the matching pin above changes in the same commit, its reasoning beside it. A pin loosened without its why is a finding, not a diff.
+The checklist for any change: does it add a network touch, execute anything it did not ship with, widen a root path or a udev match, loosen the hosting above, or move bytes from an untrusted source toward a shell, QML or root sink? Then the matching pin above changes in the same commit, its reasoning beside it. A pin loosened without its why is a finding, not a diff.
 
 ## Publishing to stable
 
@@ -127,7 +128,7 @@ the bar-section prompt would move a `clonedFrom` widget out of the stock slot it
 
 ## Updating the website
 
-`hyprconf.sh` is the `hyprconf-sh` S3 bucket behind a CloudFront distribution that routes on the User-Agent —
+`hyprconf.sh` is the private `hyprconf-sh` S3 bucket, read only by a CloudFront distribution (origin access control `hyprconf-sh-s3`, response headers policy `hyprconf-sh-security-headers`; Security › 4) that routes on the User-Agent —
 `curl` and `wget` get the `install.sh` object, browsers `index.html` — managed by hand outside this repo (`aws` from
 `omarchy-pkg-add aws-cli-v2`, an official `extra` package). The `install.sh` object must be **`origin/stable`'s**: upload
 after `scripts/publish`, only when the user asks for a deploy. Always `origin/stable`, never the local `stable`
@@ -139,8 +140,8 @@ bucket. The page stays self-contained (`test_web_page_is_self_contained`).
 git show origin/stable:install.sh | aws s3 cp - s3://hyprconf-sh/install.sh \
   --content-type 'text/plain; charset=utf-8' --cache-control 'no-cache, no-store'
 # max-age=300: without one browsers keep the previous page for days
-aws s3 cp web/index.html        s3://hyprconf-sh/index.html     --content-type 'text/html; charset=utf-8' --cache-control 'public, max-age=300'
-aws s3 cp web/favicon.svg       s3://hyprconf-sh/favicon.svg    --content-type image/svg+xml --cache-control 'public, max-age=31536000, immutable'
+git show origin/stable:web/index.html  | aws s3 cp - s3://hyprconf-sh/index.html     --content-type 'text/html; charset=utf-8' --cache-control 'public, max-age=300'
+git show origin/stable:web/favicon.svg | aws s3 cp - s3://hyprconf-sh/favicon.svg    --content-type image/svg+xml --cache-control 'public, max-age=31536000, immutable'
 
 DIST=$(aws cloudfront list-distributions \
   --query "DistributionList.Items[?contains(Aliases.Items,'hyprconf.sh')].Id" --output text)
@@ -152,5 +153,7 @@ UA the page:
 
 ```bash
 curl -fsSL https://hyprconf.sh | cmp - <(git show origin/stable:install.sh) && echo installer-ok
-curl -fsSL -A 'Mozilla/5.0' https://hyprconf.sh | cmp - web/index.html && echo page-ok
+curl -fsSL -A 'Mozilla/5.0' https://hyprconf.sh | cmp - <(git show origin/stable:web/index.html) && echo page-ok
+curl -sI https://hyprconf.sh | grep -ciE '^(strict-transport-security|content-security-policy|x-content-type-options):'  # 3
+curl -s -o /dev/null -w '%{http_code}\n' https://hyprconf-sh.s3.amazonaws.com/install.sh  # 403: the bucket is private
 ```
