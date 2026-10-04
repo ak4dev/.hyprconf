@@ -12,6 +12,10 @@ marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/clock-applied
 source "$dir/../bar-plugin.sh"
 
 entry='[.bar.layout // {} | .[]? | .[]?] | any(type == "object" and .id == $id and .format == $f)'
+# Our clock on the bar with a format that ticks no seconds: no `s` outside a quoted literal
+# (Qt.formatDateTime); a bare-id entry or no format is the widget's own "dddd HH:mm" (BarWidget.qml:21).
+no_seconds='[.bar.layout // {} | .[]? | .[]? | if type == "object" then . else {id: .} end
+    | select(.id == $id) | .format // "" | gsub("\u0027[^\u0027]*\u0027"; "") | test("s") | not] | any'
 
 anchor() { [[ -f $json ]] && jq -r '.bar.centerAnchor // ""' "$json" 2>/dev/null || true; }
 set_anchor() { edit "bar.centerAnchor to $1" --arg id "$1" '.bar.centerAnchor = $id'; }
@@ -56,14 +60,24 @@ fi
 plugin_link
 if [[ ! -e $marker ]]; then
     plugin_enable
+    settled "$ids | any(. == \$id)" --arg id "$id"   # the swap's own write, before the read below
+    : > "$marker"
+    echo "  $id enabled — undo: bash $dir/install undo"
+fi
+
+# The one setting re-asserted on every run, the install's first among them: a format with no
+# seconds goes back to ours. The right-click ring (Model.js CLOCK_FORMATS) has no seconds preset,
+# so a walk leaves ours behind for good; a format that ticks seconds is the user's, kept. The live
+# label can lag: a later rescan rebuilds the widget from its slot's entry, which an inline set never
+# refreshes (shell/plugins/bar/Bar.qml:604-614, :1779, :2005 — verified live, 4.0.4-1), until the
+# shell restart omarchy-update ends with (bin/omarchy-update-restart:51), hyprsync's last step.
+if jq -e --arg id "$id" "$no_seconds" "$json" >/dev/null 2>&1; then
     if omarchy-bar set "$id" format "$format" >/dev/null 2>&1; then
         settled "$entry" --arg id "$id" --arg f "$format"
     else
-        echo "  set it by hand: omarchy bar set $id format '$format'"
-        settled "$ids | any(. == \$id)" --arg id "$id"
+        hand_back "$id" "$format"   # nothing answered: the same entry, with our format, in the file
     fi
-    : > "$marker"
-    echo "  $id enabled, format $format — undo: bash $dir/install undo"
+    echo "  $id showed no seconds — format back to $format"
 fi
 
 # The anchor points at whichever widget the clock is, and goes stale long after the install when a

@@ -1,5 +1,6 @@
-"""modules/bar-clock: the format and the centre anchor it sets ONCE, the undo that puts
-both back, and the parity of the copied widget with Omarchy's own. The link, the one
+"""modules/bar-clock: the enable it does ONCE, the seconds it puts back on any run, the
+centre anchor, the undo that puts the format and anchor back, and the parity of the copied
+widget with Omarchy's own. The link, the one
 enable and the rest of the undo are the shared mechanism's, pinned per plugin folder in
 tests/test_plugins_contract.py."""
 
@@ -93,6 +94,39 @@ def test_the_anchor_follows_our_clock_onto_the_bar_and_never_off_the_users(
     assert "omarchy-plugin-enable" not in box.commands
     assert ("could not set bar.centerAnchor" in result.stderr) == blocked
     assert not tmp.exists() or not any(tmp.iterdir())  # no stale temp file left
+
+
+@pytest.mark.parametrize(
+    ("entry", "expected"),
+    [
+        # where six right-clicks from ours land: the ring (Model.js CLOCK_FORMATS) has no
+        # seconds preset, so a walk never comes back on its own
+        ({"id": ID, "format": "ddd d MMM h:mm AP"}, {"id": ID, "format": FORMAT}),
+        ({"id": ID}, {"id": ID, "format": FORMAT}),  # no format: the widget's "dddd HH:mm"
+        (ID, {"id": ID, "format": FORMAT}),  # a bare-id entry (bin/omarchy-bar:178)
+        ({"id": ID, "format": "h:mm 'secs'"}, {"id": ID, "format": FORMAT}),  # a literal 's'
+        # still the user's: a format that ticks seconds ...
+        ({"id": ID, "format": "HH:mm:ss"}, {"id": ID, "format": "HH:mm:ss"}),
+        # ... and the stock clock they went back to (`omarchy plugin disable` sticks)
+        ({"id": STOCK, "format": "HH:mm"}, {"id": STOCK, "format": "HH:mm"}),
+    ],
+)
+@pytest.mark.parametrize("answering", [True, False])
+def test_a_clock_showing_no_seconds_gets_ours_back_on_any_run(
+    box: Box, entry: dict | str, expected: dict, answering: bool
+) -> None:
+    """The one setting re-asserted after the marker: a format with no seconds. With no shell
+    answering the set, the entry is rewritten in shell.json itself."""
+    path = bar_shell(box, anchor=ID, layout=[entry])
+    (box.home / MARKER).parent.mkdir(parents=True)
+    (box.home / MARKER).touch()
+    if not answering:
+        box.stub("omarchy-bar", "exit 1\n")
+    result = box.run(INSTALL)
+    assert result.returncode == 0, result.stderr
+    assert bar(path) == [expected]
+    assert ("showed no seconds" in result.stdout) == (expected != entry)
+    assert "omarchy-plugin-enable" not in box.commands
 
 
 def test_the_anchor_edit_waits_for_the_shells_own_write_to_land(box: Box) -> None:

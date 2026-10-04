@@ -28,10 +28,18 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 
 ## Settings
 
-Enabled and formatted ONCE, behind `~/.local/state/hyprconf/clock-applied`:
-the clock is yours afterwards (`omarchy bar set hyprconf.clock format …`) and
-`omarchy plugin disable` sticks. `bar.centerAnchor` follows the swap once; an
-anchor left naming nothing is repaired on any run, one you chose is not.
+Enabled ONCE, behind `~/.local/state/hyprconf/clock-applied`, so `omarchy
+plugin disable` sticks. The format is yours (`omarchy bar set hyprconf.clock
+format …`) as long as it ticks seconds: one with no `s` outside a quoted
+literal goes back to `hh:mm:ss AP` on any run — `hyprsync`, and the hook
+after every `omarchy-update`. Right-clicking the clock walks Omarchy's format
+ring, which has no seconds preset, so one walk would otherwise lose them for
+good. The bar can keep the old label until the shell restarts — Omarchy
+rebuilds a plugin widget from a stale copy of its entry on every rescan — and
+`omarchy-update` ends with that restart, so `hyprsync` shows it; after a plain
+`hyprconf` run, `omarchy-restart-shell`. `bar.centerAnchor` follows the swap
+once; an anchor left naming nothing is repaired on any run, one you chose is
+not.
 
 ## Undo
 
