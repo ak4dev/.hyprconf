@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# hyprconf/bar — the bar on the top edge, put back on any run that finds it on another: a 200 ms
+# press-and-hold or a few pixels' drag on the centre section moves it to whichever edge the
+# pointer is let go nearest (shell/plugins/bar/Bar.qml:1552,1597,1637-1690, :475), and the bar
+# has no setting to lock it (Bar.qml, plugins/bar/README.md).
+# Seam: omarchy-bar position (bin/omarchy-bar:198-205), its own write and shell reload (bin/omarchy-shell-config:14-18,53-62).
+# Usage: install | install undo
+set -euo pipefail
+json=$HOME/.config/omarchy/shell.json
+
+# Nothing to put back: top is Omarchy's own default (config/omarchy/shell.json:8), and any
+# value but the other three edges reads as top (shell/plugins/bar/BarModel.js:5-8).
+[[ ${1:-} == undo ]] && exit 0
+
+if edge=$(jq -er '.bar.position | select(IN("bottom", "left", "right"))' "$json" 2>/dev/null); then
+    if omarchy-bar position top >/dev/null; then
+        echo "  bar was on the $edge edge — back to top"
+    else
+        echo "  could not move the bar back to top from $edge — retried on the next run"
+    fi
+fi
