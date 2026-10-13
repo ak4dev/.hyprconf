@@ -130,3 +130,18 @@ def test_the_one_flatpak_source_is_flathub_over_https_per_user() -> None:
         r"\bflatpak\s+(?:remote-\w+|install|update|uninstall|override)\b[^\n]*", text
     )
     assert len(calls) >= 5 and all(" --user " in c for c in calls), calls
+
+
+def test_the_reskate_download_is_one_pinned_release_checked_before_it_is_unpacked() -> None:
+    """scripts/reskate fetches a third-party binary, so it is held like a clone: one release by
+    version, its zip's sha256 (the digest GitHub publishes for the asset) checked before bsdtar
+    reads it, https on every hop, redirects included. A bump is a deliberate commit; what the
+    launcher updates itself to afterwards is the project's, run inside the game's sandbox."""
+    text = code((REPO_ROOT / "scripts" / "reskate").read_text())
+    assert re.search(r"^version=\d+\.\d+\.\d+$", text, re.M)
+    assert re.search(r"^sha256=[0-9a-f]{64}$", text, re.M)
+    release = "https://github.com/Dingo-Shenanigans/ReSkate/releases/download/v$version/"
+    assert f"\nurl={release}ReSkate-$version.zip\n" in text
+    (fetch,) = re.findall(r"\bcurl\b[^\n]*", text)
+    assert "--proto '=https' --proto-redir '=https'" in fetch
+    assert text.index("sha256sum --quiet -c") < text.index("bsdtar -xf")

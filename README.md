@@ -79,7 +79,20 @@ What it deliberately leaves alone: the login shell (no `chsh` — why, in [`shel
 
 Proton VPN: hyprconf installs nothing for it — `omarchy pkg add proton-vpn-gtk-app proton-vpn-cli` (both Arch `extra`, D-Bus-activated: nothing to enable, no reboot).
 
-Steam: Omarchy's native Steam runs every game as you, with your whole home in reach. `bash ~/.hyprconf/scripts/steam-flatpak`, run by hand and never by `install.sh`, puts Flathub's Steam beside it — per-user, its sandbox tightened past Flathub's own: no `/dev/uinput` or raw HID devices (so no Steam Input virtual pads, hidraw-only controller features or VR), no mounted drives, each existing library granted and, once that Steam has started and quit, registered in its own list (never Steam's Add drive, which nests a new empty library inside the folder picked) — and prints the steps left to you. It installs `flatpak` (Arch `extra`); Flathub is the one source outside Arch's repos anywhere in the tree. Native Steam stays as the rollback; removing it is `omarchy-remove-gaming-steam`, which also deletes `~/.local/share/Steam`. Undo: `flatpak override --user --reset com.valvesoftware.Steam && flatpak uninstall --user com.valvesoftware.Steam` (`--delete-data` also drops its login and settings; the games stay in their libraries).
+## Scripts
+
+`scripts/` holds standalone scripts that are not part of the overlay: generic, run by hand, on this machine or any other — never by `install.sh` or the post-update hook, wired into nothing, and outside `hyprconf --undo`. (`scripts/publish` is the exception: this repository's own release tool, [DEVELOPMENT](docs/DEVELOPMENT.md).) Run one from the checkout hyprconf already has, or, on a machine without it, from a sparse clone of just this folder — in a directory of its own, since `install.sh` takes `~/.hyprconf` for a full checkout:
+
+```bash
+bash ~/.hyprconf/scripts/<name>
+
+git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4dev/.hyprconf ~/hyprconf-scripts \
+  && git -C ~/hyprconf-scripts sparse-checkout set scripts && bash ~/hyprconf-scripts/scripts/<name>
+```
+
+**`steam-flatpak`** — Omarchy's native Steam runs every game as you, with your whole home in reach; this puts Flathub's Steam beside it — per-user, its sandbox tightened past Flathub's own: no `/dev/uinput` or raw HID devices (so no Steam Input virtual pads, hidraw-only controller features or VR), no mounted drives, each existing library granted and, once that Steam has started and quit, registered in its own list (never Steam's Add drive, which nests a new empty library inside the folder picked) — and prints the steps left to you. It installs `flatpak` (Arch `extra`); Flathub is the one source outside Arch's repos anywhere in the tree. Native Steam stays as the rollback; removing it is `omarchy-remove-gaming-steam`, which also deletes `~/.local/share/Steam`. Undo: `flatpak override --user --reset com.valvesoftware.Steam && flatpak uninstall --user com.valvesoftware.Steam` (`--delete-data` also drops its login and settings; the games stay in their libraries).
+
+**`reskate`** — puts [ReSkate](https://github.com/Dingo-Shenanigans/ReSkate) — the community launcher and runtime that play EA's skate. offline, on community servers and with mods, without EA's launcher or its anti-cheat — beside `Skate.exe` in whichever Steam library holds it, from one release pinned by version and sha256, and prints the Steam launch option to paste. From then on its launcher updates itself, and asks for a Steam sign-in once Steam moves skate. past the one build it supports; in the Flatpak Steam above both run inside the game's sandbox. It is a fan project, not EA's. Undo: the steps it prints.
 
 ## Sync
 

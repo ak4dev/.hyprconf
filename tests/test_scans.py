@@ -115,6 +115,9 @@ FETCH_EXEC = (
 FETCH_EXEC_ALLOWED = (
     # zoxide's documented init: the output of a pacman-installed binary
     'command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"',
+    # scripts/reskate, at the user's request: a fetch, never an execute — one pinned release zip,
+    # sha256-checked before it is unpacked (tests/test_supply_chain.py), run later by Steam
+    "curl -fsSL --proto '=https' --proto-redir '=https' -o \"$tmp/reskate.zip\" \"$url\"",
 )
 
 

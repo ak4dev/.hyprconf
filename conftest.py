@@ -89,6 +89,7 @@ EXTRA_FAKES = (
     "nvidia-smi",
     "vulkaninfo",
     "flatpak",
+    "curl",
 )
 
 # What the scripts read out of $OMARCHY_PATH, in the shape the installed tree

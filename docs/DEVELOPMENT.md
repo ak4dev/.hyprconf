@@ -16,7 +16,8 @@ Read [`AGENTS.md`](../AGENTS.md) first — its rules bind every change.
 │                          #   the publish pipeline, the docs contract
 ├── VERSION                # SemVer, bumped by hand; scripts/publish tags it
 ├── scripts/publish        # the three gates → tag → one atomic push of dev, stable and the tag
-├── scripts/steam-flatpak  # run by hand, never by install.sh: Flathub's Steam, per-user and hardened (README › Steam)
+├── scripts/steam-flatpak  # standalone, run by hand (README › Scripts): Flathub's Steam, per-user and hardened
+├── scripts/reskate        # standalone, run by hand (README › Scripts): ReSkate's pinned, sha256-checked release
 ├── docs/DEVELOPMENT.md    # this file
 ├── .github/workflows/     # CI: make check in archlinux:latest, unprivileged
 ├── web/, assets/          # the static landing page + favicon; the README banner
