@@ -11,7 +11,7 @@
 
 # .hyprconf
 
-**hyprconf** is an overlay for [Omarchy](https://omarchy.org): one `install.sh` that runs self-contained modules — hotkeys, look'n'feel and monitor presets, the bar kept on the top edge with four widgets of its own, kitty with zsh + Powerlevel10k, a Dracula theme and Firefox theming, a Firefox policy, VS Code, a FIDO2 boot unlock, a dual-GPU Vulkan fix, a Keychron udev rule, two desktop-portal holes closed — each through Omarchy's own tools and seams, each installable and undoable on its own. Omarchy owns the base system; hyprconf layers one person's preferences on top and disturbs the install as little as possible.
+**hyprconf** is an overlay for [Omarchy](https://omarchy.org): one `install.sh` that runs self-contained modules — hotkeys, look'n'feel and monitor presets, the bar kept on the top edge with four widgets of its own, kitty with zsh + Powerlevel10k, a Dracula theme and Firefox theming, a Firefox policy, VS Code, a FIDO2 boot unlock, a dual-GPU Vulkan fix, a Keychron udev rule, two desktop-portal holes closed, Proton VPN at login — each through Omarchy's own tools and seams, each installable and undoable on its own. Omarchy owns the base system; hyprconf layers one person's preferences on top and disturbs the install as little as possible.
 A personal Omarchy overlay, shared as-is, to read and to run — there is deliberately no `LICENSE`, so nothing more is granted; feature requests and issues may not be taken. No warranty either: you run it at your own risk — some modules write under `/etc` with your `sudo`, and `hyprconf-yubikey enroll` wipes every LUKS passphrase slot.
 
 ## Requirements
@@ -69,6 +69,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | [`idle`](modules/idle/README.md) | No screensaver ahead of the 5-min lock (`idle.screensaver` 150 s -> 900 s in `shell.json`), once | `bash modules/idle/install` | [`bash modules/idle/install undo`](modules/idle/README.md#undo) |
 | [`keychron`](modules/keychron/README.md) | One udev rule so launcher.keychron.com reaches Keychron and Lemokey boards over WebHID — *sudo* | `bash modules/keychron/install` | [`bash modules/keychron/install undo`](modules/keychron/README.md#undo) |
 | [`portals`](modules/portals/README.md) | Two desktop-portal holes closed: input capture off for every app (any app could take keyboard and pointer, no prompt), and a screen share asks every time instead of handing out a token to resume it | `bash modules/portals/install` | [`bash modules/portals/install undo`](modules/portals/README.md#undo) |
+| [`proton-vpn`](modules/proton-vpn/README.md) | Proton VPN's app started minimized at every login, through Omarchy's `autostart.lua`; installs `proton-vpn-gtk-app` and `proton-vpn-cli` — *sudo* | `bash modules/proton-vpn/install` | [`bash modules/proton-vpn/install undo`](modules/proton-vpn/README.md#undo) |
 | [`shell-zsh`](modules/shell-zsh/README.md) | zsh + Powerlevel10k inside the terminal, no framework: one `source` line in `~/.zshrc`, a pinned p10k clone; installs `zsh` and two plugins — *sudo* | `bash modules/shell-zsh/install` | [`bash modules/shell-zsh/install undo`](modules/shell-zsh/README.md#undo) |
 | [`terminal-kitty`](modules/terminal-kitty/README.md) | kitty as the default terminal, once, plus two preferences as a kitty include; installs `kitty` — *sudo* | `bash modules/terminal-kitty/install` | [`bash modules/terminal-kitty/install undo`](modules/terminal-kitty/README.md#undo) |
 | [`themes`](modules/themes/README.md) | The `dracula` user theme in Omarchy's theme menu, never activated, plus extra wallpapers filed per theme | `bash modules/themes/install` | [`bash modules/themes/install undo`](modules/themes/README.md#undo) |
@@ -77,8 +78,6 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 | [`yubikey`](modules/yubikey/README.md) | `hyprconf-yubikey` on PATH: FIDO2 unlock of the LUKS root at boot; `enroll`, run by hand, writes the two `/etc` drop-ins and wipes the passphrase, behind a typed-back recovery key | `bash modules/yubikey/install` | [`bash modules/yubikey/install undo`](modules/yubikey/README.md#undo) |
 
 What it deliberately leaves alone: the login shell (no `chsh` — why, in [`shell-zsh`](modules/shell-zsh/README.md)); the body of `~/.config/kitty/kitty.conf`, `~/.bashrc`, `/usr/share/omarchy`, and everything under `/etc` except the Firefox policy (and one `policies.json.bak` of a policy it found there), the Keychron rule and — only when you run it — `hyprconf-yubikey enroll`'s two drop-ins; installed packages (nothing is removed, ever); the active theme, Omarchy's `monitors.lua`, and every set-once choice (font, default apps, idle, clock, widget enables) after the first run — change them with Omarchy's own commands and hyprconf will not take them back (the two it does take back, the bar off the top edge and a clock with no seconds, are in their rows above); Omarchy's keyboard-layout logic and its volume / brightness / media keys.
-
-Proton VPN: hyprconf installs nothing for it — `omarchy pkg add proton-vpn-gtk-app proton-vpn-cli` (both Arch `extra`, D-Bus-activated: nothing to enable, no reboot).
 
 ## Scripts
 
@@ -112,7 +111,7 @@ hyprconf-vulkan-gpu remove  # only if you pinned a GPU — first, while the tool
 hyprconf-yubikey remove     # only if you enrolled a key — first, while the tool is still on PATH; sets a passphrase again, both drop-ins go
 hyprconf --undo             # everything (the Firefox policy and the udev rule need sudo)
 hyprconf --undo <name>      # one module, until the next hyprconf run or omarchy-update re-applies it (the hook stays) — the same as `bash ~/.hyprconf/modules/<name>/install undo`
-rm -rf ~/.local/state/hyprconf ~/.config/omarchy/plugins/.hyprconf.*.bak.* ~/.oh-my-zsh   # leftovers: the emptied state dir, folders a bar module moved aside, and the Oh My Zsh a hyprconf 7.x install left behind
+rm -rf ~/.local/state/hyprconf ~/.config/omarchy/plugins/.hyprconf.*.bak.* ~/.oh-my-zsh ~/.local/bin/hyprconf-{firefox-theme,gpu-info,help,install-service-protonvpn,stats}   # leftovers: the emptied state dir, folders a bar module moved aside, the Oh My Zsh a hyprconf 7.x install left behind, and five tools older releases copied onto PATH
 sed -i '/^  \/\/ >>> hyprconf >>>$/,/^  \/\/ <<< hyprconf <<<$/d' ~/.config/omarchy/extensions/omarchy-menu.jsonc   # a 7.x install's Proton VPN menu row, whose installer is gone (8.0 manages no menu block)
 ```
 

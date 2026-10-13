@@ -1,0 +1,2 @@
+proton-vpn-gtk-app   # the app started at every login; official [extra] (AGENTS › Hard rules, 3 — no AUR)
+proton-vpn-cli       # `protonvpn` on the command line; official [extra]

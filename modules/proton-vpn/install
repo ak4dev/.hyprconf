@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# hyprconf/proton-vpn — Proton VPN's app, installed and started minimized at every login.
+# Seam: ~/.config/hypr/autostart.lua, Omarchy's file for "Extra autostart processes"
+# (config/hypr/autostart.lua:1-2, required by config/hypr/hyprland.lua:23): one guarded
+# o.launch_on_start line, the kitty-include idiom. The helper runs `uwsm-app -- <cmd>` once, on
+# hyprland.start (default/hypr/helpers.lua:108-120), so a config reload starts no second copy.
+# --start-minimized hides the window only while a tray is up (proton/vpn/app/gtk/app.py:130-148);
+# Omarchy's bar carries one. Connecting is the app's own "Connect at app startup", off by default
+# (proton/vpn/app/gtk/config.py:31): set once in the app, with its kill switch.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+: "${_HYPRCONF_ASSUME_TTY:=}"
+autostart=$HOME/.config/hypr/autostart.lua
+line='o.launch_on_start("protonvpn-app --start-minimized") -- hyprconf/proton-vpn'
+
+if [[ ${1:-} == undo ]]; then
+    # In place and --follow-symlinks, as terminal-kitty edits kitty.conf; the packages stay.
+    grep -qxF "$line" "$autostart" 2>/dev/null &&
+        sed --follow-symlinks -i '/ -- hyprconf\/proton-vpn$/d' "$autostart"
+    exit 0
+fi
+
+mapfile -t pkgs < <(sed 's/#.*//; s/[[:space:]]//g; /^$/d' "$dir/packages")
+if ! omarchy-pkg-present "${pkgs[@]}"; then
+    if [[ -n ${HYPRCONF_NO_SUDO:-} ]]; then
+        echo "  --no-packages: ${pkgs[*]} not installed — run \`bash $dir/install\` from a terminal"
+    elif [[ ! -t 0 && -z $_HYPRCONF_ASSUME_TTY ]]; then
+        echo "  no terminal for the sudo prompt — ${pkgs[*]} left alone"
+    else
+        omarchy-pkg-add "${pkgs[@]}" || {
+            printf 'proton-vpn: %s\n' "package install failed — see pacman's error above; re-run to retry" >&2
+            exit 1
+        }
+    fi
+fi
+
+# Hyprland runs a missing command as a silent no-op: an app that is not there is not started.
+omarchy-pkg-present proton-vpn-gtk-app || exit 0
+
+if ! grep -qxF "$line" "$autostart" 2>/dev/null; then
+    mkdir -p "${autostart%/*}"
+    # A file NOT ending in a newline gets one, which undo leaves: that file comes back one newline longer.
+    [[ ! -s $autostart || -z $(tail -c1 "$autostart") ]] || printf '\n' >> "$autostart"
+    printf '%s\n' "$line" >> "$autostart"
+    echo "  Proton VPN starts minimized at every login — undo: bash $dir/install undo"
+fi
