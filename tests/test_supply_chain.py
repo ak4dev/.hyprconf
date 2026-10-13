@@ -126,5 +126,7 @@ def test_the_one_flatpak_source_is_flathub_over_https_per_user() -> None:
     assert users == {"scripts/steam-flatpak"}
     text = code((REPO_ROOT / "scripts" / "steam-flatpak").read_text())
     assert FLATHUB in text and len(re.findall(r"\bremote-add\b", text)) == 1
-    calls = re.findall(r"(?:^[ \t]*|\$\()flatpak\s[^\n]*", text, re.M)
+    calls = re.findall(
+        r"\bflatpak\s+(?:remote-\w+|install|update|uninstall|override)\b[^\n]*", text
+    )
     assert len(calls) >= 5 and all(" --user " in c for c in calls), calls

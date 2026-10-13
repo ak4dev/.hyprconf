@@ -1,7 +1,8 @@
 """scripts/steam-flatpak: Flathub's Steam, per-user, its sandbox tightened past Flathub's own —
 the overrides reset and applied whole on every run, each library native Steam lists that is
-mounted (never native Steam's own root), and the NVIDIA GL extension checked on Flathub before
-anything is installed. Native Steam is never touched."""
+mounted (never native Steam's own root) granted and, once the Flatpak's own list exists and it is
+not running, registered there with native Steam's entry, and the NVIDIA GL extension checked on
+Flathub before anything is installed. Native Steam is never touched."""
 
 from __future__ import annotations
 
@@ -15,11 +16,19 @@ from conftest import REPO_ROOT, Box, code
 SCRIPT = REPO_ROOT / "scripts" / "steam-flatpak"
 APP = "com.valvesoftware.Steam"
 GL = "org.freedesktop.Platform.GL.nvidia-610-57-04"
-# `flatpak remote-ls --runtime --columns=application`: one id a line.
+# `flatpak remote-ls --runtime --columns=application` and `flatpak ps --columns=application`: one
+# id a line; the app is running while $STEAM_RUNNING is set.
 FLATPAK = f"""
 [[ $1 == remote-ls ]] && printf '%s\\n' org.freedesktop.Platform {GL}
+[[ $1 == ps && -n ${{STEAM_RUNNING:-}} ]] && echo {APP}
 exit 0
 """
+FLAT = ".var/app/com.valvesoftware.Steam/.local/share/Steam"
+# As the Flatpak's first start writes it, in both of its copies: its own root, nothing else.
+FLAT_LIST = (
+    '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"/flatpak/root"\n'
+    '\t\t"apps"\n\t\t{\n\t\t}\n\t}\n}\n'
+)
 HARDENING = [
     "--nodevice=all",
     "--device=dri",
@@ -58,16 +67,30 @@ def load_nvidia(box: Box, version: str) -> None:
     path.write_text(f"{version}\n")
 
 
+def entry(i: int, path: Path) -> str:
+    """One library's block as Steam writes it, `\\t{` to `\\t}`, an apps list nested inside."""
+    return (
+        f'\t{{\n\t\t"path"\t\t"{path}"\n\t\t"label"\t\t""\n\t\t"contentid"\t\t"{1000 + i}"\n'
+        f'\t\t"apps"\n\t\t{{\n\t\t\t"228980"\t\t"{i}"\n\t\t}}\n\t}}\n'
+    )
+
+
 def native_libraries(box: Box, *paths: Path) -> None:
     """Native Steam's libraryfolders.vdf: its own root first, as Steam writes it."""
     root = box.home / ".local/share/Steam"
     vdf = root / "steamapps/libraryfolders.vdf"
     vdf.parent.mkdir(parents=True)
-    entries = "".join(
-        f'\t"{i}"\n\t{{\n\t\t"path"\t\t"{p}"\n\t\t"label"\t\t""\n\t}}\n'
-        for i, p in enumerate([root, *paths])
-    )
-    vdf.write_text(f'"libraryfolders"\n{{\n{entries}}}\n')
+    blocks = "".join(f'\t"{i}"\n{entry(i, p)}' for i, p in enumerate([root, *paths]))
+    vdf.write_text(f'"libraryfolders"\n{{\n{blocks}}}\n')
+
+
+def flatpak_lists(box: Box) -> list[Path]:
+    """The Flatpak's two copies of its list, as its first start leaves them."""
+    paths = [box.home / FLAT / d / "libraryfolders.vdf" for d in ("steamapps", "config")]
+    for path in paths:
+        path.parent.mkdir(parents=True)
+        path.write_text(FLAT_LIST)
+    return paths
 
 
 def test_a_run_installs_per_user_grants_the_mounted_libraries_and_reruns_the_same(
@@ -84,12 +107,41 @@ def test_a_run_installs_per_user_grants_the_mounted_libraries_and_reruns_the_sam
     override = ["flatpak", "override", "--user", APP, *HARDENING, f"--filesystem={library}"]
     assert box.calls_of("flatpak") == [REMOTE_ADD, REMOTE_LS, RESET, override, INSTALL]
     assert f"library {unmounted} is not mounted" in first.stdout
-    assert str(library) in first.stdout
+    assert f"rerun this script to register {library}" in first.stdout
     assert box.snapshot() == before, "native Steam and the box are left as they were"
     calls = box.calls
     box.reset()
     assert box.run(SCRIPT).stdout == first.stdout
     assert box.calls == calls
+
+
+def test_a_granted_library_is_registered_with_native_steams_own_entry_once(box: Box) -> None:
+    """The contentid is what lets the Flatpak mount the library as the one native Steam made
+    (verified live: "Loaded 11 apps from install folder"); a re-run adds nothing."""
+    library, unmounted = box.tmp / "ext/SteamLibrary", box.tmp / "media/drive/SteamLibrary"
+    library.mkdir(parents=True)
+    native_libraries(box, library, unmounted)
+    lists = flatpak_lists(box)
+    result = box.run(SCRIPT)
+    assert result.returncode == 0, result.stderr
+    want = FLAT_LIST[: -len("}\n")] + f'\t"1"\n{entry(1, library)}}}\n'
+    assert [p.read_text() for p in lists] == [want, want]
+    assert f"registered: {library}" in result.stdout
+    assert ["flatpak", "ps", "--columns=application"] in box.calls_of("flatpak")
+    before = box.snapshot()
+    assert box.run(SCRIPT).returncode == 0
+    assert box.snapshot() == before
+
+
+def test_a_running_flatpak_steam_is_left_to_rewrite_its_own_list(box: Box) -> None:
+    library = box.tmp / "ext/SteamLibrary"
+    library.mkdir(parents=True)
+    native_libraries(box, library)
+    lists = flatpak_lists(box)
+    result = box.run(SCRIPT, env={"STEAM_RUNNING": "1"})
+    assert result.returncode == 0, result.stderr
+    assert [p.read_text() for p in lists] == [FLAT_LIST, FLAT_LIST]
+    assert f"rerun this script to register {library}" in result.stdout
 
 
 def test_no_gl_extension_for_the_loaded_driver_stops_before_the_install(box: Box) -> None:
@@ -105,7 +157,7 @@ def test_with_no_nvidia_driver_and_no_native_steam_the_hardening_still_applies(b
     assert result.returncode == 0, result.stderr
     override = ["flatpak", "override", "--user", APP, *HARDENING]
     assert box.calls_of("flatpak") == [REMOTE_ADD, RESET, override, INSTALL]
-    assert "none found" in result.stdout
+    assert "none to register" in result.stdout
 
 
 def test_a_rejected_override_stops_before_the_app_exists(box: Box) -> None:
