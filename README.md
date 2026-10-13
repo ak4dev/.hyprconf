@@ -79,6 +79,8 @@ What it deliberately leaves alone: the login shell (no `chsh` — why, in [`shel
 
 Proton VPN: hyprconf installs nothing for it — `omarchy pkg add proton-vpn-gtk-app proton-vpn-cli` (both Arch `extra`, D-Bus-activated: nothing to enable, no reboot).
 
+Steam: Omarchy's native Steam runs every game as you, with your whole home in reach. `bash ~/.hyprconf/scripts/steam-flatpak`, run by hand and never by `install.sh`, puts Flathub's Steam beside it — per-user, its sandbox tightened past Flathub's own: no `/dev/uinput` or raw HID devices (so no Steam Input virtual pads, hidraw-only controller features or VR), no mounted drives, each existing library granted — and prints the steps left to you. It installs `flatpak` (Arch `extra`); Flathub is the one source outside Arch's repos anywhere in the tree. Native Steam stays as the rollback; removing it is `omarchy-remove-gaming-steam`, which also deletes `~/.local/share/Steam`. Undo: `flatpak override --user --reset com.valvesoftware.Steam && flatpak uninstall --user com.valvesoftware.Steam` (`--delete-data` also drops its login and settings; the games stay in their libraries).
+
 ## Sync
 
 ```bash

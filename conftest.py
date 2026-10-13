@@ -88,6 +88,7 @@ EXTRA_FAKES = (
     "limine-entry-tool",
     "nvidia-smi",
     "vulkaninfo",
+    "flatpak",
 )
 
 # What the scripts read out of $OMARCHY_PATH, in the shape the installed tree

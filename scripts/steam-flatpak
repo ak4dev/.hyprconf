@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# scripts/steam-flatpak — Steam as Flathub's com.valvesoftware.Steam, installed per-user, with
+# its sandbox tightened past Flathub's own. Run by hand, never by install.sh; a re-run updates
+# the app and re-applies the overrides whole.
+#
+# Why: native Steam runs as you, and so does every game it starts: pressure-vessel shares the
+# real home by default (`pressure-vessel-wrap --help`, --share-home) and each Proton prefix maps
+# Z: to /. Flathub's manifest hides the home but grants --device=all, which passes in every node
+# your session may open — /dev/uinput (steam-devices' 60-steam-input.rules, uaccess) is a virtual
+# keyboard into the session, and a keyboard's hidraw node is its raw keystrokes. Swapped for dri
+# (the GPU, /dev/nvidia* included) and input (/dev/input: gamepads), at the cost of Steam Input's
+# virtual pads, hidraw-only controller features and VR. Mounted drives, UDisks2, Music, Pictures
+# and Bluetooth sockets go too (paired controllers still arrive through /dev/input); each library
+# native Steam lists comes in, never native Steam's own root — the client there runs unconfined.
+# Still shared: network, Wayland, X11 (Steam is an XWayland client), PipeWire.
+#
+# Native Steam stays: it is the rollback, and Omarchy's remover also deletes ~/.local/share/Steam
+# (bin/omarchy-remove-gaming-steam), so that is the user's call, made after a game has run here.
+# Usage: steam-flatpak
+set -euo pipefail
+: "${_HYPRCONF_NVIDIA_VERSION:=/sys/module/nvidia/version}"
+app=com.valvesoftware.Steam
+native=$HOME/.local/share/Steam
+
+die() { printf 'steam-flatpak: %s\n' "$*" >&2; exit 1; }
+((EUID)) || die "run it as yourself, not root: the install is per-user"
+(($# == 0)) || die "takes no arguments"
+
+omarchy-pkg-add flatpak
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+# The GL extension has to match the loaded driver exactly, or the client falls back to software
+# GL and no game starts; Flathub publishes it some days after each driver release.
+if [[ -r $_HYPRCONF_NVIDIA_VERSION ]]; then
+    read -r nv < "$_HYPRCONF_NVIDIA_VERSION"
+    gl=org.freedesktop.Platform.GL.nvidia-${nv//./-}
+    runtimes=$(flatpak remote-ls --user --runtime --columns=application flathub)
+    grep -qx "$gl" <<<"$runtimes" || die "Flathub has no $gl for driver $nv yet — rerun once it does"
+fi
+
+libraries=() granted=()
+while read -r path; do
+    [[ $path == "$native" ]] && continue
+    if [[ -d $path ]]; then
+        libraries+=("--filesystem=$path") granted+=("$path")
+    else
+        echo "  library $path is not mounted — left out; rerun once it is"
+    fi
+done < <(sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"$/\1/p' "$native/steamapps/libraryfolders.vdf" 2>/dev/null)
+
+# Before the install, which an override does not need (app/flatpak-builtins-override.c checks the
+# name only, 1.18.2): one rejected stops the run before an app with Flathub's --device=all exists.
+flatpak override --user --reset "$app"
+flatpak override --user "$app" \
+    --nodevice=all --device=dri --device=input \
+    --nofilesystem=/mnt --nofilesystem=/media --nofilesystem=/run/media \
+    --nofilesystem=xdg-music --nofilesystem=xdg-pictures \
+    --system-no-talk-name=org.freedesktop.UDisks2 --disallow=bluetooth \
+    "${libraries[@]}"
+flatpak install --user --noninteractive --or-update flathub "$app"
+
+cat <<EOF
+Steam (Flatpak) is installed and hardened — review: flatpak override --user --show $app
+  1. Quit native Steam, then start the Flatpak one: flatpak run $app
+     (the launcher lists it from your next login).
+  2. Settings › Storage › Add drive, for each library: ${granted[*]:-none found}
+     Installed games come back with their Proton prefixes, which live in the library.
+  3. Start one Proton game before anything else.
+  4. Then, only if you want it gone: omarchy-remove-gaming-steam — it also deletes
+     ~/.local/share/Steam (local-only data, non-Steam shortcuts' prefixes included).
+EOF

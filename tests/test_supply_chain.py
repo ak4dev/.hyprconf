@@ -104,3 +104,27 @@ def test_every_module_clone_is_pinned_to_a_reviewed_commit() -> None:
     shell = (REPO_ROOT / "modules" / "shell-zsh" / "install").read_text(encoding="utf-8")
     assert re.search(r"^p10k_url=https://", shell, re.M)
     assert re.search(r"^p10k_pin=[0-9a-f]{40}$", shell, re.M)
+
+
+# The one package source outside Arch's repos (AGENTS.md rule 3), at the user's request.
+FLATHUB = (
+    "flatpak remote-add --user --if-not-exists flathub "
+    "https://dl.flathub.org/repo/flathub.flatpakrepo"
+)
+
+
+def test_the_one_flatpak_source_is_flathub_over_https_per_user() -> None:
+    """Only the user-run scripts/steam-flatpak calls flatpak; its one remote is Flathub's https
+    .flatpakrepo, which carries the key flatpak verifies every download against; every call is
+    --user, so nothing lands system-wide. Not pinned to a commit like a clone: the app is the
+    Steam bootstrap, which updates the client itself, and Flathub ships its security fixes."""
+    users = {
+        str(p.relative_to(REPO_ROOT))
+        for p in shipped_bash()
+        if re.search(r"\bflatpak\b", code(p.read_text()))
+    }
+    assert users == {"scripts/steam-flatpak"}
+    text = code((REPO_ROOT / "scripts" / "steam-flatpak").read_text())
+    assert FLATHUB in text and len(re.findall(r"\bremote-add\b", text)) == 1
+    calls = re.findall(r"(?:^[ \t]*|\$\()flatpak\s[^\n]*", text, re.M)
+    assert len(calls) >= 5 and all(" --user " in c for c in calls), calls
