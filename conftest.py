@@ -90,6 +90,7 @@ EXTRA_FAKES = (
     "vulkaninfo",
     "flatpak",
     "curl",
+    "systemctl",
 )
 
 # What the scripts read out of $OMARCHY_PATH, in the shape the installed tree
@@ -330,6 +331,8 @@ class Box:
             # read the developer's own to decide.
             "_HYPRCONF_UDEV_RULES": str(self.etc / "udev/rules.d"),
             "_HYPRCONF_FIREFOX_POLICIES": str(self.etc / "firefox/policies"),
+            # A packaged file a module reads, absent unless a test puts it there.
+            "_HYPRCONF_PORTALS": str(self.tmp / "xdg-desktop-portal/hyprland-portals.conf"),
             **{k: os.environ[k] for k in GIT_IDENTITY},
         }
 

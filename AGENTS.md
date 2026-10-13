@@ -35,6 +35,7 @@ The one directive file (`CLAUDE.md` links to it; Claude Code reads that), loaded
 | [fastfetch](modules/fastfetch/README.md) | none — `~/.config/fastfetch/config.jsonc` is Omarchy's About screen, so `~/.config/hyprconf/fastfetch.jsonc`, read by `shell-zsh` |
 | [font](modules/font/README.md) | `omarchy-font-set` |
 | [idle](modules/idle/README.md) | `shell.json` `idle.screensaver` via the sourceable `omarchy-shell-config` |
+| [portals](modules/portals/README.md) | none for the portal config: xdg-desktop-portal's own `~/.config/xdg-desktop-portal/hyprland-portals.conf`, derived from the `hyprland` package's; `~/.config/hypr/xdph.conf`, Omarchy's seed (`config/hypr/xdph.conf`) |
 | [firefox](modules/firefox/README.md) | `omarchy-install-browser firefox`; `/etc/firefox/policies/` (Omarchy writes only `distribution/`); `omarchy-default-browser` |
 | [firefox-theme](modules/firefox-theme/README.md) | `~/.config/omarchy/themed/*.tpl`, rendered on every theme set; the `theme-set.d` hook |
 | [vscode](modules/vscode/README.md) | `omarchy-install-editor-vscode`, `omarchy-default-editor` |

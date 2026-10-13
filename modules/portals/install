@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# hyprconf/portals — two desktop-portal holes closed: input capture off for every app, and a
+# screen share no longer resumable without asking because it was approved once.
+# Input capture: Hyprland's backend hands keyboard and pointer to any caller with no prompt
+# (xdg-desktop-portal-hyprland 1.4.1, src/portals/InputCapture.cpp:241-273,429-440) and the frontend
+# adds none (xdg-desktop-portal 1.22.1, src/input-capture.c), so a sandboxed app takes both once the
+# pointer crosses a barrier it set. xdg-desktop-portal reads the one highest-precedence config,
+# ~/.config first (portals.conf(5)): ours is hyprland's packaged file plus the interface set to
+# `none` ("do not provide", same page), rebuilt whenever that file changes; one of the user's own is
+# left alone. Screen sharing: Omarchy seeds allow_token_by_default = true (config/hypr/xdph.conf:2),
+# xdph's own default is false (src/core/PortalManager.cpp:76), so only that true goes.
+# Each daemon reads its config once at start (default/agents/skills/omarchy/hyprland.md:31) and
+# Omarchy has no restart for either (omarchy commands --json): systemd's try-restart, on a change only.
+# Usage: install | install undo
+set -euo pipefail
+dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+: "${OMARCHY_PATH:=/usr/share/omarchy}" # undo's stock value: Omarchy's seed
+: "${_HYPRCONF_PORTALS:=/usr/share/xdg-desktop-portal/hyprland-portals.conf}"
+conf=$HOME/.config/xdg-desktop-portal/hyprland-portals.conf
+xdph=$HOME/.config/hypr/xdph.conf
+key='^([[:space:]]*(screencopy:)?allow_token_by_default[[:space:]]*=[[:space:]]*)'
+changed=0
+
+mine() { [[ -f $conf && $(head -n1 "$conf") == "# hyprconf/portals"* ]]; }
+
+if [[ ${1:-} == undo ]]; then
+    if mine; then
+        rm -f "$conf"
+        rmdir "${conf%/*}" 2>/dev/null || true # ours only while it is empty
+        changed=1
+    fi
+    if grep -Eq "${key}true[[:space:]]*$" "$OMARCHY_PATH/config/hypr/xdph.conf" 2>/dev/null &&
+        grep -Eq "${key}false[[:space:]]*$" "$xdph" 2>/dev/null; then
+        sed -E -i "s/${key}false[[:space:]]*$/\1true/" "$xdph"
+        changed=1
+    fi
+else
+    if [[ -f $_HYPRCONF_PORTALS ]]; then
+        if [[ -e $conf || -e ${conf%/*}/portals.conf ]] && ! mine; then
+            echo "  ${conf%/*} holds a config of yours — left alone; add org.freedesktop.impl.portal.InputCapture=none to its [preferred]"
+        else
+            want=$(printf '# hyprconf/portals: %s, plus input capture off — undo: bash %s/install undo\n%s\norg.freedesktop.impl.portal.InputCapture=none' \
+                "$_HYPRCONF_PORTALS" "$dir" "$(cat "$_HYPRCONF_PORTALS")")
+            if [[ ! -f $conf || $(cat "$conf") != "$want" ]]; then
+                mkdir -p "${conf%/*}"
+                printf '%s\n' "$want" > "$conf"
+                changed=1
+                echo "  input capture off for every app — undo: bash $dir/install undo"
+            fi
+        fi
+    fi
+    if grep -Eq "${key}(true|yes|on|1)[[:space:]]*$" "$xdph" 2>/dev/null; then
+        sed -E -i "s/${key}(true|yes|on|1)[[:space:]]*$/\1false/" "$xdph"
+        changed=1
+        echo "  a screen share asks every time (allow_token_by_default = false)"
+    fi
+fi
+
+if ((changed)); then
+    systemctl --user try-restart xdg-desktop-portal-hyprland.service xdg-desktop-portal.service ||
+        echo "  log in again for the portals to read it"
+fi
