@@ -89,7 +89,7 @@ Before every commit: `make check` = `make lint` (ruff check + format) + `make sh
 
 - `omarchy-update` re-execs under `script(1)` with `OMARCHY_UPDATE_LOGGED=1`, so every hook child has a pty: gate anything printed or asked there on that variable, never on `[[ -t 1 ]]`. Nothing does today.
 - A prompt runs only on a TTY: every one has a non-interactive path, and `_HYPRCONF_ASSUME_TTY` for the suite. `hyprconf-yubikey` is the only tool that asks.
-- A symlinked plugin folder is scanned but never watched, so the explicit `rescanPlugins` on every run is what picks a `git pull` up (citations: `modules/bar-plugin.sh`'s header). Bar widgets never size off `parent` (a binding loop QML drops): bind `implicitWidth` / `implicitHeight` to content.
+- A symlinked plugin folder is scanned but never watched, so the explicit `rescanPlugins` on every run is what picks a `git pull` up (citations: `modules/bar-plugin.sh`'s header). Bar widgets never size off `parent` (a binding loop QML drops): bind `implicitWidth` / `implicitHeight` to content; and read `Commons.Color` (`import qs.Commons as Commons`), never a bare `Color`, which Qt 6.12's own QtQuick singleton shadows (`tests/test_plugins_contract.py`).
 - Bash 5.3: `$(< file 2>/dev/null)` returns empty; use `read -r var < file` or `$(cat file 2>/dev/null)`. Never `git update-index --skip-worktree`.
 - Branding: `.hyprconf` (leading dot), except the domain `hyprconf.sh`, binaries `hyprconf-*` and plugin ids `hyprconf.*`.
 

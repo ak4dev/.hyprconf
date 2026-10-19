@@ -33,6 +33,7 @@
 
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 BarWidget {
@@ -64,7 +65,7 @@ BarWidget {
   readonly property string glyphThermo: "\u{F050F}"
 
   readonly property string fontFamily: root.bar ? root.bar.fontFamily : Style.fontFamily
-  readonly property color textColor: root.bar ? root.bar.barForeground : Color.foreground
+  readonly property color textColor: root.bar ? root.bar.barForeground : Commons.Color.foreground
 
   implicitWidth: grid.implicitWidth
   // NEVER size this off `parent`: the bar's ModuleSlot takes its height from

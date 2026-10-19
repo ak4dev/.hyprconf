@@ -22,6 +22,7 @@
 import QtQuick
 import Quickshell.Hyprland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 BarWidget {
@@ -81,7 +82,7 @@ BarWidget {
         // The bar's own foreground and font, as every stock text widget uses
         // (WidgetButton binds the same two), so themes and `omarchy font set`
         // apply here too.
-        color: root.bar ? root.bar.barForeground : Color.foreground
+        color: root.bar ? root.bar.barForeground : Commons.Color.foreground
         font.family: root.bar ? root.bar.fontFamily : Style.fontFamily
         font.pixelSize: Style.font.caption
         renderType: Text.NativeRendering

@@ -2,14 +2,14 @@
 // omarchy.active-window widget (README.md beside this file has the behaviour
 // and the setting; NOTICE carries Omarchy's MIT notice, which every copy of
 // its code must). Deltas from the stock widget, and all of them
-// (shell/plugins/bar/widgets/ActiveWindow.qml, Omarchy 4.0.3-1):
+// (shell/plugins/bar/widgets/ActiveWindow.qml, Omarchy 4.0.5-1):
 //   1. the stock character budget laid out on two caption-size lines
 //      (lineWidth, wrapMode, maximumLineCount);
 //   2. implicitWidth off contentWidth, the widest painted line, so a short
 //      title takes only the room it needs (stock: Math.min of maxLabelWidth
 //      and implicitWidth, one line);
 //   3. source only, same behaviour: the stock widget's two identical close
-//      branches (:53-57) merged into one `||` and its unused `import
+//      branches (:54-57) merged into one `||` and its unused `import
 //      Quickshell` dropped; re-apply both deliberately.
 // moduleName stays "omarchy.active-window": built-in ids inside plugin code
 // are stable IPC targets, and the manifest's clonedFrom is what maps this
@@ -21,6 +21,7 @@
 import QtQuick
 import Quickshell.Wayland
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 BarWidget {
@@ -58,7 +59,7 @@ BarWidget {
       anchors.left: parent.left
       width: root.lineWidth
       text: root.title
-      color: root.bar ? root.bar.barForeground : Color.foreground
+      color: root.bar ? root.bar.barForeground : Commons.Color.foreground
       font.family: root.bar ? root.bar.fontFamily : Style.font.family
       font.pixelSize: Style.font.caption
       wrapMode: Text.Wrap

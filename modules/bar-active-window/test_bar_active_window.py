@@ -85,7 +85,7 @@ def test_the_widget_keeps_the_stock_widget_s_behaviour() -> None:
 @pytest.mark.skipif(not STOCK_WIDGET.is_file(), reason=NEEDS_OMARCHY)
 def test_the_widget_tracks_omarchys_stock_active_window() -> None:
     """ActiveWindow.qml is the stock file plus its header and exactly the three deltas that
-    header names (Omarchy 4.0.4-1) — red on a release that changes the widget, which is the
+    header names (Omarchy 4.0.5-1) — red on a release that changes the widget, which is the
     signal to refresh the copy, as the clock's own parity test is for the clock."""
     ours = (PLUGIN / "ActiveWindow.qml").read_text().splitlines()
     body = ours[next(n for n, ln in enumerate(ours) if ln.startswith("import ")) :]

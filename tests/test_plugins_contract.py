@@ -330,6 +330,16 @@ def test_widgets_use_only_the_pinned_commons_and_ui_members_and_omarchy_still_de
         assert set(members) <= declared, f"{name}: {sorted(set(members) - declared)} not declared"
 
 
+def test_color_is_read_through_the_commons_alias() -> None:
+    """Qt 6.12's QtQuick exports a Color singleton of its own (QQuickColor, plugins.qmltypes),
+    which a bare `Color` after `import QtQuick` resolves to: `Color.foreground` is undefined and
+    nothing fails to load. Omarchy 4.0.5-1 writes `Commons.Color` everywhere, as do we."""
+    for qml in sorted(p for folder in FOLDERS for p in folder.rglob("*.qml")):
+        code = qml_code(qml)
+        assert not re.search(r"(?<![\w.])Color\.", code), f"{qml}: bare Color, not Commons.Color"
+        assert "Commons." not in code or "import qs.Commons as Commons" in code, qml
+
+
 @per_folder
 @pytest.mark.skipif(not (OMARCHY / "bin/omarchy-plugin-validate").is_file(), reason=NEEDS_OMARCHY)
 def test_the_real_validator_accepts_the_folder_through_a_symlink(
