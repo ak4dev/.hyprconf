@@ -5,19 +5,30 @@
 # o.launch_on_start line, the kitty-include idiom. The helper runs `uwsm-app -- <cmd>` once, on
 # hyprland.start (default/hypr/helpers.lua:108-120), so a config reload starts no second copy.
 # --start-minimized hides the window only while a tray is up (proton/vpn/app/gtk/app.py:130-148);
-# Omarchy's bar carries one. Connecting is the app's own "Connect at app startup", off by default
-# (proton/vpn/app/gtk/config.py:31): set once in the app, with its kill switch.
+# Omarchy's bar carries one.
+# Connecting is the app's "Auto connect", off by default (proton/vpn/app/gtk/config.py:31): a text
+# field, not a toggle — anything but FASTEST or a server (NL#42) is a country code
+# (controller.py:218-231), so the "On" its name invites fails every start with "No server available
+# in the current tier" (session/servers/logicals.py:306). Set once to FASTEST in the app's own file,
+# which no Omarchy seam reaches; the app reads it at start and saves it whole on a change
+# (controller.py:457-474), so a change in an app open during the write puts back the old value.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 : "${_HYPRCONF_ASSUME_TTY:=}"
 autostart=$HOME/.config/hypr/autostart.lua
 line='o.launch_on_start("protonvpn-app --start-minimized") -- hyprconf/proton-vpn'
+config=$HOME/.config/Proton/VPN/app-config.json
+marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/autoconnect-applied
 
 if [[ ${1:-} == undo ]]; then
     # In place and --follow-symlinks, as terminal-kitty edits kitty.conf; the packages stay.
     grep -qxF "$line" "$autostart" 2>/dev/null &&
         sed --follow-symlinks -i '/ -- hyprconf\/proton-vpn$/d' "$autostart"
+    # Stock is the key absent (config.py:52-60); a value the user typed since is theirs and stays.
+    json=$(jq -e --indent 4 'select(.connect_at_app_startup == "FASTEST") | del(.connect_at_app_startup)' \
+        "$config" 2>/dev/null) && printf '%s\n' "$json" > "$config"
+    rm -f "$marker"
     exit 0
 fi
 
@@ -44,4 +55,15 @@ if ! grep -qxF "$line" "$autostart" 2>/dev/null; then
     [[ ! -s $autostart || -z $(tail -c1 "$autostart") ]] || printf '\n' >> "$autostart"
     printf '%s\n' "$line" >> "$autostart"
     echo "  Proton VPN starts minimized at every login — undo: bash $dir/install undo"
+fi
+
+[[ -e $marker ]] && exit 0
+# A file not there yet is the app's defaults (controller.py:462-465); one that is not JSON is left alone.
+if json=$(jq --indent 4 '.connect_at_app_startup = "FASTEST"' <(cat "$config" 2>/dev/null || echo '{}')); then
+    mkdir -p "${config%/*}" "${marker%/*}"
+    printf '%s\n' "$json" > "$config"
+    : > "$marker"
+    echo "  Proton VPN connects to the fastest server when it starts — undo: bash $dir/install undo"
+else
+    echo "  could not set Proton VPN's Auto connect — $config is not JSON; will retry on the next run"
 fi
