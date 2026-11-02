@@ -11,7 +11,7 @@ ID = "hyprconf.workspaces"
 
 
 def test_manifest_declares_the_slot_and_entry_point_the_shell_reads() -> None:
-    """No `barWidget.defaultSection` — the clonedFrom swap inherits the stock widget's slot — and none of the keys shell.qml:1400-1405 already defaults."""
+    """No `barWidget.defaultSection` — the clonedFrom swap inherits the stock widget's slot — and none of the keys shell.qml:1403-1408 already defaults."""
     manifest = json.loads((PLUGIN / "manifest.json").read_text())
     assert manifest["id"] == ID and manifest["kinds"] == ["bar-widget"]
     assert manifest["entryPoints"] == {"barWidget": "Workspaces.qml"}

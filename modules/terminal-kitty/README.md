@@ -38,4 +38,4 @@ marker, and hands the default back to Omarchy's stock terminal only while kitty 
 and that terminal is still installed. Stock is read at undo time, the first entry of
 `$OMARCHY_PATH/default/xdg-terminal-exec/hyprland-xdg-terminals.list` — `foot` in omarchy-settings 4.0.4-1.
 
-## Verified against Omarchy 4.0.4-1 — kitty 0.48.2-1, omarchy-settings 4.0.4-1.
+## Verified against Omarchy 4.0.6-1 — kitty 0.49.2-1, omarchy-settings 4.0.6-1.

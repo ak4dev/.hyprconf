@@ -28,7 +28,7 @@ MARKER = ".local/state/hyprconf/clock-applied"
 STOCK_CLOCK = OMARCHY / "shell/plugins/panels/clock"
 
 # The same write, persisted on a LATER event-loop turn as the shell's is
-# (shell.qml:109-113 persistShellConfig, then a FileView setText): an anchor
+# (shell.qml:111-115 persistShellConfig, then a FileView setText): an anchor
 # edit that does not wait for it is taken straight back 0.2 s later.
 BAR_SET_LATE = BAR_SET.replace('&& mv "$json.t"', '&& { ( sleep 0.2; mv "$json.t"')[:-1] + ") & }\n"
 
@@ -60,7 +60,7 @@ def test_install_enables_it_once_with_the_format_and_the_anchor(box: Box) -> Non
         (STOCK, [{"id": ID}], ID, False),
         # a clone removed long after the install — on no section and on no
         # installed plugin, so the section centres the whole group instead
-        # (Bar.qml:1538 hasAnchor). Not a choice, so not behind the marker.
+        # (Bar.qml:1552 hasAnchor). Not a choice, so not behind the marker.
         ("testuser.clock", [{"id": ID}], ID, False),
         # the same repair with the write blocked: a cosmetic step must not take
         # the run down, nor report success it did not have
@@ -158,7 +158,7 @@ def test_undo_restores_the_stock_format_and_the_anchor(box: Box, answering: bool
 
 def test_undo_leaves_a_stock_clock_the_user_went_back_to_alone(box: Box) -> None:
     """`omarchy plugin disable` sticks (README › Settings), and a disable answers "ok" for
-    an id on no section (shell.qml:1620-1621): the format they then set on the stock clock
+    an id on no section (shell.qml:1623-1624): the format they then set on the stock clock
     is theirs, not a format of ours to reset."""
     path = bar_shell(box)
     box.run(INSTALL)
@@ -176,7 +176,7 @@ def test_the_manifest_claims_the_stock_clock_slot() -> None:
     assert manifest["id"] == ID
     assert manifest["omarchy"] == {"clonedFrom": STOCK}
     assert manifest["entryPoints"] == {"barWidget": "BarWidget.qml"}
-    # Only what the shell does not already default (shell.qml:1400-1405); no
+    # Only what the shell does not already default (shell.qml:1403-1408); no
     # defaultSection either — the clonedFrom swap inherits the stock slot.
     assert manifest["barWidget"] == {"category": "Time"}
 

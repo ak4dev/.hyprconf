@@ -41,4 +41,4 @@ and the marker, rescans. With no shell answering, the bar entry is taken off in
 `~/.config/omarchy/shell.json` itself, so no empty slot is left. An earlier
 install's backup folder stays.
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1

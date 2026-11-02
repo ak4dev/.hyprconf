@@ -37,4 +37,4 @@ Edit `zshrc` or `.p10k.zsh` in the checkout; both are live, no re-run needed. Th
 
 Two things it deliberately does not tidy. `~/.local/state/hyprconf` survives while another module's marker is still in it — undo the rest, or `rm -rf` it once you are done. And a `~/.config/kitty/kitty.conf` that did not end in a newline comes back one byte longer: the include had to terminate the last line first, and undo cannot tell that newline from one you wrote. Omarchy's own stub ends in a newline, so a stock box never sees it.
 
-## Verified against Omarchy 4.0.4-1 — kitty 0.48.2, zsh 5.9.2, git 2.55.0, powerlevel10k pin `3308262`, reviewed 2026-09-01
+## Verified against Omarchy 4.0.6-1 — kitty 0.49.2, zsh 5.9.2, git 2.56.0, powerlevel10k pin `3308262`, reviewed 2026-09-01

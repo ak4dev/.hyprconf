@@ -29,10 +29,10 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 ```
 
 ## Settings
-None: every choice is a flag on `enroll` (`--device`, `--yes`, `--no-snapshot`, `--allow-non-latin-layout`), and the module writes no marker.
+None: every choice is a flag on `enroll` (`--device`, `--yes`, `--no-snapshot`, `--allow-non-latin-layout`, needed only on an Omarchy older than 4.0.6, whose initramfs can bundle a non-Latin layout), and the module writes no marker.
 
 ## Undo
 `hyprconf-yubikey remove` **first**, while the tool is still on PATH — it asks for the recovery key and a new passphrase before the key's slot goes (`disable` keeps every LUKS slot, so its boot prompt takes only the recovery key); the recovery key stays until `sudo systemd-cryptenroll --wipe-slot=recovery <dev>` — then `bash ~/.hyprconf/modules/yubikey/install undo`, which removes the symlink and nothing else. `rd.luks.*` written inline on `/etc/default/limine` is only ever read here: `status` names it, `remove` leaves it — delete those parameters by hand, keeping `cryptdevice=`.
 
-## Verified against Omarchy 4.0.4-1
-limine-mkinitcpio-hook 1.38.0-1.1, mkinitcpio 41.1, systemd 261. The boot-chain facts and the files they were read from are in the tool's own header; `enroll`/`disable`/`remove` need hardware and are verified by hand, not in the suite; the slot JSON and `--wipe-slot` semantics are cryptsetup 2.8.7's `cryptsetup-luksdump(8)` and systemd 261's `systemd-cryptenroll(1)`.
+## Verified against Omarchy 4.0.6-1
+limine-mkinitcpio-hook 1.40.0-2, mkinitcpio 42.2, systemd 262.1. The boot-chain facts and the files they were read from are in the tool's own header; `enroll`/`disable`/`remove` need hardware and are verified by hand, not in the suite; the slot JSON and `--wipe-slot` semantics are cryptsetup 2.8.7's `cryptsetup-luksdump(8)` and systemd 261's `systemd-cryptenroll(1)`.

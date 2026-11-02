@@ -533,7 +533,7 @@ def test_undo_disables_it_first_then_takes_the_link_and_the_marker_away(plugin: 
 def test_undo_with_no_shell_answering_hands_the_slot_back_in_the_file(plugin: Plugin) -> None:
     """With nothing answering there is no in-memory copy to take an edit back, so the swap
     the disable would do is done in shell.json itself — a layout entry naming a plugin that
-    is gone is a 0-width slot next session (Bar.qml:1795, :1814)."""
+    is gone is a 0-width slot next session (Bar.qml:1809, :1828)."""
     box = plugin.box
     path = bar_shell(box, layout=[{"id": plugin.id}])
     box.stub("omarchy-plugin-disable", "exit 1\n")

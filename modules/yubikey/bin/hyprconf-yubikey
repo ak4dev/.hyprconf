@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hyprconf-yubikey — FIDO2 (YubiKey) unlock of the LUKS2 root at boot.
-# This header is the provenance: what was read on the box, and where (Omarchy 4.0.3-1,
-# limine-mkinitcpio-hook 1.38.0-1.1, mkinitcpio 41.1, systemd 261).
+# This header is the provenance: what was read on the box, and where (Omarchy 4.0.6-1,
+# limine-mkinitcpio-hook 1.40.0-2, mkinitcpio 42.2, systemd 262.1).
 #
 #   * Omarchy has no route for this. `omarchy commands --json` has none that touches
 #     systemd-cryptenroll, mkinitcpio HOOKS or the kernel cmdline; /usr/share/omarchy/bin
@@ -17,7 +17,10 @@
 #     configuration files"), so a `zz-` drop-in sees Omarchy's final HOOKS and rewrites
 #     it without editing a file Omarchy owns. That is the seam. omarchy_hooks.conf's own
 #     closing `case` keeps /etc/vconsole.conf out of the image for a non-Latin first
-#     XKBLAYOUT; sd-vconsole bundles it unconditionally, so check_layout re-applies it.
+#     XKBLAYOUT. sd-vconsole's own add_file bundled it regardless until Omarchy 4.0.6's
+#     omarchy_vconsole.conf refused the file in add_file itself (a real mkinitcpio 42.2
+#     run, HOOKS=(base systemd sd-vconsole): present without the drop-in, absent under it
+#     with a non-Latin layout), so check_layout re-applies the guard only without it.
 #   * Kernel cmdline. limine-entry-tool assembles KERNEL_CMDLINE[default] from four
 #     config layers (/usr/lib/limine/limine-common-functions load_config:115-156) and
 #     only it knows which one wins — the assembled order is not the load order (verified
@@ -28,15 +31,15 @@
 #     way omarchy-hibernation-setup writes resume.conf there (:131-139, `| sudo tee`),
 #     and the assembled cmdline is read back to prove they reach the kernel — which
 #     also catches /etc/default/limine assigning with `=` rather than `+=`
-#     (/etc/limine-entry-tool.conf:38-43, "Operators"). That file is never edited:
+#     (/etc/limine-entry-tool.conf:54-59, "Operators"). That file is never edited:
 #     cryptdevice= stays, so the box still boots through `encrypt` if Omarchy ever
 #     rewrites its hooks drop-in back to busybox.
 #   * Rebuild. limine-mkinitcpio, the rebuild Omarchy runs after its own drop-in changes
 #     (omarchy-hibernation-setup:71,160, omarchy-hibernation-remove, its migrations) —
 #     not limine-update, which re-deploys the bootloader binary and builds a second time
 #     and is for repairing a failed hook (migration 1785273276.sh). It exits 0 even when
-#     a build failed (/usr/share/libalpm/scripts/limine-mkinitcpio-install:202 error_msg,
-#     :287 `process_kernel … || true`; Omarchy records the same at
+#     a build failed (/usr/share/libalpm/scripts/limine-mkinitcpio-install:230 error_msg,
+#     :315 `process_kernel … || true`; Omarchy records the same at
 #     migrations/1789325478.sh:34-35), so status AND output are both checked.
 #   * The passphrase. crypttab(5) token-timeout=: "Once the specified timeout elapsed
 #     authentication via password is attempted … Pass 0 to turn off the timeout and wait
@@ -129,7 +132,7 @@ options (enroll, disable, remove):
   --yes             no prompts; required when there is no terminal to confirm on
   --no-snapshot     skip the \`omarchy snapshot create\` taken before the boot config changes
   --allow-non-latin-layout   (enroll) go ahead although $_HYPRCONF_VCONSOLE's XKBLAYOUT
-                    starts with a non-Latin layout — see below
+                    starts with a non-Latin layout, on an Omarchy older than 4.0.6 — see below
 
 what enroll changes (every step is idempotent; nothing is touched before the
 confirmation, and a kernel cmdline that already fights the drop-in stops it before
@@ -179,12 +182,14 @@ libfido2).
 
 keyboard layout: Omarchy bundles $_HYPRCONF_VCONSOLE into the initramfs only when
 XKBLAYOUT's first layout types Latin letters (the guard at the end of
-/etc/mkinitcpio.conf.d/omarchy_hooks.conf); the systemd initramfs bundles it always.
-With a Hebrew/Greek/Cyrillic/Arabic/... first layout the prompt that falls back to a
-recovery key (a PIN given up on, a Limine entry without the drop-in) uses that layout,
-and the Latin recovery key may become untypeable. enroll refuses such a layout unless
---allow-non-latin-layout is given; then make sure the recovery key can be typed on it
-(or switch the first layout: localectl set-x11-keymap).
+/etc/mkinitcpio.conf.d/omarchy_hooks.conf), and from 4.0.6 omarchy_vconsole.conf holds
+that for the systemd initramfs too, so there is nothing to refuse. Without that drop-in
+the systemd initramfs bundles it always: with a Hebrew/Greek/Cyrillic/Arabic/... first
+layout the prompt that falls back to a recovery key (a PIN given up on, a Limine entry
+without the drop-in) uses that layout, and the Latin recovery key may become untypeable.
+There enroll refuses such a layout unless --allow-non-latin-layout is given; then make
+sure the recovery key can be typed on it (or switch the first layout: localectl
+set-x11-keymap).
 
 snapshot boots: read-only snapshots started from the Limine menu keep their writable
 overlay only when limine-mkinitcpio-hook ships sd-btrfs-overlayfs (the drop-in swaps to
@@ -295,9 +300,11 @@ vconsole_xkblayout() {
 # The guard at the end of /etc/mkinitcpio.conf.d/omarchy_hooks.conf, layout list copied
 # verbatim (Omarchy's own second copy of it is default/hypr/input.lua:24-27; neither
 # file is under $OMARCHY_PATH in a shape a no-Omarchy suite could read, so the list is
-# pinned against this line in the tests instead of derived).
+# pinned against this line in the tests instead of derived). Omarchy's drop-in already
+# keeps the file out of the systemd initramfs where it exists: see the header.
 check_layout() {
     local layout
+    [[ -f $_HYPRCONF_MKINITCPIO_D/omarchy_vconsole.conf ]] && return 0
     layout=$(vconsole_xkblayout)
     case $layout in
         af | am | ara | bd | bg | by | et | ge | gr | il | in | iq | ir | kg | kh | kz | la | lk | mk | mm | mn | mv | np | rs | ru | sy | th | tj | ua) ;;
@@ -307,7 +314,7 @@ check_layout() {
         warn "XKBLAYOUT in $_HYPRCONF_VCONSOLE starts with '$layout', a non-Latin layout: the systemd initramfs bundles the file, so the recovery-key prompt at boot uses it — make sure the recovery key can be typed on it, or you are locked out without the key (--allow-non-latin-layout given, going on)"
         return 0
     fi
-    die "XKBLAYOUT in $_HYPRCONF_VCONSOLE starts with '$layout', a non-Latin layout: Omarchy keeps that out of the initramfs so the LUKS prompt stays typeable (omarchy_hooks.conf), the systemd initramfs cannot, and the recovery key is Latin. Put a Latin layout first (localectl set-x11-keymap), or re-run with --allow-non-latin-layout if the recovery key is typeable on '$layout' — see: hyprconf-yubikey help"
+    die "XKBLAYOUT in $_HYPRCONF_VCONSOLE starts with '$layout', a non-Latin layout: Omarchy keeps that out of the initramfs so the LUKS prompt stays typeable (omarchy_hooks.conf), the systemd initramfs cannot without omarchy_vconsole.conf (Omarchy 4.0.6), and the recovery key is Latin. Update Omarchy, put a Latin layout first (localectl set-x11-keymap), or re-run with --allow-non-latin-layout if the recovery key is typeable on '$layout' — see: hyprconf-yubikey help"
 }
 
 preflight() {
@@ -556,9 +563,9 @@ verify_limine_dropin() {  # <uuid> <mapper>
 # limine-mkinitcpio exits 0 even when a build fails (see the header), so keep its output
 # and refuse any "ERROR:" line — error_msg's prefix in /usr/lib/limine/limine-common-
 # functions:29-31 and in /usr/bin/limine-entry-tool:52-54. That is every failure
-# limine-mkinitcpio-install reports (:104, :131, :202, :231, :244) plus whatever
-# limine-entry-tool says when --add-uki/--add-kernel fails, whose status :206-207, :238
-# and :247 discard — an image that built but never reached the ESP (that text was not
+# limine-mkinitcpio-install reports (:132, :159, :230, :259, :272) plus whatever
+# limine-entry-tool says when --add-uki/--add-kernel fails, whose status :234-235, :266
+# and :275 discard — an image that built but never reached the ESP (that text was not
 # observed: the native binary cannot be run read-only). Nothing else is judged here: the
 # record of what was written is limine-mkinitcpio's own output, live on stderr above.
 rebuild_boot() {

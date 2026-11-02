@@ -39,4 +39,4 @@ widget comes back), removes the link and the marker. With no shell answering,
 the disable is done in `~/.config/omarchy/shell.json` itself — the bar entry goes
 back to `omarchy.workspaces` — so no slot is left naming a plugin that is gone.
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1

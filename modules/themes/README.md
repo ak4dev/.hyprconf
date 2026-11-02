@@ -38,4 +38,4 @@ names the values kept where Omarchy would otherwise derive one (`omarchy-theme-c
 `bash modules/themes/install undo`: `omarchy theme remove dracula` on our own link (`rm -rf` on a symlink unlinks it,
 `omarchy-theme-remove:31-37` — a theme of yours there stays), and each seeded wallpaper where the bytes are still ours.
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1

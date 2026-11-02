@@ -4,8 +4,8 @@
 
 Keeps Omarchy's bar on the **top** edge. A 200 ms press-and-hold, or a drag of a
 few pixels, on the bar's centre section moves the bar to whichever screen edge
-the pointer is let go nearest (`shell/plugins/bar/Bar.qml:1552,1597,1637-1690`,
-`:475`), so a slow click between two widgets can send it to the side. Omarchy
+the pointer is let go nearest (`shell/plugins/bar/Bar.qml:1566,1611,1651-1704`,
+`:489`), so a slow click between two widgets can send it to the side. Omarchy
 has no setting that locks it. Any run that finds `bar.position` set to `bottom`,
 `left` or `right` puts it back with Omarchy's own `omarchy bar position top`,
 which also reloads the running shell (`bin/omarchy-bar:198-205`,
@@ -37,4 +37,4 @@ Omarchy reads as top, `shell/plugins/bar/BarModel.js:5-8`) is left as it is.
 default (`config/omarchy/shell.json:8`), so there is nothing to restore. A move
 sticks again only after a full `hyprconf --undo`, which also removes the hook.
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1

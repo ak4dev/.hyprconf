@@ -86,8 +86,8 @@ restart before changing the plugin.
 
 An installed third-party widget never gets the host Bar: its `bar` is a
 `Ui/PluginBarApi.qml` facade and `bar.shell` a `services/PluginShellApi.qml`,
-both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2002-2003`,
-`Bar.qml:229-248` → `shell/shell.qml:684`). Those two files are the whole
+both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2019-2020`,
+`Bar.qml:245-264` → `shell/shell.qml:687`). Those two files are the whole
 contract — a member that exists only on the Bar reads back `undefined`, with
 nothing logged anywhere. This widget uses `bar.barForeground`,
 `bar.fontFamily`, `bar.run(command)`, `bar.showTooltip(target, text)` /

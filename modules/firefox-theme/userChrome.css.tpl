@@ -6,29 +6,30 @@
      read back by the hook — it picks the built-in theme id and
      ui.systemUsesDarkTheme from this line. */
   --hyprconf-theme-mode: {{ mode }};
-  /* The three theme variables Firefox 155.0.1-1 still reads outside a
+  /* The three theme variables Firefox 158.0.1-1 still reads outside a
      :root[lwtheme] block: --toolbar-field-background-color
-     (urlbar/urlbar.tokens.css:13, urlbar-searchbar.css:1145),
+     (urlbar/urlbar.tokens.css:13, urlbar.css:1165),
      --toolbar-field-focus-color (smartbar.css:43) and
-     --focus-outline-color (23 stylesheets). No --lwt-*: README > Settings. */
+     --focus-outline-color (20 stylesheets). No --lwt-*: README > Settings. */
   --toolbar-field-background-color: {{ dark_background }} !important;
   --toolbar-field-focus-color: {{ foreground }} !important;
   --focus-outline-color: {{ accent }} !important;
 }
-/* The chrome itself, by the ids Firefox has kept stable for years — paints
-   the same colours even when the user later picks another theme (or none),
-   when the variables above would go unused. */
+/* The chrome itself, by the names Firefox 158.0.1-1 renders — paints the same
+   colours even when the user later picks another theme (or none), when the
+   variables above would go unused. .urlbar-background is a class and paints
+   the moz-searchbar search box too; #sidebar-container holds the vertical tabs. */
 #navigator-toolbox, #TabsToolbar, #nav-bar, #PersonalToolbar {
   background-color: {{ background }} !important;
   color: {{ foreground }} !important;
 }
-#urlbar-background, #searchbar {
+.urlbar-background {
   background-color: {{ dark_background }} !important;
 }
 .tab-background[selected] {
   background-color: {{ lighter_background }} !important;
 }
-#sidebar-box, #sidebar-main {
+#sidebar-box, #sidebar-container {
   background-color: {{ background }} !important;
   color: {{ foreground }} !important;
 }

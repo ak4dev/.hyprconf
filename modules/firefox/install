@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/firefox — Firefox, the /etc policy merged over Omarchy's, the default browser once.
-# Seams: bin/omarchy-install-browser:67-74, default/firefox/policies.json, bin/omarchy-default-browser:7-19.
+# Seams: bin/omarchy-install-browser:67-74, default/firefox/policies.json, bin/omarchy-default-browser:7-20.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -50,7 +50,7 @@ if [[ ${1:-} == undo ]]; then
 fi
 mkdir -p "$state"
 
-# Nothing in Omarchy writes /etc/firefox (grep -RIn over the installed 4.0.3-1
+# Nothing in Omarchy writes /etc/firefox (grep -RIn over the installed 4.0.6-1
 # tree) and it outranks the distribution/ copy — so jq `*` merges theirs under ours.
 tmp=$(mktemp)
 trap 'rm -f -- "$tmp"' EXIT
@@ -104,8 +104,8 @@ if [[ -e $legacy ]]; then : > "$marker"; exit 0; fi
 # Without Firefox, xdg-settings has no firefox.desktop to record and the setter warns on every hook run.
 omarchy-pkg-present firefox || exit 0
 omarchy-default-browser firefox || true
-# The setter's status is its closing notification's (bin/omarchy-default-browser:35-37,
-# no `set -e`), which fails with no shell to notify: the VALUE is read back (:7-19).
+# The setter's status is its closing notification's (bin/omarchy-default-browser:39-41,
+# no `set -e`), which fails with no shell to notify: the VALUE is read back (:7-20).
 if [[ $(omarchy-default-browser 2>/dev/null || true) == firefox ]]; then
     : > "$marker"
     info "default browser = firefox (change it with: omarchy default browser <name>)"

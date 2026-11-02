@@ -41,4 +41,4 @@ back — it restarts the shell, so it stays yours: `omarchy font set 'JetBrainsM
 read at undo time from what `$OMARCHY_PATH/default/fontconfig/conf.avail/50-omarchy.conf` assigns to `monospace`. A
 `kitty.conf` the first run seeded stays: it is Omarchy's own stub, the file a stock box has.
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1

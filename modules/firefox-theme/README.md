@@ -30,7 +30,7 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 `ui.systemUsesDarkTheme` follow the mode the render declares in `--hyprconf-theme-mode`. The theme id buys the colour
 scheme alone: both built-in ids are `inApp` (`BuiltInThemeConfig.sys.mjs:29,38`), so `:root[lwtheme]` never turns on
 (`LightweightThemeConsumer.sys.mjs:424,537`) — the chrome is painted by the template's direct `#navigator-toolbox` /
-`#nav-bar` / `#urlbar-background` / `#sidebar-box` rules plus the three variables Firefox 155 still reads.
+`#nav-bar` / `.urlbar-background` / `#sidebar-container` rules plus the three variables Firefox 158 still reads.
 
 ## Undo
 
@@ -39,4 +39,4 @@ three `user_pref` lines come back out of `user.js` (removed when it held nothing
 is this module's file outright — one you wrote yourself is replaced, not merged, and removed by the undo; move it aside
 first. A profile file that will not go makes the undo exit non-zero and say so, the module's own three files gone regardless.
 
-## Verified against Omarchy 4.0.4-1 — Firefox 155.0.1-1, Bash 5.3
+## Verified against Omarchy 4.0.6-1 — Firefox 158.0.1-1, Bash 5.3

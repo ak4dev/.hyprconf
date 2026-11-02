@@ -116,4 +116,4 @@ The seeded presets, their `.shipped` markers and the two `~/.local/bin` links go
 that never installed: exit 0, and a file at those paths that is not hyprconf's is left as it is.
 
 ## Verified against
-Omarchy 4.0.4-1 (Hyprland 0.56.2). Every `file:line` above was read from `/usr/share/omarchy` at that version.
+Omarchy 4.0.6-1 (Hyprland 0.56.2). Every `file:line` above was read from `/usr/share/omarchy` at that version.

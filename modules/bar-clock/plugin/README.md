@@ -71,15 +71,15 @@ calendar's `birthYear` / `lifeExpectancy` are set from the panel itself.
 
 An installed third-party widget never gets the host Bar: its `bar` is a
 `Ui/PluginBarApi.qml` facade and `bar.shell` a `services/PluginShellApi.qml`,
-both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2002-2003`,
-`Bar.qml:229-248` → `shell/shell.qml:684`). Those two files are the whole
+both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2019-2020`,
+`Bar.qml:245-264` → `shell/shell.qml:687`). Those two files are the whole
 contract — a member that exists only on the Bar reads back `undefined`, with
 nothing logged anywhere. This widget uses `bar.run(command)` and
 `bar.shell.updateEntryInline(id, settings)`, plus the `bar`, `moduleName` and
 `settings` the bar's `ModuleSlot.injectProps` sets on it — and hands `bar` and
 `settings` down to the stock `Panel.qml` it loads (`injectPanel()`); the panel's
 own settings writes name `omarchy.clock`, which the host resolves to this
-enabled clone (`shell/shell.qml:648-649`, `PluginRegistry.qml:171-182`).
+enabled clone (`shell/shell.qml:651-652`, `PluginRegistry.qml:171-182`).
 Re-verify both files, and the Quickshell API against
 `/usr/lib/qt6/qml/Quickshell/**/*.qmltypes`, after every Omarchy or Quickshell
 upgrade.

@@ -56,9 +56,9 @@ omarchy bar set hyprconf.active-window maxWidth 400
 ## Host contract (Omarchy 4.0.4-1)
 
 An installed third-party widget never gets the host Bar: its `bar` is a
-`Ui/PluginBarApi.qml` facade (`shell/plugins/bar/Bar.qml:1999-2003`) and
+`Ui/PluginBarApi.qml` facade (`shell/plugins/bar/Bar.qml:2016-2020`) and
 `bar.shell` a `services/PluginShellApi.qml` scoped to this plugin's own id
-(`Bar.qml:229-248` → `shell/shell.qml:684`). Those two files are the whole
+(`Bar.qml:245-264` → `shell/shell.qml:687`). Those two files are the whole
 contract — a member that exists only on the Bar reads back `undefined`, with
 nothing logged anywhere. This widget uses `bar.barForeground`,
 `bar.fontFamily`, `bar.showTooltip(target, text)` and

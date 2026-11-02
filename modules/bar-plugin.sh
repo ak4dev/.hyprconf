@@ -33,7 +33,7 @@ on_bar() { jq -e --arg id "$1" "$ids | any(. == \$id)" "$json" >/dev/null 2>&1; 
 # below is the running shell's own, done here only when nothing answers.
 # omarchy-shell-config's commit (:53-62) cannot stand in: its bare `mv` reports
 # success when sourced inside a conditional, and `jq -S` re-sorts the user's
-# whole file. The shell's own FileView picks the rename up (shell.qml:134-142).
+# whole file. The shell's own FileView picks the rename up (shell.qml:136-144).
 edit() {
     local what=$1
     shift
@@ -49,7 +49,7 @@ edit() {
 # from, its other settings kept (PluginRegistry.qml:555 -> restoreCloneSource:441),
 # or a plain splice for anything else (:556) — done in the file, for when nothing
 # answered: there is then no in-memory copy to take the edit back, and an entry
-# naming a plugin that is gone is a 0-width slot next session (Bar.qml:1795, :1814).
+# naming a plugin that is gone is a 0-width slot next session (Bar.qml:1809, :1828).
 # $1 the id the slot goes back to, empty to take the entry off; $2 a format with it.
 hand_back() {
     [[ -f $json ]] || return 0

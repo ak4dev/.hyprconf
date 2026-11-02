@@ -15,12 +15,12 @@ POLICIES = json.loads((MODULE / "policies.json").read_text(encoding="utf-8"))["p
 OMARCHY_POLICY = OMARCHY / "default/firefox/policies.json"
 
 # Firefox's own allowlist for the Preferences policy, verbatim from
-# `Preferences.onBeforeAddons` (Policies.sys.mjs:2632-2674, Firefox 155.0.1) — a
-# `preference.startsWith(prefix)` match (:2726-2727). Outside it a pref is dropped to the
+# `Preferences.onBeforeAddons` (Policies.sys.mjs:2813-2855, Firefox 158.0.1) — a
+# `preference.startsWith(prefix)` match (:2910). Outside it a pref is dropped to the
 # browser console and never applies. Pinned, not derived (omni.ja defeats zipfile);
 # re-derive on a Firefox major bump with:
 #   unzip -p /usr/lib/firefox/browser/omni.ja modules/policies/Policies.sys.mjs \
-#     | sed -n '/let allowedPrefixes = \[/,/\];/p'
+#     | sed -n '/const allowedPrefixes = \[/,/\];/p'
 ALLOWED_PREFIXES = tuple(
     """accessibility. alerts. app.update. browser. datareporting.policy. devtools. dom.
     extensions. general.autoScroll general.smoothScroll geo. gfx.
@@ -32,8 +32,8 @@ ALLOWED_PREFIXES = tuple(
     toolkit.legacyUserProfileCustomizations.stylesheets ui. webgl.disabled
     webgl.force-enabled widget. xpinstall.enabled xpinstall.whitelist.required""".split()
 )
-# Checked before the allowlist and rejected "for security reasons" (:2705-2710).
-# `security.*` is never a prefix match but an exact list of its own (:2678-2704).
+# Checked before the allowlist and rejected "for security reasons" (:2886-2900).
+# `security.*` is never a prefix match but an exact list of its own (:2859-2885).
 BLOCKED_PREFS = """app.update.channel app.update.lastUpdateTime app.update.migrated
     browser.vpn_promo.disallowed_regions""".split()
 
@@ -51,24 +51,26 @@ def test_every_extension_is_force_installed_and_pinned_to_the_nav_bar() -> None:
         # private_browsing at ANY value takes the about:addons toggle away (XPIDatabase.sys.mjs).
         assert "private_browsing" not in entry, addon_id
         # makeWidgetId (ExtensionCommon.sys.mjs:201-205) + "-browser-action" (ext-browserAction.js:45);
-        # saved placements beat default_area (CustomizableUI.sys.mjs:4074-4111, Firefox 155.0.1).
+        # saved placements beat default_area (CustomizableUI.sys.mjs:4246-4271, Firefox 158.0.1).
         widget = re.sub(r"[^a-z0-9_-]", "_", addon_id.lower()) + "-browser-action"
         assert widget in nav_bar, addon_id
 
 
 def test_the_toolbar_seed_is_one_firefox_will_adopt() -> None:
-    """A fresh profile's first window is built from this default-branch string (CustomizableUI:3543-3544)."""
+    """A fresh profile's first window is built from this default-branch string (CustomizableUI:3664-3665)."""
     entry = POLICIES["Preferences"]["browser.uiCustomization.state"]
-    assert isinstance(entry["Value"], str)  # Preferences takes bool/number/string only (:2744-2778)
+    assert isinstance(entry["Value"], str)  # Preferences takes bool/number/string only (:2950-2986)
     state = json.loads(entry["Value"])
     assert set(state) == {"placements", "currentVersion"}  # no seen/dirtyAreaCache/newElementCount
     # At 0 the migration ladder rewrites the seed and its v<21 step throws on a missing nav-bar.
-    # kVersion is 26 (:71); its <26 step (:902-926) is a no-op on an empty TabsToolbar.
+    # kVersion is 28 (:71). From 25 the steps left are <26 (:907-931) and <28 (:1009-1047), no-ops
+    # on an empty TabsToolbar, and <27 (:937-1003), which puts smartwindow-group-tabs-button first
+    # in this nav-bar, ahead of ai-window-toggle: a fresh profile on Firefox 158.0.1 shows just that.
     assert state["currentVersion"] == 25
     assert state["placements"]["nav-bar"]
     everywhere = [wid for area in state["placements"].values() for wid in area]
     assert len(everywhere) == len(set(everywhere)), "a duplicate placement is a corrupt capture"
-    # updateForNewProtonVersion (CustomizableUI.sys.mjs:935-987, the step at :977-984) strips
+    # updateForNewProtonVersion (CustomizableUI.sys.mjs:1056-1108, the step at :1098-1105) strips
     # sidebar-button from a nav-bar unless browser.engagement.sidebar-button.has-used says so.
     assert "sidebar-button" in state["placements"]["nav-bar"]
     assert POLICIES["Preferences"]["browser.engagement.sidebar-button.has-used"]["Value"] is True
@@ -96,8 +98,8 @@ def test_the_stylesheet_pref_belongs_to_the_theme_module_not_the_policy() -> Non
 
 
 # omarchy-default-browser: with a name it records the pick, bare it prints it back
-# (bin/omarchy-default-browser:7-19 / 35). DEAF: the set never takes (a TTY or SSH run).
-# NOISY: it takes and the command still fails — its closing notification's status (:35-37).
+# (bin/omarchy-default-browser:7-20 / 39). DEAF: the set never takes (a TTY or SSH run).
+# NOISY: it takes and the command still fails — its closing notification's status (:39-41).
 BROWSER = 'p=$HOME/.default-browser\nif (($#)); then printf "%s\\n" "$1" >"$p"; exit 0; fi\ncat "$p" 2>/dev/null || echo chromium\n'
 BROWSER_DEAF = "if (($#)); then exit 0; fi\necho chromium\n"
 BROWSER_NOISY = BROWSER.replace("exit 0", "exit 1")

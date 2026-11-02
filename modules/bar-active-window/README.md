@@ -41,4 +41,4 @@ checkout there is left alone; a folder an install moved aside stays as
 swap is done in `~/.config/omarchy/shell.json` itself: the entry back to
 `omarchy.active-window`, or off where the enable had added the slot.
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1

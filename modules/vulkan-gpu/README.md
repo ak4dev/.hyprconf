@@ -10,7 +10,7 @@ leave Vulkan enumeration, which is `VK_LOADER_DEVICE_ID_FILTER` (vulkan-icd-load
 PRIME offload is on, so `__NV_PRIME_RENDER_OFFLOAD=1` and `__VK_LAYER_NV_optimus=NVIDIA_only` are written together — and only when another NVIDIA GPU sits ahead of the target in PCI order, where there is
 something to offload from. The filter hides a GPU from *Vulkan* only: the compositor (KMS/EGL) still drives the monitors on it, and Vulkan compute no longer sees it.
 
-**Where it writes.** `~/.config/uwsm/env.d/50-hyprconf-vulkan-gpu`, `export VAR=value` lines uwsm sources at login (`/usr/lib/uwsm/prepare-env.sh:80-82`) in the directory Omarchy names for session overrides (`/usr/share/uwsm/env.d/10-omarchy:6-7`), so every launcher and game inherits them.
+**Where it writes.** `~/.config/uwsm/env.d/50-hyprconf-vulkan-gpu`, `export VAR=value` lines uwsm sources at login (`/usr/lib/uwsm/prepare-env.sh:89-92`) in the directory Omarchy names for session overrides (`/usr/share/uwsm/env.d/10-omarchy:6-7`), so every launcher and game inherits them.
 
 - `status` (the default) — the GPUs, the display GPU, Vulkan device 0 (from `vulkaninfo --summary` when `vulkan-tools` is installed, else assumed PCI order and said so) and what already configures it. Exit **0** nothing to do, **3** at risk and unconfigured, **1** error.
 - `fix` — that file for the display GPU. `use display|other|<pci-address>` — for a GPU you name instead, which pays for every frame copied back across PCIe to the card that scans out, so measure first. `run <gpu> [--] <command>` — the same variables for one command only, writing nothing: the one switch that needs no re-login (anything started through uwsm inherits the compositor's environment, which `systemctl --user set-environment` does not reach), and as a Steam launch option `… run <gpu> -- %command%` picks a GPU for one game.
@@ -35,5 +35,5 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 
 `bash modules/vulkan-gpu/install undo` removes the `~/.local/bin` link and nothing else; the pin is yours, and `hyprconf-vulkan-gpu remove` deletes it.
 
-## Verified against Omarchy 4.0.4-1
-`vulkan-icd-loader` 1.4.357 for the two loader variables, uwsm 0.26.7 for the `env.d` sourcing order.
+## Verified against Omarchy 4.0.6-1
+`vulkan-icd-loader` 1.4.363 for the two loader variables, uwsm 0.27.1 for the `env.d` sourcing order.

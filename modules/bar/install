@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hyprconf/bar — the bar on the top edge, put back on any run that finds it on another: a 200 ms
 # press-and-hold or a few pixels' drag on the centre section moves it to whichever edge the
-# pointer is let go nearest (shell/plugins/bar/Bar.qml:1552,1597,1637-1690, :475), and the bar
+# pointer is let go nearest (shell/plugins/bar/Bar.qml:1566,1611,1651-1704, :489), and the bar
 # has no setting to lock it (Bar.qml, plugins/bar/README.md).
 # Seam: omarchy-bar position (bin/omarchy-bar:198-205), its own write and shell reload (bin/omarchy-shell-config:14-18,53-62).
 # Usage: install | install undo

@@ -50,4 +50,4 @@ and marker gone. A folder an install moved aside is left where it is: delete
 `.hyprconf.clock.bak.<ts>` yourself. With no shell answering, the entry goes back
 to `omarchy.clock` with its format in `~/.config/omarchy/shell.json` itself.
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1

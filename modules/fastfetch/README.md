@@ -37,4 +37,4 @@ a run that changes nothing writes nothing. Format variables are named
 `bash ~/.hyprconf/modules/fastfetch/install undo` — removes the copy (the 7.x link above
 goes either way). Omarchy's `/etc/fastfetch/config.jsonc` is what is left.
 
-## Verified against Omarchy 4.0.4-1 — paths above read from the installed tree; fastfetch 2.68.1
+## Verified against Omarchy 4.0.6-1 — paths above read from the installed tree; fastfetch 2.70.0

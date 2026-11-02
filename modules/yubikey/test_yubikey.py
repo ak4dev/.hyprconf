@@ -659,6 +659,17 @@ def test_enroll_allow_non_latin_layout_flag_warns_and_proceeds(box: Box) -> None
     assert "fido2" in slots(box) and box.dropin.exists()
 
 
+def test_enroll_leaves_a_non_latin_layout_to_omarchys_vconsole_dropin(box: Box) -> None:
+    """Omarchy 4.0.6's omarchy_vconsole.conf refuses the file in add_file, the call sd-vconsole
+    copies it with, so the prompt stays typeable with no flag (checked against a real
+    mkinitcpio 42.2 image: present without the drop-in, absent under it)."""
+    box.vconsole.write_text('KEYMAP=us\nXKBLAYOUT="ru,us"\n')
+    (box.mkinitcpio_d / "omarchy_vconsole.conf").touch()
+    res = run(box, "enroll", "--yes", "--device", DEV)
+    assert res.returncode == 0, res.stderr
+    assert "warning" not in res.stderr and "fido2" in slots(box) and box.dropin.exists()
+
+
 # the last assignment wins and one pair of quotes goes; no XKBLAYOUT and no file at all
 # read as Latin too (Omarchy bundles vconsole.conf then)
 @pytest.mark.parametrize("content", ["XKBLAYOUT=ru\nXKBLAYOUT='us,ru'\n", "KEYMAP=us\n", None])

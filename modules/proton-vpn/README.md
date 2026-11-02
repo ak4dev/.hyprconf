@@ -56,5 +56,5 @@ also takes Auto connect back to Off, but only while it still reads `FASTEST`: a 
 since stays. The packages stay (hyprconf removes none), and an `autostart.lua` that did not end in
 a newline keeps the one the install added. The next login starts no VPN.
 
-## Verified against Omarchy 4.0.4-1
-proton-vpn-gtk-app 4.18.6, proton-vpn-cli 1.0.5.
+## Verified against Omarchy 4.0.6-1
+proton-vpn-gtk-app 4.18.7, proton-vpn-cli 1.0.5.

@@ -232,7 +232,7 @@ exit 0
 
 
 def default_app(state: Path, unset: str) -> str:
-    """omarchy-default-browser / -editor (bin/omarchy-default-browser:7-19, -editor:9-15,33-34):
+    """omarchy-default-browser / -editor (bin/omarchy-default-browser:7-20, -editor:9-15,33-34):
     bare, it prints the pick back, `unset` before any; with an argument it records the pick."""
     return (
         f'if (($# == 0)); then cat "{state}" 2>/dev/null || echo {unset}; '

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/bar-clock — plugin/, Omarchy's own clock widget sampling seconds, linked in as hyprconf.clock.
-# Seam: a clonedFrom copy the registry swaps into the stock clock's slot and back (shell/services/PluginRegistry.qml:555, :441), plus omarchy-bar set and bar.centerAnchor, a plain id with no clone resolution (shell/Commons/Util.qml:70-72, shell/plugins/bar/Bar.qml:1538); the link, the rescan, the enable and the undo are ../bar-plugin.sh's.
+# Seam: a clonedFrom copy the registry swaps into the stock clock's slot and back (shell/services/PluginRegistry.qml:555, :441), plus omarchy-bar set and bar.centerAnchor, a plain id with no clone resolution (shell/Commons/Util.qml:70-72, shell/plugins/bar/Bar.qml:1552); the link, the rescan, the enable and the undo are ../bar-plugin.sh's.
 # Usage: install | install undo
 # shellcheck disable=SC2154  # $json and $ids below are ../bar-plugin.sh's
 set -euo pipefail
@@ -27,7 +27,7 @@ gone() {
     jq -e --arg id "$1" 'all(.[]?; .id != $id)' <<<"$listed" >/dev/null 2>&1
 }
 
-# Wait (bounded, advisory) for the shell's own write to land: it persists on a later event-loop turn (shell.qml:109-113), so a read-modify-write here would edit a stale copy and be taken back by it.
+# Wait (bounded, advisory) for the shell's own write to land: it persists on a later event-loop turn (shell.qml:111-115), so a read-modify-write here would edit a stale copy and be taken back by it.
 settled() {
     local filter="$1" i
     shift
@@ -40,7 +40,7 @@ settled() {
 
 if [[ ${1:-} == undo ]]; then
     # Only while our clock still holds the slot: a disable answers "ok" for an id on no
-    # section (shell.qml:1620-1621), so a stock clock the user went back to keeps the
+    # section (shell.qml:1623-1624), so a stock clock the user went back to keeps the
     # format they set.
     if on_bar "$id"; then
         # The disable hands our whole bar entry back to the stock id, format included
@@ -81,7 +81,7 @@ if jq -e --arg id "$id" "$no_seconds" "$json" >/dev/null 2>&1; then
 fi
 
 # The anchor points at whichever widget the clock is, and goes stale long after the install when a
-# clone is removed: an id naming nothing leaves the section centring the whole group (Bar.qml:1538).
+# clone is removed: an id naming nothing leaves the section centring the whole group (Bar.qml:1552).
 a=$(anchor)
 if [[ -n $a && $a != "$id" ]] && on_bar "$id"; then
     if [[ $a == "$stock" ]]; then

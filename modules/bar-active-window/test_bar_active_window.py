@@ -22,7 +22,7 @@ STOCK_WIDGET = OMARCHY / "shell/plugins/bar/widgets/ActiveWindow.qml"
 
 
 def listing(rows: list[dict] | None) -> str:
-    """omarchy-plugin-list --json, with the `.enabled` the install reads (shell.qml:1681-1682);
+    """omarchy-plugin-list --json, with the `.enabled` the install reads (shell.qml:1684-1685);
     None is no shell answering, which exits 1 (bin/omarchy-shell:14-17)."""
     return "exit 1\n" if rows is None else f"printf %s {shlex.quote(json.dumps(rows))}\n"
 

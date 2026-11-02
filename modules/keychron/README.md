@@ -33,5 +33,5 @@ Another vendor is one more `SUBSYSTEM=="hidraw", ATTRS{idVendor}=="<id>", TAG+="
 `bash ~/.hyprconf/modules/keychron/install undo` — `sudo rm` plus a rules reload. Every new `hidraw` node is
 root-only again; an ACL already granted lasts until you re-plug the board or log out.
 
-## Verified against Omarchy 4.0.4-1
-Paths above read from the installed tree; systemd 261.2-1, udev's own rules as Arch ships them.
+## Verified against Omarchy 4.0.6-1
+Paths above read from the installed tree; systemd 262.1-1, udev's own rules as Arch ships them.

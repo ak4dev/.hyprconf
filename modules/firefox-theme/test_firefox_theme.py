@@ -247,7 +247,7 @@ PALETTE = ("mode", "background", "foreground", "accent", "dark_background", "lig
 def test_the_template_declares_the_mode_and_renders_with_no_token_left_over() -> None:
     css = TPL.read_text()
     assert "--hyprconf-theme-mode: {{ mode }};" in css  # what the hook greps back
-    # README > Settings: the three Firefox 155.0.1-1 still reads, and no other --
+    # README > Settings: the three Firefox 158.0.1-1 still reads, and no other --
     # the --lwt-* / --toolbar-bgcolor family it dropped must never come back.
     assert set(re.findall(r"^\s*(--[a-z0-9-]+):", css, re.M)) == {
         "--hyprconf-theme-mode",
@@ -258,3 +258,12 @@ def test_the_template_declares_the_mode_and_renders_with_no_token_left_over() ->
     for key in PALETTE:
         css = css.replace(f"{{{{ {key} }}}}", "x")
     assert "{{" not in css
+
+
+def test_the_rules_name_what_firefox_158_renders() -> None:
+    """A selector that stops matching fails silently, so these were read off a running
+    Firefox 158.0.1: the urlbar's background is a class, the vertical tabs sit in
+    #sidebar-container (sidebar-main is its tag), and #searchbar is the retired search box."""
+    css = TPL.read_text()
+    assert ".urlbar-background {" in css and "#sidebar-box, #sidebar-container {" in css
+    assert not re.search(r"#urlbar-background|#sidebar-main|#searchbar\b", css)

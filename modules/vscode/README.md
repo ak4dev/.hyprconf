@@ -35,7 +35,7 @@ both to seed again. The default itself lives in `~/.local/state/omarchy/defaults
 asked of `omarchy-default-editor` at undo time with no state file in reach) if this module seeded it and it is still `code` (a pick made after the install stays); the marker goes;
 VS Code stays installed (`omarchy pkg drop visual-studio-code-bin` if you want it gone).
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1
 `bin/omarchy-install-editor-vscode:6,10,24,27,29` (unguarded `omarchy-pkg-add`, the two `>` writes, theme, backgrounded
 launch; no `set -e`, so it always exits 0), `bin/omarchy-pkg-present:6-8`, `bin/omarchy-default-editor:9-15,33-34,36`
 (read-back; write, then the notification whose status the script returns), `bin/omarchy-pkg-add:12` (sudo), `bin/omarchy-update:10-12` (hook children get a pty).

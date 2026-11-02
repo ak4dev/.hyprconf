@@ -155,7 +155,7 @@ omarchy-hook-install post-update "$hook" >/dev/null ||
 # The Omarchy this release was verified against — AGENTS.md's pin line, which tests/test_docs.py holds this to.
 # Any other is named on every run, the hook's included, so a drift shows on the update that brings it rather
 # than when a seam moves under a module; `omarchy-version` is Omarchy's own answer (its package version).
-verified=4.0.4-1
+verified=4.0.6-1
 omarchy=$(omarchy-version 2>/dev/null || true)
 [[ -z $omarchy || $omarchy == "$verified" ]] ||
     echo "    NOTE: this hyprconf was verified against Omarchy $verified; this is $omarchy — if a module misbehaves: hyprconf --undo <module>" >&2

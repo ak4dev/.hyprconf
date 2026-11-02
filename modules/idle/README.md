@@ -5,8 +5,8 @@
 Omarchy's screensaver starts after 150 s (`config/omarchy/shell.json`, `idle.screensaver`);
 this module sets it to **900 s**, once, behind `~/.local/state/hyprconf/idle-applied` —
 shell.json is your file, so a later change stays yours. `idle.lock` (300 s) is untouched, so
-the lock fires first and stops the screensaver timer (`shell/plugins/services/idle/Service.qml:23-25,72-75,94-97`;
-`:69` refuses a launch while locked): the effect is **no screensaver ahead of the 5-minute
+the lock fires first and stops the screensaver timer (`shell/plugins/services/idle/Service.qml:26-28,75-78,99-113`;
+`:72` refuses a launch while locked): the effect is **no screensaver ahead of the 5-minute
 lock**, not one at 15 minutes.
 
 No Omarchy command writes an idle timeout (`omarchy commands --json` routes only branding /
@@ -33,8 +33,8 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 ## Settings
 
 Edit `.idle.screensaver` (seconds) in `~/.config/omarchy/shell.json` — the shell watches the
-file and reloads (`shell/shell.qml:134-143`); past the marker nothing re-asserts it. A
-screensaver only ever shows while `.idle.screensaver` is below `.idle.lock`.
+file and reloads (`shell/shell.qml:136-145`); past the marker nothing re-asserts it. A
+screensaver only ever shows while `.idle.screensaver` is below `.idle.lock`, and 0 turns it off (`Service.qml:23`).
 
 ## Undo
 
@@ -42,4 +42,4 @@ screensaver only ever shows while `.idle.screensaver` is below `.idle.lock`.
 marker; the shell's own stock 150 s then applies (`shell/plugins/services/idle/Service.qml:17,21`).
 The file stays — one the first run created is Omarchy's shipped defaults, key-sorted, minus this key.
 
-## Verified against Omarchy 4.0.4-1
+## Verified against Omarchy 4.0.6-1
