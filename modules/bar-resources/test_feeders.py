@@ -38,7 +38,26 @@ def _tick_body(box: Box, nth: int, cmd: str, every: str = "") -> str:
 # -- hyprconf-stats ---------------------------------------------------------
 
 PROC_STAT = "cpu  100 0 100 800 0 0 0 0 0 0\n"
-PROC_MEMINFO = "MemTotal:       33554432 kB\nMemAvailable:   16777216 kB\n"
+# /proc/meminfo in the kernel's order (fs/proc/meminfo.c), in GiB: 32 total, 20 free, but
+# 18 available — the watermark reserve. Held = 32 - 20 free - 1 buffers - (4 cached - 1 shmem)
+# - 1 SReclaimable = 7; MemTotal-MemAvailable would say 14. SwapCached and KReclaimable are
+# set so that a key matched by suffix rather than exactly moves the answer too.
+PROC_MEMINFO = "".join(
+    f"{key + ':':<16}{gib * 1048576:>8} kB\n"
+    for key, gib in [
+        ("MemTotal", 32),
+        ("MemFree", 20),
+        ("MemAvailable", 18),
+        ("Buffers", 1),
+        ("Cached", 4),
+        ("SwapCached", 2),
+        ("Shmem", 1),
+        ("KReclaimable", 2),
+        ("Slab", 2),
+        ("SReclaimable", 1),
+        ("SUnreclaim", 1),
+    ]
+)
 # /proc/net/route as the kernel prints it (net/ipv4/fib_trie.c,
 # fib_route_seq_show): one route of the main table per line, padded to 127.
 ROUTE_HEADER = "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT"
@@ -149,7 +168,7 @@ def _run_stats(
 def test_emits_one_sample_per_tick(box: Box) -> None:
     lines = _run_stats(box, iterations=2)
     assert len(lines) == 2
-    assert lines[0]["mem"] == "16.0/32.0G"  # MemTotal-MemAvailable, GiB
+    assert lines[0]["mem"] == "7.0/32.0G"  # held, never the free reserve (PROC_MEMINFO)
 
 
 @pytest.mark.parametrize(

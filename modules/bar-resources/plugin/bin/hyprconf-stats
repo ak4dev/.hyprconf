@@ -95,15 +95,24 @@ while :; do
     (( dtotal > 0 )) && cpu=$(( (100 * (dtotal - didle) + dtotal / 2) / dtotal ))
     prev_total=$total prev_idle=$idle_all
 
-    # ---- memory: used = MemTotal - MemAvailable
-    mem_total=0 mem_avail=0
+    # ---- memory: only what is held. Not MemTotal - MemAvailable: MemAvailable
+    # also takes off the kernel's free-page reserve (the zones' high watermarks,
+    # ~2.8 GiB of 94 under Omarchy's vm.watermark_scale_factor=125) and a share
+    # of the page cache, so `free`'s "used" counts free memory. Free pages,
+    # buffers and reclaimable cache and slab are left out; Shmem (tmpfs, shared
+    # buffers) is inside Cached and stays used, since nothing can drop it.
+    mem_total=0 mem_free=0 mem_buffers=0 mem_cached=0 mem_shmem=0 mem_srecl=0
     while read -r key val _; do
         case $key in
             MemTotal:)     mem_total=$val ;;
-            MemAvailable:) mem_avail=$val; break ;;
+            MemFree:)      mem_free=$val ;;
+            Buffers:)      mem_buffers=$val ;;
+            Cached:)       mem_cached=$val ;;
+            Shmem:)        mem_shmem=$val ;;
+            SReclaimable:) mem_srecl=$val; break ;;
         esac
     done < "$HYPRCONF_STATS_PROC_MEMINFO"
-    gib $(( mem_total - mem_avail )) mem_used
+    gib $(( mem_total - mem_free - mem_buffers - mem_cached + mem_shmem - mem_srecl )) mem_used
     gib "$mem_total" mem_all
     mem="$mem_used/${mem_all}G"
 

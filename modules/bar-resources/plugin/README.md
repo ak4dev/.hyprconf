@@ -6,7 +6,10 @@ two aligned lines, in the bar's right section.
     <cpu> <thermo>41°  3%   <mem> 12.7/94.2G   ↑ 12.3kB/s
     <gpu> <thermo>36°  7%   <mem>  2.3/32.6G   ↓ 1.2MB/s
 
-Top line: CPU temperature and utilisation, RAM used/total, upload rate.
+Top line: CPU temperature and utilisation, RAM used/total, upload rate. Used
+is what programs and the kernel hold: free memory, buffers and reclaimable
+cache are left out, so it reads lower than `free`'s, which counts the
+kernel's free-page reserve as used (`bin/hyprconf-stats` has the formula).
 Bottom line: the active GPU's temperature and utilisation, VRAM used/total,
 download rate. Fed by two long-lived JSON streams bundled in `bin/`
 (`hyprconf-gpu-info`, one line every two seconds; `hyprconf-stats`, one a
