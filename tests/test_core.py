@@ -36,7 +36,7 @@ INSTALLED_HOOK = ".config/omarchy/hooks/post-update.d/10-hyprconf"
 LINK = ".local/bin/hyprconf"
 BINDINGS = ".config/hypr/bindings.lua"
 POLICY, RULE = "firefox/policies/policies.json", "udev/rules.d/70-keychron.rules"
-DROPIN = "limine-entry-tool.d/zz-hyprconf-boot-text.conf"
+DROPIN = "limine-entry-tool.d/00-hyprconf-boot-text.conf"
 # What a settled box's second run may still call, idempotent by construction: a module
 # that re-asserted a choice or reached for sudo on a re-run is a name outside this set.
 SETTLED_RERUN_COMMANDS = {

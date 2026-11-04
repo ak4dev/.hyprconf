@@ -7,8 +7,8 @@ set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 
 : "${_HYPRCONF_LIMINE_CONF_D:=/etc/limine-entry-tool.d}"
-src=$dir/zz-hyprconf-boot-text.conf
-dst=$_HYPRCONF_LIMINE_CONF_D/zz-hyprconf-boot-text.conf
+src=$dir/00-hyprconf-boot-text.conf
+dst=$_HYPRCONF_LIMINE_CONF_D/00-hyprconf-boot-text.conf
 
 can_sudo() {
     local why

@@ -6,7 +6,7 @@ import pytest
 
 from conftest import SUDO_RUNS, Box
 
-INSTALL, DROPIN = (Path(__file__).parent / f for f in ("install", "zz-hyprconf-boot-text.conf"))
+INSTALL, DROPIN = (Path(__file__).parent / f for f in ("install", "00-hyprconf-boot-text.conf"))
 NO_SUDO = {"HYPRCONF_NO_SUDO": "1"}
 GATES = [({"tty": False}, "no terminal for sudo"), ({"env": NO_SUDO}, "--no-packages")]
 # limine-mkinitcpio-install's error_msg when a build fails, which still exits 0 (:230, :315).
@@ -110,10 +110,12 @@ def test_undo_behind_a_gate_points_at_undo_and_leaves_the_drop_in(box, kw, point
     assert installed(box).exists()
 
 
-def test_drop_in_only_appends_the_three_parameters_and_sorts_after_omarchys() -> None:
+def test_drop_in_only_appends_the_three_parameters_and_sorts_before_omarchys() -> None:
     # The whole of the root surface's content, rule 8's pin: a new parameter moves it here.
     lines = [ln for ln in DROPIN.read_text().splitlines() if ln and not ln.startswith("#")]
     assert lines == [
         'KERNEL_CMDLINE[default]+=" splash=verbose loglevel=4 systemd.show_status=true"'
     ]
-    assert DROPIN.name > "omarchy-defaults.conf", "a later value wins only from a later file"
+    # limine-entry-tool puts the file it reads first last on the cmdline (read back from
+    # the boot menu limine-mkinitcpio-hook 1.40.0-2 built): sorting first is landing last.
+    assert DROPIN.name < "omarchy-defaults.conf", "an earlier file's value is the later one"
