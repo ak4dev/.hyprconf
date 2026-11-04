@@ -17,9 +17,9 @@ shellcheck:
 	printf '%s\n' "$$files" | xargs -d '\n' shellcheck --severity=warning
 	@# The root writers also gate SC2086 (info-level, so below the main pass's
 	@# --severity=warning): an unquoted word there splits into an extra argument
-	@# to a root command. The same three tests/test_scans.py::SUDO_CALLERS pins.
+	@# to a root command. The same set tests/test_scans.py::SUDO_CALLERS pins.
 	shellcheck --include=SC2086 \
-	    modules/firefox/install modules/keychron/install \
+	    modules/boot-text/install modules/firefox/install modules/keychron/install \
 	    modules/yubikey/bin/hyprconf-yubikey
 	@echo "shellcheck: clean"
 

@@ -133,8 +133,9 @@ def test_nothing_shipped_fetches_and_executes() -> None:
 
 # Rule 8: the whole of the tree's root surface, listed because the list IS the invariant —
 # a `sudo` anywhere else moves it deliberately, through this file, or does not land. Each
-# one's gate and undo: that module's README. The Makefile's SC2086 pass runs on the same three.
+# one's gate and undo: that module's README. The Makefile's SC2086 pass runs on the same set.
 SUDO_CALLERS = {
+    "modules/boot-text/install",
     "modules/firefox/install",
     "modules/keychron/install",
     "modules/yubikey/bin/hyprconf-yubikey",

@@ -36,6 +36,7 @@ INSTALLED_HOOK = ".config/omarchy/hooks/post-update.d/10-hyprconf"
 LINK = ".local/bin/hyprconf"
 BINDINGS = ".config/hypr/bindings.lua"
 POLICY, RULE = "firefox/policies/policies.json", "udev/rules.d/70-keychron.rules"
+DROPIN = "limine-entry-tool.d/zz-hyprconf-boot-text.conf"
 # What a settled box's second run may still call, idempotent by construction: a module
 # that re-asserted a choice or reached for sudo on a re-run is a name outside this set.
 SETTLED_RERUN_COMMANDS = {
@@ -49,6 +50,7 @@ SETTLED_RERUN_COMMANDS = {
 SUDO_WORK = {
     "sudo",
     "udevadm",
+    "limine-mkinitcpio",
     "omarchy-pkg-add",
     "omarchy-install-browser",
     "omarchy-install-editor-vscode",
@@ -134,7 +136,7 @@ def test_a_full_run_reaches_every_module_and_a_second_run_is_byte_stable(live: B
     assert sorted(ran(first)) == MODULE_NAMES
     assert not {"omarchy-theme-set", "omarchy-pkg-drop"} & set(live.commands)
     home = live.home
-    assert (live.etc / POLICY).is_file() and (live.etc / RULE).is_file()
+    assert all((live.etc / p).is_file() for p in (POLICY, RULE, DROPIN))
     assert not (home / BINDINGS).is_symlink()
     assert (home / BINDINGS).read_bytes() == (MODULES / "hypr/bindings.lua").read_bytes()
     assert "source" in (home / ".zshrc").read_text()
@@ -325,7 +327,7 @@ def test_undo_runs_every_module_in_reverse_then_removes_the_hook_and_the_link(li
     assert not (home / INSTALLED_HOOK).exists() and not (home / LINK).is_symlink()
     assert not list((home / ".local/state/hyprconf").glob("*-applied"))
     assert not list((home / ".config/omarchy/plugins").glob("hyprconf.*"))
-    assert not (live.etc / POLICY).exists() and not (live.etc / RULE).exists()
+    assert not any((live.etc / p).exists() for p in (POLICY, RULE, DROPIN))
     zshrc = home / ".zshrc"
     assert not zshrc.exists() or "source" not in zshrc.read_text()
     assert "omarchy-update" not in live.commands
@@ -409,4 +411,4 @@ def test_every_sudo_gate_holds_across_a_whole_run(live: Box, gate: str) -> None:
     assert proc.returncode == 0, proc.stderr
     assert sorted(ran(proc)) == MODULE_NAMES
     assert not SUDO_WORK & set(live.commands), SUDO_WORK & set(live.commands)
-    assert not (live.etc / POLICY).exists()
+    assert not (live.etc / POLICY).exists() and not (live.etc / DROPIN).exists()

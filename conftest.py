@@ -74,9 +74,10 @@ def git(cwd: Path, *args: str) -> str:
 # Not omarchy-*, and every one of them reaches the real machine: sudo and
 # udevadm change the system, hyprctl the running desktop, git the
 # network, fc-list, nvidia-smi and vulkaninfo answer for the host's fonts and
-# GPUs instead of the box's, and findmnt and limine-entry-tool answer for the
+# GPUs instead of the box's, findmnt and limine-entry-tool answer for the
 # developer's own root filesystem and bootloader (modules/yubikey reads both,
-# and gives them bodies of its own with box.stub()).
+# and gives them bodies of its own with box.stub()), and limine-mkinitcpio
+# rebuilds the developer's own boot images.
 EXTRA_FAKES = (
     "omarchy",
     "sudo",
@@ -86,6 +87,7 @@ EXTRA_FAKES = (
     "findmnt",
     "git",
     "limine-entry-tool",
+    "limine-mkinitcpio",
     "nvidia-smi",
     "vulkaninfo",
     "flatpak",
@@ -327,10 +329,11 @@ class Box:
             "PATH": f"{self.bins}:{fakes}:/usr/bin:/bin",
             "OMARCHY_PATH": str(self.omarchy),
             "FAKE_CALLS": str(self.calls_file),
-            # The two root paths a module writes, at the box's /etc: a run must never
+            # The root paths a module writes, at the box's /etc: a run must never
             # read the developer's own to decide.
             "_HYPRCONF_UDEV_RULES": str(self.etc / "udev/rules.d"),
             "_HYPRCONF_FIREFOX_POLICIES": str(self.etc / "firefox/policies"),
+            "_HYPRCONF_LIMINE_CONF_D": str(self.etc / "limine-entry-tool.d"),
             # A packaged file a module reads, absent unless a test puts it there.
             "_HYPRCONF_PORTALS": str(self.tmp / "xdg-desktop-portal/hyprland-portals.conf"),
             **{k: os.environ[k] for k in GIT_IDENTITY},
