@@ -1,23 +1,29 @@
 #!/usr/bin/env bash
 # scripts/reskate — ReSkate (github.com/Dingo-Shenanigans/ReSkate, GPL-3.0): the community launcher
-# and runtime that play EA's skate. offline, on community servers and with mods, put beside
-# Skate.exe as its README's Linux (Proton) section says. Standalone (README › Scripts): run by hand
-# on any machine with Steam, never by install.sh.
+# and runtime that play EA's skate. offline, on community servers and with mods, put in a folder of
+# its own as its README's Linux (Proton) section says. Standalone (README › Scripts): run by hand on
+# any machine with Steam, never by install.sh.
+#
+# Since 2.1 the launcher keeps its own copy of the game and closes in any folder under
+# steamapps/common (Launcher/main.cpp, in_steam_library, v2.1.4-2). Its folder is ReSkate/ at the
+# root of the library that holds skate.: beside steamapps, so Steam never touches it, and inside
+# the library scripts/steam-flatpak grants its sandbox whole. The launch option carries that path
+# inside a shell's quotes, where bash 5.2+ turns a & in it into the matched text: a path holding
+# anything past plain letters, digits, spaces and / . _ + - stops the run.
 #
 # Pinned: one release, its zip checked against the sha256 GitHub publishes for that asset, every
 # hop https. The pin covers this install only: from its first start the launcher updates ReSkate
-# from the same releases, and once Steam moves skate. past the one build a release supports it asks
-# for a Steam sign-in to fetch that build. Both run as the game does — inside the hardened sandbox
-# when skate. is in scripts/steam-flatpak's Flatpak Steam. Already there, ReSkate is left to that
-# updater, never rolled back to the pin.
+# from the same releases and, with a Steam sign-in, installs the one skate. build a release
+# supports beside itself. Both run as the game does — inside the hardened sandbox when skate. is in
+# scripts/steam-flatpak's Flatpak Steam. Already there, ReSkate is left to that updater, never
+# rolled back to the pin.
 #
 # The launch option that swaps EA's anti-cheat launcher (it refuses Proton) for ReSkate's is
 # printed, not written: Steam keeps it in a per-account localconfig.vdf it rewrites on exit.
 # Usage: reskate
 set -euo pipefail
-version=2.0.7
-sha256=8126f9d0ebb1d1b9273c7ae53603945eb0e01279a0a82ca603a69adcde1b503d
-build=25414733 # the one skate. build this release supports (its README)
+version=2.1.4-2
+sha256=1606309404f178083cdc5f0c62196d9e15aa5a64287e938f3d69e6e3ff9e64bc
 url=https://github.com/Dingo-Shenanigans/ReSkate/releases/download/v$version/ReSkate-$version.zip
 
 die() { printf 'reskate: %s\n' "$*" >&2; exit 1; }
@@ -37,26 +43,33 @@ done < <(sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"$/\1/p' \
     "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/libraryfolders.vdf" \
     "$HOME/.local/share/Steam/steamapps/libraryfolders.vdf" 2>/dev/null)
 [[ -n $game ]] || die "no skate. found in Steam's libraries — install it first"
+reskate=$lib/ReSkate
+[[ $reskate != *[!A-Za-z0-9\ /._+-]* ]] ||
+    die "$reskate: the launch option can carry only letters, digits, spaces and / . _ + - — move skate. to a library with such a path"
 
-if [[ -e $game/ReSkateLauncher.exe ]]; then
-    echo "ReSkate is already beside Skate.exe in $game — its launcher keeps it updated"
+if [[ -e $reskate/ReSkateLauncher.exe ]]; then
+    echo "ReSkate is already in $reskate — its launcher keeps it updated"
 else
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     curl -fsSL --proto '=https' --proto-redir '=https' -o "$tmp/reskate.zip" "$url"
     sha256sum --quiet -c - <<<"$sha256  $tmp/reskate.zip" ||
         die "ReSkate-$version.zip does not match its pinned sha256 — nothing installed"
-    bsdtar -xf "$tmp/reskate.zip" -C "$game"
-    echo "ReSkate $version is beside Skate.exe in $game"
+    mkdir -p "$reskate"
+    bsdtar -xf "$tmp/reskate.zip" -C "$reskate"
+    echo "ReSkate $version is in $reskate"
 fi
 
-current=$(sed -n 's/^[[:space:]]*"buildid"[[:space:]]*"\(.*\)"$/\1/p' "$manifest")
-[[ $current == "$build" ]] ||
-    echo "  Steam has skate. at build $current, not $build: the launcher will ask you to sign in to Steam to fetch it"
-cat <<'EOF'
+[[ ! -e $game/ReSkateLauncher.exe ]] || cat <<EOF
+  ReSkate from before 2.1 is still beside Skate.exe, where its launcher now closes. In
+     $game
+  move Mods/ and ReSkateLauncher.settings.json into the ReSkate folder above, then delete
+  ReSkateLauncher.exe*, ReSkate.dll, launcher.json, LICENSE.txt, licenses/ and logs/.
+EOF
+cat <<EOF
   1. Steam › skate. › Properties › Launch Options:
-     bash -c 'exec "${@/EAAntiCheat.GameServiceLauncher.exe/ReSkateLauncher.exe}"' -- %command%
-  2. Press Play on skate.: ReSkate's launcher starts in place of EA's anti-cheat one.
-  Undo: clear that launch option, then delete ReSkateLauncher.exe, ReSkate.dll, launcher.json,
-  LICENSE.txt and licenses/ beside Skate.exe (ReSkate's logs/ and Mods/ too, if you made any).
+     bash -c 'exec "\${@/*EAAntiCheat.GameServiceLauncher.exe/$reskate/ReSkateLauncher.exe}"' -- %command%
+  2. Press Play on skate.: ReSkate's launcher starts in place of EA's anti-cheat one, and the first
+     time signs in to Steam to install its own copy of the game (about 14 GB) beside itself.
+  Undo: clear that launch option, then delete $reskate.
 EOF

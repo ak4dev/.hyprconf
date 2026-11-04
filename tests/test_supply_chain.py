@@ -138,7 +138,7 @@ def test_the_reskate_download_is_one_pinned_release_checked_before_it_is_unpacke
     reads it, https on every hop, redirects included. A bump is a deliberate commit; what the
     launcher updates itself to afterwards is the project's, run inside the game's sandbox."""
     text = code((REPO_ROOT / "scripts" / "reskate").read_text())
-    assert re.search(r"^version=\d+\.\d+\.\d+$", text, re.M)
+    assert re.search(r"^version=\d+\.\d+\.\d+(?:-\d+)?$", text, re.M)  # v2.1.4-2: a hotfix tag
     assert re.search(r"^sha256=[0-9a-f]{64}$", text, re.M)
     release = "https://github.com/Dingo-Shenanigans/ReSkate/releases/download/v$version/"
     assert f"\nurl={release}ReSkate-$version.zip\n" in text
