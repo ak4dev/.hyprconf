@@ -5,16 +5,19 @@
 #
 # Why: native Steam runs as you, and so does every game it starts: pressure-vessel shares the
 # real home by default (`pressure-vessel-wrap --help`, --share-home) and each Proton prefix maps
-# Z: to /. Flathub's manifest hides the home but grants --device=all, which passes in every node
-# your session may open — /dev/uinput (steam-devices' 60-steam-input.rules, uaccess) is a virtual
-# keyboard into the session, and a keyboard's hidraw node is its raw keystrokes. Swapped for dri
-# (the GPU, /dev/nvidia* included) and input (/dev/input: gamepads), at the cost of Steam Input's
-# virtual pads, hidraw-only controller features and VR. Mounted drives, UDisks2, Music, Pictures
-# and Bluetooth sockets go too (paired controllers still arrive through /dev/input); each library
-# native Steam lists comes in, never native Steam's own root — the client there runs unconfined.
-# Still shared: network, PipeWire, Wayland (Hyprland hides its privileged protocols from a
-# security-context client) and X11 — Steam is an XWayland client and Xwayland takes no cookie,
-# so the clipboard and any other X window are in reach.
+# Z: to /. Flathub's manifest hides the home. Its --device=all stays, at the user's request: Steam
+# drives Valve's controllers only over hidraw and gives each game a Steam Input pad through
+# /dev/uinput, Flatpak has no narrower class for either (dri, input, usb, kvm, shm, all —
+# flatpak-override(1), 1.18.4), and without them a Steam Controller reaches no game — Steam still
+# lists it in SDL_GAMECONTROLLER_IGNORE_DEVICES. steam-devices ([multilib], a dependency of the
+# `steam` Omarchy's own installer adds) opens those nodes to the seat. The price: every node your
+# session may open is in a game's reach — /dev/uinput is a virtual keyboard into the session, and
+# a keyboard's hidraw node (modules/keychron grants Keychron's) is its raw keystrokes. Mounted
+# drives, UDisks2, Music, Pictures and Bluetooth sockets go (paired controllers still arrive
+# through /dev/input); each library native Steam lists comes in, never native Steam's own root —
+# the client there runs unconfined. Still shared: network, PipeWire, Wayland (Hyprland hides its
+# privileged protocols from a security-context client) and X11 — Steam is an XWayland client and
+# Xwayland takes no cookie, so the clipboard and any other X window are in reach.
 #
 # Native Steam stays: it is the rollback, and Omarchy's remover also deletes ~/.local/share/Steam
 # (bin/omarchy-remove-gaming-steam), so that is the user's call, made after a game has run here.
@@ -23,18 +26,20 @@
 # Libraries are registered here, never through Steam's Add drive: that makes a new SteamLibrary
 # inside the folder picked, and the sandbox shows no parent to pick. Native Steam's own entry,
 # contentid included, goes into the Flatpak's list — which its first start writes and its exit
-# rewrites, so only once that list exists and while the Flatpak is not running.
+# rewrites, so only once that list exists and while the Flatpak is not running. A library is
+# granted from either list, so a re-run once native Steam is removed keeps the ones it brought.
 # Usage: steam-flatpak
 set -euo pipefail
 : "${_HYPRCONF_NVIDIA_VERSION:=/sys/module/nvidia/version}"
 app=com.valvesoftware.Steam
 native=$HOME/.local/share/Steam
+flat=$HOME/.var/app/$app/.local/share/Steam
 
 die() { printf 'steam-flatpak: %s\n' "$*" >&2; exit 1; }
 ((EUID)) || die "run it as yourself, not root: the install is per-user"
 (($# == 0)) || die "takes no arguments"
 
-omarchy-pkg-add flatpak
+omarchy-pkg-add flatpak steam-devices
 flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 
 # The GL extension has to match the loaded driver exactly, or the client falls back to software
@@ -48,39 +53,38 @@ fi
 
 libraries=() granted=()
 while read -r path; do
-    [[ $path == "$native" ]] && continue
+    [[ $path == "$native" || $path == "$flat" ]] && continue
     if [[ -d $path ]]; then
         libraries+=("--filesystem=$path") granted+=("$path")
     else
         echo "  library $path is not mounted — left out; rerun once it is"
     fi
-done < <(sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"$/\1/p' "$native/steamapps/libraryfolders.vdf" 2>/dev/null)
+done < <(sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"$/\1/p' \
+    "$native/steamapps/libraryfolders.vdf" "$flat/steamapps/libraryfolders.vdf" 2>/dev/null | awk '!seen[$0]++')
 
 # Before the install, which an override does not need (app/flatpak-builtins-override.c checks the
-# name only, 1.18.2): one rejected stops the run before an app with Flathub's --device=all exists.
+# name only, 1.18.2): one rejected stops the run before an app that reaches mounted drives exists.
 flatpak override --user --reset "$app"
 flatpak override --user "$app" \
-    --nodevice=all --device=dri --device=input \
     --nofilesystem=/mnt --nofilesystem=/media --nofilesystem=/run/media \
     --nofilesystem=xdg-music --nofilesystem=xdg-pictures \
     --system-no-talk-name=org.freedesktop.UDisks2 --disallow=bluetooth \
     "${libraries[@]}"
 flatpak install --user --noninteractive --or-update flathub "$app"
 
-flat=$HOME/.var/app/$app/.local/share/Steam
 if ((${#granted[@]} == 0)); then
     libs="none to register"
 elif [[ ! -f $flat/steamapps/libraryfolders.vdf ]] || grep -qx "$app" <<<"$(flatpak ps --columns=application)"; then
     libs="once the Flatpak Steam has been started, signed in and quit, rerun this script to register ${granted[*]}"
 else
     for path in "${granted[@]}"; do
-        entry=$(awk -v p="$path" '
-            /^\t"[0-9]+"$/ { b = ""; inb = 1; next }
-            inb { b = b $0 "\n" }
-            inb && /^\t}$/ { inb = 0; if (index(b, "\"path\"\t\t\"" p "\"\n")) { printf "%s", b; exit } }
-        ' "$native/steamapps/libraryfolders.vdf")
         for f in "$flat"/{steamapps,config}/libraryfolders.vdf; do
             if [[ -f $f ]] && ! grep -qF $'"path"\t\t"'"$path"'"' "$f"; then
+                entry=$(awk -v p="$path" '
+                    /^\t"[0-9]+"$/ { b = ""; inb = 1; next }
+                    inb { b = b $0 "\n" }
+                    inb && /^\t}$/ { inb = 0; if (index(b, "\"path\"\t\t\"" p "\"\n")) { printf "%s", b; exit } }
+                ' "$native/steamapps/libraryfolders.vdf")
                 { sed '$d' "$f"; printf '\t"%s"\n%s\n}\n' "$(grep -c $'^\t"[0-9]*"$' "$f")" "$entry"; } > "$f.tmp"
                 mv "$f.tmp" "$f"
             fi

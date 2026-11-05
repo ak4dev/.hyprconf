@@ -7,6 +7,7 @@ Flathub before anything is installed. Native Steam is never touched."""
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -24,15 +25,8 @@ FLATPAK = f"""
 exit 0
 """
 FLAT = ".var/app/com.valvesoftware.Steam/.local/share/Steam"
-# As the Flatpak's first start writes it, in both of its copies: its own root, nothing else.
-FLAT_LIST = (
-    '"libraryfolders"\n{\n\t"0"\n\t{\n\t\t"path"\t\t"/flatpak/root"\n'
-    '\t\t"apps"\n\t\t{\n\t\t}\n\t}\n}\n'
-)
+# Flathub's --device=all is left as it is: Steam Input needs hidraw and /dev/uinput.
 HARDENING = [
-    "--nodevice=all",
-    "--device=dri",
-    "--device=input",
     "--nofilesystem=/mnt",
     "--nofilesystem=/media",
     "--nofilesystem=/run/media",
@@ -84,12 +78,20 @@ def native_libraries(box: Box, *paths: Path) -> None:
     vdf.write_text(f'"libraryfolders"\n{{\n{blocks}}}\n')
 
 
+def flat_list(box: Box) -> str:
+    """As the Flatpak's first start writes it: its own root, by its real path, nothing else."""
+    return (
+        f'"libraryfolders"\n{{\n\t"0"\n\t{{\n\t\t"path"\t\t"{box.home / FLAT}"\n'
+        '\t\t"apps"\n\t\t{\n\t\t}\n\t}\n}\n'
+    )
+
+
 def flatpak_lists(box: Box) -> list[Path]:
     """The Flatpak's two copies of its list, as its first start leaves them."""
     paths = [box.home / FLAT / d / "libraryfolders.vdf" for d in ("steamapps", "config")]
     for path in paths:
         path.parent.mkdir(parents=True)
-        path.write_text(FLAT_LIST)
+        path.write_text(flat_list(box))
     return paths
 
 
@@ -103,7 +105,7 @@ def test_a_run_installs_per_user_grants_the_mounted_libraries_and_reruns_the_sam
     before = box.snapshot()
     first = box.run(SCRIPT)
     assert first.returncode == 0, first.stderr
-    assert box.calls_of("omarchy-pkg-add") == [["omarchy-pkg-add", "flatpak"]]
+    assert box.calls_of("omarchy-pkg-add") == [["omarchy-pkg-add", "flatpak", "steam-devices"]]
     override = ["flatpak", "override", "--user", APP, *HARDENING, f"--filesystem={library}"]
     assert box.calls_of("flatpak") == [REMOTE_ADD, REMOTE_LS, RESET, override, INSTALL]
     assert f"library {unmounted} is not mounted" in first.stdout
@@ -124,7 +126,7 @@ def test_a_granted_library_is_registered_with_native_steams_own_entry_once(box: 
     lists = flatpak_lists(box)
     result = box.run(SCRIPT)
     assert result.returncode == 0, result.stderr
-    want = FLAT_LIST[: -len("}\n")] + f'\t"1"\n{entry(1, library)}}}\n'
+    want = flat_list(box)[: -len("}\n")] + f'\t"1"\n{entry(1, library)}}}\n'
     assert [p.read_text() for p in lists] == [want, want]
     assert f"registered: {library}" in result.stdout
     assert ["flatpak", "ps", "--columns=application"] in box.calls_of("flatpak")
@@ -140,8 +142,27 @@ def test_a_running_flatpak_steam_is_left_to_rewrite_its_own_list(box: Box) -> No
     lists = flatpak_lists(box)
     result = box.run(SCRIPT, env={"STEAM_RUNNING": "1"})
     assert result.returncode == 0, result.stderr
-    assert [p.read_text() for p in lists] == [FLAT_LIST, FLAT_LIST]
+    assert [p.read_text() for p in lists] == [flat_list(box)] * 2
     assert f"rerun this script to register {library}" in result.stdout
+
+
+def test_once_native_steam_is_gone_a_rerun_still_grants_the_flatpaks_libraries(box: Box) -> None:
+    """omarchy-remove-gaming-steam deletes native Steam's list (step 4); the libraries it
+    brought live on in the Flatpak's own, so a re-run keeps granting them (it once dropped
+    every one) and registers nothing twice."""
+    library = box.tmp / "ext/SteamLibrary"
+    library.mkdir(parents=True)
+    native_libraries(box, library)
+    flatpak_lists(box)
+    assert box.run(SCRIPT).returncode == 0
+    shutil.rmtree(box.home / ".local/share/Steam")
+    before = box.snapshot()
+    result = box.run(SCRIPT)
+    assert result.returncode == 0, result.stderr
+    override = ["flatpak", "override", "--user", APP, *HARDENING, f"--filesystem={library}"]
+    assert box.calls_of("flatpak").count(override) == 2
+    assert f"registered: {library}" in result.stdout and "not mounted" not in result.stdout
+    assert box.snapshot() == before
 
 
 def test_no_gl_extension_for_the_loaded_driver_stops_before_the_install(box: Box) -> None:
@@ -161,7 +182,7 @@ def test_with_no_nvidia_driver_and_no_native_steam_the_hardening_still_applies(b
 
 
 def test_a_rejected_override_stops_before_the_app_exists(box: Box) -> None:
-    """Fail closed: an install left on Flathub's own --device=all is the state to avoid."""
+    """Fail closed: an install left reaching mounted drives and UDisks2 is the state to avoid."""
     box.stub("flatpak", "[[ $1 == override && $3 != --reset ]] && exit 1\nexit 0\n")
     assert box.run(SCRIPT).returncode != 0
     assert INSTALL not in box.calls_of("flatpak")
