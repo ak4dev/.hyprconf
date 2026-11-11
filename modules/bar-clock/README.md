@@ -2,22 +2,27 @@
 
 ## What
 
-Puts `plugin/` — Omarchy's own bar clock, sampling seconds — on the bar as
-`hyprconf.clock`, formatted `hh:mm:ss AP`: the stock `omarchy.clock` samples
-once a minute, so a seconds format sits frozen 59 of every 60. What it keeps
-of Omarchy's, and its host contract: `plugin/README.md`.
+Keeps Omarchy's own bar clock, `omarchy.clock`, on a format that prints
+seconds: `hh:mm:ss AP`. The stock clock ticks every second for such a format
+and once a minute otherwise (`shell/plugins/panels/clock/BarWidget.qml:34,126`),
+so there is no widget here — only the format, set with Omarchy's own
+`omarchy bar set` (`bin/omarchy-bar:426-456`) on any run that finds the clock
+printing none.
 
-Installed as a **symlink** into this checkout, so a `git pull` is the update
-and every run asks the shell to rescan (its watch does not follow a link). A
-same-id `omarchy plugin add` checkout is left to `omarchy plugin update`; a
-real folder there is moved aside once as `.hyprconf.clock.bak.<ts>`.
+Before 10.0 this module shipped a copy of the clock as the `hyprconf.clock`
+plugin, for the seconds Omarchy 4.5 now ticks itself. A box that still carries
+that link has it retired on the first run: the bar slot goes back to
+`omarchy.clock` with every setting of the entry kept (format, week start, birth
+year), and the link and its `clock-applied` marker go. Name `omarchy.clock`
+where you named `hyprconf.clock`.
 
 ## Requires
 
-Omarchy's shell, `jq`, and [`../bar-plugin.sh`](../bar-plugin.sh) — the link, rescan, enable and undo the four bar
-modules share, which a sparse checkout of this directory brings along; no packages, no sudo. With nothing answering it links
-the folder and enables on the next run. The checkout has to stay put — the plugin is a link into it, and the validator wants
-a trailing slash.
+Omarchy 4.5 with its shell running — `omarchy bar set` is the shell's write —
+and `jq`. With no shell answering the run says so and the next one retries. No
+packages, no `sudo`, no prompt. [`../bar-plugin.sh`](../bar-plugin.sh) is read
+only to retire the old plugin; a sparse checkout of this directory brings it
+along.
 
 ## Install alone
 
@@ -28,26 +33,21 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 
 ## Settings
 
-Enabled ONCE, behind `~/.local/state/hyprconf/clock-applied`, so `omarchy
-plugin disable` sticks. The format is yours (`omarchy bar set hyprconf.clock
-format …`) as long as it ticks seconds: one with no `s` outside a quoted
-literal goes back to `hh:mm:ss AP` on any run — `hyprsync`, and the hook
-after every `omarchy-update`. Right-clicking the clock walks Omarchy's format
-ring, which has no seconds preset, so one walk would otherwise lose them for
-good. The bar can keep the old label until the shell restarts — Omarchy
-rebuilds a plugin widget from a stale copy of its entry on every rescan — and
-`omarchy-update` ends with that restart, so `hyprsync` shows it; after a plain
-`hyprconf` run, `omarchy-restart-shell`. `bar.centerAnchor` follows the swap
-once; an anchor left naming nothing is repaired on any run, one you chose is
-not.
+Not a set-once choice. The format is yours (`omarchy bar set omarchy.clock
+format …`) as long as it prints seconds — Omarchy's own test, an `s` outside a
+quoted literal (`shell/plugins/panels/clock/Model.js:48-51`): one that prints
+none goes back to `hh:mm:ss AP` on any run — `hyprsync`, a plain `hyprconf`,
+and the hook after every `omarchy-update`. Right-clicking the clock walks
+Omarchy's ring of presets, most of which print none, so one walk would
+otherwise lose the seconds for good. A bar with no `omarchy.clock` on it is
+left as it is.
 
 ## Undo
 
-`bash modules/bar-clock/install undo` — while `hyprconf.clock` is still on the
-bar: disable, and `omarchy.clock`'s format back to `dddd HH:mm`; a stock clock
-you had already gone back to keeps the format you set. Then the anchor back, link
-and marker gone. A folder an install moved aside is left where it is: delete
-`.hyprconf.clock.bak.<ts>` yourself. With no shell answering, the entry goes back
-to `omarchy.clock` with its format in `~/.config/omarchy/shell.json` itself.
+`bash modules/bar-clock/install undo` — a clock still on `hh:mm:ss AP` goes
+back to the stock `dddd HH:mm`; a format you chose stays. Like the bar's
+position, it sticks only after a full `hyprconf --undo`, which also removes the
+hook. A folder an earlier install moved aside is left where it is: delete
+`~/.config/omarchy/plugins/.hyprconf.clock.bak.<ts>` yourself.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3

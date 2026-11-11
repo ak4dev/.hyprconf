@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/shell-zsh — zsh + powerlevel10k in the terminal; the login shell stays bash (README.md).
-# Seams: ~/.zshrc's one source line (/etc/skel/.bashrc:2), kitty's include (config/kitty/kitty.conf:1-2), $OMARCHY_PATH (default/bash/env-bootstrap:12-16).
+# Seams: ~/.zshrc's one source line (/etc/skel/.bashrc:2), kitty's include (config/kitty/kitty.conf:1-2), $OMARCHY_PATH (default/bash/env-bootstrap:10-16).
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -97,7 +97,7 @@ if [[ ! -d $p10k ]]; then
         rm -rf "$p10k"
         echo "  could not clone powerlevel10k — the prompt stays stock; retried on the next run"
     fi
-# omarchy-plugin-update:111's test: `git rev-parse` on a plain directory answers for the repository enclosing it.
+# omarchy-plugin-update:110's test: `git rev-parse` on a plain directory answers for the repository enclosing it.
 elif [[ ! -d $p10k/.git ]]; then
     echo "  $p10k is not a git checkout — left as it is (move it aside to let the pin re-clone)"
 elif [[ $(git -C "$p10k" rev-parse HEAD 2>/dev/null || true) != "$p10k_pin" ]]; then

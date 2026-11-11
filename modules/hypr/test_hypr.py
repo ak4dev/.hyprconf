@@ -21,23 +21,28 @@ TOOL_RE = re.compile(r'"(hyprconf-[\w-]+)(?:\s[^"]*)?"')
 # A rebind()'s dispatcher when it is a command line: the third argument, after
 # the key and the description — first word only. `{ omarchy = "x" }` is the
 # other shape a bind launches with, and becomes omarchy-launch-x
-# (default/hypr/helpers.lua:56,61-62).
+# (default/hypr/helpers.lua:90,95-96).
 DISPATCH_RE = re.compile(r'rebind\(.*?,\s*"[^"]*",\s*"([^"\s]+)')
 LAUNCH_RE = re.compile(r'\{ omarchy = "([a-z-]+)" \}')
+# The third shape: `{ menu = "x" }` / `{ panel = "x" }`, a shortcut the shell registers
+# (helpers.lua:81-88,97-100) from the list at default/omarchy/shortcuts.
+SHORTCUT_RE = re.compile(r'\{ (menu|panel) = "([^"]+)" \}')
 # omarchy-refresh-config, faithful to bin/omarchy-refresh-config:29,41-43: the
 # shipped template over whatever is there, and no .bak when nothing is — the
 # branch undo relies on.
 REFRESH = 'mkdir -p "$HOME/.config/${1%/*}"\ncp "$OMARCHY_PATH/config/$1" "$HOME/.config/$1"\n'
-# Keys Omarchy already binds to exactly what hyprconf wanted (pseudo, focus,
-# workspace scroll, drag move/resize — default/hypr/bindings/tiling.lua): a
-# restatement is drift the moment Omarchy retunes one.
-OMARCHY_BINDS = (
-    '" + P"|" + left"|" + right"|" + up"|" + down"|mouse_down|mouse_up|mouse:272|mouse:273'.split(
-        "|"
-    )
-)
-# Omarchy's media keys end by calling omarchy-osd (bin/omarchy-audio-output-
-# volume:86, bin/omarchy-brightness-display:87), so a rebind — or an unbind,
+# Keys Omarchy already binds to exactly what hyprconf wanted (close, pseudo, focus,
+# the digit workspaces, workspace scroll, drag move/resize — default/hypr/bindings/
+# tiling.lua): a restatement is drift the moment Omarchy retunes one, as the digits'
+# move to per-monitor slots did (4.5.0-3).
+OMARCHY_BINDS = [
+    *'" + Q"|" + P"|" + left"|" + right"|" + up"|" + down"'.split("|"),
+    *"mouse_down|mouse_up|mouse:272|mouse:273".split("|"),
+    *(f'" + {d}"' for d in "1234567890"),
+    *(f'" + SHIFT + {d}"' for d in "123567890"),  # SUPER+SHIFT+4 is the screenshot
+]
+# Omarchy's media keys reach the shell's own shortcuts, which raise its OSD
+# (default/hypr/bindings/media.lua:2-7,29-33), so a rebind — or an unbind,
 # hence matching all code, not just binds — moves the level with no indicator.
 OSD_KEYS = "XF86AudioRaiseVolume XF86AudioLowerVolume XF86AudioMute XF86AudioMicMute XF86MonBrightnessUp XF86MonBrightnessDown XF86AudioNext XF86AudioPrev XF86AudioPlay XF86AudioPause".split()
 
@@ -50,12 +55,10 @@ HL_API = (
     "hl.config",
     "hl.dsp.dpms",
     "hl.dsp.focus",
-    "hl.dsp.window.close",
     "hl.dsp.window.float",
     "hl.dsp.window.fullscreen",
     "hl.dsp.window.move",
     "hl.dsp.window.resize",
-    "hl.dsp.workspace.move",
     "hl.dsp.workspace.toggle_special",
     "hl.gesture",
     "hl.monitor",
@@ -112,6 +115,11 @@ def test_every_other_command_bound_is_on_path() -> None:
         if not c.startswith("hyprconf-") and not shutil.which(c)
     ]
     assert not missing, f"bound commands that resolve nowhere: {missing}"
+    # A shortcut the shell does not register falls back to a command (helpers.lua:86):
+    # still bound, but the idiom is only worth its name while the list carries it.
+    registered = (OMARCHY / "default/omarchy/shortcuts").read_text().splitlines()
+    shortcuts = [" ".join(pair) for pair in SHORTCUT_RE.findall(code)]
+    assert shortcuts and set(shortcuts) <= set(registered), shortcuts
 
 
 def test_looknfeel_and_input_state_only_deltas() -> None:
@@ -145,10 +153,10 @@ def test_bindings_leave_omarchys_own_keys_alone(scope: str, forbidden: list[str]
 def test_every_binding_carries_a_description() -> None:
     """A description is what puts a key in the SUPER+K menu: hl.bind records none, o.bind does."""
     code = _code(MODULE / "bindings.lua")
-    assert not re.search(r"\bhl\.bind\s*\(", code), "use rebind()/o.bind: the menu lists those"
-    assert len(re.findall(r"\bo\.bind\s*\(", code)) == 1, (
-        "every key goes through rebind(), whose forward is the one o.bind: a bare one on a key "
-        "Omarchy binds fires both"
+    assert not re.search(r"\b(hl|o)\.bind\s*\(", code), "use rebind(): the menu lists those"
+    assert len(re.findall(r"\bo\.rebind\s*\(", code)) == 1, (
+        "every key goes through rebind(), whose forward is the one o.rebind: a bare one skips "
+        "the keycode unbind, and both binds fire"
     )
     calls = [ln.strip() for ln in code.splitlines() if ln.strip().startswith("rebind(")]
     assert calls
@@ -168,7 +176,7 @@ def test_app_keys_use_omarchys_launcher_idiom() -> None:
 
 
 def test_rebind_itself_clears_omarchys_keycode_form() -> None:
-    """Omarchy binds the digits and -/= by KEYCODE (default/hypr/bindings/tiling.lua:20-25,52-55), which an unbind of the keysym does not match — both would fire."""
+    """Omarchy binds the digits and -/= by KEYCODE (default/hypr/bindings/tiling.lua:23-28,65-68), which an unbind of the keysym does not match — both would fire."""
     text = (MODULE / "bindings.lua").read_text()
     helper = re.search(r"local function rebind\(.*?\nend\n", text, re.S)
     assert helper, "rebind() not found in bindings.lua"

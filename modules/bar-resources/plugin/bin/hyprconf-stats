@@ -10,11 +10,11 @@
 # of a proc/sysfs file and integer arithmetic, formatted with printf -v; only the
 # sleep is left, and that is bash's loadable builtin below.
 #
-# Omarchy's own stats, both checked and neither a fit (AGENTS rule 1, 4.0.3-1):
+# Omarchy's own stats, both checked and neither a fit (AGENTS rule 1, 4.5.0-3):
 # `omarchy-system-stats --bar-widget` (bin/omarchy-system-stats:7-26) prints cpu
 # idle/total, memory percent and load through three awk forks per call, with no
 # network, temperature or GPU; the bar's own `command` module (shell/plugins/bar/
-# README.md › Custom user modules, Bar.qml:2061) runs `bash -lc <exec>` off a
+# README.md › Custom user modules, Bar.qml:3207) runs `bash -lc <exec>` off a
 # Timer inside the per-screen `Variants` — a login shell per monitor per
 # interval, rendering one line where this widget draws two.
 #

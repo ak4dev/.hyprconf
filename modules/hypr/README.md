@@ -13,9 +13,14 @@ in `bindings.lua`. A shipped `.lua` that fails `luac -p` fails the run before an
 absent the copy proceeds.
 
 - `o.bind(keys, description, …)`, never `hl.bind`: only `o.bind` records the description the `SUPER+K` menu lists
-  (`default/hypr/helpers.lua:92`); `{ omarchy = "terminal" }` becomes `omarchy-launch-terminal` (`:56,61-62`).
-- A repeat of the same combo does not replace a bind — both fire — so `rebind()` unbinds first, the **keycode** form
-  included: Omarchy declares digits and `-`/`=` as `SUPER + SHIFT + code:20` (`bindings/tiling.lua:20-25,52-55`).
+  (`default/hypr/helpers.lua:138`); `{ omarchy = "terminal" }` becomes `omarchy-launch-terminal` (`:90,95-96`), and
+  `{ menu = "root" }` / `{ panel = "omarchy.clipboard" }` a shortcut the shell registers, with no process per keypress
+  (`:81-88,97-100`, `default/omarchy/shortcuts`).
+- A repeat of the same combo does not replace a bind — both fire — so `rebind()` unbinds first: Omarchy's `o.rebind`
+  (`:154-157`) for the keysym, and the **keycode** form itself, since Omarchy declares digits and `-`/`=` as
+  `SUPER + SHIFT + code:20` (`bindings/tiling.lua:23-28,65-68`).
+- Every monitor has workspaces 1–10 of its own, a block of ten Hyprland ids each (`default/hypr/monitor-workspaces.lua`):
+  a workspace key goes through `o.workspaces.focus(slot)` / `o.workspaces.move_window(slot)`, never a bare id.
 - `output = "desc:<make> <model>"` prefix-matches `"<make> <model> <serial>"` — make plus model is enough, so no
   serial reaches a tracked file — and the same selector works in `hl.workspace_rule` and `hl.dsp.workspace.move`.
   Never a connector: `DP-N`/`HDMI-A-N` numbering follows the GPU the session drives the displays through, so a cable
@@ -29,7 +34,7 @@ absent the copy proceeds.
   `$OMARCHY_PATH/default/agents/skills/omarchy/hyprland.md` and <https://wiki.hypr.land> — link, never copy.
 
 ## Requires
-Omarchy, plus `jq` and `hyprctl` (both always present). No packages, no sudo, no prompt.
+Omarchy, plus `jq` (`hyprconf-gaps`) and `hyprctl`, both always present. No packages, no sudo, no prompt.
 
 ## Install alone
 ```bash
@@ -46,14 +51,13 @@ beside their binds in `bindings.lua`.
 |---|---|
 | `SUPER+T` / `F` / `C` / `E` | Terminal / browser / editor / file manager — Omarchy's launchers, following `omarchy default …` |
 | `SUPER+D` | Omarchy menu (Omarchy's own menu key, `SUPER+SPACE`, stays) |
-| `SUPER+Q` / `SUPER+SHIFT+Q` | Close window / log out |
+| `SUPER+SHIFT+Q` | Log out |
 | `SUPER+V` / `SUPER+SHIFT+SPACE` | Toggle window floating |
 | `SUPER+SHIFT+F` | Full screen |
 | `SUPER+SHIFT+← → ↑ ↓` | Shrink / expand window (repeating) |
 | `SUPER+SHIFT+A / D / W / S` | Move window left / right / up / down — onto the neighbouring monitor when no window is that way |
 | `SUPER+SHIFT+=` / `SUPER+SHIFT+-` | Increase / decrease window gaps (`hyprconf-gaps`, runtime only — a reload restores the configured values; a gap it cannot read changes nothing) |
-| `SUPER+1, 2, 5–0` / `SUPER+SHIFT+1, 2, 5–0` | Switch to / move window to workspace 1, 2, 5–10 |
-| `SUPER+F1` / `SUPER+F2` (+ `SHIFT`) | Switch to / move window to workspace 3 / 4 |
+| `SUPER+F1` / `SUPER+F2` (+ `SHIFT`) | Switch to / move window to workspace 3 / 4 of the focused monitor — a second key beside Omarchy's digits, since `SUPER+SHIFT+4` is the screenshot |
 | `SUPER+M` / `SUPER+SHIFT+M` | Toggle magic scratchpad / move window to it |
 | `SUPER+L` / `SUPER+SHIFT+Escape` | Lock system |
 | `SUPER+SHIFT+4` | Screenshot region |
@@ -61,20 +65,21 @@ beside their binds in `bindings.lua`.
 | `SUPER+SHIFT+BACKSPACE` | Toggle laptop display |
 | `SUPER+SHIFT+B` / `SUPER+SHIFT+K` | Monitor preset bedroom / kitchen |
 
-**Displaced:** `SUPER+C` and `SUPER+V` were Omarchy's universal copy and paste (`bindings/clipboard.lua:45-47`, whose
-`SUPER+X` cut stays), and `SUPER+SHIFT+B` its second browser key (`bindings/applications.lua:3,6` — `SUPER+SHIFT+RETURN`
-stays, and the browser is `SUPER+F` here). `SUPER+SHIFT+K` displaces nothing: Omarchy binds `SUPER+K` alone
-(`bindings/utilities.lua:10`).
+**Displaced:** `SUPER+C` and `SUPER+V` were Omarchy's universal copy and paste (`bindings/clipboard.lua:46-47`, whose
+`SUPER+A` select-all and `SUPER+X` cut stay), `SUPER+SHIFT+B` its second browser key (`bindings/applications.lua:3,6` —
+`SUPER+SHIFT+RETURN` stays, and the browser is `SUPER+F` here), `SUPER+SHIFT+Q` its calculator (`:14`, whose
+`XF86Calculator` stays) and `SUPER+M` its minimize-to-the-dock (`bindings/tiling.lua:33`). `SUPER+SHIFT+K` displaces
+nothing: Omarchy binds `SUPER+K` alone (`bindings/utilities.lua:10`).
 
 **Left to Omarchy on purpose:** volume, brightness and media keys (Omarchy's drive its OSD and media service), `SUPER+K`,
-`SUPER+SPACE`, `SUPER+3`/`4`, `SUPER+SHIFT+3` — and its own `SUPER+P` (pseudo), `SUPER+← → ↑ ↓` (focus), `SUPER+scroll`
-(workspace scroll) and `SUPER+LMB`/`RMB` drag (move/resize), which hyprconf does not restate (`default/hypr/bindings/tiling.lua`).
+`SUPER+SPACE`, the digits — `SUPER+1`–`0` and `SUPER+SHIFT+1`–`0` but the `4`, each monitor's own ten workspaces — and
+its own `SUPER+Q`/`W` (close), `SUPER+P` (pseudo), `SUPER+← → ↑ ↓` (focus), `SUPER+scroll` (workspace scroll) and
+`SUPER+LMB`/`RMB` drag (move/resize), which hyprconf does not restate (`default/hypr/bindings/tiling.lua`).
 
 ## Look'n'feel and input deltas
-Tighter gaps (3/3), hairline rounding, translucent unfocused windows — `inactive_opacity` 0.8; Omarchy tags every window
-`+default-opacity` and applies `opacity = "0.985 0.96"` to the tag (`default/hypr/windows.lua:6,25`), so the effective
-inactive alpha is ~0.77, while the apps it takes out of the tag (`apps/steam.lua:3`, `apps/qemu.lua:1`) come out at
-exactly 0.8 — blur and shadow on, an easeOutQuint window animation with fading workspaces, cursor-driven dwindle splits,
+Tighter gaps (3/3), hairline rounding, translucent unfocused windows — `inactive_opacity` 0.8; Omarchy opts terminals
+and a few apps in to `opacity = "0.985 0.96"` (`default/hypr/windows.lua:22-26`, `helpers.lua:327-329`), so those come
+out at ~0.77 unfocused and every other window at exactly 0.8 — blur and shadow on, an easeOutQuint window animation with fading workspaces, cursor-driven dwindle splits,
 natural scroll, a 3-finger workspace swipe, and Steam tiled like every other window (the Friends List stays floating).
 Only deltas from `$OMARCHY_PATH/default/hypr/`: each value and its reason are commented where it is set, in
 `looknfeel.lua` and `input.lua`. Border and shadow colours stay with the active Omarchy theme; keyboard layout stays with
@@ -90,9 +95,9 @@ Omarchy's `input.lua` logic.
 
 `hyprconf-monitor-preset <preset>` copies the preset — one machine's desk, never a link — into
 `~/.local/state/omarchy/toggles/hypr/`, loaded after `monitors.lua` (`default/hypr/toggles.lua:4,11`), so its
-`hl.monitor` lines win and `monitors.lua` is never touched. It then reloads, moves each existing workspace to the
-monitor Hyprland's own parsed rules name — a reload only places *future* workspaces — and issues one `dpms` wake;
-`-h` lists the presets it finds, and the tool's header carries the seam with its citations. Without the tool: copy one
+`hl.monitor` lines win and `monitors.lua` is never touched. It then reloads — where Omarchy itself puts every workspace
+back on its monitor's own block of ten (`default/hypr/monitor-workspaces.lua:687-689`), so the tool moves none — and
+issues one `dpms` wake; `-h` lists the presets it finds, and the tool's header carries the seam with its citations. Without the tool: copy one
 there and reload. A preset belongs to the machine: an edit survives re-selecting it.
 
 ## Settings
@@ -104,7 +109,7 @@ once per shipped version, so an edit of your own never nags. A new preset is one
 folder: the seed and the tool's `-h` line both derive from the glob. The two `pcMonitors.*` presets are the author's
 desks: on another machine delete both, here and the seeded copies in `~/.config/hypr/` — pressed against unknown
 displays, `SUPER+SHIFT+B`/`K` would bring every output up at its preferred mode for the session and point
-workspaces 1–6 at panels that are not there.
+Hyprland workspaces 1–6 at panels that are not there.
 
 ## Undo
 `bash modules/hypr/install undo` — `hyprconf-monitor-preset stock`, then each override goes back: a
@@ -116,4 +121,4 @@ The seeded presets, their `.shipped` markers and the two `~/.local/bin` links go
 that never installed: exit 0, and a file at those paths that is not hyprconf's is left as it is.
 
 ## Verified against
-Omarchy 4.0.6-1 (Hyprland 0.56.2). Every `file:line` above was read from `/usr/share/omarchy` at that version.
+Omarchy 4.5.0-3 (Hyprland 0.56.2). Every `file:line` above was read from `/usr/share/omarchy` at that version.

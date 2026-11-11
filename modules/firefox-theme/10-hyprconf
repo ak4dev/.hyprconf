@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # hyprconf/firefox-theme — the theme Omarchy rendered, into Firefox.
-# Run by `omarchy-hook theme-set <name>` (bin/omarchy-hook:22-27), which
-# bin/omarchy-theme-set:341 calls at the end of every theme set, and once by
+# Run by `omarchy-hook theme-set <name>` (bin/omarchy-hook:34-39), which
+# bin/omarchy-theme-set:603 calls at the end of every theme set, and once by
 # this module's install. Self-contained: omarchy-hook-install COPIES the file
-# (bin/omarchy-hook-install:27-29), so nothing here may point at a checkout.
+# (bin/omarchy-hook-install:38-40), so nothing here may point at a checkout.
 # Omarchy themes Chromium-family browsers only (bin/omarchy-theme-set-browser:
 # 8-13; `grep -Ril firefox /usr/share/omarchy/bin` finds only default/install/
-# remove-browser, Omarchy 4.0.3-1).
-# No `set -e`: bin/omarchy-hook:26 already turns a non-zero hook into a message
-# omarchy-theme-set:341 swallows, so every profile is attempted and a failure
+# launch/remove-browser, Omarchy 4.5.0-3).
+# No `set -e`: bin/omarchy-hook:38 already turns a non-zero hook into a message
+# omarchy-theme-set:603 swallows, so every profile is attempted and a failure
 # is reported through the exit status instead.
 # Usage: 10-hyprconf [<theme name>] | 10-hyprconf --undo
 set -uo pipefail

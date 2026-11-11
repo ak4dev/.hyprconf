@@ -13,8 +13,8 @@ placement of its own — where it lands, and what it displaces:
 
 ## Requires
 
-Omarchy 4.0.4-1 with its shell running, `jq`, coreutils, and [`../bar-plugin.sh`](../bar-plugin.sh) — the link, rescan,
-enable and undo the four bar modules share, which a sparse checkout of this directory brings along; no packages, no `sudo`.
+Omarchy with its shell running, `jq`, coreutils, and [`../bar-plugin.sh`](../bar-plugin.sh) — the link, rescan,
+enable and undo the bar plugin modules share, which a sparse checkout of this directory brings along; no packages, no `sudo`.
 With no shell answering the link is made and the enable retried next run; the checkout stays put (the installed plugin is a symlink to it).
 
 ## Install alone
@@ -32,7 +32,7 @@ text on one line, 280 default), here over two. Marker: `${HYPRCONF_STATE:-~/.loc
 ## Undo
 
 `bash modules/bar-active-window/install undo` — disables it, which hands the slot
-back to Omarchy's stock title widget (`PluginRegistry.qml:555`); where the enable
+back to Omarchy's stock title widget (`PluginRegistry.qml:587`); where the enable
 had ADDED the slot instead, that comes off too while this copy still holds it, so
 a default bar returns to stock and a stock title placed since is left. Then the
 module's own symlink and the marker go, and it rescans. A real directory or a git
@@ -41,4 +41,4 @@ checkout there is left alone; a folder an install moved aside stays as
 swap is done in `~/.config/omarchy/shell.json` itself: the entry back to
 `omarchy.active-window`, or off where the enable had added the slot.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3

@@ -48,7 +48,7 @@ KERNEL_VERSION = "7.1.8-arch1-3"
 # /etc/vconsole.conf as systemd-localed writes it on a stock Omarchy
 VCONSOLE = "KEYMAP=us\nXKBLAYOUT=us\nXKBMODEL=pc105+inet\nXKBOPTIONS=terminate:ctrl_alt_bksp\n"
 # The first-layout list Omarchy's guard withholds vconsole.conf for, copied verbatim
-# (/etc/mkinitcpio.conf.d/omarchy_hooks.conf; its second copy is default/hypr/input.lua:24-27).
+# (/etc/mkinitcpio.conf.d/omarchy_hooks.conf; its second copy is default/hypr/input.lua:5-8).
 NON_LATIN = "af am ara bd bg by et ge gr il in iq ir kg kh kz la lk mk mm mn mv np rs ru sy th tj ua".split()
 # What limine-mkinitcpio-install prints (error_msg) when a build fails, verbatim, and the
 # silent skip at :104 — no build message, and the image on the ESP stays the old one.
@@ -152,7 +152,7 @@ STUBS = {
 
 
 def dropin_for(mapper: str) -> str:
-    """The limine drop-in enroll writes, exactly (omarchy-hibernation-setup:138)."""
+    """The limine drop-in enroll writes, exactly (omarchy-hibernation-setup:220)."""
     return f'KERNEL_CMDLINE[default]+=" rd.luks.name={UUID}={mapper} {RD_OPTS}"\n'
 
 
@@ -274,7 +274,7 @@ def _assert_configured(box: Box, mapper: str = "root") -> None:
 
 
 def test_install_links_the_tool_and_a_second_run_writes_nothing(box: Box) -> None:
-    """~/.local/bin is on the session PATH (default/bash/env-bootstrap:38-39); a re-created link would have a new inode."""
+    """~/.local/bin is on the session PATH (default/bash/env-bootstrap:59-60); a re-created link would have a new inode."""
     bin_dir = box.home / ".local" / "bin"
     bin_dir.mkdir(parents=True)
     (bin_dir / "hyprconf-yubikey").write_text("# the copy releases before the module split left")

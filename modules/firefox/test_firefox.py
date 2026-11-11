@@ -98,7 +98,7 @@ def test_the_stylesheet_pref_belongs_to_the_theme_module_not_the_policy() -> Non
 
 
 # omarchy-default-browser: with a name it records the pick, bare it prints it back
-# (bin/omarchy-default-browser:7-20 / 39). DEAF: the set never takes (a TTY or SSH run).
+# (bin/omarchy-default-browser:13-26 / 53). DEAF: the set never takes (a TTY or SSH run).
 # NOISY: it takes and the command still fails — its closing notification's status (:39-41).
 BROWSER = 'p=$HOME/.default-browser\nif (($#)); then printf "%s\\n" "$1" >"$p"; exit 0; fi\ncat "$p" 2>/dev/null || echo chromium\n'
 BROWSER_DEAF = "if (($#)); then exit 0; fi\necho chromium\n"
@@ -171,7 +171,7 @@ def test_a_second_run_writes_nothing_and_calls_no_mutating_command(box: Box) -> 
 
 @pytest.mark.parametrize("installs", [True, False])
 def test_firefox_when_absent_goes_through_omarchys_installer(box: Box, installs: bool) -> None:
-    """Omarchy's own flow (bin/omarchy-install-browser:67-74); a failure stops both halves."""
+    """Omarchy's own flow (bin/omarchy-install-browser:99-107); a failure stops both halves."""
     flag = box.tmp / "firefox-installed"  # the installer is what puts Firefox there
     box.stub("omarchy-pkg-present", f'[ "$1" != firefox ] || [ -e "{flag}" ]\n')
     box.stub("omarchy-install-browser", f'touch "{flag}"\n' if installs else "exit 1\n")
@@ -196,7 +196,7 @@ def test_the_sudo_gates_skip_the_root_write_but_still_seed_the_default(
     box: Box, env: dict[str, str], pointer: str
 ) -> None:
     """The hook passes --no-packages: under omarchy-update every child has a pty
-    (bin/omarchy-update:10-12), so a prompt would stall the update."""
+    (bin/omarchy-update:56-58), so a prompt would stall the update."""
     proc = _run(box, tty=False, env=env)  # no tty: stdin is closed
     assert proc.returncode == 0, proc.stderr
     assert pointer in proc.stdout
@@ -210,7 +210,7 @@ def test_the_sudo_gates_skip_the_root_write_but_still_seed_the_default(
 def test_the_marker_follows_the_value_not_the_setters_exit_status(
     box: Box, setter: str, seeded: bool
 ) -> None:
-    """bin/omarchy-default-browser has no `set -e` and its last line (:35-37) is a notification."""
+    """bin/omarchy-default-browser has no `set -e` and its last line (:55) is a notification."""
     proc = _run(box, setter=setter)
     assert proc.returncode == 0, proc.stderr
     assert "omarchy-default-browser firefox" in box.calls

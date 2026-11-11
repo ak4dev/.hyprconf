@@ -13,7 +13,7 @@ ID = "hyprconf.resources"
 def test_the_feeders_run_once_for_the_session_not_once_per_monitor() -> None:
     """Bar.qml is `Variants { model: Quickshell.screens }`, so a Process the WIDGET
     owns runs once per bar surface; the service kind is loaded once a session
-    (shell.qml:385-394, PluginShellApi.qml:30 — quickshell 0.3.1, one feeder pair
+    (shell.qml:393-402, PluginShellApi.qml:30-32 — quickshell 0.3.1, one feeder pair
     over three surfaces)."""
     widget, service = (PLUGIN / "Widget.qml").read_text(), (PLUGIN / "Service.qml").read_text()
     assert "Process" not in widget, "a Process in the widget runs once per bar surface"

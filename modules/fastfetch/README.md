@@ -7,10 +7,10 @@ CPU, GPU and driver, memory, network, OS age and uptime between two rules, `arch
 
 It deliberately does **not** take `~/.config/fastfetch/config.jsonc`: that is the one user
 config fastfetch reads (`fastfetch --list-config-paths`, first hit wins, no merge), and
-Omarchy's About screen renders bare `fastfetch` there (`bin/omarchy-launch-about:161`),
-skipping its window-fit measurement whenever that file exists (`custom_fastfetch_config`
-`:16-18`, used at `:61` and `:95`). Omarchy 4 retired its own user copy to
-`/etc/fastfetch/config.jsonc` (`bin/omarchy-upgrade-to-quattro:1562-1569`). Both are left
+Omarchy's About screen runs a file there as it is, in place of its own translated layout
+(`bin/omarchy-launch-about:117-123`), and skips its window-fit measurement
+(`custom_fastfetch_config` `:45-61`, used at `:160` and `:194`). Omarchy 4 retired its own user copy to
+`/etc/fastfetch/config.jsonc` (`bin/omarchy-upgrade-to-quattro:1629-1636`). Both are left
 alone, so About stays stock; a link hyprconf 7.x or older left at that path is cleared
 by either run — install or undo — and any real file it displaced (`config.jsonc.stock`)
 put back.
@@ -37,4 +37,4 @@ a run that changes nothing writes nothing. Format variables are named
 `bash ~/.hyprconf/modules/fastfetch/install undo` — removes the copy (the 7.x link above
 goes either way). Omarchy's `/etc/fastfetch/config.jsonc` is what is left.
 
-## Verified against Omarchy 4.0.6-1 — paths above read from the installed tree; fastfetch 2.70.0
+## Verified against Omarchy 4.5.0-3 — paths above read from the installed tree; fastfetch 2.70.0

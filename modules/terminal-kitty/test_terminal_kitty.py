@@ -28,7 +28,7 @@ def _kitty_missing(box) -> None:
 
 @pytest.fixture
 def kitty(box):
-    """A stock Omarchy: kitty installed, foot the default. box.terminal is what omarchy-default-terminal reports and what a set writes; box.set_status fails that write the way its closing notification does (bin/omarchy-default-terminal:37)."""
+    """A stock Omarchy: kitty installed, foot the default. box.terminal is what omarchy-default-terminal reports and what a set writes; box.set_status fails that write the way its closing notification does (bin/omarchy-default-terminal:51)."""
     box.terminal, box.set_status = box.tmp / "default-terminal", box.tmp / "set-status"
     box.terminal.write_text("foot")
     box.set_status.write_text("0")
@@ -66,7 +66,7 @@ def test_a_second_run_writes_nothing_and_never_takes_the_terminal_back(kitty) ->
 
 
 def test_a_setter_that_reports_failure_is_retried_then_recorded(kitty) -> None:
-    """The setter's non-zero status arrives AFTER the list file is written (:31-37)."""
+    """The setter's non-zero status arrives AFTER the list file is written (:45-51)."""
     kitty.set_status.write_text("1")
     assert kitty.run(INSTALL).returncode == 0
     assert not (kitty.home / MARKER).exists() and (kitty.home / MINE).exists()
@@ -141,7 +141,7 @@ def test_undo_restores_stock(kitty, since, absent, back) -> None:
 
 def test_undo_reads_the_stock_terminal_from_omarchys_list_at_undo_time(kitty) -> None:
     """A later Omarchy that ships another default is the one restored, lower-cased the way
-    bin/omarchy-default-terminal:21-24 names it; a list that is gone restores nothing."""
+    bin/omarchy-default-terminal:27-30 names it; a list that is gone restores nothing."""
     assert kitty.run(INSTALL).returncode == 0
     lst = kitty.omarchy / "default/xdg-terminal-exec/hyprland-xdg-terminals.list"
     lst.write_text("# preference order\n\n  Alacritty.desktop\nfoot.desktop\n")

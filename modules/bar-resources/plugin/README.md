@@ -39,8 +39,8 @@ Why neither of Omarchy's own stats fits: the header of `bin/hyprconf-stats`.
 
 ## Install
 
-Drop the folder in and enable it by id — Omarchy's own by-hand path
-(`/usr/share/omarchy/shell/README.md` › Installing by hand):
+Drop the folder in where Omarchy reads user plugins
+(`/usr/share/omarchy/shell/plugins/README.md:11-12`) and enable it by id:
 
 ```bash
 git clone https://github.com/ak4dev/.hyprconf
@@ -51,9 +51,9 @@ omarchy plugin enable hyprconf.resources
 
 Once this folder is published as a repository of its own, `omarchy plugin add
 <url> --enable --yes` is the one-step form. `--yes` is the scripted path —
-Omarchy 4.0.4-1 confirms in a terminal even when given arguments
-(`/usr/share/omarchy/shell/README.md`) — and it skips the review-the-code
-prompt, so read the repository first.
+Omarchy confirms in a terminal even when given arguments, and refuses outside
+one (`/usr/bin/omarchy-plugin-add:26-34,104-115`, 4.5.0-3) — and it skips the
+review-the-code prompt, so read the repository first.
 
 It lands in the right section (`barWidget.defaultSection`); move it with
 `omarchy bar move hyprconf.resources …`. `omarchy plugin disable
@@ -85,12 +85,12 @@ plugin load failed for <id>`) while the widget draws its null-service
 defaults — nothing on disk is wrong; `omarchy restart shell` clears it, so
 restart before changing the plugin.
 
-## Host contract (Omarchy 4.0.4-1)
+## Host contract (Omarchy 4.5.0-3)
 
 An installed third-party widget never gets the host Bar: its `bar` is a
 `Ui/PluginBarApi.qml` facade and `bar.shell` a `services/PluginShellApi.qml`,
-both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2019-2020`,
-`Bar.qml:245-264` → `shell/shell.qml:687`). Those two files are the whole
+both scoped to this plugin's own id (`shell/plugins/bar/Bar.qml:2836-2837`,
+`Bar.qml:349-363` → `shell/shell.qml:709-711`). Those two files are the whole
 contract — a member that exists only on the Bar reads back `undefined`, with
 nothing logged anywhere. This widget uses `bar.barForeground`,
 `bar.fontFamily`, `bar.run(command)`, `bar.showTooltip(target, text)` /

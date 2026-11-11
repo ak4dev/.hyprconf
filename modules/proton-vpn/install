@@ -3,7 +3,7 @@
 # Seam: ~/.config/hypr/autostart.lua, Omarchy's file for "Extra autostart processes"
 # (config/hypr/autostart.lua:1-2, required by config/hypr/hyprland.lua:23): one guarded
 # o.launch_on_start line, the kitty-include idiom. The helper runs `uwsm-app -- <cmd>` once, on
-# hyprland.start (default/hypr/helpers.lua:108-120), so a config reload starts no second copy.
+# hyprland.start (default/hypr/helpers.lua:159-161,187-195), so a config reload starts no second copy.
 # --start-minimized hides the window only while a tray is up (proton/vpn/app/gtk/app.py:130-148);
 # Omarchy's bar carries one.
 # Connecting is the app's "Auto connect", off by default (proton/vpn/app/gtk/config.py:31): a text

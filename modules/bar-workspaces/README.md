@@ -3,8 +3,8 @@
 ## What
 
 Puts `hyprconf.workspaces` on the Omarchy bar in place of the stock
-`omarchy.workspaces`: only the workspaces that exist, on two lines, Pac-Man on
-the focused one — the widget itself is `plugin/README.md`.
+`omarchy.workspaces`: only its monitor's workspaces that exist, on two lines,
+Pac-Man on the one it shows — the widget itself is `plugin/README.md`.
 
 `plugin/` is LINKED into `~/.config/omarchy/plugins/hyprconf.workspaces`, and
 every run asks for a rescan — what picks a `git pull` up; the scan, the watch
@@ -15,8 +15,8 @@ cloned (it has a `.git`) is left alone, to `omarchy plugin update`.
 
 ## Requires
 
-Omarchy 4.0.4-1, `jq`, and [`../bar-plugin.sh`](../bar-plugin.sh) — the link,
-rescan, enable and undo the four bar modules share, which a sparse checkout of
+Omarchy, `jq`, and [`../bar-plugin.sh`](../bar-plugin.sh) — the link,
+rescan, enable and undo the bar plugin modules share, which a sparse checkout of
 this directory brings along. No packages, no `sudo`. The enable needs the
 running shell (without one the link is made and the next run enables it), and
 the checkout has to stay put — the installed plugin is a link into it.
@@ -39,4 +39,4 @@ widget comes back), removes the link and the marker. With no shell answering,
 the disable is done in `~/.config/omarchy/shell.json` itself — the bar entry goes
 back to `omarchy.workspaces` — so no slot is left naming a plugin that is gone.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3

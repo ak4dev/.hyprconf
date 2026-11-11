@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/boot-text — the scrolling boot log in place of Omarchy's splash: one Limine drop-in, then a rebuild.
-# No Omarchy command shows the log (`omarchy commands --json`, 4.0.6-1: the plymouth group picks themed screens only).
+# No Omarchy command shows the log (`omarchy commands --json`, 4.5.0-3: the plymouth group picks themed screens only).
 # The drop-in is the shape of install/hardware/asus/fix-asus-ptl-display-backlight.sh; the rebuild, migrations/1791581004.sh's.
 # Usage: install | install undo
 set -euo pipefail

@@ -3,7 +3,7 @@
 ## What — kitty as Omarchy's default terminal, plus two kitty preferences as an include
 
 - `omarchy-default-terminal kitty` — **once**, behind `~/.local/state/hyprconf/terminal-applied`.
-  It writes `~/.config/xdg-terminals.list` (`bin/omarchy-default-terminal:31-35`), which SUPER+RETURN,
+  It writes `~/.config/xdg-terminals.list` (`bin/omarchy-default-terminal:45-49`), which SUPER+RETURN,
   `$TERMINAL`, the floating terminals and the menu all resolve through. Change it later with
   `omarchy default terminal <name>` — hyprconf will not take it back.
 - `hyprconf.conf` (cursor trail, 0.85 opacity) → `~/.config/kitty/`, plus one `include
@@ -17,7 +17,7 @@
 
 ## Requires
 
-Omarchy 4.0.4-1 and `kitty` (official `extra`), from this module's `packages` via `omarchy-pkg-add` —
+Omarchy and `kitty` (official `extra`), from this module's `packages` via `omarchy-pkg-add` —
 skipped with a pointer line, never a failure, under `HYPRCONF_NO_SUDO` (`--no-packages`) or with no
 terminal for sudo; an install that fails fails the module (the core names it; re-run after pacman's
 error). A box without kitty is left untouched.
@@ -36,6 +36,6 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 `bash modules/terminal-kitty/install undo` — strips the include, removes `hyprconf.conf` and the
 marker, and hands the default back to Omarchy's stock terminal only while kitty is still current
 and that terminal is still installed. Stock is read at undo time, the first entry of
-`$OMARCHY_PATH/default/xdg-terminal-exec/hyprland-xdg-terminals.list` — `foot` in omarchy-settings 4.0.4-1.
+`$OMARCHY_PATH/default/xdg-terminal-exec/hyprland-xdg-terminals.list` — `foot` in omarchy-settings 4.5.0-3.
 
-## Verified against Omarchy 4.0.6-1 — kitty 0.49.2-1, omarchy-settings 4.0.6-1.
+## Verified against Omarchy 4.5.0-3 — kitty 0.49.2-1, omarchy-settings 4.5.0-3.

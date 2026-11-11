@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/yubikey — puts `hyprconf-yubikey` (FIDO2 unlock of the LUKS2 root at boot) on PATH.
-# Seam: ~/.local/bin, on the session PATH (default/bash/env-bootstrap:38-39, envs:32-33; Omarchy 4.0.3-1).
+# Seam: ~/.local/bin, on the session PATH (default/bash/env-bootstrap:59-60, envs:32-33; Omarchy 4.5.0-3).
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")

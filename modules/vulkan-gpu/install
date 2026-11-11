@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/vulkan-gpu — the dual-GPU Vulkan pin tool, on PATH.
-# Seam: ~/.local/bin, on the session PATH (default/bash/env-bootstrap:37-40, Omarchy 4.0.3-1).
+# Seam: ~/.local/bin, on the session PATH (default/bash/env-bootstrap:58-61, Omarchy 4.5.0-3).
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")

@@ -1,236 +1,167 @@
-"""modules/bar-clock: the enable it does ONCE, the seconds it puts back on any run, the
-centre anchor, the undo that puts the format and anchor back, and the parity of the copied
-widget with Omarchy's own. The link, the one
-enable and the rest of the undo are the shared mechanism's, pinned per plugin folder in
-tests/test_plugins_contract.py."""
+"""modules/bar-clock: Omarchy's own clock kept on a format that prints seconds — set on any
+run that finds one printing none, left alone otherwise, put back to stock by the undo — and
+the retirement of the hyprconf.clock plugin this module shipped before 10.0."""
 
 from __future__ import annotations
 
-import difflib
 import json
-import re
 from pathlib import Path
 
 import pytest
 
-from conftest import BAR_SET, NEEDS_OMARCHY, OMARCHY, Box, bar_shell
+from conftest import NEEDS_OMARCHY, OMARCHY, Box, bar_shell
 
 INSTALL = Path(__file__).parent / "install"
-PLUGIN = Path(__file__).parent / "plugin"
-ID = "hyprconf.clock"
-STOCK = "omarchy.clock"
+CLOCK = "omarchy.clock"
 FORMAT = "hh:mm:ss AP"
 STOCK_FORMAT = "dddd HH:mm"
-LINK = f".config/omarchy/plugins/{ID}"
-MARKER = ".local/state/hyprconf/clock-applied"
+SET = ["omarchy-bar", "set", CLOCK, "format", FORMAT]
+OLD = "hyprconf.clock"
+OLD_LINK = f".config/omarchy/plugins/{OLD}"
+OLD_MARKER = ".local/state/hyprconf/clock-applied"
 # The installed Omarchy, for the pins that need the real thing — not box.omarchy,
 # which is a fixture cut to what the module reads.
 STOCK_CLOCK = OMARCHY / "shell/plugins/panels/clock"
 
-# The same write, persisted on a LATER event-loop turn as the shell's is
-# (shell.qml:111-115 persistShellConfig, then a FileView setText): an anchor
-# edit that does not wait for it is taken straight back 0.2 s later.
-BAR_SET_LATE = BAR_SET.replace('&& mv "$json.t"', '&& { ( sleep 0.2; mv "$json.t"')[:-1] + ") & }\n"
-
 
 def bar(path: Path) -> list[dict]:
-    """The centre section's entries, as objects."""
+    """The centre box's entries, as objects."""
     center = json.loads(path.read_text())["bar"]["layout"]["center"]
     return [e if isinstance(e, dict) else {"id": e} for e in center]
-
-
-def anchor_of(path: Path) -> str:
-    return json.loads(path.read_text())["bar"]["centerAnchor"]
-
-
-def test_install_enables_it_once_with_the_format_and_the_anchor(box: Box) -> None:
-    path = bar_shell(box)
-    result = box.run(INSTALL)
-    assert result.returncode == 0, result.stderr
-    assert (box.home / MARKER).exists()
-    assert box.calls_of("omarchy-bar") == [["omarchy-bar", "set", ID, "format", FORMAT]]
-    assert bar(path) == [{"id": ID, "format": FORMAT}]
-    assert anchor_of(path) == ID
-
-
-@pytest.mark.parametrize(
-    ("anchor", "layout", "expected", "blocked"),
-    [
-        # the swap: the stock id the clone took the slot from
-        (STOCK, [{"id": ID}], ID, False),
-        # a clone removed long after the install — on no section and on no
-        # installed plugin, so the section centres the whole group instead
-        # (Bar.qml:1552 hasAnchor). Not a choice, so not behind the marker.
-        ("testuser.clock", [{"id": ID}], ID, False),
-        # the same repair with the write blocked: a cosmetic step must not take
-        # the run down, nor report success it did not have
-        ("testuser.clock", [{"id": ID}], "testuser.clock", True),
-        # still the user's: a widget the bar carries ...
-        ("omarchy.menu", [{"id": ID}], "omarchy.menu", False),
-        # ... or a plugin they merely disabled (someone.weather, installed below)
-        ("someone.weather", [{"id": ID}], "someone.weather", False),
-        # our clock is on no section, so there is nothing to point at
-        ("testuser.clock", [{"id": STOCK}], "testuser.clock", False),
-        (None, [], None, False),  # nothing has persisted shell.json yet
-    ],
-)
-def test_the_anchor_follows_our_clock_onto_the_bar_and_never_off_the_users(
-    box: Box, anchor: str | None, layout: list, expected: str | None, blocked: bool
-) -> None:
-    path = bar_shell(box, anchor=anchor or STOCK, layout=layout)
-    if anchor is None:
-        path.unlink()
-    weather = (box.home / LINK).parent / "someone.weather"
-    weather.mkdir(parents=True)
-    (weather / "manifest.json").write_text('{"id": "someone.weather"}\n')
-    (box.home / MARKER).parent.mkdir(parents=True)
-    (box.home / MARKER).touch()  # the anchor is repaired on any run, marker or not
-    tmp = Path(f"{path}.tmp")
-    if blocked:
-        tmp.mkdir()  # nothing can be written there
-    result = box.run(INSTALL)
-    assert result.returncode == 0, result.stderr
-    assert (anchor_of(path) if path.exists() else None) == expected
-    assert "omarchy-plugin-enable" not in box.commands
-    assert ("could not set bar.centerAnchor" in result.stderr) == blocked
-    assert not tmp.exists() or not any(tmp.iterdir())  # no stale temp file left
 
 
 @pytest.mark.parametrize(
     ("entry", "expected"),
     [
-        # where six right-clicks from ours land: the ring (Model.js CLOCK_FORMATS) has no
-        # seconds preset, so a walk never comes back on its own
-        ({"id": ID, "format": "ddd d MMM h:mm AP"}, {"id": ID, "format": FORMAT}),
-        ({"id": ID}, {"id": ID, "format": FORMAT}),  # no format: the widget's "dddd HH:mm"
-        (ID, {"id": ID, "format": FORMAT}),  # a bare-id entry (bin/omarchy-bar:178)
-        ({"id": ID, "format": "h:mm 'secs'"}, {"id": ID, "format": FORMAT}),  # a literal 's'
-        # still the user's: a format that ticks seconds ...
-        ({"id": ID, "format": "HH:mm:ss"}, {"id": ID, "format": "HH:mm:ss"}),
-        # ... and the stock clock they went back to (`omarchy plugin disable` sticks)
-        ({"id": STOCK, "format": "HH:mm"}, {"id": STOCK, "format": "HH:mm"}),
+        ({"id": CLOCK, "format": STOCK_FORMAT}, {"id": CLOCK, "format": FORMAT}),  # stock
+        # where a right-click walk from ours can land: most of the ring prints no seconds
+        ({"id": CLOCK, "format": "ddd d MMM h:mm AP"}, {"id": CLOCK, "format": FORMAT}),
+        ({"id": CLOCK}, {"id": CLOCK, "format": FORMAT}),  # no format: the widget's default
+        (CLOCK, {"id": CLOCK, "format": FORMAT}),  # a bare-id entry (bin/omarchy-bar:190)
+        ({"id": CLOCK, "format": "h:mm 'secs'"}, {"id": CLOCK, "format": FORMAT}),  # a literal
+        ({"id": CLOCK, "format": "h:mm 'as of"}, {"id": CLOCK, "format": FORMAT}),  # unclosed
+        # still the user's: a format that prints seconds, a preset of Omarchy's ring included
+        ({"id": CLOCK, "format": "HH:mm:ss"}, {"id": CLOCK, "format": "HH:mm:ss"}),
+        ({"id": CLOCK, "format": "dddd h:mm:ss AP"}, {"id": CLOCK, "format": "dddd h:mm:ss AP"}),
+        # and a bar that carries another clock, or none: nothing of ours to set
+        ({"id": "testuser.clock", "format": "HH:mm"}, {"id": "testuser.clock", "format": "HH:mm"}),
     ],
 )
-@pytest.mark.parametrize("answering", [True, False])
-def test_a_clock_showing_no_seconds_gets_ours_back_on_any_run(
-    box: Box, entry: dict | str, expected: dict, answering: bool
+def test_a_clock_printing_no_seconds_gets_ours_on_any_run(
+    box: Box, entry: dict | str, expected: dict
 ) -> None:
-    """The one setting re-asserted after the marker: a format with no seconds. With no shell
-    answering the set, the entry is rewritten in shell.json itself."""
-    path = bar_shell(box, anchor=ID, layout=[entry])
-    (box.home / MARKER).parent.mkdir(parents=True)
-    (box.home / MARKER).touch()
-    if not answering:
-        box.stub("omarchy-bar", "exit 1\n")
+    """The one setting re-asserted on every run (rule 5's exception), through Omarchy's own
+    `omarchy bar set`; a second run writes nothing and calls nothing."""
+    path = bar_shell(box, layout=[entry])
     result = box.run(INSTALL)
     assert result.returncode == 0, result.stderr
     assert bar(path) == [expected]
-    assert ("showed no seconds" in result.stdout) == (expected != entry)
-    assert "omarchy-plugin-enable" not in box.commands
+    changed = expected != (entry if isinstance(entry, dict) else {"id": entry})
+    assert box.calls_of("omarchy-bar") == ([SET] if changed else [])
+    assert ("showed no seconds" in result.stdout) == changed
+    before = box.snapshot()
+    box.reset()
+    assert box.run(INSTALL).returncode == 0
+    assert box.snapshot() == before and box.commands == []
 
 
-def test_the_anchor_edit_waits_for_the_shells_own_write_to_land(box: Box) -> None:
-    """Without the wait the edit reads the pre-set copy and the shell's pending write takes it back."""
-    path = bar_shell(box)
-    box.stub("omarchy-bar", BAR_SET_LATE)
+def test_a_box_with_no_shell_json_of_its_own_is_read_as_omarchys_default_bar(box: Box) -> None:
+    """The shell shows the shipped bar until something persists a file
+    (bin/omarchy-shell-config:20-26), and that bar's clock prints no seconds."""
     result = box.run(INSTALL)
     assert result.returncode == 0, result.stderr
-    assert bar(path) == [{"id": ID, "format": FORMAT}]
-    assert anchor_of(path) == ID
+    assert box.calls_of("omarchy-bar") == [SET]
+    assert box.files() == set(), "the install wrote a shell.json itself"
+
+
+def test_no_shell_answering_says_so_and_leaves_the_file_alone(box: Box) -> None:
+    """`omarchy bar set` is the running shell's write (bin/omarchy-bar:453-454): with none,
+    the run still succeeds — it must not fail the module loop — and the next one retries."""
+    path = bar_shell(box)
+    before = path.read_bytes()
+    box.stub("omarchy-bar", "exit 1\n")
+    result = box.run(INSTALL)
+    assert result.returncode == 0, result.stderr
+    assert "retried on the next run" in result.stdout and "showed no seconds" not in result.stdout
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("fmt", "expected"),
+    [(FORMAT, STOCK_FORMAT), ("HH:mm:ss", "HH:mm:ss"), (STOCK_FORMAT, STOCK_FORMAT)],
+    ids=["ours", "the-users-own", "stock"],
+)
+def test_undo_puts_the_stock_format_back_only_over_ours(box: Box, fmt: str, expected: str) -> None:
+    path = bar_shell(box, layout=[{"id": CLOCK, "format": fmt}])
+    result = box.undo("bar-clock")
+    assert result.returncode == 0, result.stderr
+    assert bar(path) == [{"id": CLOCK, "format": expected}]
+    assert len(box.calls_of("omarchy-bar")) == (fmt != expected)
+
+
+def test_undo_on_a_box_that_never_installed_writes_and_calls_nothing(box: Box) -> None:
+    assert box.undo("bar-clock").returncode == 0
+    assert box.files() == set() and box.commands == []
 
 
 @pytest.mark.parametrize("answering", [True, False])
-def test_undo_restores_the_stock_format_and_the_anchor(box: Box, answering: bool) -> None:
-    path = bar_shell(box)
-    box.run(INSTALL)
-    if not answering:
-        box.stub("omarchy-plugin-disable", "exit 1\n")  # no shell to hand the entry back
-    box.reset()
-    result = box.undo("bar-clock")
+@pytest.mark.parametrize("verb", ["", "undo"])
+def test_the_plugin_an_earlier_release_linked_is_retired(
+    box: Box, answering: bool, verb: str
+) -> None:
+    """Up to 9.x this module linked its own copy of the clock in as hyprconf.clock. The pull
+    that brings 10.0 leaves that link dangling, so the first run hands the slot back to
+    omarchy.clock — every setting of the entry kept — through the shell when it still knows
+    the plugin, in shell.json itself when it does not, and drops the link and the marker."""
+    entry = {"id": OLD, "format": FORMAT, "birthYear": 1987}
+    path = bar_shell(box, layout=[entry])
+    link, marker = box.home / OLD_LINK, box.home / OLD_MARKER
+    link.parent.mkdir(parents=True)
+    link.symlink_to(box.tmp / "checkout/modules/bar-clock/plugin")  # gone with the pull
+    marker.parent.mkdir(parents=True)
+    marker.touch()
+    renamed = f"""json="$HOME/.config/omarchy/shell.json"
+jq '.bar.layout.center |= map(if .id == "{OLD}" then .id = "{CLOCK}" else . end)' \\
+    "$json" > "$json.t" && mv "$json.t" "$json"\n"""
+    box.stub("omarchy-plugin-disable", renamed if answering else "exit 1\n")
+
+    result = box.run(INSTALL, *([verb] if verb else []))
     assert result.returncode == 0, result.stderr
-    assert box.calls_of("omarchy-plugin-disable") == [["omarchy-plugin-disable", ID]]
-    assert bar(path) == [{"id": STOCK, "format": STOCK_FORMAT}]
-    assert anchor_of(path) == STOCK
-    assert not (box.home / LINK).exists() and not (box.home / MARKER).exists()
-    expected = [["omarchy-bar", "set", STOCK, "format", STOCK_FORMAT]] if answering else []
-    assert box.calls_of("omarchy-bar") == expected
+    assert box.calls_of("omarchy-plugin-disable") == [["omarchy-plugin-disable", OLD]]
+    assert not link.is_symlink() and not marker.exists()
+    assert "hyprconf.clock retired" in result.stdout
+    assert box.calls_of("omarchy-shell") == [["omarchy-shell", "shell", "rescanPlugins"]]
+    kept = {"id": CLOCK, "birthYear": 1987}
+    assert bar(path) == [kept | {"format": STOCK_FORMAT if verb else FORMAT}]
 
-
-def test_undo_leaves_a_stock_clock_the_user_went_back_to_alone(box: Box) -> None:
-    """`omarchy plugin disable` sticks (README › Settings), and a disable answers "ok" for
-    an id on no section (shell.qml:1623-1624): the format they then set on the stock clock
-    is theirs, not a format of ours to reset."""
-    path = bar_shell(box)
-    box.run(INSTALL)
-    theirs = [{"id": STOCK, "format": "HH:mm"}]
-    bar_shell(box, anchor=STOCK, layout=theirs)
     box.reset()
-    assert box.undo("bar-clock").returncode == 0
-    assert bar(path) == theirs and anchor_of(path) == STOCK
-    assert not {"omarchy-plugin-disable", "omarchy-bar"} & set(box.commands)
-    assert not (box.home / LINK).exists() and not (box.home / MARKER).exists()
+    again = box.run(INSTALL)
+    assert again.returncode == 0, again.stderr
+    assert "omarchy-plugin-disable" not in box.commands and "retired" not in again.stdout
 
 
-def test_the_manifest_claims_the_stock_clock_slot() -> None:
-    manifest = json.loads((PLUGIN / "manifest.json").read_text())
-    assert manifest["id"] == ID
-    assert manifest["omarchy"] == {"clonedFrom": STOCK}
-    assert manifest["entryPoints"] == {"barWidget": "BarWidget.qml"}
-    # Only what the shell does not already default (shell.qml:1403-1408); no
-    # defaultSection either — the clonedFrom swap inherits the stock slot.
-    assert manifest["barWidget"] == {"category": "Time"}
-
-
-@pytest.mark.skipif(not STOCK_CLOCK.is_dir(), reason=NEEDS_OMARCHY)
-def test_the_widget_tracks_omarchys_stock_clock() -> None:
-    """BarWidget.qml is the stock file plus this plugin's header and exactly the
-    two deltas that header names — red on an Omarchy release that changes the
-    clock, which is the signal to refresh the copy. The stock default `format`
-    is pinned here too: it is what install's `undo` puts back."""
-    ours = (PLUGIN / "BarWidget.qml").read_text().splitlines()
-    body = ours[next(n for n, ln in enumerate(ours) if ln.startswith("import ")) :]
-    stock = (STOCK_CLOCK / "BarWidget.qml").read_text()
-    diff = difflib.unified_diff(stock.splitlines(), body, n=0, lineterm="")
-    changed = [ln for ln in diff if ln[:1] in "+-" and not ln.startswith(("---", "+++"))]
-    assert changed == [
-        "-    precision: SystemClock.Minutes",
-        "+    precision: SystemClock.Seconds",
-        '-    source: Qt.resolvedUrl("Panel.qml")',
-        '+    source: "file://" + Quickshell.env("OMARCHY_PATH")'
-        ' + "/shell/plugins/panels/clock/Panel.qml"',
-    ]
-    assert f'setting("format", "{STOCK_FORMAT}")' in stock
-
-
-def declarations(source: str) -> dict[str, str]:
-    """Every top-level `var`/`function`, name -> its text: to the comment block
-    introducing the next one, which belongs to that one."""
-    starts = [
-        (m.start(), m.group(1))
-        for m in re.finditer(r"^(?:var|function)\s+([A-Za-z0-9_]+)", source, re.M)
-    ]
-    out = {}
-    for i, (pos, name) in enumerate(starts):
-        end = starts[i + 1][0] if i + 1 < len(starts) else len(source)
-        lines = source[pos:end].splitlines()
-        while lines and (not lines[-1].strip() or lines[-1].startswith("//")):
-            lines.pop()
-        out[name] = "\n".join(lines)
-    return out
+def test_a_real_folder_or_checkout_of_that_id_is_not_ours_to_retire(box: Box) -> None:
+    """Only the link an earlier install made: a folder there is someone's own plugin."""
+    path = bar_shell(box, layout=[{"id": OLD, "format": FORMAT}])
+    folder = box.home / OLD_LINK
+    folder.mkdir(parents=True)
+    (folder / "manifest.json").write_text("{}\n")
+    assert box.run(INSTALL).returncode == 0
+    assert (folder / "manifest.json").read_text() == "{}\n"
+    assert bar(path) == [{"id": OLD, "format": FORMAT}] and box.commands == []
 
 
 @pytest.mark.skipif(not STOCK_CLOCK.is_dir(), reason=NEEDS_OMARCHY)
-def test_model_js_is_omarchys_label_math_and_only_that() -> None:
-    """Model.js is the subset of Omarchy's that BarWidget.qml calls, verbatim; the
-    calendar half — the monthGrid the widget never calls — stays in Omarchy's tree
-    (BarWidget.qml's header, delta 2; verified live, Qt 6.11)."""
-    kept = """MS_PER_DAY CLOCK_FORMATS VERTICAL_CLOCK_FORMATS clockFormats clockFormatRing
-        nextClockFormat isoWeekLiteral pad2 isoWeek""".split()
-    ours = declarations((PLUGIN / "Model.js").read_text())
-    stock = declarations((STOCK_CLOCK / "Model.js").read_text())
-    assert sorted(ours) == sorted(kept)
-    for name in kept:
-        assert ours[name] == stock[name], f"{name} has drifted from Omarchy's"
-    widget = (PLUGIN / "BarWidget.qml").read_text()
-    assert set(re.findall(r"\bModel\.([A-Za-z0-9_]+)\(", widget)) <= set(kept)
-    assert "monthGrid" not in ours and "monthGrid" in stock
+def test_omarchys_clock_still_ticks_seconds_for_a_format_that_prints_them() -> None:
+    """What lets this module ship no widget, and the three facts its install mirrors: the
+    stock default format `undo` puts back, the seconds test, and the tick it switches —
+    red on an Omarchy release that changes the clock."""
+    widget = (STOCK_CLOCK / "BarWidget.qml").read_text()
+    model = (STOCK_CLOCK / "Model.js").read_text()
+    assert f'setting("format", "{STOCK_FORMAT}")' in widget
+    assert "showsSeconds: Model.clockNeedsSeconds(activeFormat)" in widget
+    assert "step: root.showsSeconds ? 1000 : 60000" in widget
+    assert """return /s/.test(text.replace(/'[^']*'?/g, ""))""" in model
+    shipped = json.loads((OMARCHY / "config/omarchy/shell.json").read_text())
+    clocks = [e for e in shipped["bar"]["layout"]["center"] if e["id"] == CLOCK]
+    assert [c["format"] for c in clocks] == [STOCK_FORMAT]

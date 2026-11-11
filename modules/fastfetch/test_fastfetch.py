@@ -1,5 +1,5 @@
 """modules/fastfetch — the greeting layout, at a path only the greeting reads: never
-~/.config/fastfetch/config.jsonc, Omarchy's About screen (bin/omarchy-launch-about:161)."""
+~/.config/fastfetch/config.jsonc, Omarchy's About screen (bin/omarchy-launch-about:117-123)."""
 
 import json
 import re

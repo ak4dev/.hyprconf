@@ -96,7 +96,7 @@ EXTRA_FAKES = (
 )
 
 # What the scripts read out of $OMARCHY_PATH, in the shape the installed tree
-# has (Omarchy 4.0.3-1) and cut to what a test needs to see. A script that
+# has (Omarchy 4.5.0-3) and cut to what a test needs to see. A script that
 # reads another file adds it here, or writes its own with box.omarchy_write().
 OMARCHY_TREE = {
     # default/firefox/policies.json — what install.sh merges ours UNDER.
@@ -118,35 +118,39 @@ OMARCHY_TREE = {
         "# Terminal emulator preference order for xdg-terminal-exec\n"
         "# The first found and valid terminal will be used\nfoot.desktop\n"
     ),
-    # default/fontconfig/conf.avail/50-omarchy.conf, cut to the monospace match — the
-    # family font's undo names.
+    # default/fontconfig/conf.avail/50-omarchy.conf, cut to its two kinds of monospace
+    # match (4.5.0-3): a CJK family appended, then the family assigned — the one
+    # font's undo names.
     "default/fontconfig/conf.avail/50-omarchy.conf": (
-        '<fontconfig>\n  <match target="pattern">\n    <test name="family" qual="any">\n'
+        '<fontconfig>\n  <match target="pattern">\n    <test name="family">\n'
+        "      <string>monospace</string>\n    </test>\n"
+        '    <edit name="family" mode="append" binding="strong">\n'
+        "      <string>Noto Sans Mono CJK SC</string>\n    </edit>\n  </match>\n"
+        '  <match target="pattern">\n    <test name="family" qual="any">\n'
         "      <string>monospace</string>\n    </test>\n"
         '    <edit name="family" mode="assign" binding="strong">\n'
         "      <string>JetBrainsMono Nerd Font</string>\n    </edit>\n  </match>\n</fontconfig>\n"
     ),
     # config/omarchy/shell.json — the seed for ~/.config/omarchy/shell.json,
-    # cut to the two keys the overlay reads: idle.screensaver and the bar's
-    # centre anchor.
+    # cut to what the overlay reads: idle.screensaver and the bar's clock.
     "config/omarchy/shell.json": (
         '{\n  "version": 1,\n  "idle": { "screensaver": 150, "lock": 300 },\n'
-        '  "bar": { "centerAnchor": "omarchy.clock",\n'
-        '    "layout": { "center": [ { "id": "omarchy.clock" } ] } }\n}\n'
+        '  "bar": { "position": "top",\n'
+        '    "layout": { "center": [ { "id": "omarchy.clock", "format": "dddd HH:mm" } ] } }\n}\n'
     ),
 }
 
 # -- fakes with a body ------------------------------------------------------
 # What a module's real path needs the box to answer, each transcribed from the
-# Omarchy file:line beside it (4.0.3-1); a suite hands one to the box with
+# Omarchy file:line beside it (4.5.0-3); a suite hands one to the box with
 # `box.stub(name, BODY)`.
 
-# bin/omarchy-hook-install:27-29: mkdir -p the .d dir, cp under the basename, chmod 755.
+# bin/omarchy-hook-install:38-40: mkdir -p the .d dir, cp under the basename, chmod 755.
 HOOK_INSTALL = (
     'd="$HOME/.config/omarchy/hooks/$1.d"; mkdir -p "$d"; cp "$2" "$d/${2##*/}"; '
     'chmod 755 "$d/${2##*/}"\n'
 )
-# bin/omarchy-shell-config:6-26,47-62, the helper modules/idle SOURCES: functions only,
+# bin/omarchy-shell-config:6-26,47-65, the helper modules/idle SOURCES: functions only,
 # since the recording fake's `exit 0` would end the sourcing shell before commit() ran.
 SHELL_CONFIG = """\
 CONFIG_FILE="$HOME/.config/omarchy/shell.json"
@@ -161,9 +165,9 @@ commit() {
 }
 """
 # The running shell's three shell.json writes, one template: every layout entry is a
-# bare id or an object with one (bin/omarchy-bar:178); an enable swaps a clonedFrom copy
-# into the slot of the id it was cloned from (shell/services/PluginRegistry.qml:529-534)
-# and a disable hands the whole entry back, format included (:555 -> restoreCloneSource:441).
+# bare id or an object with one (bin/omarchy-bar:190); an enable swaps a clonedFrom copy
+# into the slot of the id it was cloned from (shell/services/PluginRegistry.qml:561-566)
+# and a disable hands the whole entry back, settings included (:587 -> restoreCloneSource:460-484).
 _EDIT = """
 json="$HOME/.config/omarchy/shell.json"
 [[ -f $json ]] || exit 1
@@ -191,15 +195,15 @@ jq -n --args '[$ARGS.positional[] | { id: rtrimstr("/") }]' -- */
 """
 
 
-def bar_shell(box: Box, anchor: str = "omarchy.clock", layout: list | None = None) -> Path:
+def bar_shell(box: Box, layout: list | None = None) -> Path:
     """The box's ~/.config/omarchy/shell.json — Omarchy's own default bar, `layout` in
-    place of its centre — plus the four fakes that model the running shell."""
+    place of its centre box — plus the four fakes that model the running shell."""
     path = box.home / ".config/omarchy/shell.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     center = [{"id": "omarchy.clock", "format": "dddd HH:mm"}] if layout is None else layout
     left = [{"id": "omarchy.menu"}, {"id": "omarchy.workspaces"}]
-    layouts = {"left": left, "center": center, "right": []}
-    path.write_text(json.dumps({"bar": {"centerAnchor": anchor, "layout": layouts}}))
+    layouts = {"left": left, "centerBegin": [], "center": center, "centerEnd": [], "right": []}
+    path.write_text(json.dumps({"bar": {"layout": layouts}}))
     box.stub("omarchy-plugin-list", PLUGIN_LIST)
     box.stub("omarchy-plugin-enable", PLUGIN_ENABLE)
     box.stub("omarchy-plugin-disable", PLUGIN_DISABLE)
@@ -234,7 +238,7 @@ exit 0
 
 
 def default_app(state: Path, unset: str) -> str:
-    """omarchy-default-browser / -editor (bin/omarchy-default-browser:7-20, -editor:9-15,33-34):
+    """omarchy-default-browser / -editor (bin/omarchy-default-browser:13-26,53, -editor:15-25,59-60):
     bare, it prints the pick back, `unset` before any; with an argument it records the pick."""
     return (
         f'if (($# == 0)); then cat "{state}" 2>/dev/null || echo {unset}; '

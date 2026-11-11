@@ -86,16 +86,15 @@ def checkout(tmp: Path) -> Path:
 
 
 def hook(box: Box) -> subprocess.CompletedProcess:
-    """The installed hook as omarchy-hook runs it, `bash <hook>` (bin/omarchy-hook:26), on a tty."""
+    """The installed hook as omarchy-hook runs it, `bash <hook>` (bin/omarchy-hook:38), on a tty."""
     return box.run(box.home / INSTALLED_HOOK, tty=True)
 
 
 @pytest.fixture
 def live(box: Box) -> Box:
-    """A box every module takes its real path on: the shell's writes — the disable
-    included, or bar-clock's undo waits out its whole `settled` timeout — a sourceable
+    """A box every module takes its real path on: the shell's writes, a sourceable
     shell-config, a git that settles the pin, default-app setters that read back, and a
-    shell.json with the stock clock in the centre for bar-clock to swap."""
+    shell.json with the stock clock in the centre for bar-clock to set."""
     box.stub("omarchy-hook-install", HOOK_INSTALL)
     box.stub("omarchy-shell-config", SHELL_CONFIG)
     box.stub("omarchy-plugin-enable", PLUGIN_ENABLE)
@@ -109,8 +108,7 @@ def live(box: Box) -> Box:
     shell_json.parent.mkdir(parents=True)
     center = [{"id": "omarchy.clock", "format": "dddd HH:mm"}]
     layout = {"left": ["omarchy.workspaces"], "center": center, "right": []}
-    bar = {"centerAnchor": "omarchy.clock", "layout": layout}
-    shell_json.write_text(json.dumps({"version": 1, "bar": bar}))
+    shell_json.write_text(json.dumps({"version": 1, "bar": {"layout": layout}}))
     return box
 
 
@@ -149,7 +147,8 @@ def test_a_full_run_reaches_every_module_and_a_second_run_is_byte_stable(live: B
     state = home / ".local/state/hyprconf"
     assert sorted(p.name for p in state.glob("*-applied")) == sorted(markers)
     shell = json.loads((home / ".config/omarchy/shell.json").read_text())
-    assert shell["bar"]["centerAnchor"] == "hyprconf.clock" and shell["idle"]["screensaver"] == 900
+    assert shell["bar"]["layout"]["center"] == [{"id": "omarchy.clock", "format": "hh:mm:ss AP"}]
+    assert shell["idle"]["screensaver"] == 900
     assert Path(os.readlink(home / LINK)) == INSTALL_SH
     assert (home / INSTALLED_HOOK).read_bytes() == HOOK.read_bytes()
 
@@ -158,7 +157,7 @@ def test_a_full_run_reaches_every_module_and_a_second_run_is_byte_stable(live: B
     second = live.core("--no-update", tty=True)
     assert second.returncode == 0, second.stderr
     after = live.snapshot()
-    # Omarchy's own cp rewrites the hook's bytes each run (bin/omarchy-hook-install:28).
+    # Omarchy's own cp rewrites the hook's bytes each run (bin/omarchy-hook-install:39).
     assert after.pop(f"home/{INSTALLED_HOOK}")[3] == settled.pop(f"home/{INSTALLED_HOOK}")[3]
     assert after == settled
     assert "WARNING" not in second.stderr, second.stderr
@@ -284,7 +283,7 @@ def test_a_failing_module_is_named_and_stops_the_update(box: Box) -> None:
 
 def test_the_hook_is_installed_unrendered_and_reapplies_through_the_link(live: Box) -> None:
     """omarchy-hook-install copies the shipped file byte for byte (no checkout path: it
-    runs the link); omarchy-update runs it after the migrations (bin/omarchy-update:48-49)
+    runs the link); omarchy-update runs it after the migrations (bin/omarchy-update:107,121)
     and it execs the link with --no-update --no-packages: the whole loop, no sudo work."""
     live.stub("omarchy-pkg-present", "exit 1\n")
     assert live.core("--no-update").returncode == 0
@@ -304,7 +303,7 @@ def test_the_hook_is_installed_unrendered_and_reapplies_through_the_link(live: B
 
 
 def test_the_hook_bows_out_when_the_link_is_gone(live: Box) -> None:
-    """omarchy-hook reports a failing hook (bin/omarchy-hook:26): a missing overlay says
+    """omarchy-hook reports a failing hook (bin/omarchy-hook:38): a missing overlay says
     so on stderr and exits 0."""
     assert live.core("--no-update", "fastfetch").returncode == 0
     link = live.home / LINK

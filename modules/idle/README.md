@@ -5,8 +5,8 @@
 Omarchy's screensaver starts after 150 s (`config/omarchy/shell.json`, `idle.screensaver`);
 this module sets it to **900 s**, once, behind `~/.local/state/hyprconf/idle-applied` —
 shell.json is your file, so a later change stays yours. `idle.lock` (300 s) is untouched, so
-the lock fires first and stops the screensaver timer (`shell/plugins/services/idle/Service.qml:26-28,75-78,99-113`;
-`:72` refuses a launch while locked): the effect is **no screensaver ahead of the 5-minute
+the lock fires first and stops the screensaver timer (`shell/plugins/services/idle/Service.qml:27-29,76-79,100-114`;
+`:73` refuses a launch while locked): the effect is **no screensaver ahead of the 5-minute
 lock**, not one at 15 minutes.
 
 No Omarchy command writes an idle timeout (`omarchy commands --json` routes only branding /
@@ -15,7 +15,7 @@ launch / toggle screensaver; `omarchy toggle idle` is a stay-awake state file,
 shell.json writer uses — `bin/omarchy-bar:10` sources it the same way. `commit()` is
 `jq -S -e` over your shell.json (or, when you have none yet, over the shipped defaults, so
 the first run creates one), `mktemp`, `mv`, then `omarchy-shell shell reloadConfig` falling
-back to `omarchy-shell -q shell rescanPlugins` (`bin/omarchy-shell-config:14-26,53-62`). Its `mv` goes unchecked
+back to `omarchy-shell -q shell rescanPlugins` (`bin/omarchy-shell-config:14-26,56-65`). Its `mv` goes unchecked
 when `commit` runs inside a conditional, so the value is read back from the file before the marker is written.
 
 ## Requires
@@ -33,13 +33,13 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 ## Settings
 
 Edit `.idle.screensaver` (seconds) in `~/.config/omarchy/shell.json` — the shell watches the
-file and reloads (`shell/shell.qml:136-145`); past the marker nothing re-asserts it. A
-screensaver only ever shows while `.idle.screensaver` is below `.idle.lock`, and 0 turns it off (`Service.qml:23`).
+file and reloads (`shell/shell.qml:147-156`); past the marker nothing re-asserts it. A
+screensaver only ever shows while `.idle.screensaver` is below `.idle.lock`, and 0 turns it off (`Service.qml:24`).
 
 ## Undo
 
 `bash ~/.hyprconf/modules/idle/install undo` drops the key through the same helper and removes the
-marker; the shell's own stock 150 s then applies (`shell/plugins/services/idle/Service.qml:17,21`).
+marker; the shell's own stock 150 s then applies (`shell/plugins/services/idle/Service.qml:18,22`).
 The file stays — one the first run created is Omarchy's shipped defaults, key-sorted, minus this key.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3

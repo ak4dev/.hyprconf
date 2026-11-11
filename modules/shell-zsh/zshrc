@@ -3,7 +3,7 @@
 
 # Omarchy's own bash files, read by zsh so its updates flow straight through:
 # env-bootstrap exports OMARCHY_PATH and appends ~/.local/bin to PATH
-# (default/bash/env-bootstrap:16,37-40), envs sets EDITOR/BROWSER/MANPAGER
+# (default/bash/env-bootstrap:16,58-61), envs sets EDITOR/BROWSER/MANPAGER
 # (:2,8,13), aliases the eza/fzf/zoxide set. Failure-tolerant on purpose —
 # these are bash files: a bashism in a future Omarchy release must degrade to
 # a missing alias, never to an unusable shell.

@@ -28,5 +28,5 @@ To change how much the kernel says, edit `loglevel=` in `00-hyprconf-boot-text.c
 ## Undo
 `bash ~/.hyprconf/modules/boot-text/install undo`: `sudo rm` of the drop-in, then a `limine-mkinitcpio` rebuild. Omarchy's splash and themed unlock screen return from the next boot.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3
 limine-mkinitcpio-hook 1.40.0-2, plymouth 26.134.222-3, systemd 262.1-1, linux-omarchy 7.2.15-1. The paths and strings above were read from the installed tree. The boot itself needs a reboot, so it is verified by hand, not in the suite.

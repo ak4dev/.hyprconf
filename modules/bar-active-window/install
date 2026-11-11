@@ -11,9 +11,9 @@ source "$dir/../bar-plugin.sh"
 if [[ ${1:-} == undo ]]; then
     # A non-empty marker says the enable ADDED a slot, so the slot goes too — but only
     # while our copy still holds it: disabling it hands the slot to the stock widget
-    # (PluginRegistry.qml:555 -> :459-463), and taking that one off is a plain splice
-    # (:556). A stock title the user has placed since is left alone — the disable moves
-    # nothing without a bar location of ours (:449-450).
+    # (PluginRegistry.qml:587 -> :479-484), and taking that one off is a plain splice
+    # (:588). A stock title the user has placed since is left alone — the disable moves
+    # nothing without a bar location of ours (:468-469).
     if [[ -s $marker ]] && on_bar "$id"; then
         plugin_disable
         omarchy-plugin-disable "$stock" >/dev/null 2>&1 || true
@@ -27,8 +27,8 @@ fi
 plugin_link
 [[ -e $marker ]] && exit 0   # enabled once (rule 5): a bar the user took it off stays that way
 plugin_enable
-# `.enabled` is on-the-bar for a widget (shell.qml:1684-1685): with neither id on the
-# bar before it, the enable ADDED a slot (:535-540) rather than taking the stock one's.
+# `.enabled` is on-the-bar for a widget (shell.qml:1876-1877): with neither id on the bar
+# before it, the enable ADDED a slot (PluginRegistry.qml:567-572) rather than taking the stock one's.
 # A list that never answered leaves the marker empty — undo then leaves stock in place.
 # shellcheck disable=SC2154  # $list: the answer plugin_enable's wait ended on
 jq -r --arg id "$id" --arg stock "$stock" \

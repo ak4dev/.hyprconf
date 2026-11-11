@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/themes — links the dracula user theme in (never activated) and seeds extra wallpapers.
-# Seams: ~/.config/omarchy/themes (omarchy-theme-set:204-208,275, omarchy-theme-extras:12 — a link takes the plain `cp -r` branch and `omarchy theme update` skips it) and ~/.config/omarchy/backgrounds/<theme>/ (omarchy-theme-bg-next:7-14, omarchy-theme-bg-switcher:11-14 — the only other place the picker looks).
+# Seams: ~/.config/omarchy/themes (omarchy-theme-set:356-360,436, omarchy-theme-extras:12 — a link takes the plain `cp -r` branch and `omarchy theme update` skips it) and ~/.config/omarchy/backgrounds/<theme>/ (omarchy-theme-bg-next:7-16, omarchy-theme-bg-switcher:11-14 — the only other place the picker looks).
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")

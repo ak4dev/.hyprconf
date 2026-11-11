@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/fastfetch — the shell greeting's layout, for `fastfetch -c` in modules/shell-zsh.
-# No seam of fastfetch's own: ~/.config/fastfetch/config.jsonc is Omarchy's About screen (bin/omarchy-launch-about:161, custom_fastfetch_config :16-18), so the copy goes to ~/.config/hyprconf.
+# No seam of fastfetch's own: ~/.config/fastfetch/config.jsonc is Omarchy's About screen (bin/omarchy-launch-about:117-123, custom_fastfetch_config :45-61), so the copy goes to ~/.config/hyprconf.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")

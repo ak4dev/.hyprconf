@@ -10,7 +10,7 @@ Read [`AGENTS.md`](../AGENTS.md) first — its rules bind every change.
 ├── hooks/10-hyprconf      # the post-update hook: exec ~/.local/bin/hyprconf --no-update --no-packages
 ├── modules/<name>/        # one self-contained module each: install (+ `install undo`), README.md, test_<name>.py,
 │                          #   an optional packages file and its payload — tools under bin/, a bar plugin under plugin/
-├── modules/bar-plugin.sh  # what the four bar-*/install share: link, rescan, enable, the shell.json fallback, undo — sourced, never run
+├── modules/bar-plugin.sh  # what the bar-*/install with a plugin/ share: link, rescan, enable, the shell.json fallback, undo — sourced, never run
 ├── conftest.py            # the `box` fixture (repo root, so it reaches modules/ and tests/)
 ├── tests/                 # what is not a module's: the core, the scans, the plugin contract, PII, the supply chain,
 │                          #   the publish pipeline, the docs contract
@@ -65,7 +65,7 @@ docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
   `-c user.*` itself.
 - The fakes: a recording stub for every `omarchy-*` name the shipped scripts and payload carry — derived from them
   at session start, so a new call cannot slip past — plus the handful that would otherwise reach the real machine,
-  `EXTRA_FAKES` in `conftest.py`, each with its reason beside it; `bar_shell(box, anchor, layout)` writes a
+  `EXTRA_FAKES` in `conftest.py`, each with its reason beside it; `bar_shell(box, layout)` writes a
   `shell.json` and installs the four that model the running shell (`omarchy-plugin-{list,enable,disable}`,
   `omarchy-bar`). `box.fakes` is the set a suite's "every external the tool names has a fake" self-check compares
   against. `/usr/bin` carries every `omarchy-*` command, so fakes-then-`/usr/bin` keeps none of them out: the
@@ -78,7 +78,7 @@ docker run --rm -v "$PWD":/src:ro archlinux:latest bash -c \
   the tree, `HYPRCONF_STATE` for the marker directory, `HYPRCONF_STATS_*` / `HYPRCONF_GPU_*` for the feeders. Grep
   the seams rather than trust a list:
   `grep -oh '_HYPRCONF_[A-Z_]*\|HYPRCONF_STATS_[A-Z_]*\|HYPRCONF_GPU_[A-Z_]*' install.sh modules/*/install modules/*/bin/* modules/*/plugin/bin/* | sort -u`.
-- Every module suite covers the mandatory cases (the four bar modules' live once, per plugin folder, in
+- Every module suite covers the mandatory cases (the bar plugin modules' live once, per plugin folder, in
   `tests/test_plugins_contract.py`): a second run writes nothing and calls nothing that mutates;
   `install undo` restores stock after an install and is a no-op on a box that never installed; the sudo and TTY
   gates where the module has them.
@@ -113,18 +113,18 @@ release's `install.sh` to curl.
 ## Publishing a plugin
 
 `omarchy plugin add <url>` clones a repository and expects `manifest.json` at its root (`bin/omarchy-plugin-add`,
-Omarchy 4.0.4-1), so the monorepo cannot be added as it is. Each `modules/bar-*/plugin` folder is the whole plugin
+Omarchy 4.5.0-3), so the monorepo cannot be added as it is. Each `modules/bar-*/plugin` folder is the whole plugin
 and splits out with git's own tool, history and modes included:
 
 ```bash
-git subtree split --prefix=modules/bar-clock/plugin -b plugins/hyprconf-clock
-git push git@github.com:ak4dev/omarchy-hyprconf-clock.git plugins/hyprconf-clock:main
+git subtree split --prefix=modules/bar-workspaces/plugin -b plugins/hyprconf-workspaces
+git push git@github.com:ak4dev/omarchy-hyprconf-workspaces.git plugins/hyprconf-workspaces:main
 ```
 
 Never run here: a push is the user's, on request. `tests/test_plugins_contract.py` pins the splittable shape and
 the validator's own checks over every folder, and runs Omarchy's real validator against a link to each; the
-manifest `version` stays `1.0.0` — nothing reads it. Until that push each plugin README gives Omarchy's by-hand
-install (`/usr/share/omarchy/shell/README.md` › Installing by hand) and names
+manifest `version` stays `1.0.0` — nothing reads it. Until that push each plugin README gives the by-hand
+install (the folder Omarchy reads, `/usr/share/omarchy/shell/plugins/README.md:11-12`) and names
 `omarchy plugin add <url> --enable --yes` as the form that applies once the repository exists — `--yes` because
 the bar-section prompt would move a `clonedFrom` widget out of the stock slot it just took.
 

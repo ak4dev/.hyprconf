@@ -2,7 +2,7 @@
 // omarchy.active-window widget (README.md beside this file has the behaviour
 // and the setting; NOTICE carries Omarchy's MIT notice, which every copy of
 // its code must). Deltas from the stock widget, and all of them
-// (shell/plugins/bar/widgets/ActiveWindow.qml, Omarchy 4.0.5-1):
+// (shell/plugins/bar/widgets/ActiveWindow.qml, Omarchy 4.5.0-3):
 //   1. the stock character budget laid out on two caption-size lines
 //      (lineWidth, wrapMode, maximumLineCount);
 //   2. implicitWidth off contentWidth, the widest painted line, so a short
@@ -43,7 +43,7 @@ BarWidget {
   implicitHeight: barSize
 
   Behavior on implicitWidth {
-    NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+    NumberAnimation { duration: Style.duration(180); easing.type: Easing.OutCubic }
   }
 
   Item {

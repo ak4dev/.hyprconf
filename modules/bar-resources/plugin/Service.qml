@@ -7,7 +7,7 @@
 // and on NVIDIA an NVML session, per screen for numbers identical on all of
 // them. The service kind is that seam: shell.qml loads an enabled plugin's
 // `entryPoints.service` once for the session, a third-party instance created
-// unparented (shell.qml:923, Omarchy 4.0.3-1), and `omarchy plugin disable`
+// unparented (shell.qml:949-952, Omarchy 4.5.0-3), and `omarchy plugin disable`
 // destroys it with the bar entry — one id, one on/off switch.
 //
 // A stream that exits without ever producing a line means "no such hardware":

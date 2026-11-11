@@ -1,7 +1,7 @@
-"""The contract every shipped plugin folder keeps, the same for all four bar modules: the
+"""The contract every shipped plugin folder keeps, the same for every bar module with one: the
 omarchy-plugin-validate port (CI has no Omarchy) and one run of the real thing, the shape a
 folder needs as a repository of its own, the Text and implicit-size rules, a qmllint parse,
-the facade-member pin — and, since the four installs are one mechanism (modules/bar-plugin.sh),
+the facade-member pin — and, since their installs are one mechanism (modules/bar-plugin.sh),
 the install and undo cases each module used to repeat: link, rescan, the one enable, the
 checkout it leaves alone, the folder it moves aside, no shell answering, and the way back."""
 
@@ -31,8 +31,8 @@ FOLDERS = sorted(REPO_ROOT.glob("modules/*/plugin"))
 assert FOLDERS, "no plugin folders found"
 per_folder = pytest.mark.parametrize("folder", FOLDERS, ids=lambda f: f.parent.name)
 
-# bin/omarchy-plugin-validate (Omarchy 4.0.3-1): its id regex, required fields and
-# kind -> entry-point table.
+# bin/omarchy-plugin-validate (Omarchy 4.5.0-3): its id regex, required fields,
+# bar sections and kind -> entry-point table.
 PLUGIN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 REQUIRED = ("id", "name", "version", "kinds", "entryPoints")
 KIND_ENTRY_POINTS = {
@@ -43,6 +43,7 @@ KIND_ENTRY_POINTS = {
     "panel": "panel",
     "service": "service",
 }
+SECTIONS = ("left", "centerBegin", "center", "centerEnd", "tray", "right")
 BARE_ARGV = re.compile(r'command:\s*\[\s*"(hyprconf-[^"]*)"')
 
 
@@ -85,8 +86,8 @@ def validator_problems(folder: Path) -> list[str]:
         eps = {}
     widget = m.get("barWidget")
     if isinstance(widget, dict) and "defaultSection" in widget:
-        if widget["defaultSection"] not in ("left", "center", "right"):
-            out.append("'barWidget.defaultSection' must be left, center, or right")
+        if widget["defaultSection"] not in SECTIONS:
+            out.append(f"'barWidget.defaultSection' must be one of {', '.join(SECTIONS)}")
     for key, ep in eps.items():
         if not isinstance(ep, str) or not ep:
             out.append(f"entry point '{key}' is empty")
@@ -162,7 +163,9 @@ PLUGIN_BAR_API = (
     "layoutConfig",
     "moduleName",
     "moduleWidgets",
+    "notePopoutCard",
     "pluginId",
+    "popoutCardFor",
     "position",
     "registerClickTarget",
     "releasePopout",
@@ -174,6 +177,8 @@ PLUGIN_BAR_API = (
     "switchPanelFrom",
     "targetBelongsToWindow",
     "transparent",
+    "traySectionDragActive",
+    "traySectionPopoutOpen",
     "unregisterClickTarget",
     "urgent",
     "vertical",
@@ -259,17 +264,17 @@ def test_widgets_read_only_what_the_plugin_facades_expose() -> None:
         for member in MEMBER_RE.findall(OWNER_RE.sub("", qml_code(qml))):
             assert member in allowed, f"{qml}: bar.{member} is not on the facades"
             seen.add(member)
-    assert {"serviceFor", "updateEntryInline"} <= seen, "the scan matched nothing it should"
+    assert {"serviceFor", "run"} <= seen, "the scan matched nothing it should"
 
 
-# What the widgets take from qs.Commons and qs.Ui beyond the facades above (Omarchy 4.0.4-1):
+# What the widgets take from qs.Commons and qs.Ui beyond the facades above (Omarchy 4.5.0-3):
 # the singleton paths, and each Ui type with the members it is used through. Neither is a
-# published API (shell/README.md names the facades), and a rename there is no load error —
+# published API, and a rename there is no load error —
 # an undefined size is a zero-width widget and one journal warning — so both are pinned, and
 # checked against the installed shell where there is one.
 COMMONS_USED = (
     "Color.foreground",
-    "Style.bar.iconSlot",
+    "Style.duration",
     "Style.font.body",
     "Style.font.caption",
     "Style.font.family",
@@ -280,24 +285,7 @@ COMMONS_USED = (
     "Style.spacing.sm",
     "Util.shellQuote",
 )
-UI_USED = {
-    "BarWidget": ("bar", "barSize", "broadcast", "moduleName", "setting", "settings", "vertical"),
-    "OpticalGlyph": ("color", "fontFamily", "fontSize", "text"),
-    "WidgetButton": (
-        "bar",
-        "fixedHeight",
-        "fontFamily",
-        "fontSize",
-        "foreground",
-        "hasVisualContent",
-        "horizontalMargin",
-        "labelVisible",
-        "labelWidth",
-        "pressed",
-        "text",
-        "verticalPadding",
-    ),
-}
+UI_USED = {"BarWidget": ("bar", "barSize", "moduleName", "setting", "vertical")}
 COMMONS_RE = re.compile(r"\b(?:Style|Color|Util)(?:\.[A-Za-z_]\w*)+")
 TYPE_RE = re.compile(r"^\s*([A-Z]\w*) \{", re.M)
 MEMBER_DECL_RE = re.compile(
@@ -380,7 +368,6 @@ class Plugin:
     stock: str
     link: Path
     marker: Path
-    sets_a_bar_key: bool
 
     def run(self, *args: str) -> subprocess.CompletedProcess:
         proc = self.box.run(self.install, *args)
@@ -404,13 +391,12 @@ def plugin(request: pytest.FixtureRequest, box: Box) -> Plugin:
         stock=manifest.get("omarchy", {}).get("clonedFrom", ""),
         link=box.home / ".config/omarchy/plugins" / manifest["id"],
         marker=box.home / ".local/state/hyprconf" / marker.group(1),
-        sets_a_bar_key="omarchy-bar set" in text,
     )
 
 
 def test_install_links_the_folder_rescans_it_and_enables_it_once(plugin: Plugin) -> None:
     """One rescan, one enable, and no placement on it: a --section would splice a clonedFrom
-    copy straight back out of the stock widget's slot (PluginRegistry.qml:545-546)."""
+    copy straight back out of the stock widget's slot (PluginRegistry.qml:577-578)."""
     box = plugin.box
     bar_shell(box)
     plugin.run()
@@ -418,9 +404,7 @@ def test_install_links_the_folder_rescans_it_and_enables_it_once(plugin: Plugin)
     assert box.calls_of("omarchy-shell") == [["omarchy-shell", "shell", "rescanPlugins"]]
     assert box.calls_of("omarchy-plugin-enable") == [["omarchy-plugin-enable", plugin.id]]
     assert plugin.marker.is_file() and "sudo" not in box.commands
-    # A bar key is a user choice: only a module whose install sets one may call for it.
-    keyed = [c[2] for c in box.calls_of("omarchy-bar")]
-    assert keyed == ([plugin.id] if plugin.sets_a_bar_key else [])
+    assert "omarchy-bar" not in box.commands, "a bar key is a user choice, not an install's"
 
 
 def test_a_second_run_writes_nothing_and_enables_nothing(plugin: Plugin) -> None:
@@ -437,7 +421,7 @@ def test_a_second_run_writes_nothing_and_enables_nothing(plugin: Plugin) -> None
 
 
 def test_an_omarchy_plugin_add_checkout_of_the_same_id_is_left_to_omarchy(plugin: Plugin) -> None:
-    """`omarchy plugin update` fast-forwards it (bin/omarchy-plugin-update:111-112): it is
+    """`omarchy plugin update` fast-forwards it (bin/omarchy-plugin-update:110-111): it is
     the user's checkout, not ours to link over."""
     (plugin.link / ".git").mkdir(parents=True)
     proc = plugin.run()
@@ -517,7 +501,7 @@ def test_a_refusing_shell_is_named_as_it_refused_not_as_absent(plugin: Plugin) -
 
 def test_undo_disables_it_first_then_takes_the_link_and_the_marker_away(plugin: Plugin) -> None:
     """Disabled while still installed: the clonedFrom entry is what hands the slot back to
-    the stock widget (PluginRegistry.qml:555 -> restoreCloneSource:441)."""
+    the stock widget (PluginRegistry.qml:587 -> restoreCloneSource:460-484)."""
     box = plugin.box
     bar_shell(box)
     plugin.run()
@@ -533,12 +517,12 @@ def test_undo_disables_it_first_then_takes_the_link_and_the_marker_away(plugin: 
 def test_undo_with_no_shell_answering_hands_the_slot_back_in_the_file(plugin: Plugin) -> None:
     """With nothing answering there is no in-memory copy to take an edit back, so the swap
     the disable would do is done in shell.json itself — a layout entry naming a plugin that
-    is gone is a 0-width slot next session (Bar.qml:1809, :1828)."""
+    is gone is a 0-width slot next session (Bar.qml:2741, :2747)."""
     box = plugin.box
     path = bar_shell(box, layout=[{"id": plugin.id}])
     box.stub("omarchy-plugin-disable", "exit 1\n")
     assert box.undo(plugin.module).returncode == 0
-    # A centre entry is a bare id or an object with one (bin/omarchy-bar:178).
+    # A centre entry is a bare id or an object with one (bin/omarchy-bar:190).
     centre = json.loads(path.read_text())["bar"]["layout"]["center"]
     assert [e["id"] if isinstance(e, dict) else e for e in centre] == (
         [plugin.stock] if plugin.stock else []

@@ -8,16 +8,16 @@
 // and why).
 //
 // The accessor for an installed third-party widget is `bar.shell.serviceFor
-// (<own id>)`: on Omarchy 4.0.3-1 `bar` is a Ui/PluginBarApi.qml facade
-// (shell/plugins/bar/Bar.qml:2002-2003) and its `shell` a
+// (<own id>)`: on Omarchy 4.5.0-3 `bar` is a Ui/PluginBarApi.qml facade
+// (shell/plugins/bar/Bar.qml:2836-2837) and its `shell` a
 // services/PluginShellApi.qml whose `serviceFor` answers only for ids this
-// plugin owns (PluginShellApi.qml:30 → shell.qml:385-394). It is NOT
-// `firstPartyServiceFor`, which on 4.0.3 is a narrow proxy over four
-// `omarchy.*` ids (shell.qml:592-596) and is what the stock `omarchy.media`
-// widget uses on itself (shell/plugins/services/media/BarWidget.qml:10). It
-// is null until the service is up, and under a replacement bar, whose
-// widgets get a service-less entry facade (Bar.qml:238-242); every cell
-// then shows the blank/zero it shows before the first line arrives.
+// plugin owns (PluginShellApi.qml:30-32 → shell.qml:393-402). It is NOT
+// `firstPartyServiceFor`, which is a narrow proxy over five `omarchy.*` ids
+// (shell.qml:620-631) and is what the stock `omarchy.media` widget uses on
+// itself (shell/plugins/services/media/BarWidget.qml:11). It is null until
+// the service is up, and under a replacement bar, whose widgets get a
+// service-less entry facade (Bar.qml:358-362); every cell then shows the
+// blank/zero it shows before the first line arrives.
 //
 // Glyphs are the widget's own (the feeders emit numbers only): microchip
 // (nf-fa-microchip U+F2DB), expansion card (nf-md-expansion_card U+F08AE),
@@ -96,7 +96,7 @@ BarWidget {
   component Cell: Text {
     // Feeder strings are untrusted-adjacent (device names, interface names):
     // never rich-text parsed — the hardening the stock window-title widget
-    // has (plugins/bar/widgets/ActiveWindow.qml:32, Omarchy 4.0.3-1).
+    // has (plugins/bar/widgets/ActiveWindow.qml:33, Omarchy 4.5.0-3).
     textFormat: Text.PlainText
     color: root.textColor
     font.pixelSize: Style.font.caption

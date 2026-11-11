@@ -14,7 +14,7 @@ o.launch_on_start("protonvpn-app --start-minimized") -- hyprconf/proton-vpn
 ```
 
 Omarchy's helper runs that through `uwsm-app` once, when Hyprland starts
-(`default/hypr/helpers.lua:108-120`), so reloading the config starts no second copy.
+(`default/hypr/helpers.lua:159-161,187-195`), so reloading the config starts no second copy.
 `--start-minimized` hides the window only while a tray is up (`proton/vpn/app/gtk/app.py:130-148`),
 which Omarchy's bar provides. The line is added only once the app is installed, and put back on any
 run that finds it gone — `omarchy refresh hyprland` rewrites `autostart.lua`.
@@ -56,5 +56,5 @@ also takes Auto connect back to Off, but only while it still reads `FASTEST`: a 
 since stays. The packages stay (hyprconf removes none), and an `autostart.lua` that did not end in
 a newline keeps the one the install added. The next login starts no VPN.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3
 proton-vpn-gtk-app 4.18.7, proton-vpn-cli 1.0.5.

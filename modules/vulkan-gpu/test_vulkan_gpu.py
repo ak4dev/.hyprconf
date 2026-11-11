@@ -119,7 +119,7 @@ def dual(box: Box) -> Box:
 
 
 def test_install_links_the_tool_onto_path(box: Box) -> None:
-    """~/.local/bin is on the session PATH (default/bash/env-bootstrap:37-40, Omarchy 4.0.3-1)."""
+    """~/.local/bin is on the session PATH (default/bash/env-bootstrap:58-61, Omarchy 4.5.0-3)."""
     r = box.run(INSTALL)
     assert r.returncode == 0, r.stdout + r.stderr
     assert os.readlink(linked_tool(box)) == str(TOOL) and os.access(linked_tool(box), os.X_OK)

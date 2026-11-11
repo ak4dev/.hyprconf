@@ -1,93 +1,53 @@
 #!/usr/bin/env bash
-# hyprconf/bar-clock — plugin/, Omarchy's own clock widget sampling seconds, linked in as hyprconf.clock.
-# Seam: a clonedFrom copy the registry swaps into the stock clock's slot and back (shell/services/PluginRegistry.qml:555, :441), plus omarchy-bar set and bar.centerAnchor, a plain id with no clone resolution (shell/Commons/Util.qml:70-72, shell/plugins/bar/Bar.qml:1552); the link, the rescan, the enable and the undo are ../bar-plugin.sh's.
+# hyprconf/bar-clock — Omarchy's own clock showing seconds: `hh:mm:ss AP`, put back on any run that finds a format printing none.
+# Seam: omarchy-bar set (bin/omarchy-bar:426-456), the running shell's own write. No widget of ours: the stock clock ticks every second for a format that prints them (shell/plugins/panels/clock/BarWidget.qml:34,126).
 # Usage: install | install undo
-# shellcheck disable=SC2154  # $json and $ids below are ../bar-plugin.sh's
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
-id=hyprconf.clock stock=omarchy.clock format='hh:mm:ss AP'
-# The stock clock's own format, what `undo` puts back (shell/plugins/panels/clock/BarWidget.qml:21, config/omarchy/shell.json:26, shell/shell.qml:49 — 4.0.3-1; the parity test turns red if it moves).
+: "${OMARCHY_PATH:=/usr/share/omarchy}"
+clock=omarchy.clock format='hh:mm:ss AP'
+# The widget's own default, what `undo` puts back (BarWidget.qml:21, config/omarchy/shell.json:27, shell/shell.qml:54; the test pins it).
 stock_format='dddd HH:mm'
-marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/clock-applied
-source "$dir/../bar-plugin.sh"
+# The bar a box with no shell.json of its own shows is the shipped one (bin/omarchy-shell-config:20-26).
+config=$HOME/.config/omarchy/shell.json
+[[ -s $config ]] || config=$OMARCHY_PATH/config/omarchy/shell.json
 
-entry='[.bar.layout // {} | .[]? | .[]?] | any(type == "object" and .id == $id and .format == $f)'
-# Our clock on the bar with a format that ticks no seconds: no `s` outside a quoted literal
-# (Qt.formatDateTime); a bare-id entry or no format is the widget's own "dddd HH:mm" (BarWidget.qml:21).
-no_seconds='[.bar.layout // {} | .[]? | .[]? | if type == "object" then . else {id: .} end
-    | select(.id == $id) | .format // "" | gsub("\u0027[^\u0027]*\u0027"; "") | test("s") | not] | any'
-
-anchor() { [[ -f $json ]] && jq -r '.bar.centerAnchor // ""' "$json" 2>/dev/null || true; }
-set_anchor() { edit "bar.centerAnchor to $1" --arg id "$1" '.bar.centerAnchor = $id'; }
-
-# A list that exits non-zero is no shell answering, not an empty one: the id is then left alone.
-gone() {
-    local listed
-    listed=$(omarchy-plugin-list --json 2>/dev/null) || return 1
-    jq -e --arg id "$1" 'all(.[]?; .id != $id)' <<<"$listed" >/dev/null 2>&1
+# The clock's format as the bar has it — a bare-id entry or no format is the widget's default — and nothing where the bar carries no clock.
+current() {
+    jq -r --arg id "$clock" --arg d "$stock_format" 'first(.bar.layout // {} | .[]? | .[]?
+        | if type == "object" then . else {id: .} end | select(.id == $id) | .format // $d)' "$config" 2>/dev/null || true
+}
+# $1 the format, $2 what to say once the shell has taken it.
+set_format() {
+    if omarchy-bar set "$clock" format "$1" >/dev/null 2>&1; then
+        echo "  $2"
+    else
+        echo "  could not set the clock's format to $1 — retried on the next run"
+    fi
 }
 
-# Wait (bounded, advisory) for the shell's own write to land: it persists on a later event-loop turn (shell.qml:111-115), so a read-modify-write here would edit a stale copy and be taken back by it.
-settled() {
-    local filter="$1" i
-    shift
-    for (( i = 0; i < 40; i++ )); do
-        [[ -f $json ]] && jq -e "$@" "$filter" "$json" >/dev/null 2>&1 && return 0
-        sleep 0.05
-    done
-    return 0
-}
+# Before 10.0 this module shipped the stock clock as a plugin of its own, hyprconf.clock, for the seconds Omarchy 4.5 now ticks
+# itself. Its link, dangling since that pull, is handed back the way its undo did — the slot to omarchy.clock, format and all —
+# and the swap waited for: the shell persists it on a later event-loop turn, and `undo` below reads the file.
+if [[ -L $HOME/.config/omarchy/plugins/hyprconf.clock ]]; then
+    # shellcheck disable=SC2034  # what ../bar-plugin.sh is sourced with
+    id=hyprconf.clock marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/clock-applied
+    source "$dir/../bar-plugin.sh"
+    plugin_disable "$clock"
+    plugin_unlink
+    for ((i = 0; i < 40; i++)); do [[ -n $(current) ]] && break; sleep 0.05; done
+    echo "  hyprconf.clock retired — $clock ticks seconds itself"
+fi
 
 if [[ ${1:-} == undo ]]; then
-    # Only while our clock still holds the slot: a disable answers "ok" for an id on no
-    # section (shell.qml:1623-1624), so a stock clock the user went back to keeps the
-    # format they set.
-    if on_bar "$id"; then
-        # The disable hands our whole bar entry back to the stock id, format included
-        # (PluginRegistry.qml:555 → restoreCloneSource :441), so the format comes off by hand.
-        if omarchy-plugin-disable "$id" >/dev/null 2>&1; then
-            omarchy-bar set "$stock" format "$stock_format" >/dev/null 2>&1 || true
-            settled "$entry" --arg id "$stock" --arg f "$stock_format"
-        else
-            hand_back "$stock" "$stock_format"
-        fi
-    fi
-    if [[ $(anchor) == "$id" ]]; then set_anchor "$stock"; fi
-    plugin_unlink
+    # Only ours goes back: a format of the user's own stays theirs.
+    if [[ $(current) == "$format" ]]; then set_format "$stock_format" "$clock format back to $stock_format"; fi
     exit 0
 fi
 
-plugin_link
-if [[ ! -e $marker ]]; then
-    plugin_enable
-    settled "$ids | any(. == \$id)" --arg id "$id"   # the swap's own write, before the read below
-    : > "$marker"
-    echo "  $id enabled — undo: bash $dir/install undo"
-fi
-
-# The one setting re-asserted on every run, the install's first among them: a format with no
-# seconds goes back to ours. The right-click ring (Model.js CLOCK_FORMATS) has no seconds preset,
-# so a walk leaves ours behind for good; a format that ticks seconds is the user's, kept. The live
-# label can lag: a later rescan rebuilds the widget from its slot's entry, which an inline set never
-# refreshes (shell/plugins/bar/Bar.qml:604-614, :1779, :2005 — verified live, 4.0.4-1), until the
-# shell restart omarchy-update ends with (bin/omarchy-update-restart:51), hyprsync's last step.
-if jq -e --arg id "$id" "$no_seconds" "$json" >/dev/null 2>&1; then
-    if omarchy-bar set "$id" format "$format" >/dev/null 2>&1; then
-        settled "$entry" --arg id "$id" --arg f "$format"
-    else
-        hand_back "$id" "$format"   # nothing answered: the same entry, with our format, in the file
-    fi
-    echo "  $id showed no seconds — format back to $format"
-fi
-
-# The anchor points at whichever widget the clock is, and goes stale long after the install when a
-# clone is removed: an id naming nothing leaves the section centring the whole group (Bar.qml:1552).
-a=$(anchor)
-if [[ -n $a && $a != "$id" ]] && on_bar "$id"; then
-    if [[ $a == "$stock" ]]; then
-        set_anchor "$id"
-    elif ! on_bar "$a" && gone "$a"; then
-        set_anchor "$id"
-        echo "  centre anchor $a named nothing — now $id"
-    fi
+# Omarchy's own test for a format that prints seconds: an `s` outside a quoted literal, an unclosed quote running to the end
+# (shell/plugins/panels/clock/Model.js:48-51). A right-click walks its ring of presets, most of which print none.
+now=$(current)
+if [[ -n $now && $(sed "s/'[^']*'\?//g" <<<"$now") != *s* ]]; then
+    set_format "$format" "$clock showed no seconds — format back to $format"
 fi

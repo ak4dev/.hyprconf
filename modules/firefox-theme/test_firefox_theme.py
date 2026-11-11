@@ -1,6 +1,6 @@
 """modules/firefox-theme — Omarchy's rendered userChrome.css into Firefox.
 HERMETIC: the `box` fixture, its omarchy-hook-install and omarchy-theme-refresh
-made to act the way bin/omarchy-hook-install:27-29 and omarchy-theme-refresh:8 do.
+made to act the way bin/omarchy-hook-install:38-40 and omarchy-theme-refresh:10 do.
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ THEME_NAME = ".local/state/omarchy/current/theme.name"
 XDG, LEGACY = ".config/mozilla/firefox", ".mozilla/firefox"
 PROFILE, OTHER = "aaa.default-release", "bbb.default"
 
-# omarchy-theme-refresh:8 is omarchy-theme-set of theme.name, which ends in
-# `omarchy-hook theme-set` (omarchy-theme-set:341): a refresh re-runs the hook.
+# omarchy-theme-refresh:10 is omarchy-theme-set of theme.name, which ends in
+# `omarchy-hook theme-set` (omarchy-theme-set:603): a refresh re-runs the hook.
 THEME_REFRESH = (
     'h="$HOME/.config/omarchy/hooks/theme-set.d/10-hyprconf"\n'
     '[[ -f $h ]] && bash "$h" "$(cat "$HOME/.local/state/omarchy/current/theme.name")"\nexit 0\n'
@@ -238,7 +238,7 @@ def test_the_hook_is_a_no_op_without_a_render(box: Box) -> None:
     assert box.commands == []
 
 
-# omarchy-theme-set-templates:195-207 substitutes one `s|{{ <key> }}|<value>|g`
+# omarchy-theme-set-templates:162-173 hands its renderer one `{{ <key> }}` token
 # per palette key; dark_background (omarchy-theme-color:236) and
 # lighter_background (:226) are derived when the theme's colors.toml omits them.
 PALETTE = ("mode", "background", "foreground", "accent", "dark_background", "lighter_background")

@@ -9,7 +9,7 @@
 - Sets **`code` as the default editor**, once: `omarchy-launch-editor` (so `SUPER+C`) resolves it, and
   `omarchy default editor helix` moves the key with it. Seeded only once the package is really there —
   set-once means a choice recorded for an absent VS Code would never be retried. (`SUPER+C` is safe
-  either way: `omarchy-launch-editor:21` falls back to `nvim` for an editor that is not on PATH.)
+  either way: `omarchy-launch-editor:24` falls back to `nvim` for an editor that is not on PATH.)
 - Removes nothing. Arch's `code` (Code - OSS) conflicts with the package and stock Omarchy never
   installs it — if you did, the install fails inside Omarchy's installer and this module prints the
   retry command; drop `code` yourself first.
@@ -31,11 +31,11 @@ Marker `~/.local/state/hyprconf/editor-applied` (`$HYPRCONF_STATE` moves the dir
 both to seed again. The default itself lives in `~/.local/state/omarchy/defaults/editor`.
 
 ## Undo
-`bash modules/vscode/install undo` — the default editor returns to Omarchy's stock one (`nvim` on 4.0.4-1,
-asked of `omarchy-default-editor` at undo time with no state file in reach) if this module seeded it and it is still `code` (a pick made after the install stays); the marker goes;
+`bash modules/vscode/install undo` — the default editor returns to Omarchy's stock one (`nvim` on 4.5.0-3,
+asked of `omarchy-default-editor` at undo time with no state file in reach) if this module seeded it, it is still `code` (a pick made after the install stays) and that editor is installed; the marker goes;
 VS Code stays installed (`omarchy pkg drop visual-studio-code-bin` if you want it gone).
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3
 `bin/omarchy-install-editor-vscode:6,10,24,27,29` (unguarded `omarchy-pkg-add`, the two `>` writes, theme, backgrounded
-launch; no `set -e`, so it always exits 0), `bin/omarchy-pkg-present:6-8`, `bin/omarchy-default-editor:9-15,33-34,36`
-(read-back; write, then the notification whose status the script returns), `bin/omarchy-pkg-add:12` (sudo), `bin/omarchy-update:10-12` (hook children get a pty).
+launch; no `set -e`, so it always exits 0), `bin/omarchy-pkg-present:6-8`, `bin/omarchy-default-editor:15-25,42-57,59-60,62`
+(read-back; the installer it opens for an absent editor; write, then the notification whose status the script returns), `bin/omarchy-pkg-add:12` (sudo), `bin/omarchy-update:56-58` (hook children get a pty).

@@ -83,7 +83,7 @@ done
 
 # The curl path. The checkout is cloned — or the one already there used as it
 # is, never pulled: that is --sync's job — and its own copy takes over with the
-# arguments as given; git is Omarchy's (install/omarchy-base.packages:43). `-e`:
+# arguments as given; git is Omarchy's (install/omarchy-base.packages:49). `-e`:
 # a linked worktree's .git is a file. modules/ too, or the handover execs this
 # same branch again, forever. `--depth 1`: a stranger gets the tip of the branch,
 # not the history — single-branch by implication, and --sync's `pull --ff-only`
@@ -110,7 +110,7 @@ fi
 link=$HOME/.local/bin/hyprconf
 hook=$HERE/hooks/10-hyprconf
 # Where omarchy-hook-install puts it: ~/.config/omarchy/hooks/<type>.d/<basename>
-# (bin/omarchy-hook-install:18-20). Omarchy has no `hook remove` (`omarchy
+# (bin/omarchy-hook-install:29-31). Omarchy has no `hook remove` (`omarchy
 # commands --json` lists `hook` and `hook install`, nothing else), so --undo
 # removes the copy itself.
 installed_hook=$HOME/.config/omarchy/hooks/post-update.d/${hook##*/}
@@ -137,7 +137,7 @@ fi
 
 # The command: a symlink, since nothing here needs rendering and it must stay
 # the file a pull updates — re-pointed only when wrong, so a re-run writes
-# nothing. ~/.local/bin is on the session PATH (default/bash/env-bootstrap:37-40).
+# nothing. ~/.local/bin is on the session PATH (default/bash/env-bootstrap:58-61).
 mkdir -p "${link%/*}"
 [[ $(readlink "$link" 2>/dev/null) == "$HERE/install.sh" ]] || ln -sfn "$HERE/install.sh" "$link"
 
@@ -147,7 +147,7 @@ for m in "${mods[@]}"; do
 done
 
 # The hook, through Omarchy's own installer — mkdir -p, cp under the file's
-# basename, chmod 755 (bin/omarchy-hook-install:27-29): a re-run rewrites the
+# basename, chmod 755 (bin/omarchy-hook-install:38-40): a re-run rewrites the
 # same bytes. Nothing is rendered into it — it runs the link above.
 omarchy-hook-install post-update "$hook" >/dev/null ||
     echo "    WARNING: omarchy-hook-install failed — nothing re-applies after omarchy-update until a run succeeds" >&2
@@ -155,7 +155,7 @@ omarchy-hook-install post-update "$hook" >/dev/null ||
 # The Omarchy this release was verified against — AGENTS.md's pin line, which tests/test_docs.py holds this to.
 # Any other is named on every run, the hook's included, so a drift shows on the update that brings it rather
 # than when a seam moves under a module; `omarchy-version` is Omarchy's own answer (its package version).
-verified=4.0.6-1
+verified=4.5.0-3
 omarchy=$(omarchy-version 2>/dev/null || true)
 [[ -z $omarchy || $omarchy == "$verified" ]] ||
     echo "    NOTE: this hyprconf was verified against Omarchy $verified; this is $omarchy — if a module misbehaves: hyprconf --undo <module>" >&2
@@ -163,6 +163,6 @@ omarchy=$(omarchy-version 2>/dev/null || true)
 (( ${#failed[@]} == 0 )) || die "failed: ${failed[*]} — each said why above; re-run, or \`hyprconf <module>\` for one"
 if (( sync && update )); then
     log "Updating Omarchy"
-    omarchy-update   # whose post-update hook re-applies once more, after the migrations (bin/omarchy-update:48-49)
+    omarchy-update   # whose post-update hook re-applies once more, after the migrations (bin/omarchy-update:107,121)
 fi
 log "Done."

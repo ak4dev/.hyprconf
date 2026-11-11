@@ -165,6 +165,23 @@ def test_once_native_steam_is_gone_a_rerun_still_grants_the_flatpaks_libraries(b
     assert box.snapshot() == before
 
 
+def test_a_library_with_no_native_entry_to_copy_is_never_written_as_an_empty_block(
+    box: Box,
+) -> None:
+    """One of the Flatpak's two lists names a library the other lacks, and native Steam — the
+    only place its entry could come from — is gone: the short list is left as it is, never
+    given a block with nothing in it, and the run still ends well."""
+    library = box.tmp / "ext/SteamLibrary"
+    library.mkdir(parents=True)
+    steamapps, config = flatpak_lists(box)
+    steamapps.write_text(flat_list(box)[: -len("}\n")] + f'\t"1"\n{entry(1, library)}}}\n')
+    before = box.snapshot()
+    result = box.run(SCRIPT)
+    assert result.returncode == 0, result.stderr
+    assert f"no native Steam entry for {library} — config/libraryfolders.vdf" in result.stdout
+    assert box.snapshot() == before
+
+
 def test_no_gl_extension_for_the_loaded_driver_stops_before_the_install(box: Box) -> None:
     load_nvidia(box, "611.0.1")
     result = box.run(SCRIPT)

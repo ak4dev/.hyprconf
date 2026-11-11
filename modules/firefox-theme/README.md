@@ -3,9 +3,9 @@
 ## What
 
 Omarchy's theme fan-out is Chromium-only (`omarchy-theme-set-browser:8-13`). `userChrome.css.tpl` goes to
-`~/.config/omarchy/themed/`, rendered ahead of the built-ins (`omarchy-theme-set-templates:375,390-399`) to
+`~/.config/omarchy/themed/`, rendered ahead of the built-ins (`omarchy-theme-set-templates:435,323-332`) to
 `~/.local/state/omarchy/current/theme/userChrome.css` on every theme set, and `10-hyprconf` to
-`~/.config/omarchy/hooks/theme-set.d/` (`omarchy-hook-install` keeps the basename), which `omarchy-theme-set:341`
+`~/.config/omarchy/hooks/theme-set.d/` (`omarchy-hook-install` keeps the basename), which `omarchy-theme-set:603`
 runs after every set. It copies that render to `<profile>/chrome/userChrome.css` when the bytes differ and rewrites
 the three prefs below in `<profile>/user.js`, its other lines untouched. The profile is the one Firefox starts: an
 `[Install<hash>]` `Default=`, else `[Profile*]` `Default=1`, else the first listed, in
@@ -39,4 +39,4 @@ three `user_pref` lines come back out of `user.js` (removed when it held nothing
 is this module's file outright — one you wrote yourself is replaced, not merged, and removed by the undo; move it aside
 first. A profile file that will not go makes the undo exit non-zero and say so, the module's own three files gone regardless.
 
-## Verified against Omarchy 4.0.6-1 — Firefox 158.0.1-1, Bash 5.3
+## Verified against Omarchy 4.5.0-3 — Firefox 158.0.1-1, Bash 5.3

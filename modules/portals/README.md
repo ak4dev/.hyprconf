@@ -50,5 +50,5 @@ line on each run saying what to add to its `[preferred]` group.
 yours) and its directory if that leaves it empty, puts `allow_token_by_default` back to `true` when
 Omarchy's seed has it so, and restarts the portals once.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3
 xdg-desktop-portal 1.22.1, xdg-desktop-portal-hyprland 1.4.1, `hyprland` 0.56.2's packaged portal config.

@@ -6,7 +6,7 @@ Firefox through Omarchy's own installer, one system policy, and firefox as the d
 
 | | |
 |---|---|
-| Firefox when absent | `omarchy-install-browser firefox` — Omarchy's own flow: `omarchy-pkg-add firefox`, its prefs to `/usr/lib/firefox/distribution/policies.json`, `MOZ_ENABLE_WAYLAND=1` (`bin/omarchy-install-browser:67-74` → `install/helpers/browser-policy.sh:188-195`). Never a bare `omarchy-pkg-add firefox` |
+| Firefox when absent | `omarchy-install-browser firefox` — Omarchy's own flow: `omarchy-pkg-add firefox`, its prefs to `/usr/lib/firefox/distribution/policies.json`, `MOZ_ENABLE_WAYLAND=1` (`bin/omarchy-install-browser:99-107` → `install/helpers/browser-policy.sh:188-195`). Never a bare `omarchy-pkg-add firefox` |
 | `/etc/firefox/policies/policies.json` | Omarchy's `default/firefox/policies.json` merged **under** [`policies.json`](policies.json) (`jq '*'`, ours wins on a shared key), written with `sudo install -Dm644 --` only when the bytes differ. Firefox reads enterprise policies only from root-owned paths and `/etc/firefox` outranks `distribution/`, so the merge is what keeps Omarchy's VA-API and scaling prefs and its `DontCheckDefaultBrowser` alive — nothing in Omarchy writes `/etc/firefox`. A file already there is hyprconf's when merging [`policies.json`](policies.json) over it changes nothing (recorded as `firefox-policy`); anyone else's is copied to `policies.json.bak` once, before it is replaced |
 | Default browser | `omarchy-default-browser firefox`, **once** Firefox is installed (marker `browser-applied`; a v7 `defaults-applied` is migrated to it) — never a default pointing at an absent browser. The value is read back, never the setter's exit status — that status is its closing notification's |
 
@@ -35,6 +35,6 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 
 `bash modules/firefox/install undo` — removes the `browser-applied` marker, and the policy (`sudo`) if hyprconf wrote it: a `policies.json.bak` goes back in its place, and a policy hyprconf never wrote is left alone. A v7 `defaults-applied` is left, because it is `vscode`'s too, so on an upgraded box a re-install seeds no default browser until you delete it. Firefox stays installed, and the two extensions become ordinary add-ons you can remove. Dropping the policy hands the search engine to Firefox's region default rather than back to your old pick, because setting it by policy cleared the profile's record: set it again in Settings › Search. Choose a browser with `omarchy default browser <name>`.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3
 
 Firefox 158.0.1-1, jq 1.8.2.

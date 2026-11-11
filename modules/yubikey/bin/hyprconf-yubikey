@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf-yubikey — FIDO2 (YubiKey) unlock of the LUKS2 root at boot.
-# This header is the provenance: what was read on the box, and where (Omarchy 4.0.6-1,
+# This header is the provenance: what was read on the box, and where (Omarchy 4.5.0-3,
 # limine-mkinitcpio-hook 1.40.0-2, mkinitcpio 42.2, systemd 262.1).
 #
 #   * Omarchy has no route for this. `omarchy commands --json` has none that touches
@@ -8,8 +8,9 @@
 #     has omarchy-setup-security-fido2 (PAM: sudo + polkit, setup_pam_config :19-41 —
 #     `hyprconf-yubikey sudo` hands over to it) and omarchy-refresh-limine (rewrites
 #     /boot/limine.conf, no cmdline). Rule 1 checked, and this is the gap.
-#   * Initramfs. /etc/mkinitcpio.conf.d/omarchy_hooks.conf sets the busybox chain
-#     (… block encrypt filesystems fsck btrfs-overlayfs), and `encrypt` cannot do FIDO2;
+#   * Initramfs. /etc/mkinitcpio.conf.d/00-omarchy-hooks.conf sets the busybox chain
+#     (… block encrypt filesystems fsck btrfs-overlayfs; omarchy_hooks.conf, which held
+#     it before 4.5, adjusts it), and `encrypt` cannot do FIDO2;
 #     systemd's sd-encrypt can (/usr/lib/initcpio/install/sd-encrypt bundles
 #     libcryptsetup-token-systemd-fido2.so and libfido2 and reads rd.luks.name= /
 #     rd.luks.options=). mkinitcpio concatenates /etc/mkinitcpio.conf.d/*.conf in
@@ -26,21 +27,21 @@
 #     only it knows which one wins — the assembled order is not the load order (verified
 #     here: /etc/default/limine's parameters come out BEFORE the drop-ins'). So nothing
 #     here parses those files: it asks, `limine-entry-tool --get-cmdline default`, the
-#     move Omarchy makes for the same reason (bin/omarchy-upgrade-to-quattro:537-542).
+#     move Omarchy makes for the same reason (migrations/1791581004.sh:94).
 #     The two rd.luks.* parameters go in as a drop-in in /etc/limine-entry-tool.d/, the
-#     way omarchy-hibernation-setup writes resume.conf there (:131-139, `| sudo tee`),
+#     way omarchy-hibernation-setup writes resume.conf there (:213-221, `| sudo tee`),
 #     and the assembled cmdline is read back to prove they reach the kernel — which
 #     also catches /etc/default/limine assigning with `=` rather than `+=`
 #     (/etc/limine-entry-tool.conf:54-59, "Operators"). That file is never edited:
 #     cryptdevice= stays, so the box still boots through `encrypt` if Omarchy ever
 #     rewrites its hooks drop-in back to busybox.
 #   * Rebuild. limine-mkinitcpio, the rebuild Omarchy runs after its own drop-in changes
-#     (omarchy-hibernation-setup:71,160, omarchy-hibernation-remove, its migrations) —
+#     (omarchy-hibernation-setup:127,149,242, omarchy-hibernation-remove, its migrations) —
 #     not limine-update, which re-deploys the bootloader binary and builds a second time
 #     and is for repairing a failed hook (migration 1785273276.sh). It exits 0 even when
 #     a build failed (/usr/share/libalpm/scripts/limine-mkinitcpio-install:230 error_msg,
 #     :315 `process_kernel … || true`; Omarchy records the same at
-#     migrations/1789325478.sh:34-35), so status AND output are both checked.
+#     migrations/1789325478.sh:39-40 and omarchy-hibernation-setup:125), so status AND output are both checked.
 #   * The passphrase. crypttab(5) token-timeout=: "Once the specified timeout elapsed
 #     authentication via password is attempted … Pass 0 to turn off the timeout and wait
 #     forever", so the drop-in's token-timeout=0 is what takes the prompt off the boot. The
@@ -298,7 +299,7 @@ vconsole_xkblayout() {
 }
 
 # The guard at the end of /etc/mkinitcpio.conf.d/omarchy_hooks.conf, layout list copied
-# verbatim (Omarchy's own second copy of it is default/hypr/input.lua:24-27; neither
+# verbatim (Omarchy's own second copy of it is default/hypr/input.lua:5-8; neither
 # file is under $OMARCHY_PATH in a shape a no-Omarchy suite could read, so the list is
 # pinned against this line in the tests instead of derived). Omarchy's drop-in already
 # keeps the file out of the systemd initramfs where it exists: see the header.
@@ -364,7 +365,7 @@ take_snapshot() {
 
 # write_file_once <path> <what>: content on stdin; a no-op when the file already holds it
 # (byte for byte), else mkdir -p + tee, and CHANGED. tee keeps the target's owner and mode
-# — the way Omarchy writes its own drop-ins (omarchy-hibernation-setup:138, `| sudo tee`).
+# — the way Omarchy writes its own drop-ins (omarchy-hibernation-setup:220, `| sudo tee`).
 write_file_once() {
     local path=$1 what=$2 content
     content=$(cat)
@@ -505,7 +506,7 @@ param_home() {
         [[ -f $f ]] && grep -qF -e "$1" -- "$f" && out+="${out:+, }$f"
     done
     if [[ $out == "$_HYPRCONF_LIMINE_DEFAULT"* ]]; then
-        # omarchy-upgrade-to-quattro:547-561,606 copies the running kernel's rd.luks.* there.
+        # omarchy-upgrade-to-quattro:583-597,642 copies the running kernel's rd.luks.* there.
         out+=" (inline rd.luks.*: an Omarchy cmdline migration copying /proc/cmdline — keep cryptdevice=)"
     fi
     [[ -n $out ]] || out="whichever of the four config layers limine assembles sets it"

@@ -9,8 +9,8 @@ MARKER = ".local/state/hyprconf/editor-applied"
 LEGACY = ".local/state/hyprconf/defaults-applied"
 STATE = ".local/state/omarchy/defaults/editor"
 
-# bin/omarchy-default-editor: no argument reads the state file under $HOME, else the fallback (:7-15, nvim; EDITOR_STOCK here);
-# an argument writes it (:33-34), then returns the notification's status (:36).
+# bin/omarchy-default-editor: no argument reads the state file under $HOME, else the fallback (:15-25, nvim; EDITOR_STOCK here);
+# an argument writes it (:59-60), then returns the notification's status (:62).
 EDITOR = """\
 state=$HOME/.local/state/omarchy/defaults/editor
 (($#)) || { { [ -r "$state" ] && cat "$state"; } || echo "${EDITOR_STOCK:-nvim}"; exit 0; }
@@ -89,7 +89,7 @@ def test_a_second_run_writes_nothing_and_calls_nothing_that_mutates(box) -> None
 
 
 def test_undo_restores_the_stock_editor_and_keeps_a_later_pick(box) -> None:
-    """Stock is Omarchy's own fallback, nvim (bin/omarchy-default-editor:14)."""
+    """Stock is Omarchy's own fallback, nvim (bin/omarchy-default-editor:23)."""
     machine(box, present=True)
     box.run(MODULE, tty=True)
     (box.home / LEGACY).touch()
@@ -107,6 +107,17 @@ def test_undo_restores_the_fallback_omarchy_reports_at_undo_time(box) -> None:
     box.run(MODULE, tty=True)
     assert box.undo("vscode", env={"EDITOR_STOCK": "helix"}).returncode == 0
     assert seeded(box)[1] == "helix"
+
+
+def test_undo_never_asks_for_an_editor_that_is_not_installed(box) -> None:
+    """For an absent editor the setter opens a floating terminal to install it
+    (bin/omarchy-default-editor:42-57): an undo restores, it installs nothing."""
+    machine(box, present=True)
+    box.run(MODULE, tty=True)
+    box.stub("omarchy-cmd-present", "exit 1\n")
+    box.reset()
+    assert box.undo("vscode").returncode == 0
+    assert seeded(box) == (False, "code", False)
 
 
 @pytest.mark.parametrize("v7", [False, True])

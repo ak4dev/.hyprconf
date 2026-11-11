@@ -19,7 +19,7 @@ a real folder of that name is moved aside as `.hyprconf.resources.bak.<ts>`.
 
 Omarchy's shell running — the enable needs it; without one the module says so and
 enables on the next run — and [`../bar-plugin.sh`](../bar-plugin.sh), the link,
-rescan, enable and undo the four bar modules share, which a sparse checkout of
+rescan, enable and undo the bar plugin modules share, which a sparse checkout of
 this directory brings along. No packages (`bash`, `btop`, `hwdata` are in the base).
 
 ## Install alone
@@ -41,4 +41,4 @@ and the marker, rescans. With no shell answering, the bar entry is taken off in
 `~/.config/omarchy/shell.json` itself, so no empty slot is left. An earlier
 install's backup folder stays.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3

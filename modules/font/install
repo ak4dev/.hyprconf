@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # hyprconf/font — GeistMono Nerd Font as the system monospace, set once.
-# Seam: omarchy-font-set (bin/omarchy-font-set:24-27,33-42,57-74), omarchy-pkg-add/-present.
+# Seam: omarchy-font-set (bin/omarchy-font-set:24-27,33-42,58-79), omarchy-pkg-add/-present.
 # Usage: install | install undo
 set -euo pipefail
 dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
@@ -11,9 +11,12 @@ marker=${HYPRCONF_STATE:-$HOME/.local/state/hyprconf}/font-applied
 if [[ ${1:-} == undo ]]; then
   rm -f "$marker"
   # Omarchy's own monospace, read now so a later default is the one named: the family its fontconfig
-  # assigns to `monospace` (default/fontconfig/conf.avail/50-omarchy.conf:22-29 — JetBrainsMono Nerd Font in 4.0.4-1).
-  stock=$(awk '/<string>monospace<\/string>/ { m = 1; next }
-    m && /<string>/ { gsub(/.*<string>|<\/string>.*/, ""); print; exit }' \
+  # ASSIGNS to `monospace` (default/fontconfig/conf.avail/50-omarchy.conf:330-337 — JetBrainsMono Nerd Font in
+  # 4.5.0-3), not one of the CJK families the rules above it append (:156-166).
+  stock=$(awk '/<\/match>/ { m = 0 }
+    /<string>monospace<\/string>/ { m = 1 }
+    m && /<edit .*mode="assign"/ { m = 2; next }
+    m == 2 && /<string>/ { gsub(/.*<string>|<\/string>.*/, ""); print; exit }' \
     "$OMARCHY_PATH/default/fontconfig/conf.avail/50-omarchy.conf" 2>/dev/null || true)
   [[ -z $stock ]] || echo "  put Omarchy's font back with: omarchy font set '$stock'"
   exit 0

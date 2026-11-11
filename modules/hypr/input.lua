@@ -15,7 +15,7 @@ hl.config({
 })
 
 -- Touchpad gestures. Since the 0.51 gesture rework the swipe itself must be
--- declared with hl.gesture(): Omarchy declares none (config/hypr/input.lua:53
+-- declared with hl.gesture(): Omarchy declares none (config/hypr/input.lua:54
 -- carries this very line commented out), and without it the gestures.* keys
 -- below apply to nothing.
 hl.gesture({ fingers = 3, direction = "horizontal", action = "workspace" })

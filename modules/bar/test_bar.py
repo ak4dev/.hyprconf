@@ -14,7 +14,7 @@ from conftest import Box
 
 INSTALL = Path(__file__).parent / "install"
 JSON = ".config/omarchy/shell.json"
-# bin/omarchy-bar:198-205: `position <edge>` through omarchy-shell-config's commit (:53-62).
+# bin/omarchy-bar:209-220: `position <edge>` through omarchy-shell-config's commit (:56-65).
 POSITION = """
 json="$HOME/.config/omarchy/shell.json"
 [[ $1 == position ]] || exit 1
@@ -54,7 +54,7 @@ def test_a_bar_on_another_edge_goes_back_to_top_and_a_second_run_writes_nothing(
         None,  # no shell.json yet: the shipped defaults' top
         '{"version": 1, "bar": {"position": "top"}}',
         '{"version": 1, "bar": {}}',
-        '{"version": 1, "bar": {"position": "middle"}}',  # read as top (BarModel.js:5-8)
+        '{"version": 1, "bar": {"position": "middle"}}',  # read as top (BarModel.js:12-15)
         "{ not json",
     ],
 )

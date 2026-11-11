@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # hyprconf's post-update hook: re-applies the overlay after every omarchy-update.
-# bin/omarchy-update:48-49 runs omarchy-migrate and THEN `omarchy-hook post-update`
-# (Omarchy 4.0.3-1), so this run puts back whatever a migration rewrote — under
+# bin/omarchy-update:107,121 runs omarchy-migrate and THEN `omarchy-hook post-update`
+# (Omarchy 4.5.0-3), so this run puts back whatever a migration rewrote — under
 # `hyprconf --sync` it is the run that counts. It goes through the ~/.local/bin
 # link install.sh makes, so the copy omarchy-hook-install takes (cp + chmod 755,
-# :27-29) carries no checkout path; a link that is gone exits 0, since omarchy-hook
-# reports a failing hook (bin/omarchy-hook:26) and a missing overlay must never
+# bin/omarchy-hook-install:39-40) carries no checkout path; a link that is gone exits 0,
+# since omarchy-hook reports a failing hook (bin/omarchy-hook:38) and a missing overlay must never
 # read as a failed update. --no-update is the recursion guard, --no-packages
 # keeps every module's sudo out of an unattended update. No `set -e`: nothing
 # here to guard — the exec's status is install.sh's own.

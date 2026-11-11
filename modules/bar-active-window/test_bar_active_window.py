@@ -22,7 +22,7 @@ STOCK_WIDGET = OMARCHY / "shell/plugins/bar/widgets/ActiveWindow.qml"
 
 
 def listing(rows: list[dict] | None) -> str:
-    """omarchy-plugin-list --json, with the `.enabled` the install reads (shell.qml:1684-1685);
+    """omarchy-plugin-list --json, with the `.enabled` the install reads (shell.qml:1876-1877);
     None is no shell answering, which exits 1 (bin/omarchy-shell:14-17)."""
     return "exit 1\n" if rows is None else f"printf %s {shlex.quote(json.dumps(rows))}\n"
 
@@ -31,15 +31,15 @@ def listing(rows: list[dict] | None) -> str:
     ("listed", "at_undo", "disabled"),
     [
         # Omarchy's default bar carries no omarchy.active-window, so the enable ADDED a slot
-        # (PluginRegistry.qml:535-540) and undo takes it off again — a stock bar came back.
+        # (PluginRegistry.qml:567-572) and undo takes it off again — a stock bar came back.
         ([{"id": ID, "enabled": False}], [{"id": ID}], [ID, STOCK]),
-        # the stock widget was on the bar: the enable took ITS slot (:529-534) and the
-        # disable hands that slot straight back (:555 -> :459-463).
+        # the stock widget was on the bar: the enable took ITS slot (:561-566) and the
+        # disable hands that slot straight back (:587 -> :479-484).
         ([{"id": STOCK, "enabled": True}], [{"id": ID}], [ID]),
         # the copy already held a slot before this run
         ([{"id": ID, "enabled": True}], [{"id": ID}], [ID]),
         # the enable added a slot, but the user has put the stock title back by hand since:
-        # our disable then moves nothing (:449-450) and theirs is not ours to splice off
+        # our disable then moves nothing (:468-469) and theirs is not ours to splice off
         ([{"id": ID, "enabled": False}], [{"id": STOCK}], [ID]),
         # the list never answered, so whether the slot was added is unknown: stock stays
         (None, [{"id": ID}], [ID]),
@@ -61,8 +61,8 @@ def test_undo_takes_a_stock_widget_off_only_where_the_enable_added_the_slot(
 
 
 def test_the_manifest_is_the_clone_contract() -> None:
-    # clonedFrom takes the stock widget's slot (PluginRegistry.qml:529-534); with no stock
-    # entry in the bar, defaultSection left lands it after omarchy.workspaces (:270-275).
+    # clonedFrom takes the stock widget's slot (PluginRegistry.qml:561-566); with no stock
+    # entry in the bar, defaultSection left lands it after omarchy.workspaces (:287-293).
     manifest = json.loads((PLUGIN / "manifest.json").read_text())
     assert manifest["schemaVersion"] == 1 and manifest["kinds"] == ["bar-widget"]
     assert manifest["id"] == ID and manifest["entryPoints"] == {"barWidget": "ActiveWindow.qml"}
@@ -85,8 +85,8 @@ def test_the_widget_keeps_the_stock_widget_s_behaviour() -> None:
 @pytest.mark.skipif(not STOCK_WIDGET.is_file(), reason=NEEDS_OMARCHY)
 def test_the_widget_tracks_omarchys_stock_active_window() -> None:
     """ActiveWindow.qml is the stock file plus its header and exactly the three deltas that
-    header names (Omarchy 4.0.5-1) — red on a release that changes the widget, which is the
-    signal to refresh the copy, as the clock's own parity test is for the clock."""
+    header names (Omarchy 4.5.0-3) — red on a release that changes the widget, which is the
+    signal to refresh the copy."""
     ours = (PLUGIN / "ActiveWindow.qml").read_text().splitlines()
     body = ours[next(n for n, ln in enumerate(ours) if ln.startswith("import ")) :]
     diff = difflib.unified_diff(STOCK_WIDGET.read_text().splitlines(), body, n=0, lineterm="")

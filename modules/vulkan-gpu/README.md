@@ -2,7 +2,7 @@
 
 ## What
 
-`bin/hyprconf-vulkan-gpu`, symlinked into `~/.local/bin` — on the session PATH (`default/bash/env-bootstrap:37-40`, and again for rc shells in `default/bash/envs:31-33`). That link is the whole install: the tool is run by hand, on a dual-GPU box, and decides nothing by itself. Omarchy has no command for any of this — the survey that says so, with its citations, is the script's own header.
+`bin/hyprconf-vulkan-gpu`, symlinked into `~/.local/bin` — on the session PATH (`default/bash/env-bootstrap:58-61`, and again for rc shells in `default/bash/envs:31-34`). That link is the whole install: the tool is run by hand, on a dual-GPU box, and decides nothing by itself. Omarchy has no command for any of this — the survey that says so, with its citations, is the script's own header.
 
 **Why a dual-GPU box needs it.** Xwayland exposes no RandR providers, so Wine binds every monitor to Vulkan physical device 0 — the first GPU in PCI order, not the one the displays are on. A Proton game whose
 adapter has no output dies at `CreateSwapChainForHwnd` (`E_INVALIDARG`, "No display detected for current GPU") while the launcher works. Reordering (`VK_LOADER_DEVICE_SELECT`) is not enough: the other GPU must
@@ -35,5 +35,5 @@ git clone --depth 1 --filter=blob:none --sparse -b stable https://github.com/ak4
 
 `bash modules/vulkan-gpu/install undo` removes the `~/.local/bin` link and nothing else; the pin is yours, and `hyprconf-vulkan-gpu remove` deletes it.
 
-## Verified against Omarchy 4.0.6-1
+## Verified against Omarchy 4.5.0-3
 `vulkan-icd-loader` 1.4.363 for the two loader variables, uwsm 0.27.1 for the `env.d` sourcing order.

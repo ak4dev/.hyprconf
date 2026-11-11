@@ -1,10 +1,10 @@
 hyprconf.workspaces is derived from Omarchy (https://omarchy.org), release
-4.0.0:
+4.5.0:
 
   shell/plugins/bar/widgets/Workspaces.qml  ->  Workspaces.qml here, a
-                                                 replacement sharing its
-                                                 focusWorkspace and workspace-id
-                                                 loop (deltas in its header)
+                                                 replacement keeping its
+                                                 per-monitor workspace logic
+                                                 (deltas in its header)
 
 Omarchy is distributed under the MIT license; its copyright and permission
 notice follow, as that license requires of every copy.

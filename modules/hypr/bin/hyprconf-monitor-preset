@@ -88,25 +88,10 @@ mkdir -p "$(dirname "$TOGGLE")"
 cp -- "$SOURCE" "$TOGGLE.tmp"
 mv -f -- "$TOGGLE.tmp" "$TOGGLE"
 
+# The reload is all the workspaces need: Omarchy reconciles on it and on every
+# monitor that comes or goes, keeping each monitor on its own block of ten
+# (default/hypr/monitor-workspaces.lua:687-703), so nothing is moved by hand.
 hyprctl reload
-
-# Workspace rules place only FUTURE workspaces: on a reload Hyprland leaves
-# every existing workspace on whatever monitor it already occupies, so each
-# rule is re-applied by hand. The rules come from Hyprland itself, the way
-# Omarchy reads monitor state (omarchy-hyprland-monitor-laptop:5,
-# `hyprctl monitors all -j | jq`): Omarchy's defaults declare no
-# hl.workspace_rule at all, and the one it writes at runtime carries a layout
-# and no monitor (bin/omarchy-hyprland-workspace-layout-toggle:17), so every
-# monitor-bearing rule is the preset's. hl.dsp.workspace.move is the
-# Lua-parser dispatch form; a rule naming an absent or disabled output fails
-# its dispatch and is deliberately ignored.
-while IFS=$'\t' read -r ws mon; do
-    hyprctl dispatch "hl.dsp.workspace.move({ workspace = $ws, monitor = \"$mon\" })" \
-        >/dev/null 2>&1 || true
-done < <(hyprctl workspacerules -j 2>/dev/null |
-    jq -r '.[] | select((.monitor // "") != "")
-            | select(.workspaceString | test("^[0-9]+$"))
-            | "\(.workspaceString)\t\(.monitor)"' 2>/dev/null || true)
 
 # An output flipping disabled→enabled through a reload can hit a failed-CRTC
 # restore (aquamarine/nvidia-open: the ATOMIC modeset commit is rejected with

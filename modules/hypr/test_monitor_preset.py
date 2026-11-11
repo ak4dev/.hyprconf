@@ -1,6 +1,7 @@
 """bin/hyprconf-monitor-preset: the chosen preset is copied into Omarchy's
 Hyprland toggles directory (default/hypr/toggles.lua:4,11 require_all()s it
-after monitors.lua), the layout reloaded and today's workspaces re-homed."""
+after monitors.lua) and the layout reloaded, which is where Omarchy re-homes
+the workspaces itself (default/hypr/monitor-workspaces.lua:687-689)."""
 
 from __future__ import annotations
 
@@ -22,8 +23,6 @@ TOGGLE_OFF = (
     'rm -f "$HOME/.local/state/omarchy/toggles/hypr/$1.lua"\n'
     "hyprctl reload >/dev/null\n"
 )
-# hyprctl answering `workspacerules -j` from a file the test writes.
-HYPRCTL_RULES = 'if [[ ${1:-} == workspacerules ]]; then cat "$HOME/rules.json" 2>/dev/null; fi\n'
 
 
 def _cfg(box, **files: str) -> Path:
@@ -98,24 +97,16 @@ def test_an_unknown_preset_exits_nonzero_notifies_and_writes_no_toggle(box, name
     assert not (box.home / TOGGLE).exists()
 
 
-def test_existing_workspaces_are_rehomed_and_one_dpms_wake_follows(box) -> None:
-    """A reload places only FUTURE workspaces; the wake is for an output that came back dark (bin/omarchy-hyprland-monitor-internal:12-14,22)."""
+def test_a_reload_and_one_dpms_wake_are_all_hyprland_is_asked_for(box) -> None:
+    """Every monitor keeps a block of ten workspaces that Omarchy reconciles on the reload, so
+    nothing is moved by hand; the wake is for an output that came back dark
+    (bin/omarchy-hyprland-monitor-internal:12-14,22)."""
     _cfg(box, **{"pcMonitors.kitchen.lua": PRESET})
-    (box.home / "rules.json").write_text(
-        '[{"workspaceString":"1","monitor":"desc:Samsung Electric Company Odyssey G8"},'
-        '{"workspaceString":"4","monitor":"desc:Acer Technologies CB282K"},'
-        '{"workspaceString":"7","monitor":""},'
-        '{"workspaceString":"special:magic","monitor":"desc:Acer Technologies CB282K"}]'
-    )
-    box.stub("hyprctl", HYPRCTL_RULES)
     assert _run(box, "kitchen").returncode == 0
-    dispatched = [c[2] for c in box.calls_of("hyprctl") if len(c) > 2 and c[1] == "dispatch"]
-    assert dispatched == [
-        'hl.dsp.workspace.move({ workspace = 1, monitor = "desc:Samsung Electric Company'
-        ' Odyssey G8" })',
-        'hl.dsp.workspace.move({ workspace = 4, monitor = "desc:Acer Technologies CB282K" })',
-        'hl.dsp.dpms({ action = "enable" })',
-    ], dispatched
+    assert box.calls_of("hyprctl") == [
+        ["hyprctl", "reload"],
+        ["hyprctl", "dispatch", 'hl.dsp.dpms({ action = "enable" })'],
+    ]
 
 
 def test_stock_hands_over_to_omarchys_own_toggle(box) -> None:

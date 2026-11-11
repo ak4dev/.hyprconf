@@ -36,7 +36,7 @@ def test_the_screensaver_is_set_to_900_through_omarchys_own_helper(box):
     result = box.run(INSTALL)
     assert result.returncode == 0, result.stderr
     assert config(box)["idle"] == {"screensaver": 900, "lock": 300}  # .idle.lock left alone
-    assert config(box)["bar"]["centerAnchor"] == "omarchy.clock"  # from the shipped defaults
+    assert config(box)["bar"]["position"] == "top"  # from the shipped defaults
     assert "omarchy-shell-config" in box.commands
     assert ["omarchy-shell", "shell", "reloadConfig"] in box.calls_of("omarchy-shell")
     assert (box.home / MARKER).exists()

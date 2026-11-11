@@ -84,7 +84,9 @@ else
                     /^\t"[0-9]+"$/ { b = ""; inb = 1; next }
                     inb { b = b $0 "\n" }
                     inb && /^\t}$/ { inb = 0; if (index(b, "\"path\"\t\t\"" p "\"\n")) { printf "%s", b; exit } }
-                ' "$native/steamapps/libraryfolders.vdf")
+                ' "$native/steamapps/libraryfolders.vdf" 2>/dev/null || true)
+                # Nothing to copy — native Steam is gone, or never listed it: an empty block would break the list.
+                [[ -n $entry ]] || { echo "  no native Steam entry for $path — ${f#"$flat"/} left as it is"; continue; }
                 { sed '$d' "$f"; printf '\t"%s"\n%s\n}\n' "$(grep -c $'^\t"[0-9]*"$' "$f")" "$entry"; } > "$f.tmp"
                 mv "$f.tmp" "$f"
             fi
